@@ -27,8 +27,6 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    env:
-      STATUTE_RUST: "1.98.0"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -80,30 +78,24 @@ jobs:
           key: pre-commit-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       # The statute-compile hook runs the statute that statute-checks.toml
-      # names, the version that compiled the files it compares. It is built
-      # from crates.io with the Rust toolchain pinned here, installed through
-      # the runner image's rustup; the toolchain is part of the cache key.
-      - name: statute version
-        id: statute
+      # names, the version that compiled the files it compares. It is the
+      # prebuilt release binary, checked against the SHA-256 file published
+      # beside it.
+      - name: Install statute
         run: |
           version=$(sed -n 's/^statute = "\(.*\)"$/\1/p' statute-checks.toml)
           [ -n "$version" ] || { echo "no statute version in statute-checks.toml" >&2; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: statute cache
-        id: statute-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo/bin/statute
-          key: statute-${{ runner.os }}-${{ steps.statute.outputs.version }}-rust${{ env.STATUTE_RUST }}
-
-      - name: Install statute
-        if: steps.statute-cache.outputs.cache-hit != 'true'
-        env:
-          VERSION: ${{ steps.statute.outputs.version }}
-        run: |
-          rustup toolchain install "$STATUTE_RUST" --profile minimal
-          cargo +"$STATUTE_RUST" install statute --version "$VERSION" --locked
+          target=statute-x86_64-unknown-linux-musl
+          url=https://github.com/Luolc/agent-constitution/releases/download/statute-v${version}
+          dl=$(mktemp -d)
+          curl --fail --silent --show-error --location --output-dir "$dl" \
+            --remote-name "$url/$target.tar.gz" --remote-name "$url/$target.sha256"
+          (cd "$dl" && sha256sum --check --strict "$target.sha256")
+          tar -xzf "$dl/$target.tar.gz" -C "$dl" statute
+          mkdir -p "$HOME/.local/statute-bin"
+          install -m 0755 "$dl/statute" "$HOME/.local/statute-bin/statute"
+          echo "$HOME/.local/statute-bin" >> "$GITHUB_PATH"
+          "$HOME/.local/statute-bin/statute" --version
 
       - name: Install pre-commit
         run: pip install --user pre-commit==4.6.2
