@@ -1,0 +1,18 @@
+# The base agent files come from machine/agent/. They are installed for
+# Claude Code, currently the only supported agent: skills/<name>/ become
+# user-level skills, AGENTS.md becomes the user-level CLAUDE.md.
+# Each is installed only once it exists in the repo.
+
+- name: Base agent skills
+  when: (playbook_dir + '/agent/skills') is directory
+  ansible.builtin.copy:
+    src: agent/skills/
+    dest: "{{ home }}/.claude/skills/"
+    mode: preserve
+
+- name: Base agent instructions
+  when: (playbook_dir + '/agent/AGENTS.md') is file
+  ansible.builtin.copy:
+    src: agent/AGENTS.md
+    dest: "{{ home }}/.claude/CLAUDE.md"
+    mode: "0644"

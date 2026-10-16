@@ -1,0 +1,111 @@
+# The account gateway client (docs/design.md, machine/README.md): from the
+# redcoast release pinned in versions.yml, `redcoast-client` and the shim
+# redcoast-client-shim-full installed as `claude` next to it. Each version
+# gets its own directory under ~/.local/libexec/redcoast-client, `current`
+# points at the one in use, and zshenv puts `current` first on PATH. Every
+# download is checked against its pinned sha256 before it lands in the new
+# directory, and nothing is switched unless both are, so a bad download
+# leaves the previous version in use.
+
+- name: Gateway client
+  when: redcoast_client_version != ""
+  vars:
+    gw_root: "{{ home }}/.local/libexec/redcoast-client"
+    gw_dir: "{{ gw_root }}/{{ redcoast_client_version }}"
+    gw_url: "{{ redcoast_client_release_url }}/v{{ redcoast_client_version }}"
+  block:
+    - name: Gateway client | address is set
+      ansible.builtin.assert:
+        that: redcoast_client_address != ""
+        fail_msg: Set redcoast_client_address (host:port of the gateway) in ~/.config/dataforge/setup.yml.
+        quiet: true
+
+    # Installed means: both programs in the version's directory have their
+    # pinned digests. A new pin for the same version reinstalls.
+    - name: Gateway client | installed copy is the pinned one
+      ansible.builtin.shell:
+        cmd: >-
+          cd "$DIR" && printf '%s  redcoast-client\n%s  claude\n' "$CLIENT" "$SHIM"
+          | sha256sum --check --strict --quiet -
+      environment:
+        DIR: "{{ gw_dir }}"
+        CLIENT: "{{ redcoast_client_sha256 }}"
+        SHIM: "{{ redcoast_client_shim_full_sha256 }}"
+      register: gw_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Gateway client | install from the release
+      when: gw_installed.rc != 0
+      block:
+        - name: Gateway client | clear a half-made copy
+          ansible.builtin.file:
+            path: "{{ gw_dir }}.new"
+            state: absent
+
+        - name: Gateway client | new directory
+          ansible.builtin.file:
+            path: "{{ gw_dir }}.new"
+            state: directory
+            mode: "0755"
+
+        # get_url checks the digest of the downloaded file before it writes
+        # dest, and fails on a mismatch.
+        - name: Gateway client | download
+          ansible.builtin.get_url:
+            url: "{{ gw_url }}/{{ item.asset }}"
+            dest: "{{ gw_dir }}.new/{{ item.name }}"
+            checksum: "sha256:{{ item.sha256 }}"
+            mode: "0755"
+          loop:
+            - { asset: redcoast-client-linux-amd64, name: redcoast-client, sha256: "{{ redcoast_client_sha256 }}" }
+            - { asset: redcoast-client-shim-full, name: claude, sha256: "{{ redcoast_client_shim_full_sha256 }}" }
+          loop_control:
+            label: "{{ item.asset }}"
+
+        # The old directory is only set aside until the new one is in place,
+        # and put back if that fails, so `current` never points at nothing.
+        - name: Gateway client | move into place
+          ansible.builtin.shell:
+            cmd: |
+              set -e
+              rm -rf "$DIR.old"
+              [ ! -e "$DIR" ] || mv "$DIR" "$DIR.old"
+              if ! mv "$DIR.new" "$DIR"; then
+                [ ! -e "$DIR.old" ] || mv "$DIR.old" "$DIR"
+                exit 1
+              fi
+              rm -rf "$DIR.old"
+          environment:
+            DIR: "{{ gw_dir }}"
+
+    - name: Gateway client | switch current
+      ansible.builtin.file:
+        src: "{{ redcoast_client_version }}"
+        dest: "{{ gw_root }}/current"
+        state: link
+        force: true
+
+    # The shim's config, in the format of redcoast's
+    # cmd/redcoast-client/README.md ("The shims"). redcoast-client-shim-full
+    # sends every start through the gateway and ignores `prefix=`; any problem
+    # with this file makes it exit 3 instead of starting the real Claude. The
+    # empty `prefix=` below is harmless. The machine credential is only
+    # referenced by path; the user creates it. The gateway address (asserted
+    # above) is per deployment, so it comes from the machine's settings, not
+    # from this repo.
+    - name: Gateway client | config directory
+      ansible.builtin.file:
+        path: "{{ home }}/.config/redcoast-client"
+        state: directory
+        mode: "0700"
+
+    - name: Gateway client | shim config
+      ansible.builtin.copy:
+        dest: "{{ home }}/.config/redcoast-client/shim.env"
+        mode: "0600"
+        content: |
+          address={{ redcoast_client_address }}
+          credential_file=$HOME/.config/redcoast-client/machine-credential
+          claude=$HOME/.local/bin/claude
+          prefix=

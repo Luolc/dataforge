@@ -1,0 +1,13 @@
+- name: Base packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ ubuntu_packages }}"
+    update_cache: true
+    cache_valid_time: 86400
+
+- name: Working directories
+  ansible.builtin.file:
+    path: "{{ home }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [dev, wt, scratch, .local/bin]

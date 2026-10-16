@@ -1,0 +1,3 @@
+#!/bin/sh
+# Test stand-in for redcoast-client; never runs a model.
+echo "fake redcoast-client"

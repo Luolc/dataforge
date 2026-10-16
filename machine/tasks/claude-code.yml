@@ -1,0 +1,71 @@
+# Claude Code in the native installer's layout: one binary per version under
+# ~/.local/share/claude/versions, and ~/.local/bin/claude pointing at it. The
+# binary is fetched directly so its digest can be pinned; the auto-updater is
+# off in the settings below, so the version stays the pinned one.
+
+- name: Claude Code versions directory
+  ansible.builtin.file:
+    path: "{{ home }}/.local/share/claude/versions"
+    state: directory
+    mode: "0755"
+
+- name: Claude Code binary
+  ansible.builtin.get_url:
+    url: "https://downloads.claude.ai/claude-code-releases/{{ claude_code_version }}/linux-x64/claude"
+    dest: "{{ home }}/.local/share/claude/versions/{{ claude_code_version }}"
+    checksum: "sha256:{{ claude_code_sha256 }}"
+    mode: "0755"
+
+- name: Claude Code on PATH
+  ansible.builtin.file:
+    src: "{{ home }}/.local/share/claude/versions/{{ claude_code_version }}"
+    dest: "{{ home }}/.local/bin/claude"
+    state: link
+    force: true
+
+# The keys the setup owns are in files/claude-settings.json (for
+# ~/.claude/settings.json) and files/claude-state.json (for ~/.claude.json):
+# - hasCompletedOnboarding and skipDangerousModePermissionPrompt: agents on a
+#   data machine are started with --dangerously-skip-permissions and nobody
+#   is at the screen, so the first-run onboarding and the bypass-permissions
+#   warning must not appear.
+# - autoMemoryEnabled false and the DISABLE_* variables: no memory, no error
+#   reports or feedback uploads; DISABLE_AUTOUPDATER keeps the pinned version.
+# - model and autoCompact*: the default model and context window for agents
+#   started without --model.
+# - promptSuggestionEnabled false: the suggested prompt in the input box reads
+#   back like a typed draft when an agent reads a pane.
+# - disableRemoteControl: data machines have no Remote Control.
+#
+# Both files are merged, not replaced: keys the setup does not own stay as
+# they are, including any auth or proxy setting the gateway client relies on.
+# A file is written only when the merge changes its content.
+
+- name: Claude Code settings directory
+  ansible.builtin.file:
+    path: "{{ home }}/.claude"
+    state: directory
+    mode: "0700"
+
+- name: Read Claude Code settings
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - "{{ home }}/.claude/settings.json"
+    - "{{ home }}/.claude.json"
+  register: claude_files
+  failed_when: false
+
+- name: Write Claude Code settings
+  vars:
+    current: "{{ (item.content | b64decode | from_json) if 'content' in item else {} }}"
+    owned: "{{ lookup('file', item.item is search('settings.json') | ternary('files/claude-settings.json', 'files/claude-state.json')) | from_json }}"
+    merged: "{{ current | combine(owned, recursive=true) }}"
+  ansible.builtin.copy:
+    dest: "{{ item.item }}"
+    content: "{{ merged | to_nice_json }}\n"
+    mode: "0600"
+  loop: "{{ claude_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: merged != current

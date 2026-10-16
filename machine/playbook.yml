@@ -1,0 +1,37 @@
+# The data machine setup (machine/README.md). Run through bootstrap.sh, as the agent
+# user, on the machine itself. Tasks that change the system use become; the
+# rest act on the agent user's home.
+- name: Data machine setup
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - versions.yml
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    home: "{{ lookup('env', 'HOME') }}"
+    user: "{{ lookup('env', 'USER') | default(lookup('pipe', 'id -un'), true) }}"
+
+    # Overridable with -e or ~/.config/dataforge/setup.yml.
+    # The personal zsh layer: oh-my-zsh, powerlevel10k and its prompt config.
+    zsh_personal: true
+    # Global git identity of the agent user; skipped while empty.
+    git_user_name: ""
+    git_user_email: ""
+    # Where the user puts the token of the GitHub account the machine commits
+    # and opens PRs with. The setup only hands this path to `gh auth login`;
+    # it never reads the value itself.
+    gh_token_file: "{{ home }}/.config/dataforge/github-token"
+    # host:port of the account gateway, written into the shim's config.
+    redcoast_client_address: ""
+    # Where the gateway client's releases are downloaded from:
+    # <url>/v<version>/<file>.
+    redcoast_client_release_url: https://github.com/Luolc/redcoast/releases/download
+  tasks:
+    - ansible.builtin.import_tasks: tasks/base.yml
+    - ansible.builtin.import_tasks: tasks/docker.yml
+    - ansible.builtin.import_tasks: tasks/tools.yml
+    - ansible.builtin.import_tasks: tasks/claude-code.yml
+    - ansible.builtin.import_tasks: tasks/gateway-client.yml
+    - ansible.builtin.import_tasks: tasks/zsh.yml
+    - ansible.builtin.import_tasks: tasks/identity.yml
+    - ansible.builtin.import_tasks: tasks/agent-files.yml

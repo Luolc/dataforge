@@ -1,0 +1,29 @@
+id = 22
+slug = "ci-path-groups"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R276"
+default = "on"
+authority = ["evidence.grounds"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Add a path a CI block depends on to its group"
+
+[text.statement]
+en = "When a block of `check` comes to depend on a new path, add that path to the block's group in the `changes` step of `.github/workflows/ci.yml`."
+
+[text.reason]
+en = '''
+`check` skips the blocks whose groups a change does not touch; a path missing from its block's group lets a change that breaks the block pass.
+'''
+
+[text.verification]
+en = '''
+Violated when a change makes a block of `check` depend on a path that is in none of that block's groups.
+'''

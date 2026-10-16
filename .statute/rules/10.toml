@@ -1,0 +1,29 @@
+id = 10
+slug = "data-machine-files-are-product"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R275"
+default = "on"
+authority = ["division-of-instructions.project-instructions"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Treat the files under machine/agent/ as product, not instructions"
+
+[text.statement]
+en = "Treat the files under `machine/agent/`, among them the base `AGENTS.md` for data machines once it exists, as a product of this repository that the setup installs on data machines, not as instructions for working on this repository."
+
+[text.reason]
+en = '''
+Those files tell the agents on a data machine how to work there; they are reviewed like code and say nothing about how this repository is changed.
+'''
+
+[text.verification]
+en = '''
+Violated when an agent working on this repository follows a file under `machine/agent/` as its own instructions, or counts a change to one as a change to this repository's instructions.
+'''

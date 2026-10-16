@@ -1,0 +1,46 @@
+# Every version the data machine setup installs (docs/design.md). Upgrades are PRs
+# that change this file. bootstrap.sh reads some keys with sed, so keep those
+# as plain `key: value` lines; the playbook loads the whole file.
+
+# From the Ubuntu 24.04 archive, at whatever version the release currently
+# ships: the archive keeps only the latest patch release, so an exact pin
+# would stop a new machine from installing. bootstrap.sh installs the first
+# list (what Ansible itself needs), the playbook the second.
+ubuntu_bootstrap_packages: ca-certificates curl python3 python3-apt
+ubuntu_packages: [git, jq, zsh]
+
+# Read by bootstrap.sh: uv itself, then Ansible run through uv.
+uv_version: 0.12.22
+uv_sha256: b9980552309f09c15172b8be828555e375097f16deb459795ce7bfd200380f0b
+ansible_core_version: 2.21.5
+ansible_python_version: 3.13
+
+# Docker's own apt repository keeps old versions, so every package from it
+# is pinned.
+docker_apt_gpg_sha256: 1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570
+docker_version: "5:29.8.2-1~ubuntu.24.04~noble"
+containerd_version: "2.3.6-1~ubuntu.24.04~noble"
+docker_buildx_version: "0.37.1-1~ubuntu.24.04~noble"
+docker_compose_version: "5.6.0-1~ubuntu.24.04~noble"
+
+herdr_version: 0.9.3
+herdr_sha256: 18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
+
+gh_version: 2.98.0
+gh_sha256: 3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
+
+# The linux-x64 binary's checksum from the release's manifest.json.
+claude_code_version: 2.1.292
+claude_code_sha256: a967e7b1d8b4e47ee421d5433027880347952b0c0857abf880e2c942a4ec93b3
+
+# The gateway client, from the redcoast release v<version>: the launcher
+# (redcoast-client-linux-amd64) and the shim that sends every start through
+# the gateway (redcoast-client-shim-full). The digests are the release's
+# SHA256SUMS lines for those two files.
+redcoast_client_version: 0.1.0
+redcoast_client_sha256: 8601529f6bdc8ff1359542967011e444d62cc94b4debcad056625a4c92af6985
+redcoast_client_shim_full_sha256: 43bdb9abd350e2cce35a45bbf339d3017fac3d9a3c57abb1e9c0f2ec112a1809
+
+# Only installed with zsh_personal (the default).
+oh_my_zsh_commit: 60c9a7a839b790cd905d0fd4419435124fd1bdc0
+powerlevel10k_commit: 35833ea15f14b71dbcebc7e54c104d8d56ca5268  # v1.20.0

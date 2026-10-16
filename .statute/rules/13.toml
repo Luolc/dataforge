@@ -1,0 +1,29 @@
+id = 13
+slug = "cargo-from-crate-directory"
+revision = 2
+kind = "rule"
+status = "repealed"
+lang = "en"
+parent = "R83"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Run cargo for dataforge from cli/dataforge/"
+
+[text.statement]
+en = "Run every cargo command for the `dataforge` binary from `cli/dataforge/`, where `rust-toolchain.toml` pins the toolchain and the musl target."
+
+[text.reason]
+en = '''
+rustup reads `rust-toolchain.toml` from the working directory, so only there do the commands use the toolchain CI uses.
+'''
+
+[text.verification]
+en = '''
+Violated when a cargo command for the crate, in a script, a workflow, a hook or a manual, runs from another directory.
+'''

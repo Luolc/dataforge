@@ -1,0 +1,29 @@
+id = 17
+slug = "smoke-test-by-hand"
+revision = 2
+kind = "rule"
+status = "repealed"
+lang = "en"
+parent = "R277"
+default = "on"
+authority = ["must-ask.capital"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Run the real-Claude smoke test only by hand, when needed"
+
+[text.statement]
+en = "Run `cli/dataforge/tests/smoke/run.sh` only by hand, once per change worth checking, never in CI and never in a loop."
+
+[text.reason]
+en = '''
+Each run starts real Claude sessions through the gateway, taking a gateway session slot and spending model turns.
+'''
+
+[text.verification]
+en = '''
+Violated when the smoke test is added to CI or a scheduled job, or run repeatedly for one change.
+'''

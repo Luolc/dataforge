@@ -1,0 +1,31 @@
+id = 20
+slug = "release-tag-matches-crate"
+revision = 2
+kind = "rule"
+status = "repealed"
+lang = "en"
+parent = "R276"
+default = "on"
+authority = ["must-ask"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Tag a release as v plus the crate version, on a commit of main"
+
+[text.statement]
+en = "Push a `v*` tag only on a commit of `main`, named `v` followed by the version in `cli/dataforge/Cargo.toml`."
+
+[text.reason]
+en = '''
+Pushing such a tag is the release: `.github/workflows/release.yml` publishes the binary for it, and refuses a tag that is not the crate version or a commit not on `main`.
+'''
+
+[text.verification]
+en = '''
+`.github/scripts/release-tag-guard.sh` and `.github/scripts/release-on-main.sh` check the two conditions in the release workflow, and their `.test.sh` scripts test them.
+
+Violated when a `v*` tag is pushed on a commit not on `main`, or with a name other than `v` and the crate version.
+'''

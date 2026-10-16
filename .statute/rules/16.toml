@@ -1,0 +1,30 @@
+id = 16
+slug = "no-real-claude-in-automated-tests"
+revision = 2
+kind = "rule"
+status = "superseded"
+superseded-by = 25
+lang = "en"
+parent = "R277"
+default = "on"
+authority = ["must-ask.capital"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Start no real Claude from an automated test"
+
+[text.statement]
+en = "Start no real Claude from an automated test, `cargo test`, the e2e test and the setup test among them; only the manual smoke test starts one."
+
+[text.reason]
+en = '''
+A real Claude spends model turns and needs a login; the automated tests run on every change and in CI, so they use a fake `claude` that draws the screens herdr recognizes.
+'''
+
+[text.verification]
+en = '''
+Violated when a change lets an automated test start the real Claude Code.
+'''

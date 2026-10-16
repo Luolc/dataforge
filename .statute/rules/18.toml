@@ -1,0 +1,29 @@
+id = 18
+slug = "dependencies-for-the-whole-tool"
+revision = 2
+kind = "rule"
+status = "repealed"
+lang = "en"
+parent = "R83"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Add the crate's dependencies for the whole tool at once"
+
+[text.statement]
+en = "Add dependencies of the `dataforge` crate for the whole tool at once, in one change, not one by one with the features that use them."
+
+[text.reason]
+en = '''
+A pull request that changes `Cargo.lock` conflicts with every other one that does; adding dependencies in one change keeps those rare.
+'''
+
+[text.verification]
+en = '''
+Violated when a change adds a dependency for one feature while others it knows it will need are left for later changes.
+'''

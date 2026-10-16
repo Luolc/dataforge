@@ -1,0 +1,29 @@
+id = 7
+slug = "merge-without-waiting-for-check"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R274"
+default = "on"
+authority = ["automation-first.keep-moving"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Do not hold a ready pull request back for check to finish"
+
+[text.statement]
+en = "Do not hold back a pull request that is ready to merge only because its run of the CI job `check` in `.github/workflows/ci.yml` has not finished."
+
+[text.reason]
+en = '''
+`check` is not a required status check on `main`, so a slow run does not hold up a merge; a run that has already failed still stops one.
+'''
+
+[text.verification]
+en = '''
+Violated when an agent that may merge a pull request leaves it unmerged only to wait for its run of `check` to finish.
+'''

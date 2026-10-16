@@ -1,0 +1,50 @@
+# Written by `statute init`; `statute add` and `statute remove` change the rules.
+constitution = { source = "R", edition = "2026-10" }
+# The repository is public (L1), so no private rule goes into the files
+# committed here.
+public = true
+
+domains = [
+  # Agents write and change this repository's own rules in .statute/rules/.
+  "R96",
+  # The repository keeps a design, docs/design.md.
+  "R232",
+]
+
+rules = [
+  # main is protected and takes changes only through reviewed pull requests.
+  "R57",
+  # The repository is treated as public (L1), and the pull request template asks for a
+  # reviewer's leak pre-review of what is pushed.
+  "R52",
+  # On a pull request, the run of `check` is what counts, not a full local run.
+  "R72",
+  # `check` is not a required status check: a merge does not wait for it (L7), but a
+  # pull request whose run has already failed on the approved head is not merged.
+  "R211",
+  # CI's Linux runner is pinned to `ubuntu-24.04`.
+  "R212",
+  # A release, should the repository make one, takes only a commit whose CI run on
+  # main passed at the first attempt.
+  "R58",
+  # Runbooks live next to their code here; L23 takes the place of R207. R207 is listed
+  # only so that L23 does not override a rule nothing else enables (statute 0.1.9 warns).
+  "R207",
+  "L23",
+]
+
+exclude = [
+  # The design is one file, docs/design.md, under a line cap (L2): not split by topic,
+  "R113",
+  # and so with no index.
+  "R114",
+]
+
+[language]
+code-comments = "en"
+docs = "en"
+commits = "en"
+pull-requests = "en"
+# What agents write to a person here is in English, as the repository is; a person who
+# reads another language sets it in their own configuration.
+communication = "en"

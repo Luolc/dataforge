@@ -1,0 +1,160 @@
+# PR gate: secret scan, pre-commit on all files, the script tests, then the
+# data machine setup test (see AGENTS.md, L22, L24 and L26). pre-commit
+# includes the statute compile check. It is one job, `check`, so it reports
+# on every pull request; the setup steps that a change does not touch are
+# skipped inside it, as decided by the `changes` step. A step that fails,
+# `changes` included, fails the job.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  # Every main commit needs a result of its own, so each one gets its own
+  # group: a shared group would cancel a pending run when a newer one
+  # arrives. On a PR branch, a newer push cancels the older run.
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+  actions: read # changes finds the last green run of this workflow on main
+  pull-requests: read # gitleaks-action lists the commits of the PR
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    env:
+      STATUTE_RUST: "1.98.0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: on a push, changes diffs against the last green
+          # commit of main, and gitleaks reads commits, not the working tree.
+          fetch-depth: 0
+
+      # On a pull request the base is the PR's base branch; on a push to
+      # main it is the last commit whose run of this workflow passed, so a
+      # docs-only commit after a red one still runs what went red. A file in
+      # no group, or in run-all-on, runs every group.
+      - id: changes
+        uses: Luolc/ci-actions/changes@afb3a5a9525f6153c9ce996c547b0a714115137e # main, 2026-10-11
+        with:
+          groups: |
+            machine: machine/**
+            docs:    docs/** *.md .agents/** .claude/** statute.toml statute.lock statute-checks.toml .statute/**
+          run-all-on: .github/** .pre-commit-config.yaml
+
+      # The other half of secret scanning. The pre-commit gitleaks hook only
+      # scans the staged diff; CI has no staged diff, so this step scans the
+      # commits of this PR or push instead, and gitleaks.yml scans the whole
+      # history weekly. The hook is the only thing that stops a secret before
+      # it becomes a commit; this step catches one that got in anyway (via
+      # --no-verify, or a clone without the hook). The action redacts what
+      # it finds.
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Same version as the hook in .pre-commit-config.yaml.
+          GITLEAKS_VERSION: 8.30.1
+          # Commenting on the PR would need pull-requests: write; the job
+          # log and summary show the finding.
+          GITLEAKS_ENABLE_COMMENTS: false
+
+      - id: py
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      # Hook environments are keyed by the config hash: any rev bump or hook
+      # change misses the cache and rebuilds them. The exact Python version
+      # (patch level included) is part of the key: pre-commit discards a
+      # virtualenv whose base interpreter is not the one now installed, and
+      # the runner image's patch release changes over time.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # The statute-compile hook runs the statute that statute-checks.toml
+      # names, the version that compiled the files it compares. It is built
+      # from crates.io with the Rust toolchain pinned here, installed through
+      # the runner image's rustup; the toolchain is part of the cache key.
+      - name: statute version
+        id: statute
+        run: |
+          version=$(sed -n 's/^statute = "\(.*\)"$/\1/p' statute-checks.toml)
+          [ -n "$version" ] || { echo "no statute version in statute-checks.toml" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: statute cache
+        id: statute-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/statute
+          key: statute-${{ runner.os }}-${{ steps.statute.outputs.version }}-rust${{ env.STATUTE_RUST }}
+
+      - name: Install statute
+        if: steps.statute-cache.outputs.cache-hit != 'true'
+        env:
+          VERSION: ${{ steps.statute.outputs.version }}
+        run: |
+          rustup toolchain install "$STATUTE_RUST" --profile minimal
+          cargo +"$STATUTE_RUST" install statute --version "$VERSION" --locked
+
+      - name: Install pre-commit
+        run: pip install --user pre-commit==4.6.2
+
+      # The gitleaks hook scans the staged diff, which is empty in CI, so it
+      # would do nothing but build its environment (Go source build on a cold
+      # cache). The gitleaks step above does the work, so skip the hook.
+      - run: pre-commit run --all-files
+        env:
+          SKIP: gitleaks
+
+      - name: Design length test
+        run: .github/scripts/design-length.test.sh
+
+      - name: Design length (docs/design.md, at most 200 lines)
+        run: .github/scripts/design-length.sh
+
+      # The setup test image is a clean Ubuntu plus sudo, its layers cached
+      # in the Actions cache.
+      - if: fromJSON(steps.changes.outputs.groups).machine
+        uses: docker/setup-buildx-action@v3
+      - name: Data machine setup test image
+        if: fromJSON(steps.changes.outputs.groups).machine
+        uses: docker/build-push-action@v6
+        with:
+          context: machine/tests
+          tags: dataforge-machine-test:ci
+          load: true
+          cache-from: type=gha,scope=machine-test
+          cache-to: type=gha,mode=max,scope=machine-test
+
+      # The apt packages the setup downloads, most of its run time. apt
+      # still installs each one in the clean container; the other tools are
+      # downloaded on every run. Ubuntu archive packages are not pinned, so a
+      # newer release of one is downloaded on top of a stale cache.
+      - name: Data machine apt cache
+        if: fromJSON(steps.changes.outputs.groups).machine
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/machine-apt
+          key: machine-apt-${{ hashFiles('machine/versions.yml') }}
+
+      - name: Data machine setup (two runs in a clean Ubuntu 24.04)
+        if: fromJSON(steps.changes.outputs.groups).machine
+        env:
+          DATAFORGE_MACHINE_IMAGE: dataforge-machine-test:ci
+          DATAFORGE_MACHINE_APT_CACHE: ${{ runner.temp }}/machine-apt
+        run: machine/tests/run.sh
+
+      # apt in the container leaves root-owned files the cache step must read
+      # when it saves.
+      - name: Data machine apt cache ownership
+        if: fromJSON(steps.changes.outputs.groups).machine
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/machine-apt"

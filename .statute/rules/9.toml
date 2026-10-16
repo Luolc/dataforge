@@ -1,0 +1,31 @@
+id = 9
+slug = "runbooks-next-to-code"
+revision = 2
+kind = "rule"
+status = "superseded"
+superseded-by = 23
+lang = "en"
+overrides = "R207"
+authority = ["no-restating"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Keep each runbook next to the code it is for"
+
+[text.statement]
+en = "Keep a step-by-step runbook next to the code it is for, as `machine/README.md` is for the data machine setup and `cli/dataforge/tests/smoke/README.md` for the smoke test, and not under `docs/`."
+
+[text.reason]
+en = '''
+A runbook changes with its code; kept beside it, the two change in the same place, and the code's directory is where a reader of the code looks for it.
+'''
+
+[text.verification]
+en = '''
+Another document that needs those steps links to the runbook. The reference of the CLI is `dataforge --help`, not a separate document.
+
+Violated when a change puts a runbook under `docs/` or anywhere other than next to the code it is for.
+'''

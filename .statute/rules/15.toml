@@ -1,0 +1,31 @@
+id = 15
+slug = "hermetic-cargo-test"
+revision = 2
+kind = "rule"
+status = "repealed"
+lang = "en"
+parent = "R277"
+default = "on"
+authority = ["safety-before-speed"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Keep cargo test hermetic"
+
+[text.statement]
+en = "Keep `cargo test` of the `dataforge` crate hermetic: it never starts the real `herdr`, never reads the developer's `HOME` or `~/scratch`, and writes only under the target directory."
+
+[text.reason]
+en = '''
+`cargo test` runs on the host, not in docker; the real herdr or the developer's files would make it touch live sessions and data and pass or fail with the machine it runs on.
+'''
+
+[text.verification]
+en = '''
+`tests/cli.rs` sets this up in `bin()` (a clean environment, with `HOME` and `PATH` pointed at the target directory) and `scratch()`; `send` is exercised against the fake in `tests/fake-herdr/`; the ledger tests take explicit paths and read no environment.
+
+Violated when a test of the crate can start the real `herdr`, reads the developer's `HOME` or `~/scratch`, or writes outside the target directory.
+'''

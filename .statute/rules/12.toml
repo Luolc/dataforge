@@ -1,0 +1,29 @@
+id = 12
+slug = "hook-rev-bumps-alone"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R276"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Bump a hook's rev to a tag, in a pull request of its own"
+
+[text.statement]
+en = "Change a `rev` in `.pre-commit-config.yaml` only to a release tag of that hook's repository, and only in a pull request that changes nothing else."
+
+[text.reason]
+en = '''
+A tag names a release that does not move; a bump on its own shows whatever it changes in the hook's results apart from other changes.
+'''
+
+[text.verification]
+en = '''
+Violated when a `rev` is set to something other than a release tag, or changed in a pull request that changes other things too.
+'''

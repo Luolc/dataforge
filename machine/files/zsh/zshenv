@@ -1,0 +1,8 @@
+# Installed by the dataforge data machine setup (machine/files/zsh/zshenv);
+# edit the source, not this file.
+# uv, Claude Code and other per-user tools live in ~/.local/bin. Every zsh
+# reads .zshenv, so non-interactive shells (ssh commands, scripts) find them too.
+# The account gateway's `claude` shim comes first, ahead of the real Claude
+# Code in ~/.local/bin (docs/design.md). Until the gateway client is installed
+# its directory does not exist, and the entry does nothing.
+export PATH="$HOME/.local/libexec/redcoast-client/current:$HOME/.local/bin:$PATH"

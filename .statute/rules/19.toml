@@ -1,0 +1,31 @@
+id = 19
+slug = "setup-versions-pinned"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R83"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Pin every tool version of the setup in machine/versions.yml"
+
+[text.statement]
+en = "Pin the version of every tool the data machine setup installs in `machine/versions.yml`."
+
+[text.reason]
+en = '''
+Two machines set up from the same commit get the same tools, and an upgrade is a reviewed change to one file.
+'''
+
+[text.verification]
+en = '''
+The setup test checks each tool's version. Packages from the Ubuntu archive are not pinned.
+
+Violated when the setup installs a tool other than an Ubuntu archive package whose version is not taken from `machine/versions.yml`.
+'''

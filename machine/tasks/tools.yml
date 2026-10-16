@@ -1,0 +1,41 @@
+# Release binaries pinned by sha256. get_url skips the download when the file
+# at dest already has the pinned digest, so a rerun changes nothing.
+
+- name: herdr
+  become: true
+  ansible.builtin.get_url:
+    url: "https://github.com/herdrdev/herdr/releases/download/v{{ herdr_version }}/herdr-linux-x86_64"
+    dest: /usr/local/bin/herdr
+    checksum: "sha256:{{ herdr_sha256 }}"
+    mode: "0755"
+
+- name: gh directory
+  become: true
+  ansible.builtin.file:
+    path: /opt/gh
+    state: directory
+    mode: "0755"
+
+- name: gh tarball
+  become: true
+  ansible.builtin.get_url:
+    url: "https://github.com/cli/cli/releases/download/v{{ gh_version }}/gh_{{ gh_version }}_linux_amd64.tar.gz"
+    dest: "/opt/gh/gh_{{ gh_version }}_linux_amd64.tar.gz"
+    checksum: "sha256:{{ gh_sha256 }}"
+    mode: "0644"
+
+- name: gh unpacked
+  become: true
+  ansible.builtin.unarchive:
+    src: "/opt/gh/gh_{{ gh_version }}_linux_amd64.tar.gz"
+    dest: /opt/gh
+    remote_src: true
+    creates: "/opt/gh/gh_{{ gh_version }}_linux_amd64/bin/gh"
+
+- name: gh on PATH
+  become: true
+  ansible.builtin.file:
+    src: "/opt/gh/gh_{{ gh_version }}_linux_amd64/bin/gh"
+    dest: /usr/local/bin/gh
+    state: link
+    force: true

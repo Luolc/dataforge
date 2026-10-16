@@ -1,0 +1,39 @@
+- name: Docker apt key
+  become: true
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    checksum: "sha256:{{ docker_apt_gpg_sha256 }}"
+    mode: "0644"
+
+- name: Docker apt repository
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://download.docker.com/linux/ubuntu
+      Suites: noble
+      Components: stable
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/docker.asc
+  register: docker_repo
+
+- name: Docker
+  become: true
+  ansible.builtin.apt:
+    name:
+      - "docker-ce={{ docker_version }}"
+      - "docker-ce-cli={{ docker_version }}"
+      - "containerd.io={{ containerd_version }}"
+      - "docker-buildx-plugin={{ docker_buildx_version }}"
+      - "docker-compose-plugin={{ docker_compose_version }}"
+    update_cache: "{{ docker_repo.changed }}"
+
+- name: Agent user in the docker group
+  become: true
+  ansible.builtin.user:
+    name: "{{ user }}"
+    groups: docker
+    append: true

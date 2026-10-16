@@ -1,0 +1,30 @@
+id = 21
+slug = "ci-checks-in-one-job"
+revision = 2
+kind = "rule"
+status = "superseded"
+superseded-by = 26
+lang = "en"
+parent = "R276"
+default = "on"
+authority = ["evidence.grounds"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Keep every CI check of a pull request a step of the job check"
+
+[text.statement]
+en = "Keep every CI check of a pull request a step of the one job `check` in `.github/workflows/ci.yml`, the e2e test and the setup test among them, never a job of its own."
+
+[text.reason]
+en = '''
+`check` is the result a pull request is judged by and reports on every pull request; a check in another job would not count toward it.
+'''
+
+[text.verification]
+en = '''
+Violated when a change adds a job that checks pull requests other than `check`, or moves a check out of it.
+'''
