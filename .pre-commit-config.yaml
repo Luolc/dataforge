@@ -35,5 +35,5 @@ repos:
         name: statute compile check
         language: system
         entry: statute compile --check
-        files: ^(statute(\.toml|\.lock|-checks\.toml)$|AGENTS\.md$|\.statute/|\.agents/|\.claude/)
+        files: ^(statute(\.toml|\.lock)$|AGENTS\.md$|\.statute/|\.agents/|\.claude/)
         pass_filenames: false
