@@ -1,9 +1,9 @@
 # PR gate: secret scan, pre-commit on all files, the script tests, then the
 # data machine setup test (see AGENTS.md, L22, L24 and L26). pre-commit
-# includes the statute compile check. It is one job, `check`, so it reports
-# on every pull request; the setup steps that a change does not touch are
-# skipped inside it, as decided by the `changes` step. A step that fails,
-# `changes` included, fails the job.
+# includes the statute compile check, whose hook installs statute itself. It
+# is one job, `check`, so it reports on every pull request; the setup steps
+# that a change does not touch are skipped inside it, as decided by the
+# `changes` step. A step that fails, `changes` included, fails the job.
 
 name: CI
 
@@ -76,26 +76,6 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
-
-      # The statute-compile hook runs the statute that statute.lock names, the
-      # version that compiled the files it compares. It is the prebuilt
-      # release binary, checked against the SHA-256 file published beside it.
-      - name: Install statute
-        run: |
-          version=$(sed -n 's/^statute = "\(.*\)"$/\1/p' statute.lock)
-          [ -n "$version" ] || { echo "no statute version in statute.lock" >&2; exit 1; }
-          echo "statute version: $version"
-          target=statute-x86_64-unknown-linux-musl
-          url=https://github.com/Luolc/agent-constitution/releases/download/statute-v${version}
-          dl=$(mktemp -d)
-          curl --fail --silent --show-error --location --output-dir "$dl" \
-            --remote-name "$url/$target.tar.gz" --remote-name "$url/$target.sha256"
-          (cd "$dl" && sha256sum --check --strict "$target.sha256")
-          tar -xzf "$dl/$target.tar.gz" -C "$dl" statute
-          mkdir -p "$HOME/.local/statute-bin"
-          install -m 0755 "$dl/statute" "$HOME/.local/statute-bin/statute"
-          echo "$HOME/.local/statute-bin" >> "$GITHUB_PATH"
-          "$HOME/.local/statute-bin/statute" --version
 
       - name: Install pre-commit
         run: pip install --user pre-commit==4.6.2
