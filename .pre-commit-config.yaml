@@ -25,15 +25,15 @@ repos:
     rev: v0.13.4
     hooks:
       - id: limae
-  - repo: local
+  # The statute mirror installs the statute release named by rev from PyPI.
+  # rev must be v<version> of the version statute.lock names: statute compile
+  # --check fails when statute.lock was written by another version, so the
+  # two change together (L27). The mirror's files pattern also covers this
+  # file, so a rev change runs the hook.
+  - repo: https://github.com/Luolc/statute-pre-commit
+    rev: v0.1.19
     hooks:
-      # --check writes nothing: AGENTS.md and the skills
-      # statute copies and links must match a fresh compile of statute.toml,
-      # statute.lock and the local rules. The private output, which git
-      # ignores, is not compared.
+      # --check writes nothing: AGENTS.md and the skills statute copies and
+      # links must match a fresh compile of statute.toml, statute.lock and the
+      # local rules. The private output, which git ignores, is not compared.
       - id: statute-compile
-        name: statute compile check
-        language: system
-        entry: statute compile --check
-        files: ^(statute(\.toml|\.lock)$|AGENTS\.md$|\.statute/|\.agents/|\.claude/)
-        pass_filenames: false

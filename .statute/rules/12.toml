@@ -1,8 +1,9 @@
 id = 12
 slug = "hook-rev-bumps-alone"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 27
 lang = "en"
 parent = "R276"
 default = "on"
