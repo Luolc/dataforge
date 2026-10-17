@@ -381,13 +381,13 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - R212 Pin each Linux runner that the CI service hosts to a label that names a fixed release of its system, never to a label the service moves, in a matrix too.
 - R253 Where CI runs a repository's full set of checks on each change, leave the checks a change does not touch to CI instead of also running them locally before a push.
 - L11 In each clone of this repository, run `uvx pre-commit install` once, before the first commit.
-- L12 Change a `rev` in `.pre-commit-config.yaml` only to a release tag of that hook's repository, and only in a pull request that changes nothing else.
 - L22 When a block of `check` comes to depend on a new path, add that path to the block's group in the `changes` step of `.github/workflows/ci.yml`.
 - L24 The checks a change here touches, besides the commit hooks (`uvx pre-commit run --all-files`), are:
 
   - for `machine/`: the setup test, `machine/tests/run.sh` from the top of the repository;
   - for a script in `.github/scripts/`: its `.test.sh`; for `docs/design.md`: `.github/scripts/design-length.sh`.
 - L26 Keep every CI check of a pull request a step of the one job `check` in `.github/workflows/ci.yml`, the setup test among them, never a job of its own.
+- L27 Keep the `rev` of `https://github.com/Luolc/statute-pre-commit` in `.pre-commit-config.yaml` equal to `v` followed by the version that `statute.lock` names. Change a `rev` there only to a release tag of that hook's repository, and only in a pull request that changes nothing else; the statute mirror's `rev` may instead change in the pull request that changes the version in `statute.lock`, together with what statute compiles anew.
 
 ### Testing
 

@@ -1,0 +1,29 @@
+id = 27
+slug = "hook-rev-bumps-alone-statute-with-lock"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R276"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Bump a hook's rev to a tag, in a pull request of its own; statute's with statute.lock"
+
+[text.statement]
+en = "Keep the `rev` of `https://github.com/Luolc/statute-pre-commit` in `.pre-commit-config.yaml` equal to `v` followed by the version that `statute.lock` names. Change a `rev` there only to a release tag of that hook's repository, and only in a pull request that changes nothing else; the statute mirror's `rev` may instead change in the pull request that changes the version in `statute.lock`, together with what statute compiles anew."
+
+[text.reason]
+en = '''
+A tag names a release that does not move; a bump on its own shows whatever it changes in the hook's results apart from other changes. The statute hook's version must equal the one in `statute.lock`, or `statute compile --check` fails, so neither can change in a pull request without the other.
+'''
+
+[text.verification]
+en = '''
+Violated when the statute mirror's `rev` names a version other than the one `statute.lock` names; when a `rev` is set to something other than a release tag; or when a `rev` changes in a pull request that changes other things too, unless it is the statute mirror's `rev` and the pull request changes only the version in `statute.lock`, that `rev` and what statute compiles anew.
+'''
