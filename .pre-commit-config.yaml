@@ -27,7 +27,7 @@ repos:
       - id: limae
   - repo: local
     hooks:
-      # --check writes nothing: AGENTS.md, statute-checks.toml and the skills
+      # --check writes nothing: AGENTS.md and the skills
       # statute copies and links must match a fresh compile of statute.toml,
       # statute.lock and the local rules. The private output, which git
       # ignores, is not compared.
@@ -35,5 +35,5 @@ repos:
         name: statute compile check
         language: system
         entry: statute compile --check
-        files: ^(statute(\.toml|\.lock|-checks\.toml)$|AGENTS\.md$|\.statute/|\.agents/|\.claude/)
+        files: ^(statute(\.toml|\.lock)$|AGENTS\.md$|\.statute/|\.agents/|\.claude/)
         pass_filenames: false
