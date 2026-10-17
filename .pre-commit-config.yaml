@@ -28,7 +28,7 @@ repos:
   # The statute mirror installs the statute release named by rev from PyPI.
   # rev must be v<version> of the version statute.lock names: statute compile
   # --check fails when statute.lock was written by another version, so the
-  # two change together (L27). The mirror's files pattern also covers this
+  # two change together. The mirror's files pattern also covers this
   # file, so a rev change runs the hook.
   - repo: https://github.com/Luolc/statute-pre-commit
     rev: v0.1.19
