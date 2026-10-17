@@ -1,8 +1,8 @@
 id = 27
 slug = "hook-rev-bumps-alone-statute-with-lock"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "repealed"
 lang = "en"
 parent = "R276"
 default = "on"
