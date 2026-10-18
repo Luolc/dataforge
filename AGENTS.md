@@ -353,7 +353,7 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 ### Code
 
 - R87 Write no history in a code comment: not what was tried, reverted or discussed, nor why another way was not taken.
-- L28 Pin the version and sha256 of every third-party tool the data machine setup installs in `machine/versions.yml`; install each tool that the repository owner publishes on GitHub, as a release of a repository under the `Luolc` account, at that repository's latest release that is neither a draft nor a prerelease, verify it against the checksum file published in the same release, and install nothing for a tool whose release has none.
+- L28 Pin the version and sha256 of every third-party tool the data machine setup installs in `machine/versions.yml`; install each tool that the repository owner publishes as a GitHub release under the `Luolc` account at the tool's latest release that is neither a draft nor a prerelease, verify it against the checksum file published in the same release, and when that release has none, install nothing and fail the setup with an error that names the tool.
 
 ### Shared Resources
 

@@ -899,8 +899,8 @@ by = "default"
 [[rules]]
 rule = "L28"
 revision = 1
-sha256 = "e1e47ae829e0f256e45aac503ab5b9d68cbd7f08811fd4aac9db2df8a955d622"
-original-sha256 = "025537dd94dd73b835f7609fa820a6af40138a237d6224b919353e400926b748"
+sha256 = "31c2f3837cb8609b15f7e5534ce42514500e795e1dacf324cc17accccd8aa3c3"
+original-sha256 = "cbfc4658caefa3a96c33c92306983380f3a8a14a24a8be156fdaaf7c170720fe"
 by = "default"
 
 [[parameters]]
