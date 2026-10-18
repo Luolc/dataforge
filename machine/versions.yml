@@ -7,7 +7,7 @@
 # would stop a new machine from installing. bootstrap.sh installs the first
 # list (what Ansible itself needs), the playbook the second.
 ubuntu_bootstrap_packages: ca-certificates curl python3 python3-apt
-ubuntu_packages: [git, jq, zsh]
+ubuntu_packages: [git, jq, zsh, direnv]
 
 # Read by bootstrap.sh: uv itself, then Ansible run through uv.
 uv_version: 0.12.22
@@ -23,11 +23,32 @@ containerd_version: "2.3.6-1~ubuntu.24.04~noble"
 docker_buildx_version: "0.37.1-1~ubuntu.24.04~noble"
 docker_compose_version: "5.6.0-1~ubuntu.24.04~noble"
 
+# Tailscale's and 1Password's apt repositories keep old versions, so their
+# packages are pinned like Docker's. Only the programs are installed: the
+# setup joins no tailnet and signs in to no account.
+tailscale_apt_gpg_sha256: 3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
+tailscale_version: "1.104.1"
+op_apt_gpg_sha256: f39e7dd9dedc581ced85732832f217e0de5860a3b80279b5af4bc7c6d8157bae
+op_version: "2.41.0-1"
+
 herdr_version: 0.9.3
 herdr_sha256: 18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
 
 gh_version: 2.98.0
 gh_sha256: 3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
+
+# Agent Fleet, its fednet messaging client, agent-toolbox (atb) and statute,
+# from their GitHub releases; each digest matches the release's SHA256SUMS
+# or <asset>.sha256 for the linux amd64 asset. fednet upgrades itself once
+# installed, so its pin is only the version a new machine starts with.
+fleet_version: 0.2.5
+fleet_sha256: 9c7e4652b659c1fdc90f084b0ca69993273155ea6a5dc8ffd5cf4a3ea86ca3fb
+fednet_version: 0.8.6
+fednet_sha256: bf65f0c097f077ade582a4e9757308c9cb1e57a76ea7aa8cd6802f5d4cab163b
+atb_version: 0.3.2
+atb_sha256: 7e8fad256727e8010946b0ecbaa8293343fa4f2983fc80f78af6d605785d7602
+statute_version: 0.1.24
+statute_sha256: c80b765cf6525e0fc6487f301657714c3713a18821917033f593ff2f6b2e99d2
 
 # The linux-x64 binary's checksum from the release's manifest.json.
 claude_code_version: 2.1.292

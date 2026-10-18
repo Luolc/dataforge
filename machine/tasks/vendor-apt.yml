@@ -1,0 +1,44 @@
+# Tailscale and the 1Password CLI from their vendors' apt repositories, set
+# up like Docker's (tasks/docker.yml): a pinned key, a deb822 source and
+# pinned package versions. Only the programs are installed; nothing here
+# joins a tailnet or signs in to an account.
+
+- name: Vendor apt keys
+  become: true
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/etc/apt/keyrings/{{ item.file }}"
+    checksum: "sha256:{{ item.sha256 }}"
+    mode: "0644"
+  loop:
+    - { url: https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg, file: tailscale.gpg, sha256: "{{ tailscale_apt_gpg_sha256 }}" }
+    - { url: https://downloads.1password.com/linux/keys/1password.asc, file: 1password.asc, sha256: "{{ op_apt_gpg_sha256 }}" }
+  loop_control:
+    label: "{{ item.file }}"
+
+- name: Vendor apt repositories
+  become: true
+  ansible.builtin.copy:
+    dest: "/etc/apt/sources.list.d/{{ item.name }}.sources"
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: {{ item.uri }}
+      Suites: {{ item.suite }}
+      Components: main
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/{{ item.key }}
+  loop:
+    - { name: tailscale, uri: https://pkgs.tailscale.com/stable/ubuntu, suite: noble, key: tailscale.gpg }
+    - { name: 1password, uri: https://downloads.1password.com/linux/debian/amd64, suite: stable, key: 1password.asc }
+  loop_control:
+    label: "{{ item.name }}"
+  register: vendor_repos
+
+- name: Tailscale and the 1Password CLI
+  become: true
+  ansible.builtin.apt:
+    name:
+      - "tailscale={{ tailscale_version }}"
+      - "1password-cli={{ op_version }}"
+    update_cache: "{{ vendor_repos.changed }}"

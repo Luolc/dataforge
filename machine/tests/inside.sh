@@ -1,9 +1,10 @@
 #!/bin/sh
 # Container side of the data machine setup test (run.sh starts it). Runs the
-# setup twice from a clean image, checks the second run changes nothing and
-# every tool is at its pinned version, then drives the gateway client install
-# (from a fake release on the local disk; a tampered download must not
-# replace it) and the personal zsh switch.
+# setup from a clean image with no machine settings at all, then twice with
+# them, checks the last run changes nothing and every tool is at its pinned
+# version, then drives the gateway client install (from a fake release on the
+# local disk; a tampered download must not replace it), the zshenv extension
+# point, fednet's self-upgrade being left alone and the personal zsh switch.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -54,6 +55,17 @@ mkdir -p "$HOME/.claude"
 echo '{"env": {"ANTHROPIC_BASE_URL": "http://gateway.invalid"}}' >"$settings"
 
 v1=$(stage 1.0.0)
+# A new machine runs the setup before any of its settings are in place: no
+# gateway address, git identity or GitHub token. Only the fake gateway
+# release is passed, so nothing reaches GitHub for it.
+"$m/bootstrap.sh" -e redcoast_client_release_url="file://$release" -e redcoast_client_version=1.0.0 \
+  -e redcoast_client_sha256="${v1% *}" -e redcoast_client_shim_full_sha256="${v1#* }" \
+  >"$out/run0.log" 2>&1 || { tail -n 40 "$out/run0.log"; fail "run without machine settings"; }
+grep -q 'No redcoast_client_address' "$out/run0.log" || fail "run0 did not report the missing gateway address"
+[ ! -e "$HOME/.config/redcoast-client/shim.env" ] || fail "shim.env written without a gateway address"
+[ -z "$(git config --global user.email)" ] || fail "git identity set without settings"
+ok "run without machine settings: $(recap run0.log)"
+
 setup run1.log 1.0.0 "$v1" || { tail -n 40 "$out/run1.log"; fail "first run"; }
 ok "first run: $(recap run1.log)"
 setup run2.log 1.0.0 "$v1" || { tail -n 40 "$out/run2.log"; fail "second run"; }
@@ -70,6 +82,7 @@ check_version() { # <label> <expected substring> <command...>
   label=$1
   want=$2
   shift 2
+  [ -n "$want" ] || fail "$label: no expected version"
   got=$("$@" 2>&1 | head -n 1)
   case "$got" in *"$want"*) ok "$label: $got" ;; *) fail "$label: want $want, got: $got" ;; esac
 }
@@ -79,6 +92,14 @@ check_version gh "gh version $(pin gh_version)" gh --version
 check_version claude "$(pin claude_code_version) (Claude Code)" claude --version
 check_version docker "$(pin docker_version | sed 's/^[0-9]*://; s/-.*//')" docker --version
 check_version zsh "zsh " zsh --version
+# The tools other setups refer to by absolute path, at those paths.
+check_version tailscale "$(pin tailscale_version)" /usr/bin/tailscale version
+check_version op "$(pin op_version | sed 's/-.*//')" /usr/bin/op --version
+check_version direnv "$(dpkg-query -W -f '${Version}' direnv | sed 's/-.*//')" /usr/bin/direnv version
+check_version fleet "fleet $(pin fleet_version)" /usr/local/bin/fleet --version
+check_version fednet "v$(pin fednet_version)" /usr/local/bin/fednet version
+check_version atb "atb $(pin atb_version)" /usr/local/bin/atb --version
+check_version statute "statute $(pin statute_version)" /usr/local/bin/statute --version
 
 for d in dev wt scratch; do [ -d "$HOME/$d" ] || fail "$HOME/$d missing"; done
 ok "dev, wt and scratch under $HOME"
@@ -151,9 +172,24 @@ grep -q 'rebuilt' "$gw/2.0.0/claude" || fail "2.0.0 not reinstalled for the new 
 [ ! -e "$gw/2.0.0.old" ] || fail "old copy left behind"
 ok "new pin for 2.0.0 reinstalled it"
 
+# Every zsh sources the machine's own zshenv.local, which the setup leaves
+# as it is. fednet, upgraded in place by itself (a stand-in binary here),
+# is not taken back to the pinned version.
+local_env=$HOME/.config/dataforge/zshenv.local
+mkdir -p "${local_env%/*}"
+echo 'export DATAFORGE_TEST_LOCAL=from-local' >"$local_env"
+cp "$local_env" "$out/zshenv.local"
+[ "$(zsh -c 'echo $DATAFORGE_TEST_LOCAL')" = from-local ] || fail "zshenv.local not sourced"
+printf '#!/bin/sh\necho upgraded\n' >"$out/fednet"
+sudo install -m 755 "$out/fednet" /usr/local/bin/fednet
+
 # The personal zsh layer is on by default and can be switched off.
 grep -q oh-my-zsh.sh "$HOME/.zshrc" || fail "personal layer missing by default"
 setup run7.log 2.0.0 "$v2b" -e zsh_personal=false || { tail -n 40 "$out/run7.log"; fail "zsh_personal=false"; }
+cmp -s "$local_env" "$out/zshenv.local" || fail "the setup changed zshenv.local"
+cmp -s /usr/local/bin/fednet "$out/fednet" || fail "the setup replaced an upgraded fednet"
+[ "$(zsh -c 'echo $DATAFORGE_TEST_LOCAL')" = from-local ] || fail "zshenv.local not sourced after a rerun"
+ok "zshenv.local sourced and kept, upgraded fednet left alone"
 if grep -q oh-my-zsh "$HOME/.zshrc"; then fail "personal layer still in .zshrc"; fi
 [ "$(shim)" = "$gw/current/claude" ] || fail "without the personal layer, claude is $(shim)"
 ok "zsh_personal=false drops the personal layer, the shim stays first"

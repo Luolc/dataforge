@@ -26,9 +26,20 @@
     # Where the gateway client's releases are downloaded from:
     # <url>/v<version>/<file>.
     redcoast_client_release_url: https://github.com/Luolc/redcoast/releases/download
+    # Tools released as a tarball holding one binary (tasks/tools.yml).
+    tarball_tools:
+      - name: atb
+        version: "{{ atb_version }}"
+        sha256: "{{ atb_sha256 }}"
+        url: "https://github.com/Luolc/agent-toolbox/releases/download/v{{ atb_version }}/atb-x86_64-unknown-linux-musl.tar.gz"
+      - name: statute
+        version: "{{ statute_version }}"
+        sha256: "{{ statute_sha256 }}"
+        url: "https://github.com/Luolc/agent-constitution/releases/download/statute-v{{ statute_version }}/statute-x86_64-unknown-linux-musl.tar.gz"
   tasks:
     - ansible.builtin.import_tasks: tasks/base.yml
     - ansible.builtin.import_tasks: tasks/docker.yml
+    - ansible.builtin.import_tasks: tasks/vendor-apt.yml
     - ansible.builtin.import_tasks: tasks/tools.yml
     - ansible.builtin.import_tasks: tasks/claude-code.yml
     - ansible.builtin.import_tasks: tasks/gateway-client.yml
