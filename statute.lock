@@ -1,6 +1,6 @@
 # Written by statute from statute.toml; do not edit by hand.
 
-statute = "0.1.23"
+statute = "0.1.25"
 
 [constitution]
 git = "https://github.com/Luolc/agent-constitution"
@@ -863,13 +863,6 @@ original-sha256 = "d316676154aec9ba53dfad7267bfa461ccee426d90ed93951021399dddc63
 by = "default"
 
 [[rules]]
-rule = "L19"
-revision = 1
-sha256 = "2b63850d6bcc844df2239f1073e6c36a58a59adc01035ec08024745cac62bae5"
-original-sha256 = "fee5997200e449392c55d89021b4056ccc3274da07bbd9df14f5ab7a4a48c242"
-by = "default"
-
-[[rules]]
 rule = "L22"
 revision = 1
 sha256 = "f5654343e64d4f6b6c3b6d0295cb59f41e23f9fa86d228bdb8229329fe64e4c2"
@@ -901,6 +894,13 @@ rule = "L26"
 revision = 1
 sha256 = "0de46f578ddd06ecc82cf4b616c25f26bb3f892b2099ea39acce125e8031a8fa"
 original-sha256 = "c722e3f7185892c9a4f20c75998a603e7ab362acbcc852575227071ea186846e"
+by = "default"
+
+[[rules]]
+rule = "L28"
+revision = 1
+sha256 = "e1e47ae829e0f256e45aac503ab5b9d68cbd7f08811fd4aac9db2df8a955d622"
+original-sha256 = "025537dd94dd73b835f7609fa820a6af40138a237d6224b919353e400926b748"
 by = "default"
 
 [[parameters]]

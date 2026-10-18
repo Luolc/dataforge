@@ -1,0 +1,31 @@
+id = 28
+slug = "setup-versions-pinned-except-own-tools"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R83"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Pin third-party tool versions of the setup; install the owner's own tools at their latest release"
+
+[text.statement]
+en = "Pin the version and sha256 of every third-party tool the data machine setup installs in `machine/versions.yml`; install each tool that the repository owner publishes on GitHub, as a release of a repository under the `Luolc` account, at that repository's latest release that is neither a draft nor a prerelease, verify it against the checksum file published in the same release, and install nothing for a tool whose release has none."
+
+[text.reason]
+en = '''
+Two machines set up from the same commit get the same third-party tools, and an upgrade of one is a reviewed change to one file. The owner's own tools move often, and pinning them only delays each release by a pull request; the checksum from the release itself still keeps a tampered download out.
+'''
+
+[text.verification]
+en = '''
+The setup test checks each pinned tool's version. Packages from the Ubuntu archive are not pinned.
+
+Violated when the setup installs a third-party tool other than an Ubuntu archive package whose version is not taken from `machine/versions.yml`; when it installs an owner's tool from anything but the latest non-draft, non-prerelease release; when it installs one without verifying the checksum file of that release; or when `machine/versions.yml` pins an owner's tool.
+'''
