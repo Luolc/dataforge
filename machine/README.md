@@ -22,7 +22,7 @@ Done when `git -C ~/dev/dataforge log --oneline -1` prints a commit.
 ~/dev/dataforge/machine/bootstrap.sh
 ```
 
-This installs every tool pinned in `machine/versions.yml`: Docker, gh, herdr, Claude Code and the gateway client, Tailscale, the 1Password CLI `op`, direnv, Agent Fleet (`fleet`), fednet, atb and statute. Programs that other setups refer to by absolute path are at `/usr/local/bin/<name>` (`fleet`, `fednet`, `atb`, `statute`, `herdr`, `gh`) and `/usr/bin/<name>` (`tailscale`, `op`, `direnv`). The setup only installs them: it joins no tailnet, signs in to no account, and writes no config for fleet or fednet or starts any service of theirs.
+This installs Docker, gh, herdr, Claude Code, Tailscale, the 1Password CLI `op` and direnv at the versions pinned in `machine/versions.yml`, and the tools the repository owner publishes, the gateway client, Agent Fleet (`fleet`), fednet, atb and statute, at the latest release of each, checked against the checksum file published in that release. It needs no GitHub token for that: it reads the latest release from the release pages, and statute's from one anonymous GitHub API call. Programs that other setups refer to by absolute path are at `/usr/local/bin/<name>` (`fleet`, `fednet`, `atb`, `statute`, `herdr`, `gh`) and `/usr/bin/<name>` (`tailscale`, `op`, `direnv`). The setup only installs them: it joins no tailnet, signs in to no account, and writes no config for fleet or fednet or starts any service of theirs.
 
 With no settings yet, the run skips the git identity and the gh login, and leaves the gateway client without its config; it says so in its output.
 
@@ -58,7 +58,7 @@ SETTINGS
 
 `bootstrap.sh` passes this file to Ansible on every run. Other variables that can go here are listed at the top of `machine/playbook.yml`; for example `zsh_personal: false` skips the personal zsh layer.
 
-The setup installs the gateway client from the [redcoast](https://github.com/Luolc/redcoast) release pinned in `machine/versions.yml`, checking each file against its pinned sha256: `redcoast-client`, with the shim `redcoast-client-shim-full` as `claude` next to it. Once the address is set, it writes the shim's config, `~/.config/redcoast-client/shim.env`, which points at the machine credential (`~/.config/redcoast-client/machine-credential`) without reading it; the user places the credential, like the GitHub token.
+The setup installs the gateway client from the latest [redcoast](https://github.com/Luolc/redcoast) release, checking each file against that release's `SHA256SUMS`: `redcoast-client`, with the shim `redcoast-client-shim-full` as `claude` next to it. Once the address is set, it writes the shim's config, `~/.config/redcoast-client/shim.env`, which points at the machine credential (`~/.config/redcoast-client/machine-credential`) without reading it; the user places the credential, like the GitHub token.
 
 Done when `cat ~/.config/dataforge/setup.yml` shows the three lines with real values.
 
@@ -86,6 +86,4 @@ Done when `echo $SHELL; id -nG` prints `/usr/bin/zsh` and a group list containin
 
 ## Upgrades
 
-Tool versions change through PRs to `machine/versions.yml`. On each data machine, run `git -C ~/dev/dataforge pull --ff-only && ~/dev/dataforge/machine/bootstrap.sh`. A gateway client download that does not match its pinned sha256 stops the run and leaves the installed version in use.
-
-fednet is the exception: the setup installs its pinned version only where `/usr/local/bin/fednet` does not exist yet. After that first install, fednet upgrades are done by the self-upgrade units on the machine; on a machine without those units, delete the binary and run `bootstrap.sh` again to upgrade.
+Pinned versions change through PRs to `machine/versions.yml`. On each data machine, run `git -C ~/dev/dataforge pull --ff-only && ~/dev/dataforge/machine/bootstrap.sh`; the same run also brings the repository owner's tools to their latest release. A release without its checksum file, or a download that does not match it, stops the run with an error naming the tool, and leaves the installed version in use.

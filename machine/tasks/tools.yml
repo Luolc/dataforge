@@ -1,5 +1,7 @@
-# Release binaries pinned by sha256. get_url skips the download when the file
-# at dest already has the pinned digest, so a rerun changes nothing.
+# Release binaries: herdr and gh pinned by sha256 in versions.yml, then the
+# setup's own tools at their latest release. get_url skips the download when
+# the file at dest already has the expected digest, so a rerun changes
+# nothing.
 
 - name: herdr
   become: true
@@ -40,76 +42,12 @@
     state: link
     force: true
 
-- name: fleet
-  become: true
-  ansible.builtin.get_url:
-    url: "https://github.com/Luolc/agent-fleet/releases/download/v{{ fleet_version }}/fleet-linux-amd64"
-    dest: /usr/local/bin/fleet
-    checksum: "sha256:{{ fleet_sha256 }}"
-    mode: "0755"
-
-# fednet replaces its own binary when a new release comes out, so the pinned
-# version is only installed where there is none yet; a rerun must not take
-# an upgraded fednet back to the pin.
-- name: fednet installed
-  ansible.builtin.stat:
-    path: /usr/local/bin/fednet
-    get_checksum: false
-  register: fednet_binary
-
-- name: fednet
-  when: not fednet_binary.stat.exists
-  become: true
-  ansible.builtin.get_url:
-    url: "https://github.com/Luolc/fednet/releases/download/v{{ fednet_version }}/fednet_v{{ fednet_version }}_linux_amd64"
-    dest: /usr/local/bin/fednet
-    checksum: "sha256:{{ fednet_sha256 }}"
-    mode: "0755"
-
-# atb and statute ship as a tarball holding the one binary, unpacked like gh
-# into a directory per version under /opt.
-- name: Tarball tools
-  become: true
-  vars:
-    dir: "/opt/{{ item.name }}/{{ item.version }}"
-  block:
-    - name: Tarball tools | version directory
-      ansible.builtin.file:
-        path: "{{ dir }}"
-        state: directory
-        mode: "0755"
-      loop: "{{ tarball_tools }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-    - name: Tarball tools | tarball
-      ansible.builtin.get_url:
-        url: "{{ item.url }}"
-        dest: "{{ dir }}.tar.gz"
-        checksum: "sha256:{{ item.sha256 }}"
-        mode: "0644"
-      loop: "{{ tarball_tools }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-    - name: Tarball tools | unpacked
-      ansible.builtin.unarchive:
-        src: "{{ dir }}.tar.gz"
-        dest: "{{ dir }}"
-        remote_src: true
-        owner: root
-        group: root
-        creates: "{{ dir }}/{{ item.name }}"
-      loop: "{{ tarball_tools }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-    - name: Tarball tools | on PATH
-      ansible.builtin.file:
-        src: "{{ dir }}/{{ item.name }}"
-        dest: "/usr/local/bin/{{ item.name }}"
-        state: link
-        force: true
-      loop: "{{ tarball_tools }}"
-      loop_control:
-        label: "{{ item.name }}"
+# fleet, fednet, atb and statute, each at its latest release. fednet also
+# upgrades itself to its latest release; once it has, the digests match and
+# the setup leaves it as it is.
+- name: Own tools
+  ansible.builtin.include_tasks: own-tool.yml
+  loop: "{{ own_tools }}"
+  loop_control:
+    loop_var: tool
+    label: "{{ tool.name }}"
