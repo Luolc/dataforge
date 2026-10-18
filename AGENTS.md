@@ -353,7 +353,7 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 ### Code
 
 - R87 Write no history in a code comment: not what was tried, reverted or discussed, nor why another way was not taken.
-- L19 Pin the version of every tool the data machine setup installs in `machine/versions.yml`.
+- L28 Pin the version and sha256 of every third-party tool the data machine setup installs in `machine/versions.yml`; install each tool that the repository owner publishes as a GitHub release under the `Luolc` account at the tool's latest release that is neither a draft nor a prerelease, verify it against the checksum file published in the same release, and when that release has none, install nothing and fail the setup with an error that names the tool.
 
 ### Shared Resources
 
