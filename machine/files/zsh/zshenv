@@ -6,3 +6,9 @@
 # Code in ~/.local/bin (docs/design.md). Until the gateway client is installed
 # its directory does not exist, and the entry does nothing.
 export PATH="$HOME/.local/libexec/redcoast-client/current:$HOME/.local/bin:$PATH"
+# Machine-specific private settings (environment variables that do not belong
+# in this repo) go in ~/.config/dataforge/zshenv.local, sourced here when it
+# is readable. The setup never creates or overwrites that file.
+if [[ -r $HOME/.config/dataforge/zshenv.local ]]; then
+  source "$HOME/.config/dataforge/zshenv.local"
+fi
