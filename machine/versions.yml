@@ -1,6 +1,10 @@
-# Every version the data machine setup installs (docs/design.md). Upgrades are PRs
-# that change this file. bootstrap.sh reads some keys with sed, so keep those
-# as plain `key: value` lines; the playbook loads the whole file.
+# Every pinned version the data machine setup installs (docs/design.md).
+# Upgrades are PRs that change this file. The tools the repository owner
+# publishes (fleet, fednet, atb, statute and the gateway client) are not
+# pinned: each run installs their latest release, checked against that
+# release's checksum file (playbook.yml, own_tools). bootstrap.sh reads some
+# keys with sed, so keep those as plain `key: value` lines; the playbook loads
+# the whole file.
 
 # From the Ubuntu 24.04 archive, at whatever version the release currently
 # ships: the archive keeps only the latest patch release, so an exact pin
@@ -37,30 +41,9 @@ herdr_sha256: 18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
 gh_version: 2.98.0
 gh_sha256: 3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
 
-# Agent Fleet, its fednet messaging client, agent-toolbox (atb) and statute,
-# from their GitHub releases; each digest matches the release's SHA256SUMS
-# or <asset>.sha256 for the linux amd64 asset. fednet upgrades itself once
-# installed, so its pin is only the version a new machine starts with.
-fleet_version: 0.2.5
-fleet_sha256: 9c7e4652b659c1fdc90f084b0ca69993273155ea6a5dc8ffd5cf4a3ea86ca3fb
-fednet_version: 0.8.6
-fednet_sha256: bf65f0c097f077ade582a4e9757308c9cb1e57a76ea7aa8cd6802f5d4cab163b
-atb_version: 0.3.2
-atb_sha256: 7e8fad256727e8010946b0ecbaa8293343fa4f2983fc80f78af6d605785d7602
-statute_version: 0.1.24
-statute_sha256: c80b765cf6525e0fc6487f301657714c3713a18821917033f593ff2f6b2e99d2
-
 # The linux-x64 binary's checksum from the release's manifest.json.
 claude_code_version: 2.1.292
 claude_code_sha256: a967e7b1d8b4e47ee421d5433027880347952b0c0857abf880e2c942a4ec93b3
-
-# The gateway client, from the redcoast release v<version>: the launcher
-# (redcoast-client-linux-amd64) and the shim that sends every start through
-# the gateway (redcoast-client-shim-full). The digests are the release's
-# SHA256SUMS lines for those two files.
-redcoast_client_version: 0.1.0
-redcoast_client_sha256: 8601529f6bdc8ff1359542967011e444d62cc94b4debcad056625a4c92af6985
-redcoast_client_shim_full_sha256: 43bdb9abd350e2cce35a45bbf339d3017fac3d9a3c57abb1e9c0f2ec112a1809
 
 # Only installed with zsh_personal (the default).
 oh_my_zsh_commit: 60c9a7a839b790cd905d0fd4419435124fd1bdc0

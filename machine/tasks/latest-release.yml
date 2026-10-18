@@ -1,0 +1,62 @@
+# Finds the latest release of one of the setup's own tools and the sha256 of
+# each asset the setup takes from it, as published in that release's
+# checksum file. Included with `release`:
+#   name       label in the output
+#   url        the repository's releases page, https://github.com/<owner>/<repo>/releases;
+#              assets are fetched from <url>/download/<tag>/<file>
+#   sums       the release's checksum file: SHA256SUMS or <asset>.sha256
+#   assets     the files to install; {tag} in a name stands for the tag
+#   api        (repositories that release more than one thing) the GitHub API
+#              list of the repository's releases, searched for tag_prefix
+#   tag_prefix the prefix of the tool's tags; defaults to v
+# Without `api`, the latest release is where <url>/latest redirects to, which
+# is GitHub's latest release, never a prerelease or a draft; that needs no
+# API call and no token. With `api`, it is the newest release in the list
+# whose tag has the prefix and that is not a prerelease or draft, one
+# anonymous API call. Sets release_tag, release_version (the tag without its
+# prefix), and release_files and release_sha256, the assets' file names and
+# digests in the order of `assets`. A release without the checksum file, or
+# one that lists no digest for an asset, fails the run: nothing is installed
+# unchecked.
+
+- name: "{{ release.name }} | latest release"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      if [ -n "$API" ]; then
+        tag=$(curl -fsSL "$API" | jq -r --arg p "$PREFIX" \
+          '[.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith($p)))][0].tag_name // empty')
+      else
+        tag=$(curl -fsS -o /dev/null -w '%{redirect_url}' "$URL/latest")
+        case "$tag" in */releases/tag/"$PREFIX"*) tag=${tag##*/releases/tag/} ;; *) tag= ;; esac
+      fi
+      [ -n "$tag" ] || { echo "$NAME: no release with a tag starting $PREFIX at ${API:-$URL/latest}" >&2; exit 1; }
+      sums=$(curl -fsSL "$URL/download/$tag/$SUMS") || { echo "$NAME: release $tag has no checksum file $SUMS" >&2; exit 1; }
+      echo "$tag"
+      for asset in $ASSETS; do
+        case "$asset" in *'{tag}'*) asset=${asset%%'{tag}'*}$tag${asset#*'{tag}'} ;; esac
+        printf '%s\n' "$sums" | awk -v f="$asset" '
+          ($2 == f || $2 == "*" f) && $1 ~ /^[0-9a-f]+$/ && length($1) == 64 { print $1, f; n++ }
+          END { exit n != 1 }' || { echo "$NAME: $SUMS of $tag has no sha256 for $asset" >&2; exit 1; }
+      done
+  environment:
+    NAME: "{{ release.name }}"
+    URL: "{{ release.url }}"
+    API: "{{ release.api | default('') }}"
+    PREFIX: "{{ release.tag_prefix | default('v') }}"
+    SUMS: "{{ release.sums }}"
+    ASSETS: "{{ release.assets | join(' ') }}"
+  register: latest_release
+  changed_when: false
+  check_mode: false
+
+- name: "{{ release.name }} | release found"
+  ansible.builtin.set_fact:
+    release_tag: "{{ latest_release.stdout_lines[0] }}"
+    release_version: "{{ latest_release.stdout_lines[0][release.tag_prefix | default('v') | length :] }}"
+    release_files: "{{ latest_release.stdout_lines[1:] | map('split') | map('last') | list }}"
+    release_sha256: "{{ latest_release.stdout_lines[1:] | map('split') | map('first') | list }}"
+
+- name: "{{ release.name }} | version"
+  ansible.builtin.debug:
+    msg: "{{ release.name }} {{ release_tag }}"

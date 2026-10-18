@@ -23,19 +23,34 @@
     gh_token_file: "{{ home }}/.config/dataforge/github-token"
     # host:port of the account gateway, written into the shim's config.
     redcoast_client_address: ""
-    # Where the gateway client's releases are downloaded from:
-    # <url>/v<version>/<file>.
-    redcoast_client_release_url: https://github.com/Luolc/redcoast/releases/download
-    # Tools released as a tarball holding one binary (tasks/tools.yml).
-    tarball_tools:
+    # The setup's own tools: each run installs the latest release of each
+    # (tasks/latest-release.yml lists the fields). Overridable, like the
+    # rest, to install from somewhere else, as the setup test does.
+    redcoast_client_release_url: https://github.com/Luolc/redcoast/releases
+    # agent-constitution releases more than statute, so its latest release
+    # is not necessarily statute's.
+    statute_releases_api: https://api.github.com/repos/Luolc/agent-constitution/releases?per_page=100
+    own_tools:
+      - name: fleet
+        url: https://github.com/Luolc/agent-fleet/releases
+        sums: SHA256SUMS
+        assets: [fleet-linux-amd64]
+      - name: fednet
+        url: https://github.com/Luolc/fednet/releases
+        sums: SHA256SUMS
+        assets: ["fednet_{tag}_linux_amd64"]
       - name: atb
-        version: "{{ atb_version }}"
-        sha256: "{{ atb_sha256 }}"
-        url: "https://github.com/Luolc/agent-toolbox/releases/download/v{{ atb_version }}/atb-x86_64-unknown-linux-musl.tar.gz"
+        url: https://github.com/Luolc/agent-toolbox/releases
+        sums: atb-x86_64-unknown-linux-musl.sha256
+        assets: [atb-x86_64-unknown-linux-musl.tar.gz]
+        tarball: true
       - name: statute
-        version: "{{ statute_version }}"
-        sha256: "{{ statute_sha256 }}"
-        url: "https://github.com/Luolc/agent-constitution/releases/download/statute-v{{ statute_version }}/statute-x86_64-unknown-linux-musl.tar.gz"
+        url: https://github.com/Luolc/agent-constitution/releases
+        api: "{{ statute_releases_api }}"
+        tag_prefix: statute-v
+        sums: statute-x86_64-unknown-linux-musl.sha256
+        assets: [statute-x86_64-unknown-linux-musl.tar.gz]
+        tarball: true
   tasks:
     - ansible.builtin.import_tasks: tasks/base.yml
     - ansible.builtin.import_tasks: tasks/docker.yml

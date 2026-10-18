@@ -1,0 +1,56 @@
+# One of the setup's own tools (own_tools in playbook.yml), as `tool`, at its
+# latest release (tasks/latest-release.yml). get_url checks the download
+# against the release's digest before it writes dest, and skips the download
+# when dest already has that digest, so a rerun on the latest release changes
+# nothing. A single binary goes straight to /usr/local/bin; a tarball holding
+# the one binary is unpacked, like gh, into a directory per version under
+# /opt.
+
+- name: "{{ tool.name }} | find the latest release"
+  ansible.builtin.include_tasks: latest-release.yml
+  vars:
+    release: "{{ tool }}"
+
+- name: "{{ tool.name }}"
+  when: not (tool.tarball | default(false))
+  become: true
+  ansible.builtin.get_url:
+    url: "{{ tool.url }}/download/{{ release_tag }}/{{ release_files[0] }}"
+    dest: "/usr/local/bin/{{ tool.name }}"
+    checksum: "sha256:{{ release_sha256[0] }}"
+    mode: "0755"
+
+- name: "{{ tool.name }} | from the tarball"
+  when: tool.tarball | default(false)
+  become: true
+  vars:
+    dir: "/opt/{{ tool.name }}/{{ release_version }}"
+  block:
+    - name: "{{ tool.name }} | version directory"
+      ansible.builtin.file:
+        path: "{{ dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: "{{ tool.name }} | tarball"
+      ansible.builtin.get_url:
+        url: "{{ tool.url }}/download/{{ release_tag }}/{{ release_files[0] }}"
+        dest: "{{ dir }}.tar.gz"
+        checksum: "sha256:{{ release_sha256[0] }}"
+        mode: "0644"
+
+    - name: "{{ tool.name }} | unpacked"
+      ansible.builtin.unarchive:
+        src: "{{ dir }}.tar.gz"
+        dest: "{{ dir }}"
+        remote_src: true
+        owner: root
+        group: root
+        creates: "{{ dir }}/{{ tool.name }}"
+
+    - name: "{{ tool.name }} | on PATH"
+      ansible.builtin.file:
+        src: "{{ dir }}/{{ tool.name }}"
+        dest: "/usr/local/bin/{{ tool.name }}"
+        state: link
+        force: true

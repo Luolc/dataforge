@@ -1,33 +1,42 @@
 # The account gateway client (docs/design.md, machine/README.md): from the
-# redcoast release pinned in versions.yml, `redcoast-client` and the shim
+# latest redcoast release, `redcoast-client` and the shim
 # redcoast-client-shim-full installed as `claude` next to it. Each version
 # gets its own directory under ~/.local/libexec/redcoast-client, `current`
 # points at the one in use, and zshenv puts `current` first on PATH. Every
-# download is checked against its pinned sha256 before it lands in the new
-# directory, and nothing is switched unless both are, so a bad download
+# download is checked against the release's SHA256SUMS before it lands in the
+# new directory, and nothing is switched unless both are, so a bad download
 # leaves the previous version in use.
 
+- name: Gateway client | find the latest release
+  ansible.builtin.include_tasks: latest-release.yml
+  vars:
+    release:
+      name: gateway client
+      url: "{{ redcoast_client_release_url }}"
+      sums: SHA256SUMS
+      assets: [redcoast-client-linux-amd64, redcoast-client-shim-full]
+
 - name: Gateway client
-  when: redcoast_client_version != ""
   vars:
     gw_root: "{{ home }}/.local/libexec/redcoast-client"
-    gw_dir: "{{ gw_root }}/{{ redcoast_client_version }}"
-    gw_url: "{{ redcoast_client_release_url }}/v{{ redcoast_client_version }}"
+    gw_dir: "{{ gw_root }}/{{ release_version }}"
+    gw_url: "{{ redcoast_client_release_url }}/download/{{ release_tag }}"
   block:
-    # Installed means: both programs in the version's directory have their
-    # pinned digests. A new pin for the same version reinstalls.
-    - name: Gateway client | installed copy is the pinned one
+    # Installed means: both programs in the version's directory have the
+    # release's digests. A release rebuilt under the same tag reinstalls.
+    - name: Gateway client | installed copy is the latest one
       ansible.builtin.shell:
         cmd: >-
           cd "$DIR" && printf '%s  redcoast-client\n%s  claude\n' "$CLIENT" "$SHIM"
           | sha256sum --check --strict --quiet -
       environment:
         DIR: "{{ gw_dir }}"
-        CLIENT: "{{ redcoast_client_sha256 }}"
-        SHIM: "{{ redcoast_client_shim_full_sha256 }}"
+        CLIENT: "{{ release_sha256[0] }}"
+        SHIM: "{{ release_sha256[1] }}"
       register: gw_installed
       changed_when: false
       failed_when: false
+      check_mode: false
 
     - name: Gateway client | install from the release
       when: gw_installed.rc != 0
@@ -52,8 +61,8 @@
             checksum: "sha256:{{ item.sha256 }}"
             mode: "0755"
           loop:
-            - { asset: redcoast-client-linux-amd64, name: redcoast-client, sha256: "{{ redcoast_client_sha256 }}" }
-            - { asset: redcoast-client-shim-full, name: claude, sha256: "{{ redcoast_client_shim_full_sha256 }}" }
+            - { asset: redcoast-client-linux-amd64, name: redcoast-client, sha256: "{{ release_sha256[0] }}" }
+            - { asset: redcoast-client-shim-full, name: claude, sha256: "{{ release_sha256[1] }}" }
           loop_control:
             label: "{{ item.asset }}"
 
@@ -75,7 +84,7 @@
 
     - name: Gateway client | switch current
       ansible.builtin.file:
-        src: "{{ redcoast_client_version }}"
+        src: "{{ release_version }}"
         dest: "{{ gw_root }}/current"
         state: link
         force: true
