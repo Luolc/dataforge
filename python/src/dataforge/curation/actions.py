@@ -1,4 +1,4 @@
-"""Actions a state runs: agent, script and trial, each in an env; fan_out.
+"""Actions: agent, script, judge and trial, each in an env; fan_out.
 
 What an action does (agent, script) and where it runs (Host, or a Docker
 container) are independent. Memory is shared through one ResourcePool per
@@ -11,11 +11,13 @@ them.
 from collections.abc import Callable, Generator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -50,6 +52,9 @@ class ActionResult:
     value: The parsed JSON answer of an agent run with an output_schema, such
       as a judge.
     cost_usd: What it cost, in US dollars.
+    run: An agent's last run.
+    validation: The last run of an agent's validator on the host, if it ran.
+    fixes: How many times the validator resumed an agent's session.
   """
 
   status: str
@@ -57,6 +62,9 @@ class ActionResult:
   log: str
   value: object = None
   cost_usd: float = 0.0
+  run: AgentRun | None = None
+  validation: CommandResult | None = None
+  fixes: int = 0
 
   @property
   def ok(self) -> bool:
@@ -596,14 +604,19 @@ class Docker:
       The action's paths in the container.
     """
     base = f"/dataforge/{ctx.state}/{ctx.visit}/{index}"
+    staged = {name: f"{base}/inputs/{name}" for name in inputs}
+    # A path inside an artifact ("task/instruction.md") keeps its directory.
+    dirs = {
+      f"{base}/inputs",
+      *(str(PurePosixPath(p).parent) for p in staged.values()),
+    }
     if self.outputs is None:
       outdir = f"{base}/outputs"
-      _ = self._exec_ok(["mkdir", "-p", f"{base}/inputs", outdir])
+      _ = self._exec_ok(["mkdir", "-p", *sorted(dirs), outdir])
       _ = self._exec_ok(["chmod", "0777", outdir])
     else:
       outdir = self.outputs.target
-      _ = self._exec_ok(["mkdir", "-p", f"{base}/inputs"])
-    staged = {name: f"{base}/inputs/{name}" for name in inputs}
+      _ = self._exec_ok(["mkdir", "-p", *sorted(dirs)])
     for name, path in inputs.items():
       _ = self._docker(["cp", str(path), f"{self._id}:{staged[name]}"])
     copy = None
@@ -694,15 +707,19 @@ class AgentSpec:
     workdir: Its working directory.
     inputs: Its inputs.
     outputs: The names of its outputs.
-    validator: An executable that takes the output directory as its one
-      argument and exits 0 when the outputs are acceptable. The agent gets a
-      read-only copy in its env and is told to make it pass; after the outputs
-      are copied out, the host runs the original on them, and while it fails
-      the session is resumed with its output, at most max_fixes times.
+    validator: An executable that takes the output directory and then the
+      input paths as its arguments and exits 0 when the outputs are
+      acceptable. The agent gets a read-only copy in its env and is told to
+      make it pass; after the outputs are copied out, the host runs the
+      original on them, and while it fails the session is resumed with its
+      output, at most max_fixes times.
     max_fixes: How many times a failing validator resumes the session.
     output_schema: The JSON Schema of the agent's answer, which is parsed as
       JSON into ActionResult.value.
     tools: The tools it has; None for the runner's default.
+    name: The agent's name, which a runner may use, such as in the names of
+      its files.
+    optional_inputs: More inputs, each left out when it does not exist yet.
   """
 
   prompt: str
@@ -713,6 +730,8 @@ class AgentSpec:
   max_fixes: int = 2
   output_schema: Data | None = None
   tools: Sequence[str] | None = None
+  name: str | None = None
+  optional_inputs: Sequence[Input] = ()
 
 
 @dataclass(frozen=True)
@@ -742,6 +761,8 @@ class AgentRun:
     cost_usd: What it cost, in US dollars.
     trace: Its trace, if the runner keeps one.
     result: Its answer.
+    ending: How it ended, in the runner's words, if the runner says.
+    resumable: Whether the session can go on after it.
   """
 
   session: object
@@ -749,6 +770,8 @@ class AgentRun:
   cost_usd: float
   trace: Path | None
   result: str
+  ending: str | None = None
+  resumable: bool = True
 
 
 class AgentRunner(Protocol):
@@ -797,12 +820,56 @@ class ScriptSpec:
     outputs: The names of its outputs.
     memory_gb: On the host, reserved from the pool while it runs; in a Docker
       env the env's reservation covers it.
+    optional_inputs: More inputs, each left out when it does not exist yet.
   """
 
   argv: Sequence[str]
   inputs: Sequence[Input] = ()
   outputs: Sequence[str] = ()
   memory_gb: float | None = None
+  optional_inputs: Sequence[Input] = ()
+
+
+VERDICT = "verdict.json"
+"""The file a judge writes in its output directory."""
+
+
+@dataclass(frozen=True)
+class Judge:
+  """A script on the host that judges a visit by writing verdict.json.
+
+  It runs as a ScriptSpec does, with the environment variables
+  DATAFORGE_ROOT (the attempt's root), DATAFORGE_STATE, DATAFORGE_VISIT,
+  DATAFORGE_ROUND and DATAFORGE_RECORD (a file holding the attempt's record
+  so far, as Attempt.to_json gives it) besides DATAFORGE_OUTPUTS. It must exit
+  0 and write verdict.json there: {"outcome": str, "data": {...},
+  "feedback": {str: str} | null}, data and feedback optional.
+
+  Attributes:
+    spec: The script; verdict.json is one of its outputs whether it names it
+      or not.
+  """
+
+  spec: ScriptSpec
+
+
+@dataclass(frozen=True)
+class Verdict:
+  """What a judge decided.
+
+  Attributes:
+    outcome: The outcome's name.
+    data: Data for the outcome.
+    feedback: The variables of a feedback template, if any.
+  """
+
+  outcome: str
+  data: Data
+  feedback: Mapping[str, str] | None
+
+
+class JudgeError(Exception):
+  """A judge exited non-zero or wrote no valid verdict.json."""
 
 
 @dataclass(frozen=True)
@@ -908,7 +975,7 @@ class Actions:
     if runner is None:
       raise RuntimeError("an agent action needs an agent_runner")
     index, started_at = ctx.claim(spec.outputs), datetime.now(UTC)
-    inputs = ctx.resolve(spec.inputs)
+    inputs = ctx.resolve(spec.inputs, spec.optional_inputs)
     env.start(self.pool)
     try:
       staged = env.stage(ctx, index, inputs, spec.validator)
@@ -924,7 +991,8 @@ class Actions:
           env.collect(staged, ctx.outdir)
           if run.status != "ok" or spec.validator is None:
             break
-          check = HOST.exec([str(spec.validator), str(ctx.outdir)], {})
+          argv = [spec.validator, ctx.outdir, *inputs.values()]
+          check = HOST.exec([str(arg) for arg in argv], {})
           if check.exit_code == 0 or fixes == spec.max_fixes:
             break
           fixes += 1
@@ -947,7 +1015,7 @@ class Actions:
       except json.JSONDecodeError as error:
         passed = False
         log.append(f"the answer is not JSON: {error}")
-    return _finish(
+    result = _finish(
       ctx,
       "agent",
       started_at,
@@ -957,6 +1025,7 @@ class Actions:
       value,
       cost,
     )
+    return dataclasses.replace(result, run=run, validation=check, fixes=fixes)
 
   def script(
     self, ctx: Context, spec: ScriptSpec, env: Env = HOST
@@ -971,8 +1040,71 @@ class Actions:
     Returns:
       Its result.
     """
+    started_at, done = self._run(ctx, spec, env, {})
+    passed = done.exit_code == 0
+    return _finish(ctx, "script", started_at, spec.outputs, passed, done.log)
+
+  def judge(
+    self, ctx: Context, judge: Judge, inputs: Sequence[Input] = ()
+  ) -> Verdict:
+    """Run a judge on the host and read its verdict.
+
+    Args:
+      ctx: The visit's context.
+      judge: The judge.
+      inputs: More inputs, after those of its spec.
+
+    Returns:
+      The verdict.
+
+    Raises:
+      JudgeError: When it exits non-zero or writes no valid verdict.json; the
+        action is recorded as failed first.
+    """
+    spec = dataclasses.replace(
+      judge.spec,
+      inputs=[*judge.spec.inputs, *inputs],
+      outputs=list(dict.fromkeys([*judge.spec.outputs, VERDICT])),
+    )
+    record = ctx.attempt.root / "records" / ctx.state / f"{ctx.visit}.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    _ = record.write_text(json.dumps(ctx.attempt.to_json()))
+    started_at, done = self._run(
+      ctx,
+      spec,
+      HOST,
+      {
+        "DATAFORGE_ROOT": str(ctx.attempt.root),
+        "DATAFORGE_STATE": ctx.state,
+        "DATAFORGE_VISIT": str(ctx.visit),
+        "DATAFORGE_ROUND": str(ctx.round),
+        "DATAFORGE_RECORD": str(record),
+      },
+    )
+    verdict, why = None, f"the judge exited {done.exit_code}"
+    if done.exit_code == 0:
+      try:
+        verdict = _verdict(ctx.outdir / VERDICT)
+      except JudgeError as error:
+        why = str(error)
+    log = done.log if verdict is not None else f"{done.log}\n{why}"
+    _ = _finish(
+      ctx, "judge", started_at, spec.outputs, verdict is not None, log
+    )
+    if verdict is None:
+      raise JudgeError(f"{ctx.state} visit {ctx.visit}: {why}\n{done.log}")
+    return verdict
+
+  def _run(
+    self,
+    ctx: Context,
+    spec: ScriptSpec,
+    env: Env,
+    variables: Mapping[str, str],
+  ) -> tuple[datetime, CommandResult]:
+    # Runs a script and collects its outputs; the caller records it.
     index, started_at = ctx.claim(spec.outputs), datetime.now(UTC)
-    inputs = ctx.resolve(spec.inputs)
+    inputs = ctx.resolve(spec.inputs, spec.optional_inputs)
     memory_gb = spec.memory_gb if isinstance(env, Host) else None
     with _reserve(self.pool, memory_gb):
       env.start(self.pool)
@@ -980,14 +1112,12 @@ class Actions:
         staged = env.stage(ctx, index, inputs, None)
         done = env.exec(
           [*spec.argv, *staged.inputs.values()],
-          {"DATAFORGE_OUTPUTS": staged.outdir},
+          {**variables, "DATAFORGE_OUTPUTS": staged.outdir},
         )
         env.collect(staged, ctx.outdir)
       finally:
         env.stop()
-    return _finish(
-      ctx, "script", started_at, spec.outputs, done.exit_code == 0, done.log
-    )
+    return started_at, done
 
   def trial(
     self,
@@ -1082,6 +1212,36 @@ def _finish(
   return ActionResult(status, outputs, log, value, cost_usd)
 
 
+def _verdict(path: Path) -> Verdict:
+  try:
+    raw = cast("object", json.loads(path.read_text()))
+  except (OSError, json.JSONDecodeError) as error:
+    raise JudgeError(f"no valid {VERDICT}: {error}") from error
+  if not isinstance(raw, dict):
+    raise JudgeError(f"{VERDICT} is not an object")
+  verdict = cast(dict[str, object], raw)
+  outcome = verdict.get("outcome")
+  data = verdict.get("data", {})
+  feedback = verdict.get("feedback")
+  if not isinstance(outcome, str):
+    raise JudgeError(f"{VERDICT} has no outcome string")
+  if not isinstance(data, dict):
+    raise JudgeError(f"{VERDICT}: data is not an object")
+  if feedback is not None and not (
+    isinstance(feedback, dict)
+    and all(
+      isinstance(value, str)
+      for value in cast(dict[str, object], feedback).values()
+    )
+  ):
+    raise JudgeError(f"{VERDICT}: feedback is not an object of strings")
+  return Verdict(
+    outcome,
+    cast(dict[str, object], data),
+    None if feedback is None else cast(dict[str, str], feedback),
+  )
+
+
 def _agent_prompt(spec: AgentSpec, staged: Staged) -> str:
   parts = [spec.prompt]
   if staged.inputs:
@@ -1093,8 +1253,11 @@ def _agent_prompt(spec: AgentSpec, staged: Staged) -> str:
     names = ", ".join(spec.outputs)
     parts.append(f"Write your outputs into {staged.outdir}, named: {names}.")
   if staged.validator is not None:
+    command = shlex.join(
+      [staged.validator, staged.outdir, *staged.inputs.values()]
+    )
     parts.append(
-      f"Before you finish, run `{staged.validator} {staged.outdir}`;"
+      f"Before you finish, run `{command}`;"
       + " it must exit 0. It is read-only, and the same check runs again"
       + " after you finish."
     )

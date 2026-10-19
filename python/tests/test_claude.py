@@ -389,6 +389,11 @@ def test_a_session_that_cannot_go_on_runs_no_fix(tmp_path: Path) -> None:
   assert found.status == "failed"
   assert "no fix run: the session cannot be resumed" in found.log
   assert len(fake.calls()) == 1
+  assert found.run is not None
+  assert (found.run.ending, found.run.resumable) == (
+    "error_max_budget_usd",
+    False,
+  )
 
 
 def test_a_judges_structured_output_is_its_value(tmp_path: Path) -> None:
@@ -564,6 +569,21 @@ def test_a_run_fails_only_when_it_did_no_work_to_judge(
   task = AgentTask("Go.", {}, str(tmp_path), None)
   found = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
   assert found.status == status
+  assert found.ending == (subtype or "no result")
+  assert found.resumable is False
+
+
+def test_a_run_tells_its_ending_and_a_named_spec_names_its_files(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(tmp_path, [{"lines": [result(session_id="s1")]}])
+  runs = tmp_path / "runs"
+  runner = claude.Runner(fake.session, claude.numbered(runs))
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  spec = AgentSpec("Go.", tmp_path, name="review")
+  found = runner.start(spec, task, HOST)
+  assert (found.ending, found.resumable) == ("success", True)
+  assert (runs / "review-1.trace.jsonl").exists()
 
 
 def test_each_continued_start_has_a_cap_of_its_own(tmp_path: Path) -> None:

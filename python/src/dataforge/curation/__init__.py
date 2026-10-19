@@ -16,6 +16,8 @@ from dataforge.curation.actions import (
   fan_out,
   HOST,
   Host,
+  Judge,
+  JudgeError,
   Limits,
   Mount,
   ResourcePool,
@@ -24,6 +26,7 @@ from dataforge.curation.actions import (
   TrialAgent,
   TrialResult,
   TrialRunner,
+  Verdict,
 )
 from dataforge.curation.engine import (
   ActionRecord,
@@ -73,6 +76,8 @@ __all__ = [
   "HarborRunner",
   "Host",
   "Input",
+  "Judge",
+  "JudgeError",
   "Limits",
   "Machine",
   "Mount",
@@ -89,6 +94,7 @@ __all__ = [
   "TrialRunner",
   "TrialSetup",
   "TrialState",
+  "Verdict",
   "Version",
   "Visit",
   "fan_out",

@@ -21,6 +21,8 @@ from dataforge.curation import (
   Env,
   fan_out,
   Goto,
+  Judge,
+  JudgeError,
   Limits,
   Machine,
   Mount,
@@ -562,3 +564,136 @@ def test_collect_removes_what_a_fix_deleted(
       return Outcome("ok")
 
     once(tmp_path, body)
+
+
+MAKE_TASK = ScriptSpec(
+  ["sh", "-c", 'T="$DATAFORGE_OUTPUTS/task"; mkdir "$T"; echo hi > "$T/a.txt"'],
+  outputs=["task"],
+)
+ECHO_ARGS = ["sh", "-c", 'echo "$@" > "$DATAFORGE_OUTPUTS/args"', "echo"]
+
+
+def test_inputs_name_paths_in_artifacts_and_may_be_optional(
+  tmp_path: Path,
+) -> None:
+  def body(ctx: Context) -> Outcome:
+    actions = Actions()
+    assert actions.script(ctx, MAKE_TASK).ok
+    spec = ScriptSpec(
+      ECHO_ARGS,
+      inputs=["task/a.txt"],
+      outputs=["args"],
+      optional_inputs=["absent", "task/absent.txt", "task"],
+    )
+    result = actions.script(ctx, spec)
+    task = ctx.outdir / "task"
+    assert result.outputs["args"].read_text() == f"{task}/a.txt {task}\n"
+    with pytest.raises(KeyError):
+      _ = actions.script(ctx, ScriptSpec(["true"], inputs=["absent/x"]))
+    # An output whose name has a "/" is found by its whole name first.
+    nested = [
+      "sh",
+      "-c",
+      'mkdir "$DATAFORGE_OUTPUTS/d"; touch "$DATAFORGE_OUTPUTS/d/x"',
+    ]
+    assert actions.script(ctx, ScriptSpec(nested, outputs=["d/x"])).ok
+    echo = ["sh", "-c", 'echo "$0" > "$DATAFORGE_OUTPUTS/named"']
+    spec = ScriptSpec(echo, inputs=["d/x"], outputs=["named"])
+    assert actions.script(ctx, spec).ok
+    assert (ctx.outdir / "named").read_text() == f"{ctx.outdir}/d/x\n"
+    return Outcome("ok")
+
+  once(tmp_path, body)
+
+
+class HostAgent:
+  """Writes "done" to the output "out" and keeps its prompts."""
+
+  def __init__(self) -> None:
+    self.prompts: list[str] = []
+
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    self.prompts.append(task.prompt)
+    _ = (Path(task.outdir) / "out").write_text("done")
+    return AgentRun(None, "ok", 0.0, None, "done")
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    raise AssertionError("no fixes here")
+
+
+def test_the_validator_gets_the_input_paths(tmp_path: Path) -> None:
+  validator = tmp_path / "check.sh"
+  seen = tmp_path / "seen"
+  _ = validator.write_text(f'#!/bin/sh\necho "$@" > {seen}\n')
+  validator.chmod(0o755)
+  hint = tmp_path / "hint.txt"
+  _ = hint.write_text("hint")
+  agent = HostAgent()
+
+  def body(ctx: Context) -> Outcome:
+    spec = AgentSpec(
+      "Write.",
+      tmp_path,
+      inputs=[hint],
+      outputs=["out"],
+      validator=validator,
+      optional_inputs=[tmp_path / "absent.txt", validator],
+    )
+    assert Actions(agent_runner=agent).agent(ctx, spec).ok
+    copy = ctx.attempt.root / "validators/a/1/1/check.sh"
+    args = f"{ctx.outdir} {hint} {validator}"
+    assert f"run `{copy} {args}`" in agent.prompts[0]
+    assert seen.read_text() == f"{args}\n"
+    return Outcome("ok")
+
+  once(tmp_path, body)
+
+
+def test_a_judge_without_a_valid_verdict_is_recorded_and_raises(
+  tmp_path: Path,
+) -> None:
+  out = '"$DATAFORGE_OUTPUTS/verdict.json"'
+  for script, why in [
+    ("exit 2", "the judge exited 2"),
+    ("true", "no valid verdict.json"),
+    (f"echo '[]' > {out}", "verdict.json is not an object"),
+    (
+      f"echo '{{\"outcome\": 1}}' > {out}",
+      "verdict.json has no outcome string",
+    ),
+    (
+      f'echo \'{{"outcome": "x", "data": []}}\' > {out}',
+      "verdict.json: data is not an object",
+    ),
+    (
+      f'echo \'{{"outcome": "x", "feedback": {{"a": 1}}}}\' > {out}',
+      "verdict.json: feedback is not an object of strings",
+    ),
+  ]:
+
+    def body(ctx: Context, script: str = script, why: str = why) -> Outcome:
+      judge = Judge(ScriptSpec(["sh", "-c", script]))
+      with pytest.raises(JudgeError, match=f"a visit 1: {why}"):
+        _ = Actions().judge(ctx, judge)
+      assert [(a.kind, a.status) for a in ctx.attempt.visits[0].actions] == [
+        ("judge", "failed")
+      ]
+      return Outcome("ok")
+
+    once(tmp_path / str(len(why)), body)
+
+
+def test_a_path_in_an_artifact_is_staged_in_docker(tmp_path: Path) -> None:
+  docker = FakeDocker(tmp_path / "container")
+  with Docker("task:1", cli=docker) as env:
+
+    def body(ctx: Context) -> Outcome:
+      actions = Actions()
+      assert actions.script(ctx, MAKE_TASK).ok
+      spec = ScriptSpec(["true"], inputs=["task/a.txt"])
+      assert actions.script(ctx, spec, env).ok
+      return Outcome("ok")
+
+    once(tmp_path, body)
+  staged = docker.path("/dataforge/a/1/2/inputs/task/a.txt")
+  assert staged.read_text() == "hi\n"
