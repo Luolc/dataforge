@@ -46,7 +46,8 @@ Not in scope:
   ------------------------------------------------------------------
   pyproject.toml: dataforge @ git+https://github.com/Luolc/dataforge@<sha>#subdirectory=python
   its states (bodies, transitions, caps) -> dataforge.statemachine.run_attempt
-    -> actions: agent (via an AgentRunner), container, script, fan_out
+    -> actions: agent, script (on Host or Docker), trial, fan_out
+    -> ResourcePool (memory reservations shared by every attempt)
 ```
 
 The setup in `machine/` runs once per machine and again for upgrades. The gateway shim is first on `PATH` in every zsh (invariant 5), so a `claude` started in a shell goes through it; the setup passes no token.
@@ -64,66 +65,71 @@ Each one links to the test that guards it. Test files: [`machine/tests/`](../mac
 7. Every zsh sources `zshenv.local` when it is readable, and the setup never writes it. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "zshenv.local not sourced", "the setup changed zshenv.local".
 8. This file has at most 200 lines. [`design-length.test.sh`](../.github/scripts/design-length.test.sh).
 
-The state machine's invariants (section 5) are untested until its tests exist in `python/tests/test_statemachine.py`:
+The state machine's invariants (section 5) are untested until `python/tests/test_statemachine.py` exists; each names the test planned to guard it:
 
-9. The engine moves only as the current state's transitions say, and an outcome a state has no transition for raises `ValueError` naming the state and the outcome. Untested.
-10. An attempt ends with the status the table of section 5, "Ending an attempt", gives for how it ended, and never enters a state more than its `max_visits` times. Untested.
-11. An agent action with a validator resumes its session with the validator's output at most `max_fixes` times, and fails when the validator still fails after them. Untested.
-12. An exception from a body, an action, `guard` or `on_step` reaches the caller unchanged, after the visit is recorded with outcome `raised`. Untested.
-13. The package imports nothing outside the standard library. Untested.
+9. The engine moves only as the current state's transitions say; an outcome with no transition raises `ValueError` naming the state and the outcome. Untested (`test_an_outcome_without_a_transition_is_an_error`).
+10. An attempt ends with the status the table "Ending an attempt" (section 5) gives, and never enters a state more than its `max_visits` times. Untested (`test_cap_without_a_mark_fails`, `test_cap_after_a_mark_keeps_the_marked_visit`, `test_guard_blocks_with_budget`, `test_last_outcome_ends_on_reentry`).
+11. The validator binds the agent: the host runs its own copy on the outputs, resumes the session with its output at most `max_fixes` times, and fails the action when it still fails. Untested (`test_validator_failure_resumes_the_agent_with_its_output`, `test_validator_failing_past_max_fixes_returns_to_author`).
+12. An exception from a body, an action, `guard` or `on_step` reaches the caller unchanged, after the visit is recorded with outcome `raised`. Untested (`test_a_raising_body_is_recorded_and_raised`).
+13. The pool never lets its reservations exceed `memory_gb`, or more than `max_running` of them run at once; a request waits until it fits. Untested.
+14. The package imports nothing outside the standard library. Untested.
 
 ## 4. Interfaces
 
 - Setting up a data machine: [`machine/README.md`](../machine/README.md); settings in [`machine/playbook.yml`](../machine/playbook.yml), versions in [`machine/versions.yml`](../machine/versions.yml).
 - The machine's own settings, which the setup reads and never writes: the GitHub token in `~/.config/dataforge/github-token`, the git identity and gateway address in `~/.config/dataforge/setup.yml`, and private environment variables in `~/.config/dataforge/zshenv.local`.
 - Install paths that other setups may rely on: `/usr/local/bin/<name>` for `fleet`, `fednet`, `atb`, `statute`, `herdr` and `gh`; `/usr/bin/<name>` for `tailscale`, `op` and `direnv`.
-- The state machine, planned, not built: `dataforge.statemachine` exports `run_attempt`, `State`, `Outcome`, `Goto`, `End`, `Report`, `Attempt`, the specs `AgentSpec`, `ContainerSpec` and `ScriptSpec`, `ActionResult`, the protocols `AgentRunner` (with its result `AgentRun`) and `ContainerRunner`, and `DockerRunner` (section 5). A dataset repo installs it from git, pinned to a commit of main whose CI run for the push succeeded on its first attempt; upgrading is changing that SHA. There is no tag and no package index release.
+- The state machine, planned, not built: `dataforge.statemachine` exports `run_attempt`, `State`, `Outcome`, `Goto`, `End`, `Report`, `Attempt` and `Visit`; the environments `Host` and `Docker` with `Mount`; `AgentSpec`, `ScriptSpec` and `ActionResult`; the protocols `AgentRunner` (returning `AgentRun`) and `TrialRunner` (returning `TrialResult`); and `ResourcePool` (section 5). A dataset repo installs it from git, pinned to a commit of main whose CI run for the push succeeded on its first attempt; upgrading is changing that SHA. There is no tag and no package index release.
 
 ## 5. The state machine
 
 Planned, not built: `python/` does not exist yet. It replaces nothing in this repo.
 
-An attempt makes one data item. It is a sequence of visits to states, starting at the first state `run_attempt` is given. A dataset writes each state as `State(name, body, transitions, max_visits)`:
+An attempt makes one data item. It is a sequence of visits to states, starting at the first state given to `run_attempt(states, root, *, agent_runner, trial_runner, pool, guard, on_step)`, which first checks that state names are unique, every `Goto` target exists and every `max_visits` is at least 1. A dataset writes each state as `State(name, body, transitions, max_visits, on_exhausted="failed")`:
 
 - `body(ctx) -> Outcome(name, data, last=False)` does the state's work by calling the actions below; `data` is a dict that converts to JSON.
 - `transitions` maps each outcome name to `Goto(state, report=True, mark=None)` or `End(status)`. Each state chooses where to go; the engine knows no state's name, and this repo holds no dataset's table.
-- `max_visits` caps how many times the state is entered in one attempt.
+- `max_visits` caps how many times the state is entered in one attempt; `on_exhausted` is the status when that cap ends it with no mark.
 
 A `Goto` with `report=True` hands the target state `ctx.report`, a `Report(from_state, outcome, data, artifacts)`; the dataset renders its text. A `mark` (for example `too_easy`) records that the item as this visit left it may be kept if the attempt ends without passing. `last=True` says the state is not to be entered again.
 
 ### Actions
 
-Each action takes named input artifacts, writes named output artifacts and returns `ActionResult(status, outputs, log)`. A body calls them on its context:
+What runs and where it runs are apart. An environment is `Host()` or `Docker(image, mounts, cpus, cpu_shares, memory, pids, network, labels, security)`. A `Docker` environment is a container created on first use and removed when the attempt ends; it is started for each action in it and stopped after, so it keeps its files across visits. A body calls the actions on its context; they write their outputs to the visit's directory `ctx.outdir`, and `agent` and `script` return `ActionResult(status, outputs, log, value, cost_usd)`:
 
-- `ctx.agent(AgentSpec)` runs a headless coding agent: `prompt`, `workdir`, `inputs`, `outputs`, an optional `container` (image, mounts, network), `tools`, an optional `output_schema`, and an optional `validator` with `max_fixes`. The prompt tells the agent about the validator and how to run it, and the engine runs it again after the agent ends (invariant 11). A rubric judge is an agent with no tools and an `output_schema`.
-- `ctx.container(ContainerSpec)` runs one command in a container through the `ContainerRunner` given to `run_attempt`. `DockerRunner`, which uses `docker run`, is the default; a dataset that runs something else (Harbor's nop and oracle, say) implements the same protocol.
-- `ctx.script(ScriptSpec)` runs a script on the host with its inputs as paths, passing when it exits 0. A validator is a `ScriptSpec`, run on the agent step's output directory.
-- `ctx.fan_out(make, k, concurrency)` runs `make(i)` for `i` in `0..k-1`, one at a time when `concurrency` is 1, all at once when it is `k`, otherwise in a pool of that size, and returns the results in order. pass@k is a `fan_out` of agents or containers, and the body turns the count of passes into its outcome.
+- `ctx.agent(AgentSpec, env)` runs a headless coding agent: `prompt`, `workdir`, `inputs`, `outputs`, `tools`, an optional `output_schema` (whose parsed reply is `value`) and an optional `validator` with `max_fixes`. The agent gets a read-only copy of the validator at a path the prompt names and is told to make it pass; the host then reruns its own original on the outputs (invariant 11). A rubric judge is an agent with no tools and an `output_schema`.
+- `ctx.script(ScriptSpec, env)` runs a command with its inputs as paths and passes when it exits 0. A script that declares `memory_gb` reserves it from the pool, for heavy host work such as an image build. A validator is an executable that takes the output directory as its one argument.
+- `ctx.trial(task_dir, agent, limits)` runs one trial of a task the way Harbor does: it starts the task's environment, runs the agent (`nop`, `oracle` or an agent's configuration) and its verifier, and returns `TrialResult(rewards, exception, cost, seconds, artifacts)`.
+- `ctx.fan_out(calls)` runs each zero-argument call at once and returns their results in the order given. pass@k is a `fan_out` of k trials, and the body turns the rewards into its outcome.
 
-Agents run through the `AgentRunner` protocol given to `run_attempt`: `start(spec)` and `resume(session, prompt)`, each returning `AgentRun(session, status, cost_usd, trace)`. The engine depends on nothing else about the agent; an implementation for each agent tool is the dataset's until this package has one.
+Agents run through the dataset's `AgentRunner`: `start(spec, task)` and `resume(session, prompt)` return `AgentRun(session, status, cost_usd, trace, result)`, and an optional `close(session)` runs after the action. The session is the runner's own object. Trials run through the dataset's `TrialRunner`. The engine depends on nothing else about either, and this package holds no implementation of them yet.
+
+### Scheduling
+
+A `ResourcePool(memory_gb, max_running=None)`, one per process, is shared by every attempt and action in it, attempts running in threads and a visit's actions running concurrently. Before a `Docker` environment starts, a trial runs or a script with `memory_gb` runs, it reserves its memory limit, waiting while the pool lacks it, and returns it when it stops (invariant 13). Each action holds one reservation at most, so no two wait on each other. CPUs are shared by each container's `cpus` cap and `cpu_shares` weight, not reserved. Creating a pool larger than the machine's `MemAvailable` raises `ValueError`, and so does a reservation larger than the pool.
 
 ### Artifacts
 
-Each attempt has a directory, the `root` given to `run_attempt`. An action's outputs are stored under `artifacts/<state>/<visit>/<name>`. `ctx.artifacts.get(name)` returns the latest version of an artifact and `ctx.artifacts.history(name)` every version, oldest first. An action's inputs name artifacts or paths; agents, containers and scripts get them read-only.
+Each attempt has a directory, the `root` the dataset gives. An action's outputs are stored under `artifacts/<state>/<visit>/<name>`; names are unique within a visit. `ctx.artifacts.get(name)` returns the latest version of an artifact and `ctx.artifacts.history(name)` every version, oldest first. An action's inputs name artifacts or give paths; actions get them read-only.
 
 ### Ending an attempt
 
 | Status | When |
 | -- | -- |
 | the `End` status | a transition reached `End(status)`, for example `passed` |
-| the last mark | a state's visits were exceeded, a state was entered again after `last=True`, or `guard` blocked a state, and a transition taken before had a mark; `kept_visit` names the visit that transition left |
-| `error` | a state's visits were exceeded or it was entered again after `last=True`, with no mark before; `reason` names the state and the visit |
-| `budget` | `guard` blocked a state with no mark before; `reason` holds the guard's reason |
+| the last mark | a state's visits were exceeded, it was entered again after `last=True`, or `guard` blocked it, and a `Goto` taken before had a mark; `kept_visit` names the visit that `Goto` left |
+| the state's `on_exhausted` | its visits were exceeded or it was entered again after `last=True`, with no mark before |
+| `budget` | `guard` blocked a state with no mark before |
 
-`guard(ctx, state) -> str | None` is optional and runs before each visit; a reason blocks the visit. An exception is never turned into a status (invariant 12).
+`guard(ctx, state) -> str | None` is optional and runs before each visit; a reason blocks the visit. In the last three rows `reason` names the state, the visit and the cause. An exception is never turned into a status (invariant 12).
 
 ### The record
 
-`run_attempt` returns an `Attempt`; `to_json()` gives `{status, reason, kept_visit, final, visits}`. Each visit is `{state, visit, outcome, data, actions: [{kind, status, outputs, started_at, ended_at}]}`, times in UTC ISO 8601. `final` is, for each state, its last visit up to the end, or up to `kept_visit` when the item is kept: the last result of every state that judged the item, pass@k's included. The engine writes no file of its own: after each visit it calls the optional `on_step(attempt)`, and the dataset decides where the record goes. Attempts in one process may run concurrently.
+`run_attempt` returns an `Attempt`; `to_json()` gives `{status, reason, kept_visit, final, visits}`. Each visit is `{state, visit, outcome, data, mark, actions: [{kind, status, outputs, cost_usd, started_at, ended_at}]}`, times in UTC ISO 8601. `final` maps each state to its last visit up to the end, or up to `kept_visit` when the item is kept, pass@k's included. The engine writes no record file: after each visit it calls the optional `on_step(attempt)`, and the dataset decides where the record goes.
 
 ### What a dataset gives
 
-Its states, with their bodies, transitions, marks and caps; an `AgentRunner`; a `ContainerRunner` when `docker run` does not fit; and optionally `guard` and `on_step`.
+Its states, with bodies, transitions, marks and caps; the attempt's root; an `AgentRunner` and a `TrialRunner` when its states use agents or trials; the pool; and optionally `guard` and `on_step`.
 
 ### Open questions
 
