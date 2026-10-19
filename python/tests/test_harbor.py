@@ -9,14 +9,16 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from dataforge.curation.actions import Limits, Mount
-from dataforge.curation.harbor import LABEL, SIDECAR, HarborRunner, Sidecar
+from dataforge.curation.actions import Limits, Mount, TrialAgent
+from dataforge.curation.harbor import LABEL, SIDECAR, HarborRunner, Sidecar, TrialSetup
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json and then does what FAKE_MODE
 # says: "ok", "exception", "no-reward", "exit" (exit 3 with no result) or "hang" (start a
@@ -297,46 +299,82 @@ def test_a_trial_reserves_the_tasks_memory_and_the_sidecars(fakes: tuple[Path, P
     assert bigger.memory_gb(Limits(2)) == 2.25
 
 
-def test_pre_start_runs_with_the_outdir_before_harbor(
-    tmp_path: Path, fakes: tuple[Path, Path]
-) -> None:
-    calls: list[tuple[Path, bool]] = []
-    out = outdir(tmp_path)
+class Setup:
+    """A setup that records what it saw on entering and leaving, and adds to the trial."""
 
-    def pre_start(path: Path) -> None:
-        calls.append((path, (path / "fake.json").exists()))
+    def __init__(self, fakes: tuple[Path, Path], tmp_path: Path) -> None:
+        self.fakes: tuple[Path, Path] = fakes
+        self.socket: Path = tmp_path / "gateway"
+        self.overlay: Path = tmp_path / "extra.json"
+        _ = self.overlay.write_text("{}")
+        self.calls: list[tuple[str, Path, bool, int]] = []
+        self.args: list[tuple[Path, TrialAgent, Limits]] = []
 
-    _ = replace(runner(fakes), pre_start=pre_start).run(task(tmp_path), "nop", Limits(2), out)
-    assert calls == [(out, False)]
-    assert (out / "fake.json").exists()
+    @contextmanager
+    def __call__(
+        self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+    ) -> Generator[TrialSetup]:
+        self.args.append((task_dir, agent, limits))
+        self.calls.append(self._seen("enter", outdir))
+        try:
+            yield TrialSetup(
+                mounts=[Mount(self.socket, "/run/gateway", read_only=False)],
+                env={"MODEL_URL": "http://gateway.example.test"},
+                compose_overlay=[self.overlay],
+            )
+        finally:
+            self.calls.append(self._seen("exit", outdir))
+
+    def _seen(self, what: str, outdir: Path) -> tuple[str, Path, bool, int]:
+        docker = (
+            len(docker_calls(self.fakes)) if (self.fakes[1].parent / "calls.jsonl").exists() else 0
+        )
+        return what, outdir, (outdir / "fake.json").exists(), docker
 
 
 @pytest.mark.parametrize("mode", ["ok", "exit"])
-def test_post_run_runs_with_the_outdir_after_the_cleanup(
+def test_the_setup_spans_harbor_and_the_cleanup(
     tmp_path: Path, fakes: tuple[Path, Path], mode: str
 ) -> None:
-    calls: list[tuple[Path, int]] = []
     out = outdir(tmp_path)
-
-    def post_run(path: Path) -> None:
-        calls.append((path, len(docker_calls(fakes))))
-
-    run = replace(runner(fakes, mode), post_run=post_run)
-    _ = run.run(task(tmp_path), "nop", Limits(2), out)
-    assert calls == [(out, len(docker_calls(fakes)))]
+    setup = Setup(fakes, tmp_path)
+    _ = replace(runner(fakes, mode), setup=setup).run(task(tmp_path), "nop", Limits(2), out)
+    assert setup.calls == [("enter", out, False, 0), ("exit", out, True, len(docker_calls(fakes)))]
 
 
-def test_post_run_runs_when_pre_start_raises(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
-    calls: list[Path] = []
+def test_what_the_setup_yields_reaches_the_trial(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
     out = outdir(tmp_path)
+    setup = Setup(fakes, tmp_path)
+    run = replace(
+        runner(fakes),
+        mounts=[Mount(tmp_path / "cache", "/cache")],
+        compose_overlay=[tmp_path / "own.json"],
+        setup=setup,
+    )
+    agent = {"name": "claude-code"}
+    _ = run.run(task(tmp_path), agent, Limits(2), out)
+    assert setup.args == [(tmp_path / "task", agent, Limits(2))]
+    main = json.loads((out / "overlay.json").read_text())["services"]["main"]
+    assert main["volumes"] == [
+        f"{(tmp_path / 'cache').resolve()}:/cache:ro",
+        f"{setup.socket.resolve()}:/run/gateway",
+    ]
+    assert main["environment"] == ["FAKE_MODE", "MODEL_URL"]
+    assert seen_env(out)["MODEL_URL"] == "http://gateway.example.test"
+    argv = seen_argv(out)
+    overlays = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--extra-docker-compose"]
+    assert overlays[1:] == [str((tmp_path / "own.json").resolve()), str(setup.overlay.resolve())]
 
-    def pre_start(_: Path) -> None:
-        raise OSError("the gateway did not start")
 
-    run = replace(runner(fakes), pre_start=pre_start, post_run=calls.append)
-    with pytest.raises(OSError, match="the gateway did not start"):
-        _ = run.run(task(tmp_path), "nop", Limits(2), out)
-    assert calls == [out]
+def test_the_setup_is_left_when_the_cleanup_fails(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
+    _ = (fakes[1].parent / "network.ids").write_text("n1")
+    _ = (fakes[1].parent / "stuck").write_text("")
+    setup = Setup(fakes, tmp_path)
+    with pytest.raises(RuntimeError, match="'network': 1"):
+        _ = replace(runner(fakes), setup=setup).run(
+            task(tmp_path), "nop", Limits(2), outdir(tmp_path)
+        )
+    assert [call[0] for call in setup.calls] == ["enter", "exit"]
 
 
 def test_every_trial_has_its_own_label(tmp_path: Path, fakes: tuple[Path, Path]) -> None:

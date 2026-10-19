@@ -28,8 +28,8 @@ the overlay; compose rejects a list that has an item twice, so the overlay leave
 the task's `main` already has, and `main` still ends up with every one of them.
 
 A dataset connects its own host side (a model gateway, say) through `mounts`, `env`, extra
-compose files in `compose_overlay`, `pre_start`, called before Harbor starts, and `post_run`,
-called after the trial's cleanup whatever happened.
+compose files in `compose_overlay`, and `setup`, a context that spans the whole trial and may
+add to the other three for that trial.
 """
 
 import json
@@ -40,7 +40,8 @@ import time
 import tomllib
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from contextlib import AbstractContextManager, nullcontext
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -87,6 +88,16 @@ class Sidecar:
 
 
 @dataclass(frozen=True)
+class TrialSetup:
+    """What a dataset adds to one trial, on top of the runner's own mounts, env and
+    compose_overlay: env's variables replace the runner's of the same name."""
+
+    mounts: Sequence[Mount] = ()
+    env: Mapping[str, str] = field(default_factory=dict[str, str])
+    compose_overlay: Sequence[Path] = ()
+
+
+@dataclass(frozen=True)
 class HarborRunner:
     """A TrialRunner that runs each trial as a Harbor job of one attempt.
 
@@ -99,8 +110,12 @@ class HarborRunner:
     some variables from their own environment. The overlay names env's variables without
     their values. compose_overlay files come after ours, so they can override it; one that
     names the container's network (`network_mode: none`, say) takes it off Harbor's egress
-    sidecar. pre_start is called with the trial's outdir before Harbor starts, and post_run
-    with it after the cleanup, also when pre_start or Harbor failed. docker is the docker
+    sidecar. setup, when given, is called with run's arguments, so that it can tell an
+    agent's trial from nop's or oracle's; run enters the context it returns before it writes
+    the overlay and starts Harbor, adds the TrialSetup it yields to the trial, and exits it
+    after the cleanup, also when Harbor or the cleanup failed. A dataset serves a model
+    gateway on a socket there, say, and yields the socket's mount. It runs inside the
+    trial's reservation from the pool, as run does. docker is the docker
     command that reads the task's compose file and that the cleanup runs; when docker fails
     during the cleanup, run raises, since it cannot tell what is left.
     """
@@ -114,8 +129,9 @@ class HarborRunner:
     mounts: Sequence[Mount] = ()
     env: Mapping[str, str] = field(default_factory=dict[str, str])
     compose_overlay: Sequence[Path] = ()
-    pre_start: Callable[[Path], None] | None = None
-    post_run: Callable[[Path], None] | None = None
+    setup: Callable[[Path, TrialAgent, Limits, Path], AbstractContextManager[TrialSetup]] | None = (
+        None
+    )
     docker: str = "docker"
 
     def memory_gb(self, limits: Limits) -> float:
@@ -123,6 +139,21 @@ class HarborRunner:
         return limits.memory_gb + self.sidecar.memory_gb
 
     def run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
+        context = (
+            nullcontext(TrialSetup())
+            if self.setup is None
+            else self.setup(task_dir, agent, limits, outdir)
+        )
+        with context as extra:
+            runner = replace(
+                self,
+                mounts=(*self.mounts, *extra.mounts),
+                env={**self.env, **extra.env},
+                compose_overlay=(*self.compose_overlay, *extra.compose_overlay),
+            )
+            return runner._run(task_dir, agent, limits, outdir)
+
+    def _run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
         egress = _has_sidecar(task_dir)
         agent_args = _agent_args(agent)
         label = uuid.uuid4().hex
@@ -145,18 +176,12 @@ class HarborRunner:
         log = outdir / "harbor.log"
         started = time.monotonic()
         try:
-            if self.pre_start is not None:
-                self.pre_start(outdir)
             error = self._harbor(args, log)
         finally:
             try:
                 self._chown(outdir, label)
             finally:
-                try:
-                    left = cleanup(f"{LABEL}={label}", self.docker)
-                finally:
-                    if self.post_run is not None:
-                        self.post_run(outdir)
+                left = cleanup(f"{LABEL}={label}", self.docker)
         if any(left.values()):
             raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
         return _read(outdir, log, error, time.monotonic() - started)
