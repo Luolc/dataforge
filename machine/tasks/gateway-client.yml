@@ -53,8 +53,11 @@
             mode: "0755"
 
         # get_url checks the digest of the downloaded file before it writes
-        # dest, and fails on a mismatch.
+        # dest, and fails on a mismatch. Check mode does not make the new
+        # directory, so there is nowhere to download to; the task above
+        # reports the change.
         - name: Gateway client | download
+          when: not ansible_check_mode
           ansible.builtin.get_url:
             url: "{{ gw_url }}/{{ item.asset }}"
             dest: "{{ gw_dir }}.new/{{ item.name }}"

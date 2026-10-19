@@ -39,7 +39,10 @@
         checksum: "sha256:{{ release_sha256[0] }}"
         mode: "0644"
 
+    # Check mode makes neither the version directory nor the tarball, so
+    # there is nothing to unpack; the two tasks above report the change.
     - name: "{{ tool.name }} | unpacked"
+      when: not ansible_check_mode
       ansible.builtin.unarchive:
         src: "{{ dir }}.tar.gz"
         dest: "{{ dir }}"
