@@ -12,8 +12,8 @@
 # personal zsh switch. Docker is checked as installed, with its log rotation
 # in daemon.json, Chrome as running, with the CJK fonts, no apt source and
 # only its pinned .deb kept, a Chrome .deb with the wrong sha256 as refused,
-# and check mode on a machine that lacks a vendor apt source as running to
-# the end.
+# and check mode on a machine that lacks a vendor apt source, or that Chrome
+# was never installed on, as running to the end.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -225,6 +225,21 @@ recap run2v.log | grep -Eq 'unreachable=0 +failed=0 .*ignored=1' || {
 }
 grep -q 'TASK \[Base agent instructions\]' "$out/run2v.log" || fail "check-mode run without the Node.js source stopped before the last task"
 ok "check-mode run without the Node.js source: $(recap run2v.log)"
+
+# A machine Chrome was never installed on has no /opt/google-chrome. Check
+# mode creates no directory, so it cannot download into one; it still
+# previews the rest of the setup and leaves the directory uncreated.
+sudo mv /opt/google-chrome "$out/google-chrome"
+setup run2h.log --check ||
+  { tail -n 40 "$out/run2h.log"; fail "check-mode run before Chrome is installed"; }
+[ ! -e /opt/google-chrome ] || fail "check mode created /opt/google-chrome"
+sudo mv "$out/google-chrome" /opt/google-chrome
+recap run2h.log | grep -Eq 'unreachable=0 +failed=0' || {
+  grep -A3 -E '^TASK \[Google Chrome' "$out/run2h.log" || true
+  fail "check-mode run before Chrome is installed: $(recap run2h.log)"
+}
+grep -q 'TASK \[Base agent instructions\]' "$out/run2h.log" || fail "check-mode run before Chrome is installed stopped before the last task"
+ok "check-mode run before Chrome is installed: $(recap run2h.log)"
 
 for d in dev wt scratch; do [ -d "$HOME/$d" ] || fail "$HOME/$d missing"; done
 ok "dev, wt and scratch under $HOME"
