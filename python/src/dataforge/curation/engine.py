@@ -20,8 +20,8 @@ type Data = Mapping[str, object]
 JSON."""
 
 type Input = str | Path
-"""An action input: a str names an artifact (its latest version), or a path
-inside it as "<artifact>/<path>"; a Path is used as is."""
+"""An action input: a str names an artifact (its latest version), or else a
+path inside one as "<artifact>/<path>"; a Path is used as is."""
 
 
 @dataclass(frozen=True)
@@ -456,9 +456,10 @@ class Context:
         or its path does not exist.
 
     Returns:
-      For a name, the artifact's latest version, or for "<artifact>/<path>"
-      that path in it, by the str; for a path, the path by its file name. An
-      artifact of inputs with no version raises KeyError.
+      For a name, the artifact's latest version, or when no artifact has the
+      name and it is "<artifact>/<path>", that path in it, by the str; for a
+      path, the path by its file name. An artifact of inputs with no version
+      raises KeyError.
     """
     paths = {_name(item): self._path(item) for item in inputs}
     for item in optional:
@@ -473,6 +474,8 @@ class Context:
   def _path(self, item: Input) -> Path:
     if isinstance(item, Path):
       return item
+    if self._artifacts.history(item):
+      return self._artifacts.get(item)
     artifact, _, inside = item.partition("/")
     path = self._artifacts.get(artifact)
     return path / inside if inside else path

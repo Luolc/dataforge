@@ -353,6 +353,7 @@ verdict = {
     ],
     "root": os.environ["DATAFORGE_ROOT"],
     "visits": len(record["visits"]),
+    "actions": [action["kind"] for action in record["visits"][-1]["actions"]],
   },
   "feedback": {"details": "every trial solved it"},
 }
@@ -394,6 +395,7 @@ def test_pass_at_k_with_a_judge_takes_its_verdict(tmp_path: Path) -> None:
     "env": ["p", "1", "1"],
     "root": str(root),
     "visits": 1,
+    "actions": ["trial", "trial"],
   }
   assert seen[0].feedback == {"details": "every trial solved it"}
   kinds = [(a.kind, a.status) for a in attempt.visits[0].actions]

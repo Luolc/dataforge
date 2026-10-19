@@ -590,6 +590,17 @@ def test_inputs_name_paths_in_artifacts_and_may_be_optional(
     assert result.outputs["args"].read_text() == f"{task}/a.txt {task}\n"
     with pytest.raises(KeyError):
       _ = actions.script(ctx, ScriptSpec(["true"], inputs=["absent/x"]))
+    # An output whose name has a "/" is found by its whole name first.
+    nested = [
+      "sh",
+      "-c",
+      'mkdir "$DATAFORGE_OUTPUTS/d"; touch "$DATAFORGE_OUTPUTS/d/x"',
+    ]
+    assert actions.script(ctx, ScriptSpec(nested, outputs=["d/x"])).ok
+    echo = ["sh", "-c", 'echo "$0" > "$DATAFORGE_OUTPUTS/named"']
+    spec = ScriptSpec(echo, inputs=["d/x"], outputs=["named"])
+    assert actions.script(ctx, spec).ok
+    assert (ctx.outdir / "named").read_text() == f"{ctx.outdir}/d/x\n"
     return Outcome("ok")
 
   once(tmp_path, body)
