@@ -314,6 +314,7 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - R34 Treat publishing private material, rewriting shared history, deleting data without a copy, acting on someone's accounts and speaking for someone to third parties as irreversible external effects (Art. V §1(3)).
 - R35 Treat buying, resetting or unlocking a usage quota as an item of Art. V §1, which goes through a principal.
 - R65 When checking or debugging needs a tool the machine lacks, install nothing and change no system or global configuration; use a tool already there, or report the gap to whoever delegated the work.
+- L30 Under Art. IX §1(2), this project moves from Art. V §1(5) to Art. V §2 one change only: a run of `machine/bootstrap.sh`, from a checkout of a commit of `main`, installing or upgrading each tool that L28 has it install at its latest release to the release L28 selects, after that release's checksum file has verified the download; any other change the same run makes, such as restarting a service or changing a tool pinned in `machine/versions.yml`, is not covered and needs the yes it needed before.
 
 ### Relayed Approvals
 

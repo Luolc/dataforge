@@ -903,6 +903,13 @@ sha256 = "d5b89066c3038bd297f272ebd321becf5852c89b2ccbbdaec1b90ffb72d951b9"
 original-sha256 = "b7fe5be0032297b81475b2477fb8568109947b3c11b5a55f2f5add8b091610e8"
 by = "default"
 
+[[rules]]
+rule = "L30"
+revision = 1
+sha256 = "f8d417a7bf38b820a1f4060aa88e2cb3f8ee70c6d57ace0fdb84c8af6d7315ab"
+original-sha256 = "48efe658e0cbe4eda865aec6a42b7be9f59442e97a52c1d2055fc1f0a41c4ff0"
+by = "default"
+
 [[parameters]]
 name = "language.code-comments"
 value = "en"
