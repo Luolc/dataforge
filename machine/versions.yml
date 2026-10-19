@@ -11,7 +11,8 @@
 # would stop a new machine from installing. bootstrap.sh installs the first
 # list (what Ansible itself needs), the playbook the second.
 ubuntu_bootstrap_packages: ca-certificates curl python3 python3-apt
-ubuntu_packages: [git, jq, zsh, direnv]
+# fonts-noto-cjk gives the pages Chrome renders their CJK glyphs.
+ubuntu_packages: [git, jq, zsh, direnv, fonts-noto-cjk]
 
 # Read by bootstrap.sh: uv itself, then Ansible run through uv.
 uv_version: 0.12.22
@@ -34,6 +35,19 @@ tailscale_apt_gpg_sha256: 3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6
 tailscale_version: "1.104.1"
 op_apt_gpg_sha256: f39e7dd9dedc581ced85732832f217e0de5860a3b80279b5af4bc7c6d8157bae
 op_version: "2.41.0-1"
+
+# NodeSource keeps one repository per Node.js major version, and every
+# release of that line in it, so the package is pinned like Docker's.
+node_major: 26
+nodesource_apt_gpg_sha256: b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d
+nodejs_version: "26.12.0-1nodesource1"
+
+# Google Chrome's .deb from the pool of Google's apt repository, with the
+# SHA256 the repository's Packages index gives. The repository keeps only its
+# latest release, so once Google publishes the next one this file may be
+# removed, and the setup then fails until a PR moves the pin.
+google_chrome_version: "155.0.8059.84-1"
+google_chrome_sha256: 8fbd2ae69cdf7ee98b7513c3396a7b5e06f974f8625fdd590df3091dd0c3e9de
 
 herdr_version: 0.9.3
 herdr_sha256: 18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
