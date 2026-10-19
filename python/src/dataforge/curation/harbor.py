@@ -10,10 +10,11 @@ container: every capability dropped, `no-new-privileges`, a process limit, the t
 memory, a CPU weight, and a label that every container, network and image of the trial
 carries. It leaves the container's network to `task.toml`: Harbor routes the container through
 its egress sidecar only when no compose file names the container's network. When `task.toml`
-declares a network mode other than `public`, Harbor starts that sidecar, and the overlay labels
-it and caps its CPUs, memory and processes (`Sidecar`). Harbor reads its own compose file for
-the sidecar after ours, and that file sets none of these. A task directory's own compose file,
-which Harbor reads before ours, can take the same limits from DATAFORGE_SIDECAR_CPUS and
+declares a network mode other than `public`, for the environment or for the agent's or the
+verifier's phase, Harbor starts that sidecar, and the overlay labels it and caps its CPUs,
+memory and processes (`Sidecar`). Harbor reads its own compose file for the sidecar after
+ours, and that file sets none of these. A task directory's own compose file, which Harbor
+reads before ours, can take the same limits from DATAFORGE_SIDECAR_CPUS and
 DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment. After the run, whatever happened, the
 trial's files are given back to this user and everything with the label is removed.
 
@@ -49,6 +50,8 @@ PIDS = 512
 TIMEOUT = 3600.0
 SIDECAR = "harbor-docker-egress-control-sidecar"
 SIDECAR_PIDS = 64
+# The tables of task.toml whose network_mode can make Harbor start the sidecar.
+PHASES = ("environment", "agent", "verifier")
 # The variables that give a task directory's compose file the sidecar's limits; compose reads
 # them from Harbor's environment.
 SIDECAR_CPUS_VAR = "DATAFORGE_SIDECAR_CPUS"
@@ -65,7 +68,8 @@ class Sidecar:
     """The limits of Harbor's egress sidecar: its CPUs and its memory in MiB.
 
     The defaults are about three times the most a sidecar took in nop and oracle trials with
-    egress denied, measured on 2026-10-19: 22 MiB of memory, 23 processes and 0.17 of a CPU.
+    egress denied: 22 MiB of memory, 23 processes and 0.17 of a CPU, as a dataset repo
+    measured them with its own Harbor wrapper on 2026-10-19; they were not measured again here.
     """
 
     cpus: float = 0.5
@@ -111,11 +115,11 @@ class HarborRunner:
         return limits.memory_gb + self.sidecar.memory_gb
 
     def run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
-        environment = _task_environment(task_dir)
+        egress = _has_sidecar(task_dir)
         agent_args = _agent_args(agent)
         label = uuid.uuid4().hex
         overlay = outdir / "overlay.json"
-        _ = overlay.write_text(json.dumps(self.overlay(environment, limits, label), indent=2))
+        _ = overlay.write_text(json.dumps(self.overlay(egress, limits, label), indent=2))
         args = [
             str(self.harbor), "run",
             "--path", str(task_dir.resolve()),
@@ -144,8 +148,11 @@ class HarborRunner:
             raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
         return _read(outdir, log, error, time.monotonic() - started)
 
-    def overlay(self, environment: Mapping[str, object], limits: Limits, label: str) -> object:
-        """The compose overlay of one trial, as compose reads it from JSON."""
+    def overlay(self, egress: bool, limits: Limits, label: str) -> object:
+        """The compose overlay of one trial, as compose reads it from JSON.
+
+        egress says whether Harbor starts its egress sidecar for the task.
+        """
         labels = {LABEL: label}
         main: dict[str, object] = {
             "cap_drop": ["ALL"],
@@ -167,7 +174,7 @@ class HarborRunner:
             # so no value is written to the overlay in outdir.
             main["environment"] = sorted(self.env)
         services: dict[str, object] = {"main": main}
-        if environment.get("network_mode", "public") != "public":
+        if egress:
             services[SIDECAR] = {
                 "cpus": self.sidecar.cpus,
                 "mem_limit": f"{self.sidecar.memory_mb}m",
@@ -265,9 +272,11 @@ def _passed() -> dict[str, str]:
     return {key: os.environ[key] for key in PASSED if key in os.environ}
 
 
-def _task_environment(task_dir: Path) -> Mapping[str, object]:
+def _has_sidecar(task_dir: Path) -> bool:
     with (task_dir / "task.toml").open("rb") as f:
-        return cast(Mapping[str, object], tomllib.load(f).get("environment", {}))
+        config = tomllib.load(f)
+    tables = (cast(Mapping[str, object], config.get(name, {})) for name in PHASES)
+    return any(table.get("network_mode", "public") != "public" for table in tables)
 
 
 def _agent_args(agent: TrialAgent) -> list[str]:

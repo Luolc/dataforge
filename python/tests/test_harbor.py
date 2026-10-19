@@ -80,10 +80,12 @@ def fakes(tmp_path: Path) -> tuple[Path, Path]:
     return script(bin_dir / "harbor", FAKE_HARBOR), script(bin_dir / "docker", FAKE_DOCKER)
 
 
-def task(tmp_path: Path, network_mode: str = "public") -> Path:
+def task(tmp_path: Path, network_mode: str = "public", verifier: str | None = None) -> Path:
     task_dir = tmp_path / "task"
     task_dir.mkdir(exist_ok=True)
     toml = f'[environment]\nnetwork_mode = "{network_mode}"\nmemory_mb = 2048\n'
+    if verifier is not None:
+        toml += f'[verifier]\nnetwork_mode = "{verifier}"\n'
     _ = (task_dir / "task.toml").write_text(toml)
     return task_dir
 
@@ -241,6 +243,16 @@ def test_the_sidecar_takes_the_limits_it_is_given(tmp_path: Path, fakes: tuple[P
     env = seen_env(out)
     assert env["DATAFORGE_SIDECAR_CPUS"] == "1.0"
     assert env["DATAFORGE_SIDECAR_MEMORY_MB"] == "128"
+
+
+def test_a_phase_without_public_network_caps_and_labels_a_sidecar(
+    tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+    out = outdir(tmp_path)
+    _ = runner(fakes).run(task(tmp_path, verifier="no-network"), "nop", Limits(2), out)
+    sidecar = json.loads((out / "overlay.json").read_text())["services"][SIDECAR]
+    assert sidecar["mem_limit"] == "64m"
+    assert LABEL in sidecar["labels"]
 
 
 def test_a_trial_reserves_the_tasks_memory_and_the_sidecars(fakes: tuple[Path, Path]) -> None:
