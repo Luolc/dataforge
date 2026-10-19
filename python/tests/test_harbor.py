@@ -597,3 +597,17 @@ def test_the_merged_main_has_each_cap_once_with_the_tasks_compose_file(
   main = json.loads(merged.stdout)["services"]["main"]
   assert main["cap_drop"].count("ALL") == 1
   assert main["security_opt"].count("no-new-privileges:true") == 1
+
+
+@pytest.mark.parametrize(
+  "module", ["dataforge.runtime.claude", "dataforge.curation"]
+)
+def test_each_package_imports_first_in_a_fresh_interpreter(module: str) -> None:
+  # harbor and runtime.claude import each other; each must load on its own.
+  done = subprocess.run(
+    [sys.executable, "-I", "-c", f"import {module}"],
+    capture_output=True,
+    text=True,
+    check=False,
+  )
+  assert done.returncode == 0, done.stderr
