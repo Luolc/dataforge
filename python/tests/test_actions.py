@@ -269,6 +269,26 @@ def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path)
     assert lifecycle == ["create", "start", "stop", "start", "stop", "rm"]
 
 
+def test_a_failed_docker_start_returns_its_memory(tmp_path: Path) -> None:
+    docker = FakeDocker(tmp_path / "container")
+    failures = [CommandResult(1, "no such image")]
+
+    def cli(args: Sequence[str]) -> CommandResult:
+        return failures.pop() if args[0] == "create" and failures else docker(args)
+
+    pool = ResourcePool(0.5)
+    actions = Actions(pool=pool)
+    with Docker("solver:1", memory_gb=0.5, cli=cli) as env:
+
+        def body(ctx: Context) -> Outcome:
+            with pytest.raises(RuntimeError, match="no such image"):
+                _ = actions.script(ctx, ScriptSpec(["true"]), env)
+            assert pool.reserved_gb == 0.0
+            return Outcome(actions.script(ctx, ScriptSpec(["true"]), env).status)
+
+        once(tmp_path, body)
+
+
 def test_the_package_has_no_runtime_dependencies() -> None:
     pyproject = Path(__file__).parent.parent / "pyproject.toml"
     assert tomllib.loads(pyproject.read_text())["project"]["dependencies"] == []

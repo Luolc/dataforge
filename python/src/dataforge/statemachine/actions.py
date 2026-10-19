@@ -249,9 +249,13 @@ class Docker:
                 if pool is not None and self.memory_gb is not None:
                     pool.acquire(self.memory_gb)
                     self._pool = pool
-                if self._id is None:
-                    self._id = self._docker(self.create_args()).strip()
-                _ = self._docker(["start", self._id])
+                try:
+                    if self._id is None:
+                        self._id = self._docker(self.create_args()).strip()
+                    _ = self._docker(["start", self._id])
+                except BaseException:
+                    self._release()
+                    raise
             self._users += 1
 
     def stop(self) -> None:
@@ -261,9 +265,12 @@ class Docker:
                 try:
                     _ = self._docker(["stop", self._id])
                 finally:
-                    if self._pool is not None and self.memory_gb is not None:
-                        self._pool.release(self.memory_gb)
-                    self._pool = None
+                    self._release()
+
+    def _release(self) -> None:
+        if self._pool is not None and self.memory_gb is not None:
+            self._pool.release(self.memory_gb)
+        self._pool = None
 
     def remove(self) -> None:
         with self._lock:
