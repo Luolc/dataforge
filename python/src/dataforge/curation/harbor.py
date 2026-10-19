@@ -55,6 +55,7 @@ from typing import cast
 import uuid
 
 from dataforge.curation.actions import Limits, Mount, TrialAgent, TrialResult
+from dataforge.runtime.claude import read_trace
 
 LABEL = "dataforge.trial"
 CPUS = 2.0
@@ -79,6 +80,9 @@ CHOWN_IMAGE = "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab30
 # The variables of this process that Harbor and docker get; everything else is
 # dropped.
 PASSED = ("HOME", "PATH", "DOCKER_HOST", "DOCKER_CONFIG")
+# Where in a trial's directory Harbor's claude-code agent tees Claude Code's
+# stream-json.
+CLAUDE_CODE_TRACE = Path("agent", "claude-code.txt")
 
 
 @dataclass(frozen=True)
@@ -129,6 +133,11 @@ class HarborRunner:
   --agent-kwarg). The task's container gets limits.memory_gb and limits.cpus;
   the egress sidecar, when there is one, gets sidecar's limits and SIDECAR_PIDS
   processes.
+
+  A trial's cost is the `agent_result.cost_usd` of Harbor's `result.json`. When
+  that is not a number, it is the `total_cost_usd` of the last `result` event
+  in the trial's CLAUDE_CODE_TRACE, a Claude Code trace that Harbor's
+  claude-code agent writes; for an agent that writes none, the cost is 0.
 
   Attributes:
     harbor: The `harbor` command.
@@ -524,10 +533,12 @@ def _read(
     if (trial / name).is_dir():
       artifacts[name] = trial / name
   cost = agent.get("cost_usd")
+  if isinstance(cost, bool) or not isinstance(cost, int | float):
+    cost = read_trace(trial / CLAUDE_CODE_TRACE).cost_usd
   return TrialResult(
     {key: float(value) for key, value in rewards.items()},
     exception,
-    float(cost) if isinstance(cost, int | float) else 0.0,
+    0.0 if cost is None else float(cost),
     seconds,
     artifacts,
   )
