@@ -203,7 +203,8 @@ def test_the_overlay_caps_the_task_container(tmp_path: Path, fakes: tuple[Path, 
     assert main["cpus"] == 3
     assert main["pids_limit"] == 512
     assert main["volumes"] == [f"{(tmp_path / 'socket').resolve()}:/run/gateway.sock"]
-    assert main["environment"]["MODEL_URL"] == "http://gateway"
+    assert main["environment"] == ["FAKE_MODE", "MODEL_URL"]
+    assert "http://gateway" not in (out / "overlay.json").read_text()
     label = main["labels"][LABEL]
     assert main["build"]["labels"] == {LABEL: label}
     assert overlay["networks"]["default"]["labels"] == {LABEL: label}

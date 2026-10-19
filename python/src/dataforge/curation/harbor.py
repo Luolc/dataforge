@@ -56,7 +56,8 @@ class HarborRunner:
     limits.memory_gb and limits.cpus (cpus when the limits give none).
 
     mounts and env go to the task's container; env also goes to Harbor, whose agents read
-    some variables from their own environment. compose_overlay files come after ours, so
+    some variables from their own environment. The overlay names env's variables without
+    their values. compose_overlay files come after ours, so
     they can override it. pre_start is called with the trial's outdir before Harbor starts.
     docker is the docker command the cleanup runs.
     """
@@ -126,7 +127,9 @@ class HarborRunner:
                 for m in self.mounts
             ]
         if self.env:
-            main["environment"] = dict(self.env)
+            # Names only: compose takes the values from Harbor's environment, which has env,
+            # so no value is written to the overlay in outdir.
+            main["environment"] = sorted(self.env)
         services: dict[str, object] = {"main": main}
         if environment.get("network_mode", "public") != "public":
             services[SIDECAR] = {"labels": labels}
