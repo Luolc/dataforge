@@ -384,11 +384,12 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - R253 Where CI runs a repository's full set of checks on each change, leave the checks a change does not touch to CI instead of also running them locally before a push.
 - L11 In each clone of this repository, run `uvx pre-commit install` once, before the first commit.
 - L22 When a block of `check` comes to depend on a new path, add that path to the block's group in the `changes` step of `.github/workflows/ci.yml`.
-- L24 The checks a change here touches, besides the commit hooks (`uvx pre-commit run --all-files`), are:
+- L26 Keep every CI check of a pull request a step of the one job `check` in `.github/workflows/ci.yml`, the setup test among them, never a job of its own.
+- L29 The checks a change here touches, besides the commit hooks (`uvx pre-commit run --all-files`), are:
 
+  - for `python/`: in that directory `uv run --locked ruff check`, `uv run --locked ruff format --check`, `uv run --locked basedpyright` and `uv run --locked pytest`;
   - for `machine/`: the setup test, `machine/tests/run.sh` from the top of the repository;
   - for a script in `.github/scripts/`: its `.test.sh`; for `docs/design.md`: `.github/scripts/design-length.sh`.
-- L26 Keep every CI check of a pull request a step of the one job `check` in `.github/workflows/ci.yml`, the setup test among them, never a job of its own.
 
 ### Testing
 
