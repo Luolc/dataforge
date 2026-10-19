@@ -1,5 +1,5 @@
-# Hooks: secret scan (gitleaks), Chinese Markdown typography (limae) and the
-# statute compile check.
+# Hooks: secret scan (gitleaks), Chinese Markdown typography (limae), the
+# statute compile check and ruff on python/.
 repos:
   # Runs first: a leaked secret must be stopped before other hooks rewrite
   # staged files. The upstream entry scans the staged diff only (it ends in
@@ -37,3 +37,14 @@ repos:
       # links must match a fresh compile of statute.toml, statute.lock and the
       # local rules. The private output, which git ignores, is not compared.
       - id: statute-compile
+  # Lint and format check only; the type check and the tests run before a
+  # push and in CI. rev is the ruff version python/pyproject.toml pins, so
+  # the two change together.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff-check
+        files: ^python/
+      - id: ruff-format
+        args: ["--check"]
+        files: ^python/

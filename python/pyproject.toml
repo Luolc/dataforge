@@ -1,0 +1,29 @@
+[project]
+name = "dataforge"
+version = "0.1.0"
+description = "Shared building blocks for dataset repositories: a state machine for building data."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "basedpyright==1.40.2",
+    "pytest==9.1.1",
+    "ruff==0.17.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.22,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+typeCheckingMode = "recommended"
