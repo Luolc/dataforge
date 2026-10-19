@@ -6,12 +6,17 @@ that nothing of this process's environment (a token, a proxy's session) reaches 
 containers unless the dataset passes it in `env`.
 
 A compose overlay of ours, passed to Harbor with `--extra-docker-compose`, caps the task's
-container: no network, every capability dropped, `no-new-privileges`, a process limit, the
-trial's CPUs and memory, a CPU weight, and a label that every container, network and image of
-the trial carries. When `task.toml` declares a network mode other than `public`, Harbor also
-starts an egress sidecar on a network of its own; the overlay labels it and that network too.
-After the run, whatever happened, the trial's files are given back to this user and
-everything with the label is removed.
+container: every capability dropped, `no-new-privileges`, a process limit, the trial's CPUs and
+memory, a CPU weight, and a label that every container, network and image of the trial
+carries. It leaves the container's network to `task.toml`: Harbor routes the container through
+its egress sidecar only when no compose file names the container's network. When `task.toml`
+declares a network mode other than `public`, the overlay labels the sidecar too. After the
+run, whatever happened, the trial's files are given back to this user and everything with the
+label is removed.
+
+Only the task's container is capped at the trial's memory, which the pool reserves; the
+sidecar, image builds and the cleanup's container use memory besides, so a dataset leaves the
+pool some headroom.
 
 A dataset connects its own host side (a model gateway, say) through `mounts`, `env`, extra
 compose files in `compose_overlay`, and `pre_start`, called before Harbor starts.
@@ -57,9 +62,11 @@ class HarborRunner:
 
     mounts and env go to the task's container; env also goes to Harbor, whose agents read
     some variables from their own environment. The overlay names env's variables without
-    their values. compose_overlay files come after ours, so
-    they can override it. pre_start is called with the trial's outdir before Harbor starts.
-    docker is the docker command the cleanup runs.
+    their values. compose_overlay files come after ours, so they can override it; one that
+    names the container's network (`network_mode: none`, say) takes it off Harbor's egress
+    sidecar. pre_start is called with the trial's outdir before Harbor starts. docker is the
+    docker command the cleanup runs; when docker fails during the cleanup, run raises, since
+    it cannot tell what is left.
     """
 
     harbor: Path
@@ -111,7 +118,6 @@ class HarborRunner:
         """The compose overlay of one trial, as compose reads it from JSON."""
         labels = {LABEL: label}
         main: dict[str, object] = {
-            "network_mode": "none",
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "pids_limit": self.pids,

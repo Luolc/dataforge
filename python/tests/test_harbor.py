@@ -5,6 +5,7 @@
 
 import json
 import os
+import signal
 import sys
 import time
 from dataclasses import replace
@@ -18,7 +19,7 @@ from dataforge.curation.harbor import LABEL, SIDECAR, HarborRunner
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json and then does what FAKE_MODE
 # says: "ok", "exception", "no-reward", "exit" (exit 3 with no result) or "hang" (start a
-# child, write its pid, sleep).
+# child, write its own and the child's pid, sleep).
 FAKE_HARBOR = """\
 import json, os, pathlib, subprocess, sys, time
 argv = sys.argv[1:]
@@ -29,9 +30,9 @@ mode = os.environ["FAKE_MODE"]
 if mode == "exit":
     sys.exit(3)
 if mode == "hang":
-    child = subprocess.Popen(["sleep", "300"])
-    (jobs / "child.pid").write_text(str(child.pid))
-    time.sleep(300)
+    child = subprocess.Popen(["sleep", "60"])
+    (jobs / "pids").write_text(f"{os.getpid()} {child.pid}")
+    time.sleep(60)
 (trial / "agent").mkdir(parents=True)
 result = {
     "started_at": "2026-10-19T10:00:00+00:00",
@@ -149,12 +150,12 @@ def test_harbor_gets_only_the_passed_variables_and_env(
 ) -> None:
     monkeypatch.setenv("SOME_TOKEN", "not for harbor")
     out = outdir(tmp_path)
-    _ = runner(fakes, env={"MODEL_URL": "http://gateway"}).run(
+    _ = runner(fakes, env={"MODEL_URL": "http://gateway.example.test"}).run(
         task(tmp_path), "nop", Limits(2), out
     )
     env = seen_env(out)
     assert "SOME_TOKEN" not in env
-    assert env["MODEL_URL"] == "http://gateway"
+    assert env["MODEL_URL"] == "http://gateway.example.test"
     assert env["HARBOR_TELEMETRY"] == "0"
     assert env["PATH"] == os.environ["PATH"]
 
@@ -192,11 +193,12 @@ def test_an_agent_by_import_path(tmp_path: Path, fakes: tuple[Path, Path]) -> No
 def test_the_overlay_caps_the_task_container(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
     out = outdir(tmp_path)
     mount = Mount(tmp_path / "socket", "/run/gateway.sock", read_only=False)
-    run = replace(runner(fakes, env={"MODEL_URL": "http://gateway"}), mounts=[mount])
+    run = replace(runner(fakes, env={"MODEL_URL": "http://gateway.example.test"}), mounts=[mount])
     _ = run.run(task(tmp_path), "nop", Limits(1.5, cpus=3), out)
     overlay = json.loads((out / "overlay.json").read_text())
     main = overlay["services"]["main"]
-    assert main["network_mode"] == "none"
+    assert "network_mode" not in main
+    assert "networks" not in main
     assert main["cap_drop"] == ["ALL"]
     assert main["security_opt"] == ["no-new-privileges:true"]
     assert main["mem_limit"] == "1536m"
@@ -204,7 +206,7 @@ def test_the_overlay_caps_the_task_container(tmp_path: Path, fakes: tuple[Path, 
     assert main["pids_limit"] == 512
     assert main["volumes"] == [f"{(tmp_path / 'socket').resolve()}:/run/gateway.sock"]
     assert main["environment"] == ["FAKE_MODE", "MODEL_URL"]
-    assert "http://gateway" not in (out / "overlay.json").read_text()
+    assert "http://gateway.example.test" not in (out / "overlay.json").read_text()
     label = main["labels"][LABEL]
     assert main["build"]["labels"] == {LABEL: label}
     assert overlay["networks"]["default"]["labels"] == {LABEL: label}
@@ -274,9 +276,27 @@ def test_a_hung_harbor_is_stopped_with_its_children(
 ) -> None:
     out = outdir(tmp_path)
     started = time.monotonic()
-    result = replace(runner(fakes, "hang"), timeout=1.0).run(task(tmp_path), "nop", Limits(2), out)
-    assert time.monotonic() - started < 30
-    assert result.exception == "TimeoutError: Harbor ran past 1 s"
-    child = int((out / "child.pid").read_text())
-    with pytest.raises(ProcessLookupError):
-        os.kill(child, 0)
+    try:
+        result = replace(runner(fakes, "hang"), timeout=1.0).run(
+            task(tmp_path), "nop", Limits(2), out
+        )
+        assert time.monotonic() - started < 30
+        assert result.exception == "TimeoutError: Harbor ran past 1 s"
+        for pid in alive(out):
+            pytest.fail(f"process {pid} of the fake harbor is still running")
+    finally:
+        for pid in alive(out):
+            os.kill(pid, signal.SIGKILL)
+
+
+def alive(out: Path) -> list[int]:
+    """The processes of the hung fake harbor that still run."""
+    pids = [int(pid) for pid in (out / "pids").read_text().split()]
+    running: list[int] = []
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        running.append(pid)
+    return running
