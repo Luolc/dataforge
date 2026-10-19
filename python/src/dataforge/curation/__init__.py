@@ -46,10 +46,14 @@ from dataforge.curation.engine import (
   Visit,
 )
 from dataforge.curation.harbor import HarborRunner, TrialSetup
+from dataforge.curation.rubric import Review
 from dataforge.curation.states import (
   AgentState,
+  JudgeState,
   PassAtKState,
+  RubricState,
   ScriptState,
+  TrialsState,
   TrialState,
 )
 
@@ -78,6 +82,7 @@ __all__ = [
   "Input",
   "Judge",
   "JudgeError",
+  "JudgeState",
   "Limits",
   "Machine",
   "Mount",
@@ -85,6 +90,8 @@ __all__ = [
   "PassAtKState",
   "Report",
   "ResourcePool",
+  "Review",
+  "RubricState",
   "ScriptSpec",
   "ScriptState",
   "Staged",
@@ -94,6 +101,7 @@ __all__ = [
   "TrialRunner",
   "TrialSetup",
   "TrialState",
+  "TrialsState",
   "Verdict",
   "Version",
   "Visit",

@@ -13,11 +13,13 @@ working directory's directory under `$CLAUDE_CONFIG_DIR/projects`, and
 `hang`, whether it starts a child, writes its pid and sleeps.
 """
 
+import argparse
 from collections.abc import Callable
 from dataclasses import replace
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import sys
 import time
@@ -653,3 +655,66 @@ def test_the_cap_is_cut_to_whole_cents_below_it(tmp_path: Path) -> None:
   task = AgentTask("Go.", {}, str(tmp_path), None)
   _ = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
   assert option(fake.argv(1), "--max-budget-usd") == ["1.13"]
+
+
+def test_the_options_give_the_session() -> None:
+  parser = argparse.ArgumentParser()
+  claude.add_arguments(parser, model="m", effort="low", max_budget_usd=0.5)
+  default = claude.Session.from_args(parser.parse_args([]))
+  assert default == claude.Session(
+    command=("claude",), model="m", effort="low", max_budget_usd=0.5
+  )
+  shim = parser.parse_args(
+    ["--claude", "/opt/shim/claude --x", "--timeout", "9"]
+  )
+  assert claude.Session.from_args(shim).command == ("/opt/shim/claude", "--x")
+  assert claude.Session.from_args(shim).timeout == 9
+
+
+def projects_in(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+  """Make a config whose projects hold one other session's directory.
+
+  Args:
+    tmp_path: The test's directory.
+
+  Returns:
+    The projects directory and the environment that names the config.
+  """
+  config = tmp_path / "config"
+  (config / "projects" / "other").mkdir(parents=True)
+  return config / "projects", {"CLAUDE_CONFIG_DIR": str(config)}
+
+
+def project_name(cwd: Path) -> str:
+  return re.sub("[^a-zA-Z0-9]", "-", str(cwd.resolve()))
+
+
+@pytest.mark.parametrize("to", ["elsewhere", "projects", "sibling"])
+def test_a_name_that_leads_out_of_projects_is_left(
+  tmp_path: Path, to: str, caplog: pytest.LogCaptureFixture
+) -> None:
+  projects, env = projects_in(tmp_path)
+  target = {
+    "elsewhere": tmp_path / "elsewhere",
+    "projects": projects,
+    "sibling": projects / "other",
+  }[to]
+  target.mkdir(exist_ok=True)
+  cwd = tmp_path / "work"
+  (projects / project_name(cwd)).symlink_to(target)
+  claude.remove_project_dir(cwd, env)
+  assert target.is_dir()
+  assert (projects / "other").is_dir()
+  assert "not known to be this session's" in caplog.text
+
+
+def test_a_name_claude_would_hash_is_left(
+  tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+  projects, env = projects_in(tmp_path)
+  cwd = tmp_path / ("x" * (201 - len(project_name(tmp_path))))
+  kept = projects / project_name(cwd)
+  kept.mkdir()
+  claude.remove_project_dir(cwd, env)
+  assert kept.is_dir()
+  assert "not known to be this session's" in caplog.text
