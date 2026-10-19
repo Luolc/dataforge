@@ -1,0 +1,35 @@
+id = 32
+slug = "setup-latest-own-tools-without-asking-any-run"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R268"
+default = "on"
+authority = ["relaxations.project-overrides", "advance-authorization.listed-items", "must-ask.means-of-production"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Install or upgrade the owner's own tools in the setup without asking, whatever else the run changes"
+
+[text.statement]
+en = "Under {@constitution:relaxations.project-overrides}, this project moves from {@constitution:must-ask.means-of-production} to {@constitution:decide-yourself} one change only: a run of `machine/bootstrap.sh`, from a checkout of a commit of `main`, on a machine an earlier run of it has already set up, installing or upgrading each tool that {@rule:28} has it install at its latest release to the release {@rule:28} selects, after that release's checksum file has verified the download, whatever else the same run changes; the first run on a new machine, and any other change a run makes, such as restarting a service or changing a tool pinned in `machine/versions.yml`, are not covered and each goes through a principal as far as the provisions that apply to it require, and a question for a principal's yes to such a change asks for that change only, not for the whole run."
+
+[text.reason]
+en = '''
+The repository owner (Luolc) granted this on 2026-10-19: these tools may always be installed at their latest release, without asking each time. A setup run that met a newer release between its dry run and its apply had installed versions newer than the ones the owner had agreed to, and the owner chose to keep them. {@rule:28} already makes every run take the latest release, so a yes to one version could not hold anyway; asking again for each new release spends the owner's attention on a change the checksum and the reviewed setup already control.
+
+Later on 2026-10-19 a run that had the owner's yes for its other changes also upgraded one of these tools, and the agent asked for the whole run again, as {@rule:30} had it do. The owner answered that these tools may be upgraded at any time without asking. This rule reads that as holding whatever else the run changes. This rule keeps what {@rule:30} covered and drops only that question. As {@constitution:relaxations} requires, the owner's approval of this declaration is given on the pull request that adds it.
+'''
+
+[text.verification]
+en = '''
+The covered tools are those {@rule:28} has the setup install at their latest release: today (2026-10-19) the gateway client (`redcoast-client` and its shim) and fleet, fednet, atb and statute, as `machine/tasks/` and `own_tools` in `machine/playbook.yml` list them. A tool a reviewed pull request adds to them is covered too, its first install on a machine already set up included.
+
+Not covered, so still going through a principal when they are items of {@constitution:must-ask}: the first run of the setup on a new machine, which creates and configures the machine, the tools included; the rest of a setup run, such as changing packages, users or files other than these tools, or restarting a service (for example dockerd); upgrading a tool pinned in `machine/versions.yml`; installing one of these tools in another way or from a commit not on `main`; and any other repository. Holding a tool at an older version, or going back to one, is not covered either: it is not what {@rule:28} has the setup do.
+
+Violated when an agent treats a change that is not covered as covered by this rule; when it asks a principal for a yes to a covered upgrade, or to the whole run, only because the run also upgrades a covered tool; or when it starts a run whose other changes need a yes it does not have.
+'''

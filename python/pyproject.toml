@@ -74,7 +74,7 @@ check-yield-types = false
 skip-checking-short-docstrings = false
 
 [tool.pytest.ini_options]
-addopts = ["--strict-markers"]
+addopts = ["--import-mode=importlib", "--strict-markers"]
 # A file or connection left open fails the test; a ResourceWarning raised
 # while an object is collected reaches pytest as an unraisable exception.
 filterwarnings = [
@@ -84,4 +84,6 @@ filterwarnings = [
 
 [tool.basedpyright]
 include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
 typeCheckingMode = "recommended"
