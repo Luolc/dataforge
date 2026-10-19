@@ -356,6 +356,13 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - R87 Write no history in a code comment: not what was tried, reverted or discussed, nor why another way was not taken.
 - L28 Pin the version and sha256 of every third-party tool the data machine setup installs in `machine/versions.yml`; install each tool that the repository owner publishes as a GitHub release under the `Luolc` account at the tool's latest release that is neither a draft nor a prerelease, verify it against the checksum file published in the same release, and when that release has none, install nothing and fail the setup with an error that names the tool.
 
+#### Python
+
+- R340 Before you write, change or review Python code, or set up a Python project, read the Python guide that the rules in force name, together with the parts it names for that work, and follow it.
+- R341 When you create a Python project or add one to a repository, configure its formatter, linter, docstring checker and type checker with the settings of the reference configuration that the rules in force name, and for each setting you leave out or change, say why in the repository's instructions or a decision record, in that change or before it.
+- R342 Run the formatter, linter and docstring checker that a Python project configures, and the check that its lock file is current, in the repository's commit hooks.
+- R343 Run every check that a Python project configures, its type check and tests among them, in CI on every change.
+
 ### Shared Resources
 
 - R335 When you share a resource whose capacity is limited with other tasks, such as a machine's processors and memory, an API account with a shared quota or a service with a rate limit, use only your fair share of it, and never take so much at once that it slows or stops the other tasks.
