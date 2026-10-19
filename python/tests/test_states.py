@@ -66,10 +66,8 @@ def test_trial_state_outcomes(tmp_path: Path) -> None:
         assert trials.agents == ["oracle"]
 
 
-def test_pass_at_k_counts_an_errored_trial_as_unsolved(tmp_path: Path) -> None:
-    trials = Trials(
-        {"trial-0": result(1.0), "trial-1": result(0.0, "agent crashed"), "trial-2": result(0.0)}
-    )
+def pass_at_k(tmp_path: Path, results: list[TrialResult]) -> tuple[str | None, object]:
+    trials = Trials({f"trial-{i}": r for i, r in enumerate(results)})
     state = PassAtKState(
         "p",
         ENDS,
@@ -77,9 +75,19 @@ def test_pass_at_k_counts_an_errored_trial_as_unsolved(tmp_path: Path) -> None:
         task_dir=tmp_path,
         agent="solver",
         limits=Limits(1.0),
-        k=3,
+        k=len(results),
     )
-    assert outcome_of(tmp_path / "a", state) == ("in_range", {"solved": 1, "errors": 1, "k": 3})
+    return outcome_of(tmp_path / "a", state)
+
+
+def test_pass_at_k_judges_only_the_trials_that_ran(tmp_path: Path) -> None:
+    results = [result(1.0), result(0.0, "agent crashed"), result(1.0)]
+    assert pass_at_k(tmp_path, results) == ("all_solved", {"solved": 2, "errors": 1, "k": 3})
+
+
+def test_pass_at_k_with_every_trial_errored_is_an_error(tmp_path: Path) -> None:
+    results = [result(0.0, "docker daemon down")] * 3
+    assert pass_at_k(tmp_path, results) == ("error", {"solved": 0, "errors": 3, "k": 3})
 
 
 def test_a_subclass_decides_what_solved_means(tmp_path: Path) -> None:

@@ -152,9 +152,12 @@ class TrialState(_ActionState):
 
 
 class PassAtKState(TrialState):
-    """Runs k trials at once, recorded as the outputs "trial-0" to "trial-<k-1>". Outcomes:
-    "all_solved", "none_solved" or "in_range"; a trial with an exception counts as unsolved.
-    Data: {"solved": n, "errors": m, "k": k}."""
+    """Runs k trials at once, recorded as the outputs "trial-0" to "trial-<k-1>".
+
+    Outcomes: "all_solved", "none_solved" or "in_range", judged on the trials that ran (no
+    exception), so a failure of the trial machinery never reads as a hard task; "error" when
+    none ran. Data: {"solved": n, "errors": m, "k": k}.
+    """
 
     def __init__(
         self,
@@ -183,10 +186,13 @@ class PassAtKState(TrialState):
 
     def outcomes(self, ctx: Context, results: Sequence[TrialResult]) -> Outcome:
         _ = ctx
-        solved = sum(self.solved(result) for result in results)
-        errors = sum(result.exception is not None for result in results)
-        name = {0: "none_solved", len(results): "all_solved"}.get(solved, "in_range")
-        return Outcome(name, {"solved": solved, "errors": errors, "k": len(results)})
+        ran = [result for result in results if result.exception is None]
+        solved = sum(self.solved(result) for result in ran)
+        data = {"solved": solved, "errors": len(results) - len(ran), "k": len(results)}
+        if not ran:
+            return Outcome("error", data)
+        name = {0: "none_solved", len(ran): "all_solved"}.get(solved, "in_range")
+        return Outcome(name, data)
 
     @override
     def run(self, ctx: Context) -> Outcome:
