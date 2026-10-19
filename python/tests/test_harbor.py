@@ -15,7 +15,7 @@ from typing import cast
 import pytest
 
 from dataforge.curation.actions import Limits, Mount
-from dataforge.curation.harbor import LABEL, SIDECAR, HarborRunner
+from dataforge.curation.harbor import LABEL, SIDECAR, HarborRunner, Sidecar
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json and then does what FAKE_MODE
 # says: "ok", "exception", "no-reward", "exit" (exit 3 with no result) or "hang" (start a
@@ -213,7 +213,7 @@ def test_the_overlay_caps_the_task_container(tmp_path: Path, fakes: tuple[Path, 
     assert SIDECAR not in overlay["services"]
 
 
-def test_the_overlay_takes_the_default_cpus_and_labels_a_sidecar(
+def test_the_overlay_takes_the_defaults_and_caps_and_labels_a_sidecar(
     tmp_path: Path, fakes: tuple[Path, Path]
 ) -> None:
     out = outdir(tmp_path)
@@ -221,7 +221,32 @@ def test_the_overlay_takes_the_default_cpus_and_labels_a_sidecar(
     overlay = json.loads((out / "overlay.json").read_text())
     assert overlay["services"]["main"]["cpus"] == 2.0
     label = overlay["services"]["main"]["labels"][LABEL]
-    assert overlay["services"][SIDECAR] == {"labels": {LABEL: label}}
+    assert overlay["services"][SIDECAR] == {
+        "cpus": 0.5,
+        "mem_limit": "64m",
+        "pids_limit": 64,
+        "labels": {LABEL: label},
+    }
+    env = seen_env(out)
+    assert env["DATAFORGE_SIDECAR_CPUS"] == "0.5"
+    assert env["DATAFORGE_SIDECAR_MEMORY_MB"] == "64"
+
+
+def test_the_sidecar_takes_the_limits_it_is_given(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
+    out = outdir(tmp_path)
+    run = replace(runner(fakes), sidecar=Sidecar(cpus=1.0, memory_mb=128))
+    _ = run.run(task(tmp_path, "no-network"), "nop", Limits(2), out)
+    sidecar = json.loads((out / "overlay.json").read_text())["services"][SIDECAR]
+    assert (sidecar["cpus"], sidecar["mem_limit"]) == (1.0, "128m")
+    env = seen_env(out)
+    assert env["DATAFORGE_SIDECAR_CPUS"] == "1.0"
+    assert env["DATAFORGE_SIDECAR_MEMORY_MB"] == "128"
+
+
+def test_a_trial_reserves_the_tasks_memory_and_the_sidecars(fakes: tuple[Path, Path]) -> None:
+    assert runner(fakes).memory_gb(Limits(2)) == 2 + 64 / 1024
+    bigger = replace(runner(fakes), sidecar=Sidecar(memory_mb=256))
+    assert bigger.memory_gb(Limits(2)) == 2.25
 
 
 def test_pre_start_runs_with_the_outdir_before_harbor(

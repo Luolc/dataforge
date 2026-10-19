@@ -10,13 +10,16 @@ container: every capability dropped, `no-new-privileges`, a process limit, the t
 memory, a CPU weight, and a label that every container, network and image of the trial
 carries. It leaves the container's network to `task.toml`: Harbor routes the container through
 its egress sidecar only when no compose file names the container's network. When `task.toml`
-declares a network mode other than `public`, the overlay labels the sidecar too. After the
-run, whatever happened, the trial's files are given back to this user and everything with the
-label is removed.
+declares a network mode other than `public`, Harbor starts that sidecar, and the overlay labels
+it and caps its CPUs, memory and processes (`Sidecar`). Harbor reads its own compose file for
+the sidecar after ours, and that file sets none of these. A task directory's own compose file,
+which Harbor reads before ours, can take the same limits from DATAFORGE_SIDECAR_CPUS and
+DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment. After the run, whatever happened, the
+trial's files are given back to this user and everything with the label is removed.
 
-Only the task's container is capped at the trial's memory, which the pool reserves; the
-sidecar, image builds and the cleanup's container use memory besides, so a dataset leaves the
-pool some headroom.
+A trial reserves from the pool the task's memory plus the sidecar's limit (`memory_gb`),
+whether or not the task has a sidecar; image builds and the cleanup's container use memory
+besides, so a dataset leaves the pool some headroom.
 
 A dataset connects its own host side (a model gateway, say) through `mounts`, `env`, extra
 compose files in `compose_overlay`, and `pre_start`, called before Harbor starts.
@@ -45,6 +48,11 @@ PIDS = 512
 # verifier's in task.toml), for a Harbor that hangs.
 TIMEOUT = 3600.0
 SIDECAR = "harbor-docker-egress-control-sidecar"
+SIDECAR_PIDS = 64
+# The variables that give a task directory's compose file the sidecar's limits; compose reads
+# them from Harbor's environment.
+SIDECAR_CPUS_VAR = "DATAFORGE_SIDECAR_CPUS"
+SIDECAR_MEMORY_VAR = "DATAFORGE_SIDECAR_MEMORY_MB"
 # The task's container runs as root without CAP_CHOWN, so Harbor cannot give the files it
 # writes back to this user; a container of this image does.
 CHOWN_IMAGE = "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
@@ -53,12 +61,29 @@ PASSED = ("HOME", "PATH", "DOCKER_HOST", "DOCKER_CONFIG")
 
 
 @dataclass(frozen=True)
+class Sidecar:
+    """The limits of Harbor's egress sidecar: its CPUs and its memory in MiB.
+
+    The defaults are about three times the most a sidecar took in nop and oracle trials with
+    egress denied, measured on 2026-10-19: 22 MiB of memory, 23 processes and 0.17 of a CPU.
+    """
+
+    cpus: float = 0.5
+    memory_mb: int = 64
+
+    @property
+    def memory_gb(self) -> float:
+        return self.memory_mb / 1024
+
+
+@dataclass(frozen=True)
 class HarborRunner:
     """A TrialRunner that runs each trial as a Harbor job of one attempt.
 
     agent is "nop", "oracle", or a mapping with "name" (a Harbor agent) or "import_path",
     and optionally "model" and "kwargs" (Harbor's --agent-kwarg). The task's container gets
-    limits.memory_gb and limits.cpus (cpus when the limits give none).
+    limits.memory_gb and limits.cpus (cpus when the limits give none); the egress sidecar,
+    when there is one, gets sidecar's limits and SIDECAR_PIDS processes.
 
     mounts and env go to the task's container; env also goes to Harbor, whose agents read
     some variables from their own environment. The overlay names env's variables without
@@ -73,12 +98,17 @@ class HarborRunner:
     cpus: float = CPUS
     cpu_shares: int = CPU_SHARES
     pids: int = PIDS
+    sidecar: Sidecar = Sidecar()
     timeout: float = TIMEOUT
     mounts: Sequence[Mount] = ()
     env: Mapping[str, str] = field(default_factory=dict[str, str])
     compose_overlay: Sequence[Path] = ()
     pre_start: Callable[[Path], None] | None = None
     docker: str = "docker"
+
+    def memory_gb(self, limits: Limits) -> float:
+        """The memory a trial reserves: the task's and the sidecar's."""
+        return limits.memory_gb + self.sidecar.memory_gb
 
     def run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
         environment = _task_environment(task_dir)
@@ -138,12 +168,23 @@ class HarborRunner:
             main["environment"] = sorted(self.env)
         services: dict[str, object] = {"main": main}
         if environment.get("network_mode", "public") != "public":
-            services[SIDECAR] = {"labels": labels}
+            services[SIDECAR] = {
+                "cpus": self.sidecar.cpus,
+                "mem_limit": f"{self.sidecar.memory_mb}m",
+                "pids_limit": SIDECAR_PIDS,
+                "labels": labels,
+            }
         return {"services": services, "networks": {"default": {"labels": labels}}}
 
     def _harbor(self, args: Sequence[str], log: Path) -> str | None:
         """Run Harbor; return why it failed, or None when it exited 0."""
-        env = {**_passed(), "HARBOR_TELEMETRY": "0", **self.env}
+        env = {
+            **_passed(),
+            "HARBOR_TELEMETRY": "0",
+            **self.env,
+            SIDECAR_CPUS_VAR: str(self.sidecar.cpus),
+            SIDECAR_MEMORY_VAR: str(self.sidecar.memory_mb),
+        }
         with log.open("w") as out:
             process = subprocess.Popen(
                 args,

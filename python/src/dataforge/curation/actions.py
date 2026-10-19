@@ -2,9 +2,9 @@
 
 What an action does (agent, script) and where it runs (Host, or a Docker container) are
 independent. Memory is shared through one ResourcePool per process: a Docker env reserves
-its memory_gb from start to stop, a trial its limits, a host script its memory_gb; each
-waits while the pool is short. CPUs are not reserved; a container's cpus and cpu_shares
-divide them.
+its memory_gb from start to stop, a trial what its runner's memory_gb gives, a host script
+its memory_gb; each waits while the pool is short. CPUs are not reserved; a container's cpus
+and cpu_shares divide them.
 """
 
 import json
@@ -52,7 +52,8 @@ class ResourcePool:
     """The memory the actions of every attempt in a process share, in GB.
 
     A reservation larger than the pool is a ValueError; a smaller one waits until it fits
-    and, with max_running, until fewer than that many reservations are held.
+    and, with max_running, until fewer than that many reservations are held. It counts whole
+    MiB, so that a fraction of a GB is given back exactly as it was taken.
     """
 
     def __init__(self, memory_gb: float, max_running: int | None = None) -> None:
@@ -61,7 +62,8 @@ class ResourcePool:
             raise ValueError(f"pool of {memory_gb} GB, but {available} GB is available")
         self.memory_gb: float = memory_gb
         self.max_running: int | None = max_running
-        self._used: float = 0.0
+        self._total_mb: int = _mb(memory_gb)
+        self._used_mb: int = 0
         self._running: int = 0
         self._cond: threading.Condition = threading.Condition()
 
@@ -69,24 +71,25 @@ class ResourcePool:
     def reserved_gb(self) -> float:
         """The memory reserved now."""
         with self._cond:
-            return self._used
+            return self._used_mb / 1024
 
     def acquire(self, memory_gb: float) -> None:
-        if memory_gb > self.memory_gb:
+        mb = _mb(memory_gb)
+        if mb > self._total_mb:
             raise ValueError(f"{memory_gb} GB asked of a pool of {self.memory_gb} GB")
         with self._cond:
             _ = self._cond.wait_for(
                 lambda: (
-                    self._used + memory_gb <= self.memory_gb
+                    self._used_mb + mb <= self._total_mb
                     and (self.max_running is None or self._running < self.max_running)
                 )
             )
-            self._used += memory_gb
+            self._used_mb += mb
             self._running += 1
 
     def release(self, memory_gb: float) -> None:
         with self._cond:
-            self._used -= memory_gb
+            self._used_mb -= _mb(memory_gb)
             self._running -= 1
             self._cond.notify_all()
 
@@ -97,6 +100,10 @@ class ResourcePool:
             yield
         finally:
             self.release(memory_gb)
+
+
+def _mb(gb: float) -> int:
+    return round(gb * 1024)
 
 
 def _mem_available_gb() -> float | None:
@@ -422,7 +429,13 @@ class TrialResult:
 
 
 class TrialRunner(Protocol):
-    """Runs one trial (start an environment, run the agent, run the verifier) into outdir."""
+    """Runs one trial (start an environment, run the agent, run the verifier) into outdir.
+
+    memory_gb gives what a trial with these limits reserves from the pool: limits.memory_gb
+    and whatever else the runner starts beside the task's container.
+    """
+
+    def memory_gb(self, limits: Limits) -> float: ...
 
     def run(
         self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
@@ -507,7 +520,7 @@ class Actions:
         _, started_at = ctx.claim([name]), datetime.now(UTC)
         outdir = ctx.outdir / name
         outdir.mkdir()
-        with _reserve(self.pool, limits.memory_gb):
+        with _reserve(self.pool, runner.memory_gb(limits)):
             result = runner.run(task_dir, agent, limits, outdir)
         status = "ok" if result.exception is None else "failed"
         record = ActionRecord(
