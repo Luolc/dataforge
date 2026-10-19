@@ -41,7 +41,7 @@ repos:
   # `uv lock` would change the lock. rev is the uv version CI installs, so the
   # two change together.
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.12.22
+    rev: 0.13.0
     hooks:
       - id: uv-lock
         args: ["--project", "python"]
