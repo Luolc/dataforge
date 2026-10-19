@@ -26,7 +26,10 @@
     checksum: "sha256:{{ gh_sha256 }}"
     mode: "0644"
 
+# Check mode does not download the tarball, so there is nothing to unpack;
+# the task above reports the change.
 - name: gh unpacked
+  when: not ansible_check_mode
   become: true
   ansible.builtin.unarchive:
     src: "/opt/gh/gh_{{ gh_version }}_linux_amd64.tar.gz"

@@ -2,13 +2,15 @@
 # Container side of the data machine setup test (run.sh starts it). Runs the
 # setup from a clean image with no machine settings at all and every tool
 # from its real release, then twice with them, checks the last run changes
-# nothing, also in check mode, and every tool is at its pinned version or,
-# for the tools the repository owner publishes, at the release the run
-# reports, statute's picked from a fake release list. Then it drives the
-# gateway client install from a fake release (a missing checksum file or a
-# tampered download must not replace it), the zshenv extension point, fednet
-# being brought to its latest release and the personal zsh switch. Docker
-# is checked as installed, with its log rotation in daemon.json.
+# nothing, also in check mode, that check mode with other versions to
+# install runs to the end and installs none of them, and every tool is at
+# its pinned version or, for the tools the repository owner publishes, at
+# the release the run reports, statute's picked from a fake release list.
+# Then it drives the gateway client install from a fake release (a missing
+# checksum file or a tampered download must not replace it), the zshenv
+# extension point, fednet being brought to its latest release and the
+# personal zsh switch. Docker is checked as installed, with its log rotation
+# in daemon.json.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -132,6 +134,28 @@ recap run2c.log | grep -Eq 'changed=0 +unreachable=0 +failed=0' || {
 }
 ok "check-mode run: $(recap run2c.log)"
 
+# Check mode when the latest release of the gateway client and of statute (a
+# tarball tool) is not the installed one, and gh is pinned to another
+# version: the run reports what it would change and goes on to the end, but
+# installs nothing and switches nothing.
+gw=$HOME/.local/libexec/redcoast-client
+v2=$(stage 2.0.0)
+statute_old=$(ls /opt/statute)
+gh_old=$(ls /opt/gh)
+cp "$statute_api" "$out/statute-api"
+jq --arg t statute-v0.1.23 '[{tag_name: $t, draft: false, prerelease: false}] + .' "$out/statute-api" >"$statute_api"
+setup run2n.log --check -e gh_version=2.97.0 \
+  -e gh_sha256=a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112 ||
+  { tail -n 40 "$out/run2n.log"; fail "check-mode run with new versions"; }
+cp "$out/statute-api" "$statute_api"
+recap run2n.log | grep -Eq 'unreachable=0 +failed=0' || fail "check-mode run with new versions failed: $(recap run2n.log)"
+grep -q 'TASK \[Gateway client | switch current\]' "$out/run2n.log" || fail "check-mode run with new versions stopped before switching the gateway client"
+[ "$(readlink "$gw/current")" = 1.0.0 ] || fail "check mode moved current"
+[ ! -e "$gw/2.0.0" ] && [ ! -e "$gw/2.0.0.new" ] || fail "check mode installed gateway 2.0.0"
+[ "$(ls /opt/statute)" = "$statute_old" ] || fail "check mode changed /opt/statute: $(ls /opt/statute)"
+[ "$(ls /opt/gh)" = "$gh_old" ] || fail "check mode changed /opt/gh: $(ls /opt/gh)"
+ok "check-mode run with new versions: $(recap run2n.log), nothing installed"
+
 # Versions. Docker is only checked as installed; whether it runs is checked
 # on the first real data machine.
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
@@ -181,7 +205,6 @@ ok "Claude Code settings merged, existing key kept, DISABLE_AUTOUPDATER removed"
 
 # Gateway client: the shim resolves first in every zsh, interactive or not.
 shim() { zsh -i -c 'command -v claude' 2>/dev/null | tail -n 1; }
-gw=$HOME/.local/libexec/redcoast-client
 [ "$(shim)" = "$gw/current/claude" ] || fail "claude is $(shim), not the shim"
 plain=$(zsh -c 'command -v claude')
 [ "$plain" = "$gw/current/claude" ] || fail "in a non-interactive zsh, claude is $plain, not the shim"
