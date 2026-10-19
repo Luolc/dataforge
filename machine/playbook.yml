@@ -21,6 +21,10 @@
     # and opens PRs with. The setup only hands this path to `gh auth login`;
     # it never reads the value itself.
     gh_token_file: "{{ home }}/.config/dataforge/github-token"
+    # Docker's json-file log rotation: each container keeps at most
+    # docker_log_max_file files of docker_log_max_size each.
+    docker_log_max_size: 50m
+    docker_log_max_file: 5
     # host:port of the account gateway, written into the shim's config.
     redcoast_client_address: ""
     # The setup's own tools: each run installs the latest release of each
@@ -51,6 +55,15 @@
         sums: statute-x86_64-unknown-linux-musl.sha256
         assets: [statute-x86_64-unknown-linux-musl.tar.gz]
         tarball: true
+  handlers:
+    # Only where systemd runs: the setup test's container has no init and
+    # never starts dockerd.
+    - name: Restart dockerd
+      become: true
+      ansible.builtin.systemd_service:
+        name: docker
+        state: restarted
+      when: "'/run/systemd/system' is directory"
   tasks:
     - ansible.builtin.import_tasks: tasks/base.yml
     - ansible.builtin.import_tasks: tasks/docker.yml
