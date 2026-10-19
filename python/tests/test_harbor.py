@@ -553,13 +553,13 @@ def test_the_merged_main_has_each_cap_once_with_the_tasks_compose_file(
   out = outdir(tmp_path)
   _ = runner(fakes).run(task(tmp_path), "nop", Limits(2), out)
   merged = subprocess.run(
-        ["docker", "compose", "--file", str(compose),
-         "--file", str(out / "overlay.json"),
-         "config", "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )  # fmt: skip
+    ["docker", "compose", "--file", str(compose),
+     "--file", str(out / "overlay.json"),
+     "config", "--format", "json"],
+    capture_output=True,
+    text=True,
+    check=False,
+  )  # fmt: skip
   assert merged.returncode == 0, merged.stderr
   main = json.loads(merged.stdout)["services"]["main"]
   assert main["cap_drop"].count("ALL") == 1

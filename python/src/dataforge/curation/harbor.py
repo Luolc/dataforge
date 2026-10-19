@@ -224,18 +224,18 @@ class HarborRunner:
       json.dumps(self.overlay(egress, limits, label, task), indent=2)
     )
     args = [
-            str(self.harbor), "run",
-            "--path", str(task_dir.resolve()),
-            *agent_args,
-            "--jobs-dir", str(outdir.resolve()),
-            "--job-name", "job",
-            "--n-attempts", "1",
-            "--n-concurrent", "1",
-            "--extra-docker-compose", str(overlay.resolve()),
-            *[arg for path in self.compose_overlay
-              for arg in ("--extra-docker-compose", str(path.resolve()))],
-            "--yes",
-        ]  # fmt: skip
+      str(self.harbor), "run",
+      "--path", str(task_dir.resolve()),
+      *agent_args,
+      "--jobs-dir", str(outdir.resolve()),
+      "--job-name", "job",
+      "--n-attempts", "1",
+      "--n-concurrent", "1",
+      "--extra-docker-compose", str(overlay.resolve()),
+      *[arg for path in self.compose_overlay
+        for arg in ("--extra-docker-compose", str(path.resolve()))],
+      "--yes",
+    ]  # fmt: skip
     log = outdir / "harbor.log"
     started = time.monotonic()
     try:
@@ -343,23 +343,23 @@ class HarborRunner:
 
   def _chown(self, outdir: Path, label: str) -> None:
     _ = subprocess.run(
-            [
-                self.docker, "run", "--rm",
-                f"--label={LABEL}={label}",
-                "--network=none",
-                "--cap-drop=ALL",
-                "--cap-add=CHOWN", "--cap-add=DAC_READ_SEARCH",
-                "--security-opt=no-new-privileges",
-                "--cpus=1", "--memory=256m", "--pids-limit=64",
-                f"--volume={outdir.resolve()}:/trial",
-                CHOWN_IMAGE,
-                "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/trial",
-            ],
-            env=_passed(),
-            capture_output=True,
-            timeout=300,
-            check=True,
-        )  # fmt: skip
+      [
+        self.docker, "run", "--rm",
+        f"--label={LABEL}={label}",
+        "--network=none",
+        "--cap-drop=ALL",
+        "--cap-add=CHOWN", "--cap-add=DAC_READ_SEARCH",
+        "--security-opt=no-new-privileges",
+        "--cpus=1", "--memory=256m", "--pids-limit=64",
+        f"--volume={outdir.resolve()}:/trial",
+        CHOWN_IMAGE,
+        "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/trial",
+      ],
+      env=_passed(),
+      capture_output=True,
+      timeout=300,
+      check=True,
+    )  # fmt: skip
 
 
 def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
@@ -427,18 +427,18 @@ def _task_main(task_dir: Path, docker: str) -> Mapping[str, object]:
   if not path.exists():
     return {}
   out = subprocess.run(
-        [
-            docker, "compose", "--file", str(path.resolve()),
-            "config", "--format", "json",
-            "--no-interpolate", "--no-normalize",
-            "--no-path-resolution", "--no-consistency",
-        ],
-        env=_passed(),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=True,
-    ).stdout  # fmt: skip
+    [
+      docker, "compose", "--file", str(path.resolve()),
+      "config", "--format", "json",
+      "--no-interpolate", "--no-normalize",
+      "--no-path-resolution", "--no-consistency",
+    ],
+    env=_passed(),
+    capture_output=True,
+    text=True,
+    timeout=120,
+    check=True,
+  ).stdout  # fmt: skip
   config = cast(Mapping[str, object], json.loads(out))
   services = cast(Mapping[str, object], config.get("services") or {})
   return cast(Mapping[str, object], services.get("main") or {})
