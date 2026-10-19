@@ -31,7 +31,10 @@ from dataforge.curation.harbor import (
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json and then does what
 # FAKE_MODE says: "ok", "exception", "no-reward", "exit" (exit 3 with no result)
-# or "hang" (start a child, write its own and the child's pid, sleep).
+# or "hang" (start a child, write its own and the child's pid, sleep). The
+# agent's cost is FAKE_COST, 0.25 by default and null for "none"; with
+# FAKE_TRACE, the agent directory gets a Claude Code trace whose last result
+# event costs that much.
 FAKE_HARBOR = """\
 import json, os, pathlib, subprocess, sys, time
 argv = sys.argv[1:]
@@ -61,6 +64,19 @@ if mode == "exception":
                                 "exception_message": "agent ran past 600 s"}
 if mode == "no-reward":
     result["verifier_result"] = None
+cost = os.environ.get("FAKE_COST", "0.25")
+result["agent_result"] = {"cost_usd": None if cost == "none" else float(cost)}
+if "FAKE_TRACE" in os.environ:
+    events = [
+        "not json",
+        {"type": "result", "subtype": "success", "total_cost_usd": 0.01},
+        {"type": "assistant", "message": {"content": []}},
+        {"type": "result", "subtype": "success",
+         "total_cost_usd": float(os.environ["FAKE_TRACE"])},
+    ]
+    (trial / "agent" / "claude-code.txt").write_text("\\n".join(
+        e if isinstance(e, str) else json.dumps(e) for e in events
+    ))
 (trial / "result.json").write_text(json.dumps(result))
 """
 
@@ -158,6 +174,23 @@ def test_a_solved_trial_gives_its_rewards_cost_and_time(
   assert result.artifacts["trial"] == out / "job" / "task__abc"
   assert result.artifacts["agent"] == out / "job" / "task__abc" / "agent"
   assert "verifier" not in result.artifacts
+
+
+@pytest.mark.parametrize(
+  ("env", "cost"),
+  [
+    ({"FAKE_COST": "0.25", "FAKE_TRACE": "0.75"}, 0.25),
+    ({"FAKE_COST": "none", "FAKE_TRACE": "0.75"}, 0.75),
+    ({"FAKE_COST": "none"}, 0.0),
+  ],
+)
+def test_a_trials_cost_falls_back_to_the_claude_code_trace(
+  tmp_path: Path, fakes: tuple[Path, Path], env: dict[str, str], cost: float
+) -> None:
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.cost_usd == cost
 
 
 @pytest.mark.parametrize(
