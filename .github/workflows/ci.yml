@@ -1,5 +1,5 @@
-# PR gate: secret scan, pre-commit on all files, the script tests, then the
-# data machine setup test (see AGENTS.md, L22, L26 and L29). pre-commit
+# PR gate: secret scan, pre-commit on all files, the script tests, the Python
+# checks, then the data machine setup test (see AGENTS.md, L22, L26 and L29). pre-commit
 # includes the statute compile check, whose hook installs statute itself. It
 # is one job, `check`, so it reports on every pull request; the setup steps
 # that a change does not touch are skipped inside it, as decided by the
@@ -43,6 +43,7 @@ jobs:
         with:
           groups: |
             machine: machine/**
+            python:  python/**
             docs:    docs/** *.md .agents/** .claude/** statute.toml statute.lock .statute/**
           run-all-on: .github/** .pre-commit-config.yaml
 
@@ -92,6 +93,22 @@ jobs:
 
       - name: Design length (docs/design.md, at most 200 lines)
         run: .github/scripts/design-length.sh
+
+      # The uv project's checks, as AGENTS.md lists them; uv installs the
+      # Python that python/.python-version names.
+      - if: fromJSON(steps.changes.outputs.groups).python
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.12.22"
+          cache-dependency-glob: python/uv.lock
+      - name: Python checks (ruff, basedpyright, pytest)
+        if: fromJSON(steps.changes.outputs.groups).python
+        working-directory: python
+        run: |
+          uv run --locked ruff check
+          uv run --locked ruff format --check
+          uv run --locked basedpyright
+          uv run --locked pytest
 
       # The setup test image is a clean Ubuntu plus sudo, its layers cached
       # in the Actions cache.
