@@ -208,8 +208,15 @@ class Docker:
     out from .../outputs, and a validator copied to /dataforge/validator/<name>, read-only.
     These directories are made as root and outputs is left writable by all, so that any
     user the container runs as can write there.
+    With outputs, a writable mount, every action writes its outputs straight into that
+    mount instead, so what one visit wrote is still there in the next, as a session resumed
+    across visits needs; collect copies the mount's source on the host into the visit's
+    outputs, so that each visit keeps its own version. The container's user must be able to
+    write the source.
     The image must have `sleep`. Hooks for what a dataset adds, such as a gateway: mounts,
-    env (variables set at create) and pre_start, run on the host before each docker start.
+    env (variables set at create), pre_start, run on the host before each docker start, and
+    post_start, run on the host after it and before the action, such as to start a process
+    in the container with exec.
     memory_swap_gb is memory plus swap, as docker's --memory-swap counts it, and needs
     memory_gb: equal to it, the container gets no swap. cli runs one docker command; tests
     replace it.
@@ -217,6 +224,7 @@ class Docker:
 
     image: str
     mounts: Sequence[Mount] = ()
+    outputs: Mount | None = None
     cpus: float | None = None
     cpu_shares: int | None = None
     memory_gb: float | None = None
@@ -230,6 +238,7 @@ class Docker:
     workdir: str | None = None
     env: Mapping[str, str] = field(default_factory=dict[str, str])
     pre_start: Callable[[Docker], None] | None = None
+    post_start: Callable[[Docker], None] | None = None
     cli: Callable[[Sequence[str]], CommandResult] = run_docker
     _id: str | None = field(default=None, init=False)
     _users: int = field(default=0, init=False)
@@ -265,7 +274,7 @@ class Docker:
             args += ["--user", self.user]
         if self.workdir is not None:
             args += ["--workdir", self.workdir]
-        for mount in self.mounts:
+        for mount in [*self.mounts, *([] if self.outputs is None else [self.outputs])]:
             suffix = ":ro" if mount.read_only else ""
             args += ["--volume", f"{mount.source.resolve()}:{mount.target}{suffix}"]
         for key, value in self.env.items():
@@ -284,6 +293,12 @@ class Docker:
                     if self.pre_start is not None:
                         self.pre_start(self)
                     _ = self._docker(["start", self._id])
+                    if self.post_start is not None:
+                        try:
+                            self.post_start(self)
+                        except BaseException:
+                            _ = self.cli(["stop", self._id])
+                            raise
                 except BaseException:
                     self._release()
                     raise
@@ -324,8 +339,13 @@ class Docker:
         self, ctx: Context, index: int, inputs: Mapping[str, Path], validator: Path | None
     ) -> Staged:
         base = f"/dataforge/{ctx.state}/{ctx.visit}/{index}"
-        _ = self._exec_ok(["mkdir", "-p", f"{base}/inputs", f"{base}/outputs"])
-        _ = self._exec_ok(["chmod", "0777", f"{base}/outputs"])
+        if self.outputs is None:
+            outdir = f"{base}/outputs"
+            _ = self._exec_ok(["mkdir", "-p", f"{base}/inputs", outdir])
+            _ = self._exec_ok(["chmod", "0777", outdir])
+        else:
+            outdir = self.outputs.target
+            _ = self._exec_ok(["mkdir", "-p", f"{base}/inputs"])
         staged = {name: f"{base}/inputs/{name}" for name in inputs}
         for name, path in inputs.items():
             _ = self._docker(["cp", str(path), f"{self._id}:{staged[name]}"])
@@ -335,14 +355,17 @@ class Docker:
             _ = self._exec_ok(["mkdir", "-p", "/dataforge/validator"])
             _ = self._docker(["cp", str(validator), f"{self._id}:{copy}"])
             _ = self._exec_ok(["chmod", "0555", copy], root=False)
-        return Staged(staged, f"{base}/outputs", copy)
+        return Staged(staged, outdir, copy)
 
     def exec(self, argv: Sequence[str], env: Mapping[str, str]) -> CommandResult:
         variables = [arg for key, value in env.items() for arg in ("--env", f"{key}={value}")]
         return self.cli(["exec", *variables, cast(str, self._id), *argv])
 
     def collect(self, staged: Staged, outdir: Path) -> None:
-        _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(outdir)])
+        if self.outputs is None:
+            _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(outdir)])
+        else:
+            _ = shutil.copytree(self.outputs.source, outdir, symlinks=True, dirs_exist_ok=True)
 
     def _exec_ok(self, argv: Sequence[str], root: bool = True) -> str:
         """Runs argv as root, or with root=False as the container's user, who owns what

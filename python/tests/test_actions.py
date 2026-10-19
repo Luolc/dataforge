@@ -19,6 +19,7 @@ from dataforge.curation import (
     Docker,
     End,
     Env,
+    Goto,
     Limits,
     Machine,
     Mount,
@@ -344,3 +345,91 @@ def test_a_failed_docker_start_returns_its_memory(tmp_path: Path) -> None:
             return Outcome(actions.script(ctx, ScriptSpec(["true"]), env).status)
 
         once(tmp_path, body)
+
+
+class Twice(State):
+    """Runs body on two visits; the first goes back to itself."""
+
+    def __init__(self, body: Callable[[Context], None]) -> None:
+        super().__init__("a", {"again": Goto("a"), "ok": End("ok")}, max_visits=2)
+        self.body: Callable[[Context], None] = body
+
+    @override
+    def run(self, ctx: Context) -> Outcome:
+        self.body(ctx)
+        return Outcome("again" if ctx.visit == 1 else "ok")
+
+
+class MountAgent:
+    """Writes the visit into task and appends it to log, in the mount the outdir is."""
+
+    def __init__(self, source: Path) -> None:
+        self.source: Path = source
+        self.outdirs: list[str] = []
+
+    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+        self.outdirs.append(task.outdir)
+        visit = f"visit {len(self.outdirs)}"
+        _ = (self.source / "task").write_text(visit)
+        with (self.source / "log").open("a") as log:
+            _ = log.write(visit + "\n")
+        return AgentRun(None, "ok", 0.0, None, "done")
+
+    def resume(self, session: object, prompt: str) -> AgentRun:
+        raise AssertionError("not resumed")
+
+
+def test_outputs_in_a_mount_are_kept_across_visits_and_not_copied_out(tmp_path: Path) -> None:
+    source = tmp_path / "out"
+    source.mkdir()
+    docker = FakeDocker(tmp_path / "container")
+    agent = MountAgent(source)
+    actions = Actions(agent_runner=agent)
+    with Docker("author:1", outputs=Mount(source, "/out", read_only=False), cli=docker) as env:
+
+        def body(ctx: Context) -> None:
+            assert actions.agent(ctx, AgentSpec("Write.", tmp_path, outputs=["task"]), env).ok
+
+        attempt = Machine([Twice(body)]).run(tmp_path / "attempt")
+    assert attempt.status == "ok"
+    assert agent.outdirs == ["/out", "/out"]
+    first, second = (visit.outputs["task"] for visit in attempt.visits)
+    assert (first.read_text(), second.read_text()) == ("visit 1", "visit 2")
+    assert (second.parent / "log").read_text() == "visit 1\nvisit 2\n"
+    create = docker.calls[0]
+    assert create[create.index("--volume") + 1] == f"{source.resolve()}:/out"
+    assert not [call for call in docker.calls if call[0] == "cp"]
+
+
+def test_post_start_runs_after_each_start_and_before_the_action(tmp_path: Path) -> None:
+    docker = FakeDocker(tmp_path / "container")
+    actions = Actions()
+
+    def post_start(env: Docker) -> None:
+        _ = env.exec(["forwarder"], {})
+
+    with Docker("solver:1", post_start=post_start, cli=docker) as env:
+
+        def body(ctx: Context) -> Outcome:
+            for _ in range(2):
+                assert actions.script(ctx, ScriptSpec(["true"]), env).ok
+            return Outcome("ok")
+
+        once(tmp_path, body)
+    steps = [call[0] if call[0] != "exec" else call[-1] for call in docker.calls]
+    steps = [step for step in steps if step in {"start", "forwarder", "true", "stop"}]
+    assert steps == ["start", "forwarder", "true", "stop"] * 2
+
+
+def test_a_failed_post_start_stops_the_container_and_returns_its_memory(tmp_path: Path) -> None:
+    docker = FakeDocker(tmp_path / "container")
+    pool = ResourcePool(0.5)
+
+    def post_start(env: Docker) -> None:
+        raise OSError("the forwarder did not start")
+
+    env = Docker("solver:1", memory_gb=0.5, post_start=post_start, cli=docker)
+    with env, pytest.raises(OSError, match="the forwarder did not start"):
+        env.start(pool)
+    assert pool.reserved_gb == 0.0
+    assert [call[0] for call in docker.calls if call[0] in {"start", "stop"}] == ["start", "stop"]

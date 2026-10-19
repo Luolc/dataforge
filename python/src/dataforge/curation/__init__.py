@@ -39,7 +39,7 @@ from dataforge.curation.engine import (
     Version,
     Visit,
 )
-from dataforge.curation.harbor import HarborRunner
+from dataforge.curation.harbor import HarborRunner, TrialSetup
 from dataforge.curation.states import AgentState, PassAtKState, ScriptState, TrialState
 
 __all__ = [
@@ -79,6 +79,7 @@ __all__ = [
     "TrialAgent",
     "TrialResult",
     "TrialRunner",
+    "TrialSetup",
     "TrialState",
     "Version",
     "Visit",
