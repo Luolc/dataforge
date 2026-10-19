@@ -1,8 +1,7 @@
 # Claude Code in the native installer's layout: one binary per version under
 # ~/.local/share/claude/versions, and ~/.local/bin/claude pointing at it. The
-# binary is fetched directly so its digest can be pinned. The version stays
-# the pinned one because the gateway client starts claude with
-# DISABLE_AUTOUPDATER=1.
+# binary is fetched directly so its digest can be pinned, and DISABLE_UPDATES
+# in the settings below keeps the version the pinned one.
 
 - name: Claude Code versions directory
   ansible.builtin.file:
@@ -30,8 +29,12 @@
 #   data machine are started with --dangerously-skip-permissions and nobody
 #   is at the screen, so the first-run onboarding and the bypass-permissions
 #   warning must not appear.
-# - autoMemoryEnabled false and the DISABLE_* variables: no memory, no error
-#   reports or feedback uploads.
+# - autoMemoryEnabled false and the other DISABLE_* variables: no memory, no
+#   error reports or feedback uploads.
+# - DISABLE_UPDATES: besides the background updates it turns off, `claude
+#   update` and `claude install` refuse to run, so even a claude not started
+#   through the gateway client stays at the pinned version. The setup itself
+#   installs by download and symlink, which it does not affect.
 # - model and autoCompact*: the default model and context window for agents
 #   started without --model.
 # - promptSuggestionEnabled false: the suggested prompt in the input box reads
@@ -39,11 +42,11 @@
 # - disableRemoteControl: data machines have no Remote Control.
 #
 # Both files are merged, not replaced: keys the setup does not own stay as
-# they are, including any auth or proxy setting the gateway client relies on.
-# The one exception is env.DISABLE_AUTOUPDATER in ~/.claude/settings.json,
-# which is removed: the gateway client refuses to start claude while any
-# settings file sets it, as it sets the variable itself. A file is written
-# only when the merge changes its content.
+# they are. The one exception is env.DISABLE_AUTOUPDATER in
+# ~/.claude/settings.json, which is removed: the gateway client sets it for
+# the sessions it starts and refuses to start claude while a settings file
+# sets it. For the same reason the setup owns no auth, proxy or gateway key.
+# A file is written only when the merge changes its content.
 
 - name: Claude Code settings directory
   ansible.builtin.file:
