@@ -15,6 +15,12 @@ subclasses; `State` and `Machine` may be subclassed too.
 `dataforge.curation.harbor` has `HarborRunner`, which runs each trial with the Harbor CLI at the
 path it is given; the dataset installs Harbor, and this package does not depend on it.
 
+`dataforge.runtime.claude` runs Claude Code headless: `Session.run` starts one `claude -p`
+session in safe mode with the tools, permission rules, schema and spend cap it is given and
+keeps its trace on disk, `read_trace` reads how a session ended, and `Runner` drives sessions as
+the `AgentRunner` of `Actions`, on the host or in a `Docker` container. It runs the command and
+environment the dataset gives and knows no gateway or credential.
+
 A dataset repository depends on it at a commit of main:
 
 ```toml
