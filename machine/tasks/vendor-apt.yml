@@ -75,8 +75,12 @@
         path: /opt/google-chrome
         state: directory
         mode: "0755"
+      register: chrome_dir
 
+    # Check mode creates no directory, and get_url fails on a missing one;
+    # the directory reports the change instead.
     - name: Google Chrome download
+      when: not (ansible_check_mode and chrome_dir.changed)
       ansible.builtin.get_url:
         url: "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_{{ google_chrome_version }}_amd64.deb"
         dest: "/opt/google-chrome/google-chrome-stable_{{ google_chrome_version }}_amd64.deb"
@@ -100,7 +104,8 @@
 
 # apt-get resolves the .deb's dependencies from the Ubuntu archive,
 # including the virtual libasound2 (libasound2t64 on Ubuntu 24.04). Check
-# mode runs no command; the download reports the change.
+# mode runs no command; the download, or on a new machine the directory,
+# reports the change.
 - name: Google Chrome
   when: chrome_installed.stdout != google_chrome_version
   become: true
