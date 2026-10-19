@@ -22,7 +22,7 @@ en = "Under {@constitution:relaxations.project-overrides}, this project moves fr
 en = '''
 The repository owner (Luolc) granted this on 2026-10-19: these tools may always be installed at their latest release, without asking each time. A setup run that met a newer release between its dry run and its apply had installed versions newer than the ones the owner had agreed to, and the owner chose to keep them. {@rule:28} already makes every run take the latest release, so a yes to one version could not hold anyway; asking again for each new release spends the owner's attention on a change the checksum and the reviewed setup already control.
 
-Later on 2026-10-19 a run that had the owner's yes for its other changes also upgraded one of these tools, and the agent asked for the whole run again, as {@rule:30} had it do. The owner answered that these tools may be upgraded at any time without asking, whatever else the run does. This rule keeps what {@rule:30} covered and drops only that question. As {@constitution:relaxations} requires, the owner's approval of this declaration is given on the pull request that adds it.
+Later on 2026-10-19 a run that had the owner's yes for its other changes also upgraded one of these tools, and the agent asked for the whole run again, as {@rule:30} had it do. The owner answered that these tools may be upgraded at any time without asking. This rule reads that as holding whatever else the run changes. This rule keeps what {@rule:30} covered and drops only that question. As {@constitution:relaxations} requires, the owner's approval of this declaration is given on the pull request that adds it.
 '''
 
 [text.verification]
