@@ -768,7 +768,7 @@ class Runner:
     session = dataclasses.replace(
       self.session,
       command=conversation.command,
-      max_budget_usd=math.floor(cap * 100) / 100,
+      max_budget_usd=math.floor(round(cap * 100, 6)) / 100,
     )
     with self._serve():
       result = session.run(
@@ -797,6 +797,8 @@ class Runner:
       if result.output is None:
         status = "failed"
         answer = f"no structured output: {result.subtype}"
+        if result.rejected is not None:
+          answer += f"; the last one rejected: {json.dumps(result.rejected)}"
       else:
         answer = json.dumps(result.output)
     return AgentRun(conversation, status, spent, result.trace, answer)

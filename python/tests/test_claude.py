@@ -396,7 +396,32 @@ def test_a_judges_structured_output_is_its_value(tmp_path: Path) -> None:
     tmp_path,
     [
       {"lines": [result(structured_output={"score": 1})]},
-      {"lines": [result(result="no tool call")]},
+      {
+        "lines": [
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "t1",
+                  "name": "StructuredOutput",
+                  "input": {"score": "high"},
+                }
+              ]
+            },
+          },
+          {
+            "type": "user",
+            "message": {
+              "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "is_error": True}
+              ]
+            },
+          },
+          result(result="gave up"),
+        ]
+      },
     ],
   )
 
@@ -415,7 +440,10 @@ def test_a_judges_structured_output_is_its_value(tmp_path: Path) -> None:
     task = AgentTask("Judge.", {}, str(ctx.outdir), None)
     second = runner.start(spec, task, HOST)
     assert second.status == "failed"
-    assert second.result == "no structured output: success"
+    assert second.result == (
+      "no structured output: success;"
+      + ' the last one rejected: {"score": "high"}'
+    )
     return first
 
   _ = act(tmp_path / "attempt", body)
@@ -516,3 +544,92 @@ def test_serve_spans_each_run(tmp_path: Path) -> None:
   task = AgentTask("Go.", {}, str(tmp_path), None)
   _ = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
   assert seen == ["enter", "exit after 1 calls"]
+
+
+@pytest.mark.parametrize(
+  ("subtype", "status"),
+  [
+    ("error_during_execution", "failed"),
+    (None, "failed"),
+    ("error_max_turns", "ok"),
+    ("error_max_budget_usd", "ok"),
+  ],
+)
+def test_a_run_fails_only_when_it_did_no_work_to_judge(
+  tmp_path: Path, subtype: str | None, status: str
+) -> None:
+  lines = [] if subtype is None else [{**result(), "subtype": subtype}]
+  fake = Fake(tmp_path, [{"lines": lines}])
+  runner = claude.Runner(fake.session, claude.numbered(tmp_path / "runs"))
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  found = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert found.status == status
+
+
+def test_each_continued_start_has_a_cap_of_its_own(tmp_path: Path) -> None:
+  fake = Fake(
+    tmp_path,
+    [
+      {"lines": [result(session_id="s1", total_cost_usd=0.8)]},
+      {
+        "write": {"task": "draft"},
+        "lines": [result(session_id="s1", total_cost_usd=1.0)],
+      },
+      {
+        "write": {"task": "valid"},
+        "lines": [result(session_id="s1", total_cost_usd=1.1)],
+      },
+    ],
+  )
+  runner = claude.Runner(
+    fake.session, claude.numbered(tmp_path / "runs"), continue_session=True
+  )
+  plain = AgentSpec("Plan.", tmp_path)
+  checked = AgentSpec(
+    "Write.", tmp_path, outputs=["task"], validator=validator(tmp_path)
+  )
+
+  def body(ctx: Context) -> ActionResult:
+    actions = Actions(runner)
+    _ = actions.agent(ctx, plain, HOST)
+    return actions.agent(ctx, checked, HOST)
+
+  found = act(tmp_path / "attempt", body)
+
+  assert found.ok and found.cost_usd == pytest.approx(0.3)
+  assert option(fake.argv(3), "--max-budget-usd") == ["0.8"]
+
+
+def test_a_continued_session_without_an_id_is_replaced_and_removed(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(
+    tmp_path,
+    [
+      {"project": True, "lines": ["not json"]},
+      {"lines": [result(session_id="s2")]},
+    ],
+  )
+  runs = tmp_path / "runs"
+  runner = claude.Runner(
+    fake.session, claude.numbered(runs), continue_session=True
+  )
+  spec = AgentSpec("Go.", tmp_path)
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  first = runner.start(spec, task, HOST)
+  assert first.status == "failed" and len(fake.projects()) == 1
+  second = runner.start(spec, task, HOST)
+  assert second.status == "ok"
+  assert option(fake.argv(2), "--resume") == []
+  assert fake.calls()[1]["cwd"] == str(runs / "agent-2")
+  assert fake.projects() == []
+  assert runner.current is second.session
+
+
+def test_the_cap_is_cut_to_whole_cents_below_it(tmp_path: Path) -> None:
+  fake = Fake(tmp_path, [{"lines": [result()]}])
+  session = replace(fake.session, max_budget_usd=1.13)
+  runner = claude.Runner(session, claude.numbered(tmp_path / "runs"))
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  _ = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert option(fake.argv(1), "--max-budget-usd") == ["1.13"]
