@@ -178,12 +178,14 @@ def test_a_trial_reserves_its_runners_memory_and_records_its_directory(tmp_path:
 
 
 class FakeDocker:
-    """The docker CLI, with the container's file system under root; it runs only root's
-    execs, as a container whose user cannot write to / would."""
+    """The docker CLI, with the container's file system under root, for a non-root user
+    and cap_drop ALL: only root makes directories under /, and only the container's user,
+    who owns what docker cp copies in, can chmod a copied file."""
 
     def __init__(self, root: Path) -> None:
         self.root: Path = root
         self.calls: list[list[str]] = []
+        self.copied: set[Path] = set()
 
     def path(self, inside: str) -> Path:
         return self.root / inside.lstrip("/")
@@ -197,13 +199,20 @@ class FakeDocker:
             case ["exec", "--user", "0", "c1", "mkdir", "-p", *paths]:
                 for path in paths:
                     self.path(path).mkdir(parents=True, exist_ok=True)
-            case ["exec", "--user", "0", "c1", "chmod", mode, path]:
+            case ["exec", "--user", "0", "c1", "chmod", mode, path] if (
+                self.path(path) not in self.copied
+            ):
                 self.path(path).chmod(int(mode, 8))
+            case ["exec", "c1", "chmod", mode, path] if self.path(path) in self.copied:
+                self.path(path).chmod(int(mode, 8))
+            case ["exec", *_, "chmod", _, _]:
+                return CommandResult(1, "chmod: Operation not permitted")
             case ["cp", source, target] if source.startswith("c1:"):
                 _ = shutil.copytree(
                     self.path(source[3:].removesuffix("/.")), target, dirs_exist_ok=True
                 )
             case ["cp", source, target]:
+                self.copied.add(self.path(target.removeprefix("c1:")))
                 _ = shutil.copy(source, self.path(target.removeprefix("c1:")))
             case _:
                 pass

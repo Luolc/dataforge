@@ -334,7 +334,7 @@ class Docker:
             copy = f"/dataforge/validator/{validator.name}"
             _ = self._exec_ok(["mkdir", "-p", "/dataforge/validator"])
             _ = self._docker(["cp", str(validator), f"{self._id}:{copy}"])
-            _ = self._exec_ok(["chmod", "0555", copy])
+            _ = self._exec_ok(["chmod", "0555", copy], root=False)
         return Staged(staged, f"{base}/outputs", copy)
 
     def exec(self, argv: Sequence[str], env: Mapping[str, str]) -> CommandResult:
@@ -344,8 +344,11 @@ class Docker:
     def collect(self, staged: Staged, outdir: Path) -> None:
         _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(outdir)])
 
-    def _exec_ok(self, argv: Sequence[str]) -> str:
-        result = self.cli(["exec", "--user", "0", cast(str, self._id), *argv])
+    def _exec_ok(self, argv: Sequence[str], root: bool = True) -> str:
+        """Runs argv as root, or with root=False as the container's user, who owns what
+        docker cp copies in; under cap_drop ALL root cannot chmod another user's file."""
+        user = ["--user", "0"] if root else []
+        result = self.cli(["exec", *user, cast(str, self._id), *argv])
         if result.exit_code != 0:
             raise RuntimeError(f"{' '.join(argv)} failed in {self._id}: {result.log}")
         return result.log
