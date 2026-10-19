@@ -1,5 +1,5 @@
 # PR gate: secret scan, pre-commit on all files, the script tests, then the
-# data machine setup test (see AGENTS.md, L22, L24 and L26). pre-commit
+# data machine setup test (see AGENTS.md, L22, L26 and L29). pre-commit
 # includes the statute compile check, whose hook installs statute itself. It
 # is one job, `check`, so it reports on every pull request; the setup steps
 # that a change does not touch are skipped inside it, as decided by the
