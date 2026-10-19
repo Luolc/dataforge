@@ -3,7 +3,8 @@
 # pre-commit includes the statute compile check, whose hook installs statute
 # itself. It is one job, `check`, so it reports on every pull request; the
 # setup steps that a change does not touch are skipped inside it, as decided
-# by the `changes` step. A step that fails, `changes` included, fails the job.
+# by the `changes` step; the Python checks run on every change. A step that
+# fails, `changes` included, fails the job.
 
 name: CI
 
@@ -37,7 +38,9 @@ jobs:
       # On a pull request the base is the PR's base branch; on a push to
       # main it is the last commit whose run of this workflow passed, so a
       # docs-only commit after a red one still runs what went red. A file in
-      # no group, or in run-all-on, runs every group.
+      # no group, or in run-all-on, runs every group. No step reads the
+      # python group: it is there so that a change to python/ alone does
+      # not run the data machine setup.
       - id: changes
         uses: Luolc/ci-actions/changes@afb3a5a9525f6153c9ce996c547b0a714115137e # main, 2026-10-11
         with:
@@ -96,15 +99,14 @@ jobs:
 
       # The uv project's checks, as AGENTS.md lists them (L31), at the
       # versions python/pyproject.toml pins; uv installs the Python that
-      # python/.python-version names. The uv version is the rev of the uv-lock
-      # hook in .pre-commit-config.yaml; change both together.
-      - if: fromJSON(steps.changes.outputs.groups).python
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      # python/.python-version names. They run on every change, not only on
+      # one that touches python/ (R343). The uv version is the rev of the
+      # uv-lock hook in .pre-commit-config.yaml; change both together.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
           cache-dependency-glob: python/uv.lock
       - name: Python checks (ruff, pydoclint, basedpyright, pytest)
-        if: fromJSON(steps.changes.outputs.groups).python
         working-directory: python
         run: |
           uv run --locked ruff check
