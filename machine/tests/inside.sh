@@ -10,9 +10,10 @@
 # checksum file or a tampered download must not replace it), the zshenv
 # extension point, fednet being brought to its latest release and the
 # personal zsh switch. Docker is checked as installed, with its log rotation
-# in daemon.json, Chrome as running, with the CJK fonts and no apt source,
-# a Chrome .deb with the wrong sha256 as refused, and check mode on a
-# machine that lacks a vendor apt source as running to the end.
+# in daemon.json, Chrome as running, with the CJK fonts, no apt source and
+# only its pinned .deb kept, a Chrome .deb with the wrong sha256 as refused,
+# and check mode on a machine that lacks a vendor apt source as running to
+# the end.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -121,6 +122,9 @@ ok "run without machine settings: $(recap run0.log), statute $(tag_of statute ru
 serve
 v1=$(stage 1.0.0)
 
+# A .deb of an earlier Chrome pin, which the next run must remove.
+sudo touch /opt/google-chrome/google-chrome-stable_1.0.0.0-1_amd64.deb
+
 setup run1.log || { tail -n 40 "$out/run1.log"; fail "first run"; }
 ok "first run: $(recap run1.log)"
 setup run2.log || { tail -n 40 "$out/run2.log"; fail "second run"; }
@@ -186,6 +190,10 @@ sudo /etc/cron.daily/google-chrome || fail "Chrome's cron job failed"
 chrome_sources=$(ls /etc/apt/sources.list.d | grep -i chrome || true)
 [ -z "$chrome_sources" ] || fail "an apt source for Chrome: $chrome_sources"
 ok "no apt source for Chrome, after its cron job"
+chrome_debs=$(ls /opt/google-chrome)
+[ "$chrome_debs" = "google-chrome-stable_$(pin google_chrome_version)_amd64.deb" ] ||
+  fail "/opt/google-chrome holds more than the pinned .deb: $chrome_debs"
+ok "/opt/google-chrome holds only $chrome_debs"
 cjk=$(fc-list | grep -c 'Noto Sans CJK') || fail "fc-list lists no Noto Sans CJK font"
 ok "fc-list: $cjk Noto Sans CJK faces"
 check_version direnv "$(dpkg-query -W -f '${Version}' direnv | sed 's/-.*//')" /usr/bin/direnv version

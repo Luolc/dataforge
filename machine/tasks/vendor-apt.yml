@@ -109,3 +109,19 @@
     /opt/google-chrome/google-chrome-stable_{{ google_chrome_version }}_amd64.deb
   environment:
     DEBIAN_FRONTEND: noninteractive
+
+- name: Earlier Google Chrome .debs
+  ansible.builtin.find:
+    paths: /opt/google-chrome
+    patterns: "google-chrome-stable_*_amd64.deb"
+    excludes: "google-chrome-stable_{{ google_chrome_version }}_amd64.deb"
+  register: earlier_chrome_debs
+
+- name: Only the pinned Google Chrome .deb kept
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ earlier_chrome_debs.files }}"
+  loop_control:
+    label: "{{ item.path }}"
