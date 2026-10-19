@@ -208,7 +208,8 @@ class Docker:
     out from .../outputs, and a validator copied to /dataforge/validator/<name>, read-only.
     The image must have `sleep`. Hooks for what a dataset adds, such as a gateway: mounts,
     env (variables set at create) and pre_start, run on the host before each docker start.
-    cli runs one docker command; tests replace it.
+    memory_swap_gb is memory plus swap, as docker's --memory-swap counts it: equal to
+    memory_gb, the container gets no swap. cli runs one docker command; tests replace it.
     """
 
     image: str
@@ -216,10 +217,14 @@ class Docker:
     cpus: float | None = None
     cpu_shares: int | None = None
     memory_gb: float | None = None
+    memory_swap_gb: float | None = None
     pids: int | None = None
     network: bool = False
     labels: Mapping[str, str] = field(default_factory=dict[str, str])
     security: Sequence[str] = ()
+    cap_drop: Sequence[str] = ()
+    user: str | None = None
+    workdir: str | None = None
     env: Mapping[str, str] = field(default_factory=dict[str, str])
     pre_start: Callable[[Docker], None] | None = None
     cli: Callable[[Sequence[str]], CommandResult] = run_docker
@@ -243,12 +248,20 @@ class Docker:
             args += ["--cpu-shares", str(self.cpu_shares)]
         if self.memory_gb is not None:
             args += ["--memory", f"{round(self.memory_gb * 1024)}m"]
+        if self.memory_swap_gb is not None:
+            args += ["--memory-swap", f"{round(self.memory_swap_gb * 1024)}m"]
         if self.pids is not None:
             args += ["--pids-limit", str(self.pids)]
         for key, value in self.labels.items():
             args += ["--label", f"{key}={value}"]
         for option in self.security:
             args += ["--security-opt", option]
+        for capability in self.cap_drop:
+            args += ["--cap-drop", capability]
+        if self.user is not None:
+            args += ["--user", self.user]
+        if self.workdir is not None:
+            args += ["--workdir", self.workdir]
         for mount in self.mounts:
             suffix = ":ro" if mount.read_only else ""
             args += ["--volume", f"{mount.source.resolve()}:{mount.target}{suffix}"]
