@@ -11,12 +11,13 @@ memory, a CPU weight, and a label that every container, network and image of the
 carries. It leaves the container's network to `task.toml`: Harbor routes the container through
 its egress sidecar only when no compose file names the container's network. When `task.toml`
 declares a network mode other than `public`, for the environment or for the agent's or the
-verifier's phase, Harbor starts that sidecar, and the overlay labels it and caps its CPUs,
-memory and processes (`Sidecar`). Harbor reads its own compose file for the sidecar after
-ours, and that file sets none of these. A task directory's own compose file, which Harbor
-reads before ours, can take the same limits from DATAFORGE_SIDECAR_CPUS and
-DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment. After the run, whatever happened, the
-trial's files are given back to this user and everything with the label is removed.
+verifier's phase (a `[[steps]]` entry's phase overriding the task's), Harbor starts that
+sidecar, and the overlay labels it and caps its CPUs, memory and processes (`Sidecar`).
+Harbor reads its own compose file for the sidecar after ours, and that file sets none of these.
+A task directory's own compose file, which Harbor reads before ours, can take the same limits
+from DATAFORGE_SIDECAR_CPUS and DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment. After the
+run, whatever happened, the trial's files are given back to this user and everything with the
+label is removed.
 
 A trial reserves from the pool the task's memory plus the sidecar's limit (`memory_gb`),
 whether or not the task has a sidecar; image builds and the cleanup's container use memory
@@ -50,8 +51,8 @@ PIDS = 512
 TIMEOUT = 3600.0
 SIDECAR = "harbor-docker-egress-control-sidecar"
 SIDECAR_PIDS = 64
-# The tables of task.toml whose network_mode can make Harbor start the sidecar.
-PHASES = ("environment", "agent", "verifier")
+# The phases whose network_mode, besides the environment's, can make Harbor start the sidecar.
+PHASES = ("agent", "verifier")
 # The variables that give a task directory's compose file the sidecar's limits; compose reads
 # them from Harbor's environment.
 SIDECAR_CPUS_VAR = "DATAFORGE_SIDECAR_CPUS"
@@ -275,8 +276,15 @@ def _passed() -> dict[str, str]:
 def _has_sidecar(task_dir: Path) -> bool:
     with (task_dir / "task.toml").open("rb") as f:
         config = tomllib.load(f)
-    tables = (cast(Mapping[str, object], config.get(name, {})) for name in PHASES)
-    return any(table.get("network_mode", "public") != "public" for table in tables)
+
+    def mode(table: object, name: str) -> object:
+        return cast(Mapping[str, Mapping[str, object]], table).get(name, {}).get("network_mode")
+
+    # A step's phase takes the task's network_mode when it sets none of its own.
+    steps = cast(list[object], config.get("steps") or [{}])
+    modes = [mode(config, "environment")]
+    modes += [mode(step, p) or mode(config, p) for step in steps for p in PHASES]
+    return any(m not in (None, "public") for m in modes)
 
 
 def _agent_args(agent: TrialAgent) -> list[str]:
