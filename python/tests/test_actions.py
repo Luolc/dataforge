@@ -1,242 +1,268 @@
 # pyright: reportUnusedParameter=false
 # The fakes implement protocols and take parameters they do not need.
 
-import shutil
-import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
+import shutil
+import threading
 from typing import override
 
 import pytest
 
 from dataforge.curation import (
-    Actions,
-    AgentRun,
-    AgentSpec,
-    AgentTask,
-    CommandResult,
-    Context,
-    Docker,
-    End,
-    Env,
-    Goto,
-    Limits,
-    Machine,
-    Mount,
-    Outcome,
-    ResourcePool,
-    ScriptSpec,
-    State,
-    TrialAgent,
-    TrialResult,
-    fan_out,
+  Actions,
+  AgentRun,
+  AgentSpec,
+  AgentTask,
+  CommandResult,
+  Context,
+  Docker,
+  End,
+  Env,
+  fan_out,
+  Goto,
+  Limits,
+  Machine,
+  Mount,
+  Outcome,
+  ResourcePool,
+  ScriptSpec,
+  State,
+  TrialAgent,
+  TrialResult,
 )
 
 WAIT = 5.0
 
 
 class Once(State):
-    def __init__(self, body: Callable[[Context], Outcome]) -> None:
-        super().__init__("a", {"ok": End("ok")})
-        self.body: Callable[[Context], Outcome] = body
+  def __init__(self, body: Callable[[Context], Outcome]) -> None:
+    super().__init__("a", {"ok": End("ok")})
+    self.body: Callable[[Context], Outcome] = body
 
-    @override
-    def run(self, ctx: Context) -> Outcome:
-        return self.body(ctx)
+  @override
+  def run(self, ctx: Context) -> Outcome:
+    return self.body(ctx)
 
 
 def once(tmp_path: Path, body: Callable[[Context], Outcome]) -> None:
-    """Run body as the one state of an attempt that must end "ok"."""
-    assert Machine([Once(body)]).run(tmp_path / "attempt").status == "ok"
+  """Run body as the one state of an attempt that must end "ok".
+
+  Args:
+    tmp_path: The test's directory.
+    body: The state's run.
+  """
+  assert Machine([Once(body)]).run(tmp_path / "attempt").status == "ok"
 
 
 def blocked(call: Callable[[], object], release: Callable[[], None]) -> None:
-    """Assert that call waits until release is called, then finishes."""
-    done = threading.Event()
-    thread = threading.Thread(target=lambda: (call(), done.set()))
-    thread.start()
-    assert not done.wait(0.2)
-    release()
-    assert done.wait(WAIT)
-    thread.join(WAIT)
+  """Assert that call waits until release is called, then finishes.
+
+  Args:
+    call: What waits.
+    release: What lets it go on.
+  """
+  done = threading.Event()
+  thread = threading.Thread(target=lambda: (call(), done.set()))
+  thread.start()
+  assert not done.wait(0.2)
+  release()
+  assert done.wait(WAIT)
+  thread.join(WAIT)
 
 
 def test_script_gets_inputs_and_writes_outputs(tmp_path: Path) -> None:
-    source = tmp_path / "in.txt"
-    _ = source.write_text("hello")
+  source = tmp_path / "in.txt"
+  _ = source.write_text("hello")
 
-    def body(ctx: Context) -> Outcome:
-        argv = ["sh", "-c", 'cp "$0" "$DATAFORGE_OUTPUTS/out.txt"']
-        result = Actions().script(ctx, ScriptSpec(argv, inputs=[source], outputs=["out.txt"]))
-        assert result.outputs["out.txt"].read_text() == "hello"
-        return Outcome(result.status)
+  def body(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", 'cp "$0" "$DATAFORGE_OUTPUTS/out.txt"']
+    result = Actions().script(
+      ctx, ScriptSpec(argv, inputs=[source], outputs=["out.txt"])
+    )
+    assert result.outputs["out.txt"].read_text() == "hello"
+    return Outcome(result.status)
 
-    once(tmp_path, body)
+  once(tmp_path, body)
 
 
 def test_a_missing_output_fails_the_action(tmp_path: Path) -> None:
-    def body(ctx: Context) -> Outcome:
-        result = Actions().script(ctx, ScriptSpec(["true"], outputs=["out.txt"]))
-        assert result.status == "failed"
-        assert "missing outputs: out.txt" in result.log
-        return Outcome("ok")
+  def body(ctx: Context) -> Outcome:
+    result = Actions().script(ctx, ScriptSpec(["true"], outputs=["out.txt"]))
+    assert result.status == "failed"
+    assert "missing outputs: out.txt" in result.log
+    return Outcome("ok")
 
-    once(tmp_path, body)
+  once(tmp_path, body)
 
 
 def test_an_output_named_twice_in_a_visit_is_an_error(tmp_path: Path) -> None:
-    def body(ctx: Context) -> Outcome:
-        _ = Actions().script(ctx, ScriptSpec(["true"], outputs=["n"]))
-        with pytest.raises(ValueError, match="named twice"):
-            _ = Actions().script(ctx, ScriptSpec(["true"], outputs=["n"]))
-        return Outcome("ok")
+  def body(ctx: Context) -> Outcome:
+    _ = Actions().script(ctx, ScriptSpec(["true"], outputs=["n"]))
+    with pytest.raises(ValueError, match="named twice"):
+      _ = Actions().script(ctx, ScriptSpec(["true"], outputs=["n"]))
+    return Outcome("ok")
 
-    once(tmp_path, body)
+  once(tmp_path, body)
 
 
 def test_fan_out_runs_every_call_at_once_and_keeps_the_order() -> None:
-    barrier = threading.Barrier(5, timeout=WAIT)
+  barrier = threading.Barrier(5, timeout=WAIT)
 
-    def call(i: int) -> Callable[[], int]:
-        return lambda: (barrier.wait(), i)[1]
+  def call(i: int) -> Callable[[], int]:
+    return lambda: (barrier.wait(), i)[1]
 
-    assert fan_out([call(i) for i in range(5)]) == [0, 1, 2, 3, 4]
+  assert fan_out([call(i) for i in range(5)]) == [0, 1, 2, 3, 4]
 
 
 def test_pool_waits_until_memory_is_returned() -> None:
-    pool = ResourcePool(0.5)
-    pool.acquire(0.5)
-    blocked(lambda: pool.acquire(0.25), lambda: pool.release(0.5))
-    assert pool.reserved_gb == 0.25
+  pool = ResourcePool(0.5)
+  pool.acquire(0.5)
+  blocked(lambda: pool.acquire(0.25), lambda: pool.release(0.5))
+  assert pool.reserved_gb == 0.25
 
 
 def test_pool_max_running_caps_the_reservations_held() -> None:
-    pool = ResourcePool(0.5, max_running=1)
-    pool.acquire(0.1)
-    blocked(lambda: pool.acquire(0.1), lambda: pool.release(0.1))
+  pool = ResourcePool(0.5, max_running=1)
+  pool.acquire(0.1)
+  blocked(lambda: pool.acquire(0.1), lambda: pool.release(0.1))
 
 
 def test_pool_gives_back_fractions_of_a_gb_exactly() -> None:
-    pool = ResourcePool(1.0)
-    for _ in range(3):
-        pool.acquire(0.1)
-    for _ in range(3):
-        pool.release(0.1)
-    assert pool.reserved_gb == 0.0
+  pool = ResourcePool(1.0)
+  for _ in range(3):
+    pool.acquire(0.1)
+  for _ in range(3):
+    pool.release(0.1)
+  assert pool.reserved_gb == 0.0
 
 
 def test_pool_rejects_a_reservation_larger_than_itself() -> None:
-    with pytest.raises(ValueError, match=r"asked of a pool of 0\.5 GB"):
-        ResourcePool(0.5).acquire(1.0)
+  with pytest.raises(ValueError, match=r"asked of a pool of 0\.5 GB"):
+    ResourcePool(0.5).acquire(1.0)
 
 
 def test_pool_larger_than_the_available_memory_is_an_error() -> None:
-    with pytest.raises(ValueError, match="GB is available"):
-        _ = ResourcePool(10.0**9)
+  with pytest.raises(ValueError, match="GB is available"):
+    _ = ResourcePool(10.0**9)
 
 
 def test_a_host_script_reserves_its_memory(tmp_path: Path) -> None:
-    pool = ResourcePool(0.5)
-    pool.acquire(0.5)
+  pool = ResourcePool(0.5)
+  pool.acquire(0.5)
 
-    def body(ctx: Context) -> Outcome:
-        spec = ScriptSpec(["true"], memory_gb=0.5)
-        blocked(lambda: Actions(pool=pool).script(ctx, spec), lambda: pool.release(0.5))
-        return Outcome("ok")
+  def body(ctx: Context) -> Outcome:
+    spec = ScriptSpec(["true"], memory_gb=0.5)
+    blocked(
+      lambda: Actions(pool=pool).script(ctx, spec), lambda: pool.release(0.5)
+    )
+    return Outcome("ok")
 
-    once(tmp_path, body)
-    assert pool.reserved_gb == 0.0
+  once(tmp_path, body)
+  assert pool.reserved_gb == 0.0
 
 
 class Trials:
-    def __init__(self, pool: ResourcePool) -> None:
-        self.pool: ResourcePool = pool
-        self.reserved: list[float] = []
+  def __init__(self, pool: ResourcePool) -> None:
+    self.pool: ResourcePool = pool
+    self.reserved: list[float] = []
 
-    def memory_gb(self, limits: Limits) -> float:
-        return limits.memory_gb + 0.0625
+  def memory_gb(self, limits: Limits) -> float:
+    return limits.memory_gb + 0.0625
 
-    def run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
-        self.reserved.append(self.pool.reserved_gb)
-        return TrialResult({"reward": 1.0}, None, 0.25, 1.0, {})
+  def run(
+    self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+  ) -> TrialResult:
+    self.reserved.append(self.pool.reserved_gb)
+    return TrialResult({"reward": 1.0}, None, 0.25, 1.0, {})
 
 
-def test_a_trial_reserves_its_runners_memory_and_records_its_directory(tmp_path: Path) -> None:
-    pool = ResourcePool(0.5625)
-    trials = Trials(pool)
+def test_a_trial_reserves_its_runners_memory_and_records_its_directory(
+  tmp_path: Path,
+) -> None:
+  pool = ResourcePool(0.5625)
+  trials = Trials(pool)
 
-    def body(ctx: Context) -> Outcome:
-        result = Actions(trial_runner=trials, pool=pool).trial(
-            ctx, "t", tmp_path, "oracle", Limits(0.5)
-        )
-        assert result.rewards == {"reward": 1.0}
-        assert ctx.attempt.visits[0].outputs == {"t": ctx.outdir / "t"}
-        return Outcome("ok")
+  def body(ctx: Context) -> Outcome:
+    result = Actions(trial_runner=trials, pool=pool).trial(
+      ctx, "t", tmp_path, "oracle", Limits(0.5)
+    )
+    assert result.rewards == {"reward": 1.0}
+    assert ctx.attempt.visits[0].outputs == {"t": ctx.outdir / "t"}
+    return Outcome("ok")
 
-    once(tmp_path, body)
-    assert trials.reserved == [0.5625]
-    assert pool.reserved_gb == 0.0
+  once(tmp_path, body)
+  assert trials.reserved == [0.5625]
+  assert pool.reserved_gb == 0.0
 
 
 class FakeDocker:
-    """The docker CLI, with the container's file system under root, for a non-root user
-    and cap_drop ALL: only root makes directories under /, and only the container's user,
-    who owns what docker cp copies in, can chmod a copied file."""
+  """The docker CLI, with the container's file system under root.
 
-    def __init__(self, root: Path) -> None:
-        self.root: Path = root
-        self.calls: list[list[str]] = []
-        self.copied: set[Path] = set()
+  It acts for a non-root user and cap_drop ALL: only root makes directories
+  under /, and only the container's user, who owns what docker cp copies in, can
+  chmod a copied file.
 
-    def path(self, inside: str) -> Path:
-        return self.root / inside.lstrip("/")
+  Args:
+    root: Where the container's file system is.
+  """
 
-    def __call__(self, args: Sequence[str]) -> CommandResult:
-        args = list(args)
-        self.calls.append(args)
-        match args:
-            case ["create", *_]:
-                return CommandResult(0, "c1\n")
-            case ["exec", "--user", "0", "c1", "mkdir", "-p", *paths]:
-                for path in paths:
-                    self.path(path).mkdir(parents=True, exist_ok=True)
-            case ["exec", "--user", "0", "c1", "chmod", mode, path] if (
-                self.path(path) not in self.copied
-            ):
-                self.path(path).chmod(int(mode, 8))
-            case ["exec", "c1", "chmod", mode, path] if self.path(path) in self.copied:
-                self.path(path).chmod(int(mode, 8))
-            case ["exec", *_, "chmod", _, _]:
-                return CommandResult(1, "chmod: Operation not permitted")
-            case ["cp", source, target] if source.startswith("c1:"):
-                _ = shutil.copytree(
-                    self.path(source[3:].removesuffix("/.")), target, dirs_exist_ok=True
-                )
-            case ["cp", source, target]:
-                self.copied.add(self.path(target.removeprefix("c1:")))
-                _ = shutil.copy(source, self.path(target.removeprefix("c1:")))
-            case _:
-                pass
-        return CommandResult(0, "")
+  def __init__(self, root: Path) -> None:
+    self.root: Path = root
+    self.calls: list[list[str]] = []
+    self.copied: set[Path] = set()
+
+  def path(self, inside: str) -> Path:
+    return self.root / inside.lstrip("/")
+
+  def __call__(self, args: Sequence[str]) -> CommandResult:
+    args = list(args)
+    self.calls.append(args)
+    match args:
+      case ["create", *_]:
+        return CommandResult(0, "c1\n")
+      case ["exec", "--user", "0", "c1", "mkdir", "-p", *paths]:
+        for path in paths:
+          self.path(path).mkdir(parents=True, exist_ok=True)
+      case ["exec", "--user", "0", "c1", "chmod", mode, path] if (
+        self.path(path) not in self.copied
+      ):
+        self.path(path).chmod(int(mode, 8))
+      case ["exec", "c1", "chmod", mode, path] if (
+        self.path(path) in self.copied
+      ):
+        self.path(path).chmod(int(mode, 8))
+      case ["exec", *_, "chmod", _, _]:
+        return CommandResult(1, "chmod: Operation not permitted")
+      case ["cp", source, target] if source.startswith("c1:"):
+        _ = shutil.copytree(
+          self.path(source[3:].removesuffix("/.")), target, dirs_exist_ok=True
+        )
+      case ["cp", source, target]:
+        self.copied.add(self.path(target.removeprefix("c1:")))
+        _ = shutil.copy(source, self.path(target.removeprefix("c1:")))
+      case _:
+        pass
+    return CommandResult(0, "")
 
 
 def test_docker_create_args(tmp_path: Path) -> None:
-    env = Docker(
-        "solver:1",
-        mounts=[Mount(tmp_path / "cache", "/cache", read_only=False)],
-        cpus=2.0,
-        cpu_shares=512,
-        memory_gb=4.0,
-        memory_swap_gb=4.0,
-        pids=256,
-        labels={"attempt": "7"},
-        security=["no-new-privileges"],
-        cap_drop=["ALL"],
-        user="1000:1000",
-        workdir="/app",
-        env={"PROXY": "http://gateway.example.test"},
-    )
-    assert env.create_args() == [
+  env = Docker(
+    "solver:1",
+    mounts=[Mount(tmp_path / "cache", "/cache", read_only=False)],
+    cpus=2.0,
+    cpu_shares=512,
+    memory_gb=4.0,
+    memory_swap_gb=4.0,
+    pids=256,
+    labels={"attempt": "7"},
+    security=["no-new-privileges"],
+    cap_drop=["ALL"],
+    user="1000:1000",
+    workdir="/app",
+    env={"PROXY": "http://gateway.example.test"},
+  )
+  assert env.create_args() == [
         "create", "--init",
         "--network", "none",
         "--cpus", "2.0",
@@ -256,228 +282,283 @@ def test_docker_create_args(tmp_path: Path) -> None:
 
 
 def test_docker_create_args_by_default() -> None:
-    assert Docker("solver:1").create_args() == [
+  assert Docker("solver:1").create_args() == [
         "create", "--init", "--network", "none", "solver:1", "sleep", "infinity"
     ]  # fmt: skip
 
 
 class DockerAgent:
-    """Writes "broken", then "valid", into the container's output directory."""
+  """Writes "broken", then "valid", into the container's output directory.
 
-    def __init__(self, docker: FakeDocker, pool: ResourcePool) -> None:
-        self.docker: FakeDocker = docker
-        self.pool: ResourcePool = pool
-        self.tasks: list[str] = ["broken", "valid"]
-        self.reserved: list[float] = []
-        self.validator: Path | None = None
+  Args:
+    docker: The fake docker CLI.
+    pool: The pool, read at each run.
+  """
 
-    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
-        assert task.validator is not None
-        self.validator = self.docker.path(task.validator)
-        return self._write(task.outdir)
+  def __init__(self, docker: FakeDocker, pool: ResourcePool) -> None:
+    self.docker: FakeDocker = docker
+    self.pool: ResourcePool = pool
+    self.tasks: list[str] = ["broken", "valid"]
+    self.reserved: list[float] = []
+    self.validator: Path | None = None
 
-    def resume(self, session: object, prompt: str) -> AgentRun:
-        assert isinstance(session, str)
-        return self._write(session)
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    assert task.validator is not None
+    self.validator = self.docker.path(task.validator)
+    return self._write(task.outdir)
 
-    def _write(self, outdir: str) -> AgentRun:
-        self.reserved.append(self.pool.reserved_gb)
-        _ = (self.docker.path(outdir) / "task").write_text(self.tasks.pop(0))
-        return AgentRun(outdir, "ok", 1.0, None, "done")
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    assert isinstance(session, str)
+    return self._write(session)
+
+  def _write(self, outdir: str) -> AgentRun:
+    self.reserved.append(self.pool.reserved_gb)
+    _ = (self.docker.path(outdir) / "task").write_text(self.tasks.pop(0))
+    return AgentRun(outdir, "ok", 1.0, None, "done")
 
 
-def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path) -> None:
-    validator = tmp_path / "check.sh"
-    _ = validator.write_text('#!/bin/sh\ngrep -q valid "$1/task"\n')
-    validator.chmod(0o755)
-    docker = FakeDocker(tmp_path / "container")
-    pool = ResourcePool(0.5)
-    agent = DockerAgent(docker, pool)
-    actions = Actions(agent_runner=agent, pool=pool)
+def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(
+  tmp_path: Path,
+) -> None:
+  validator = tmp_path / "check.sh"
+  _ = validator.write_text('#!/bin/sh\ngrep -q valid "$1/task"\n')
+  validator.chmod(0o755)
+  docker = FakeDocker(tmp_path / "container")
+  pool = ResourcePool(0.5)
+  agent = DockerAgent(docker, pool)
+  actions = Actions(agent_runner=agent, pool=pool)
 
-    started: list[str | None] = []
+  started: list[str | None] = []
 
-    def pre_start(env: Docker) -> None:
-        started.append(env.container)
+  def pre_start(env: Docker) -> None:
+    started.append(env.container)
 
-    with Docker(
-        "author:1", memory_gb=0.5, user="1000:1000", pre_start=pre_start, cli=docker
-    ) as env:
+  with Docker(
+    "author:1", memory_gb=0.5, user="1000:1000", pre_start=pre_start, cli=docker
+  ) as env:
 
-        def body(ctx: Context) -> Outcome:
-            spec = AgentSpec("Write.", tmp_path, outputs=["task"], validator=validator)
-            result = actions.agent(ctx, spec, env)
-            assert result.ok
-            assert result.outputs["task"].read_text() == "valid"
-            _ = actions.script(ctx, ScriptSpec(["true"]), env)
-            return Outcome("ok")
+    def body(ctx: Context) -> Outcome:
+      spec = AgentSpec(
+        "Write.", tmp_path, outputs=["task"], validator=validator
+      )
+      result = actions.agent(ctx, spec, env)
+      assert result.ok
+      assert result.outputs["task"].read_text() == "valid"
+      _ = actions.script(ctx, ScriptSpec(["true"]), env)
+      return Outcome("ok")
 
-        once(tmp_path, body)
-        assert env.container == "c1"
+    once(tmp_path, body)
+    assert env.container == "c1"
 
-    assert agent.validator is not None
-    assert agent.validator == docker.path("/dataforge/validator/check.sh")
-    assert agent.validator.stat().st_mode & 0o777 == 0o555
-    outdirs = list(docker.root.glob("dataforge/*/*/*/outputs"))
-    assert outdirs and all(path.stat().st_mode & 0o777 == 0o777 for path in outdirs)
-    assert agent.reserved == [0.5, 0.5]
-    assert pool.reserved_gb == 0.0
-    lifecycle = [call[0] for call in docker.calls if call[0] in {"create", "start", "stop", "rm"}]
-    assert lifecycle == ["create", "start", "stop", "start", "stop", "rm"]
-    assert started == ["c1", "c1"]
+  assert agent.validator is not None
+  assert agent.validator == docker.path("/dataforge/validator/check.sh")
+  assert agent.validator.stat().st_mode & 0o777 == 0o555
+  outdirs = list(docker.root.glob("dataforge/*/*/*/outputs"))
+  assert outdirs and all(
+    path.stat().st_mode & 0o777 == 0o777 for path in outdirs
+  )
+  assert agent.reserved == [0.5, 0.5]
+  assert pool.reserved_gb == 0.0
+  lifecycle = [
+    call[0]
+    for call in docker.calls
+    if call[0] in {"create", "start", "stop", "rm"}
+  ]
+  assert lifecycle == ["create", "start", "stop", "start", "stop", "rm"]
+  assert started == ["c1", "c1"]
 
 
 def test_a_failed_docker_start_returns_its_memory(tmp_path: Path) -> None:
-    docker = FakeDocker(tmp_path / "container")
-    failures = [CommandResult(1, "no such image")]
+  docker = FakeDocker(tmp_path / "container")
+  failures = [CommandResult(1, "no such image")]
 
-    def cli(args: Sequence[str]) -> CommandResult:
-        return failures.pop() if args[0] == "create" and failures else docker(args)
+  def cli(args: Sequence[str]) -> CommandResult:
+    return failures.pop() if args[0] == "create" and failures else docker(args)
 
-    pool = ResourcePool(0.5)
-    actions = Actions(pool=pool)
-    with Docker("solver:1", memory_gb=0.5, cli=cli) as env:
+  pool = ResourcePool(0.5)
+  actions = Actions(pool=pool)
+  with Docker("solver:1", memory_gb=0.5, cli=cli) as env:
 
-        def body(ctx: Context) -> Outcome:
-            with pytest.raises(RuntimeError, match="no such image"):
-                _ = actions.script(ctx, ScriptSpec(["true"]), env)
-            assert pool.reserved_gb == 0.0
-            return Outcome(actions.script(ctx, ScriptSpec(["true"]), env).status)
+    def body(ctx: Context) -> Outcome:
+      with pytest.raises(RuntimeError, match="no such image"):
+        _ = actions.script(ctx, ScriptSpec(["true"]), env)
+      assert pool.reserved_gb == 0.0
+      return Outcome(actions.script(ctx, ScriptSpec(["true"]), env).status)
 
-        once(tmp_path, body)
+    once(tmp_path, body)
 
 
 class Twice(State):
-    """Runs body on two visits; the first goes back to itself."""
+  """Runs body on two visits; the first goes back to itself.
 
-    def __init__(self, body: Callable[[Context], None]) -> None:
-        super().__init__("a", {"again": Goto("a"), "ok": End("ok")}, max_visits=2)
-        self.body: Callable[[Context], None] = body
+  Args:
+    body: What each visit runs.
+  """
 
-    @override
-    def run(self, ctx: Context) -> Outcome:
-        self.body(ctx)
-        return Outcome("again" if ctx.visit == 1 else "ok")
+  def __init__(self, body: Callable[[Context], None]) -> None:
+    super().__init__("a", {"again": Goto("a"), "ok": End("ok")}, max_visits=2)
+    self.body: Callable[[Context], None] = body
+
+  @override
+  def run(self, ctx: Context) -> Outcome:
+    self.body(ctx)
+    return Outcome("again" if ctx.visit == 1 else "ok")
 
 
 class MountAgent:
-    """Writes the visit into task and appends it to log, in the mount the outdir is."""
+  """Writes the visit into task and appends it to log, in the outdir's mount.
 
-    def __init__(self, source: Path) -> None:
-        self.source: Path = source
-        self.outdirs: list[str] = []
+  Args:
+    source: The mount's source on the host.
+  """
 
-    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
-        self.outdirs.append(task.outdir)
-        visit = f"visit {len(self.outdirs)}"
-        _ = (self.source / "task").write_text(visit)
-        with (self.source / "log").open("a") as log:
-            _ = log.write(visit + "\n")
-        return AgentRun(None, "ok", 0.0, None, "done")
+  def __init__(self, source: Path) -> None:
+    self.source: Path = source
+    self.outdirs: list[str] = []
 
-    def resume(self, session: object, prompt: str) -> AgentRun:
-        raise AssertionError("not resumed")
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    self.outdirs.append(task.outdir)
+    visit = f"visit {len(self.outdirs)}"
+    _ = (self.source / "task").write_text(visit)
+    with (self.source / "log").open("a") as log:
+      _ = log.write(visit + "\n")
+    return AgentRun(None, "ok", 0.0, None, "done")
 
-
-def test_outputs_in_a_mount_are_kept_across_visits_and_not_copied_out(tmp_path: Path) -> None:
-    source = tmp_path / "out"
-    source.mkdir()
-    docker = FakeDocker(tmp_path / "container")
-    agent = MountAgent(source)
-    actions = Actions(agent_runner=agent)
-    with Docker("author:1", outputs=Mount(source, "/out", read_only=False), cli=docker) as env:
-
-        def body(ctx: Context) -> None:
-            assert actions.agent(ctx, AgentSpec("Write.", tmp_path, outputs=["task"]), env).ok
-
-        attempt = Machine([Twice(body)]).run(tmp_path / "attempt")
-    assert attempt.status == "ok"
-    assert agent.outdirs == ["/out", "/out"]
-    first, second = (visit.outputs["task"] for visit in attempt.visits)
-    assert (first.read_text(), second.read_text()) == ("visit 1", "visit 2")
-    assert (second.parent / "log").read_text() == "visit 1\nvisit 2\n"
-    create = docker.calls[0]
-    assert create[create.index("--volume") + 1] == f"{source.resolve()}:/out"
-    assert not [call for call in docker.calls if call[0] == "cp"]
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    raise AssertionError("not resumed")
 
 
-def test_post_start_runs_after_each_start_and_before_the_action(tmp_path: Path) -> None:
-    docker = FakeDocker(tmp_path / "container")
-    actions = Actions()
+def test_outputs_in_a_mount_are_kept_across_visits_and_not_copied_out(
+  tmp_path: Path,
+) -> None:
+  source = tmp_path / "out"
+  source.mkdir()
+  docker = FakeDocker(tmp_path / "container")
+  agent = MountAgent(source)
+  actions = Actions(agent_runner=agent)
+  with Docker(
+    "author:1", outputs=Mount(source, "/out", read_only=False), cli=docker
+  ) as env:
 
-    def post_start(env: Docker) -> None:
-        _ = env.exec(["forwarder"], {})
+    def body(ctx: Context) -> None:
+      assert actions.agent(
+        ctx, AgentSpec("Write.", tmp_path, outputs=["task"]), env
+      ).ok
 
-    with Docker("solver:1", post_start=post_start, cli=docker) as env:
-
-        def body(ctx: Context) -> Outcome:
-            for _ in range(2):
-                assert actions.script(ctx, ScriptSpec(["true"]), env).ok
-            return Outcome("ok")
-
-        once(tmp_path, body)
-    steps = [call[0] if call[0] != "exec" else call[-1] for call in docker.calls]
-    steps = [step for step in steps if step in {"start", "forwarder", "true", "stop"}]
-    assert steps == ["start", "forwarder", "true", "stop"] * 2
+    attempt = Machine([Twice(body)]).run(tmp_path / "attempt")
+  assert attempt.status == "ok"
+  assert agent.outdirs == ["/out", "/out"]
+  first, second = (visit.outputs["task"] for visit in attempt.visits)
+  assert (first.read_text(), second.read_text()) == ("visit 1", "visit 2")
+  assert (second.parent / "log").read_text() == "visit 1\nvisit 2\n"
+  create = docker.calls[0]
+  assert create[create.index("--volume") + 1] == f"{source.resolve()}:/out"
+  assert not [call for call in docker.calls if call[0] == "cp"]
 
 
-def test_a_failed_post_start_stops_the_container_and_returns_its_memory(tmp_path: Path) -> None:
-    docker = FakeDocker(tmp_path / "container")
-    pool = ResourcePool(0.5)
+def test_post_start_runs_after_each_start_and_before_the_action(
+  tmp_path: Path,
+) -> None:
+  docker = FakeDocker(tmp_path / "container")
+  actions = Actions()
 
-    def post_start(env: Docker) -> None:
-        raise OSError("the forwarder did not start")
+  def post_start(env: Docker) -> None:
+    _ = env.exec(["forwarder"], {})
 
-    env = Docker("solver:1", memory_gb=0.5, post_start=post_start, cli=docker)
-    with env, pytest.raises(OSError, match="the forwarder did not start"):
-        env.start(pool)
-    assert pool.reserved_gb == 0.0
-    assert [call[0] for call in docker.calls if call[0] in {"start", "stop"}] == ["start", "stop"]
+  with Docker("solver:1", post_start=post_start, cli=docker) as env:
+
+    def body(ctx: Context) -> Outcome:
+      for _ in range(2):
+        assert actions.script(ctx, ScriptSpec(["true"]), env).ok
+      return Outcome("ok")
+
+    once(tmp_path, body)
+  steps = [call[0] if call[0] != "exec" else call[-1] for call in docker.calls]
+  steps = [
+    step for step in steps if step in {"start", "forwarder", "true", "stop"}
+  ]
+  assert steps == ["start", "forwarder", "true", "stop"] * 2
+
+
+def test_a_failed_post_start_stops_the_container_and_returns_its_memory(
+  tmp_path: Path,
+) -> None:
+  docker = FakeDocker(tmp_path / "container")
+  pool = ResourcePool(0.5)
+
+  def post_start(env: Docker) -> None:
+    raise OSError("the forwarder did not start")
+
+  env = Docker("solver:1", memory_gb=0.5, post_start=post_start, cli=docker)
+  with env, pytest.raises(OSError, match="the forwarder did not start"):
+    env.start(pool)
+  assert pool.reserved_gb == 0.0
+  assert [call[0] for call in docker.calls if call[0] in {"start", "stop"}] == [
+    "start",
+    "stop",
+  ]
 
 
 class DeletingAgent:
-    """Writes a broken task and notes, then on the fix a valid task, deleting notes."""
+  """Writes a broken task and notes, then on the fix a valid task, no notes.
 
-    def __init__(self, host: Callable[[str], Path]) -> None:
-        self.host: Callable[[str], Path] = host
+  Args:
+    host: Gives the host path of a path in the container.
+  """
 
-    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
-        outdir = self.host(task.outdir)
-        _ = (outdir / "task").write_text("broken")
-        _ = (outdir / "notes").write_text("notes")
-        return AgentRun(outdir, "ok", 0.0, None, "done")
+  def __init__(self, host: Callable[[str], Path]) -> None:
+    self.host: Callable[[str], Path] = host
 
-    def resume(self, session: object, prompt: str) -> AgentRun:
-        assert isinstance(session, Path)
-        _ = (session / "task").write_text("valid")
-        (session / "notes").unlink()
-        return AgentRun(session, "ok", 0.0, None, "done")
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    outdir = self.host(task.outdir)
+    _ = (outdir / "task").write_text("broken")
+    _ = (outdir / "notes").write_text("notes")
+    return AgentRun(outdir, "ok", 0.0, None, "done")
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    assert isinstance(session, Path)
+    _ = (session / "task").write_text("valid")
+    (session / "notes").unlink()
+    return AgentRun(session, "ok", 0.0, None, "done")
 
 
 @pytest.mark.parametrize("mounted", [False, True])
-def test_collect_removes_what_a_fix_deleted(tmp_path: Path, mounted: bool) -> None:
-    validator = tmp_path / "check.sh"
-    _ = validator.write_text('#!/bin/sh\ngrep -q valid "$1/task" && test -f "$1/notes"\n')
-    validator.chmod(0o755)
-    docker = FakeDocker(tmp_path / "container")
-    source = tmp_path / "out"
-    source.mkdir()
-    agent = DeletingAgent(lambda outdir: source if mounted else docker.path(outdir))
-    outputs = Mount(source, "/out", read_only=False) if mounted else None
-    actions = Actions(agent_runner=agent)
-    with Docker("author:1", outputs=outputs, cli=docker) as env:
+def test_collect_removes_what_a_fix_deleted(
+  tmp_path: Path, mounted: bool
+) -> None:
+  validator = tmp_path / "check.sh"
+  _ = validator.write_text(
+    '#!/bin/sh\ngrep -q valid "$1/task" && test -f "$1/notes"\n'
+  )
+  validator.chmod(0o755)
+  docker = FakeDocker(tmp_path / "container")
+  source = tmp_path / "out"
+  source.mkdir()
+  agent = DeletingAgent(
+    lambda outdir: source if mounted else docker.path(outdir)
+  )
+  outputs = Mount(source, "/out", read_only=False) if mounted else None
+  actions = Actions(agent_runner=agent)
+  with Docker("author:1", outputs=outputs, cli=docker) as env:
 
-        def body(ctx: Context) -> Outcome:
-            ctx.outdir.mkdir(parents=True)
-            _ = (ctx.outdir / "other").write_text("another action's")
-            spec = AgentSpec(
-                "Write.", tmp_path, outputs=["task", "notes"], validator=validator, max_fixes=1
-            )
-            result = actions.agent(ctx, spec, env)
-            assert not result.ok
-            assert "missing outputs: notes" in result.log
-            assert sorted(path.name for path in ctx.outdir.iterdir()) == ["other", "task"]
-            assert sorted(path.name for path in ctx.outdir.parent.iterdir()) == ["1"]
-            return Outcome("ok")
+    def body(ctx: Context) -> Outcome:
+      ctx.outdir.mkdir(parents=True)
+      _ = (ctx.outdir / "other").write_text("another action's")
+      spec = AgentSpec(
+        "Write.",
+        tmp_path,
+        outputs=["task", "notes"],
+        validator=validator,
+        max_fixes=1,
+      )
+      result = actions.agent(ctx, spec, env)
+      assert not result.ok
+      assert "missing outputs: notes" in result.log
+      assert sorted(path.name for path in ctx.outdir.iterdir()) == [
+        "other",
+        "task",
+      ]
+      assert sorted(path.name for path in ctx.outdir.parent.iterdir()) == ["1"]
+      return Outcome("ok")
 
-        once(tmp_path, body)
+    once(tmp_path, body)
