@@ -1,8 +1,9 @@
 id = 29
 slug = "checks-by-path-python"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 31
 lang = "en"
 parent = "R276"
 default = "on"
