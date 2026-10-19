@@ -207,7 +207,7 @@ def test_docker_create_args(tmp_path: Path) -> None:
         pids=256,
         labels={"attempt": "7"},
         security=["no-new-privileges"],
-        env={"PROXY": "http://gateway"},
+        env={"PROXY": "http://gateway.example.test"},
     )
     assert env.create_args() == [
         "create", "--init",
@@ -219,7 +219,7 @@ def test_docker_create_args(tmp_path: Path) -> None:
         "--label", "attempt=7",
         "--security-opt", "no-new-privileges",
         "--volume", f"{tmp_path}/cache:/cache",
-        "--env", "PROXY=http://gateway",
+        "--env", "PROXY=http://gateway.example.test",
         "solver:1", "sleep", "infinity",
     ]  # fmt: skip
 
