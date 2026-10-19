@@ -98,9 +98,9 @@
   failed_when: false
   check_mode: false
 
-# apt-get rather than the apt module's deb option, which cannot satisfy a
-# dependency on a virtual package (libasound2, provided by libasound2t64 on
-# Ubuntu 24.04). Check mode runs no command; the download reports the change.
+# apt-get resolves the .deb's dependencies from the Ubuntu archive,
+# including the virtual libasound2 (libasound2t64 on Ubuntu 24.04). Check
+# mode runs no command; the download reports the change.
 - name: Google Chrome
   when: chrome_installed.stdout != google_chrome_version
   become: true
