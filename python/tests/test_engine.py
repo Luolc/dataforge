@@ -5,14 +5,16 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pytest
 
-from dataforge.statemachine import (
+from dataforge.curation import (
+    ActionResult,
     Actions,
     AgentRun,
     AgentSpec,
+    AgentState,
     AgentTask,
     Attempt,
     Context,
@@ -21,23 +23,24 @@ from dataforge.statemachine import (
     Goto,
     Guard,
     Limits,
+    Machine,
     Outcome,
+    PassAtKState,
     ScriptSpec,
     State,
     TrialAgent,
     TrialResult,
-    fan_out,
-    run_attempt,
 )
 
-# A fake dataset shaped like a curate process: author writes a task (a validator checks it
-# mechanically), rubric judges it, pass_at_k runs k trials of a solver.
+# A fake dataset shaped like a curate process, built from dataforge's own states: author
+# writes a task (a validator checks it mechanically), rubric judges it, pass_at_k runs k
+# trials of a solver.
 K = 3
 
 CURATE_TABLE: dict[str, dict[str, Goto | End]] = {
     "author": {
-        "written": Goto("rubric"),
-        "invalid": Goto("author"),
+        "ok": Goto("rubric"),
+        "failed": Goto("author"),
     },
     "rubric": {
         "pass": Goto("pass_at_k", report=False),
@@ -91,7 +94,7 @@ class FakeAgent:
 
 
 class FakeTrials:
-    """A trial runner: each of the K trials of a round writes a diff; the first few solve."""
+    """A trial runner: in each visit, the first few of the K trials solve; each writes a diff."""
 
     def __init__(self, script: Script) -> None:
         self.script: Script = script
@@ -108,41 +111,47 @@ class FakeTrials:
         return TrialResult({"reward": reward}, None, 0.1, 1.0, {"diff": diff})
 
 
-def curate(validator: Path, actions: Actions) -> list[State]:
-    def author(ctx: Context) -> Outcome:
-        report = ctx.report
-        prompt = "Write a task." if report is None else f"Revise: {report.outcome}."
-        spec = AgentSpec(prompt, workdir=ctx.outdir, outputs=["task"], validator=validator)
-        result = actions.agent(ctx, spec)
-        seen = {} if report is None else {"report_artifacts": sorted(report.artifacts)}
-        return Outcome("written" if result.ok else "invalid", seen)
+class Author(AgentState):
+    def __init__(self, validator: Path, actions: Actions) -> None:
+        super().__init__("author", CURATE_TABLE["author"], MAX_VISITS["author"], actions=actions)
+        self.validator: Path = validator
 
-    def rubric(ctx: Context) -> Outcome:
-        spec = AgentSpec(
-            "Judge the task.",
-            workdir=ctx.outdir,
-            inputs=["task"],
-            output_schema={"type": "object"},
-            tools=[],
-        )
-        verdict = cast(dict[str, bool], actions.agent(ctx, spec).value)
+    @override
+    def spec(self, ctx: Context) -> AgentSpec:
+        report = ctx.report
+        prompt = "Write a task."
+        if report is not None:
+            prompt = f"Revise: {report.outcome}; see {sorted(report.artifacts)}."
+        return AgentSpec(prompt, workdir=ctx.outdir, outputs=["task"], validator=self.validator)
+
+
+class Rubric(AgentState):
+    def __init__(self, actions: Actions) -> None:
+        super().__init__("rubric", CURATE_TABLE["rubric"], MAX_VISITS["rubric"], actions=actions)
+
+    @override
+    def spec(self, ctx: Context) -> AgentSpec:
+        schema = {"type": "object"}
+        return AgentSpec("Judge.", ctx.outdir, inputs=["task"], output_schema=schema, tools=[])
+
+    @override
+    def outcome(self, ctx: Context, result: ActionResult) -> Outcome:
+        verdict = cast(dict[str, bool], result.value)
         return Outcome("pass" if verdict["pass"] else "fail")
 
-    def pass_at_k(ctx: Context) -> Outcome:
-        task = ctx.artifacts.get("task")
 
-        def trial(i: int) -> Callable[[], TrialResult]:
-            return lambda: actions.trial(ctx, f"trial-{i}", task, "solver", Limits(1.0))
-
-        results = fan_out([trial(i) for i in range(K)])
-        solved = sum(result.rewards["reward"] == 1.0 for result in results)
-        outcome = {0: "none_solved", K: "all_solved"}.get(solved, "in_range")
-        return Outcome(outcome, {"solved": solved})
-
-    bodies = {"author": author, "rubric": rubric, "pass_at_k": pass_at_k}
-    return [
-        State(name, bodies[name], CURATE_TABLE[name], MAX_VISITS[name]) for name in CURATE_TABLE
-    ]
+def curate(validator: Path, actions: Actions) -> list[State]:
+    pass_at_k = PassAtKState(
+        "pass_at_k",
+        CURATE_TABLE["pass_at_k"],
+        MAX_VISITS["pass_at_k"],
+        actions=actions,
+        task_dir=lambda ctx: ctx.artifacts.get("task"),
+        agent="solver",
+        limits=Limits(1.0),
+        k=K,
+    )
+    return [Author(validator, actions), Rubric(actions), pass_at_k]
 
 
 @pytest.fixture
@@ -165,9 +174,8 @@ def run(
     states: Callable[[list[State]], list[State]] = lambda states: states,
 ) -> Attempt:
     actions = Actions(agent_runner=FakeAgent(script), trial_runner=FakeTrials(script))
-    return run_attempt(
-        states(curate(validator, actions)), tmp_path / "attempt", guard=guard, on_step=on_step
-    )
+    machine = Machine(states(curate(validator, actions)), guard=guard, on_step=on_step)
+    return machine.run(tmp_path / "attempt")
 
 
 def path_of(attempt: Attempt) -> list[tuple[str, str | None]]:
@@ -178,12 +186,8 @@ def test_in_range_pass_at_k_passes(tmp_path: Path, validator: Path) -> None:
     script = Script(tasks=["valid 1"], verdicts=[True], solved=[1])
     attempt = run(tmp_path, validator, script)
     assert attempt.status == "passed"
-    assert path_of(attempt) == [
-        ("author", "written"),
-        ("rubric", "pass"),
-        ("pass_at_k", "in_range"),
-    ]
-    assert attempt.final["pass_at_k"].data == {"solved": 1}
+    assert path_of(attempt) == [("author", "ok"), ("rubric", "pass"), ("pass_at_k", "in_range")]
+    assert attempt.final["pass_at_k"].data == {"solved": 1, "errors": 0, "k": K}
 
 
 def test_validator_failure_resumes_the_agent_with_its_output(
@@ -201,7 +205,7 @@ def test_validator_failing_past_max_fixes_returns_to_author(
 ) -> None:
     script = Script(tasks=["broken"] * 3 + ["valid 2"], verdicts=[True], solved=[2])
     attempt = run(tmp_path, validator, script)
-    assert path_of(attempt)[:2] == [("author", "invalid"), ("author", "written")]
+    assert path_of(attempt)[:2] == [("author", "failed"), ("author", "ok")]
     assert attempt.status == "passed"
 
 
@@ -217,22 +221,18 @@ def test_validator_given_to_the_agent_is_a_read_only_copy(tmp_path: Path, valida
 def test_rubric_failure_returns_to_author_with_a_report(tmp_path: Path, validator: Path) -> None:
     script = Script(tasks=["valid 1", "valid 2"], verdicts=[False, True], solved=[1])
     attempt = run(tmp_path, validator, script)
-    assert path_of(attempt)[:3] == [
-        ("author", "written"),
-        ("rubric", "fail"),
-        ("author", "written"),
-    ]
-    assert script.prompts[2].startswith("Revise: fail.")
+    assert path_of(attempt)[:3] == [("author", "ok"), ("rubric", "fail"), ("author", "ok")]
+    assert script.prompts[2].startswith("Revise: fail; see [].")
     assert attempt.status == "passed"
 
 
 def test_all_solved_returns_to_author_with_the_diffs(tmp_path: Path, validator: Path) -> None:
     script = Script(tasks=["valid 1", "valid 2"], verdicts=[True, True], solved=[K, 1])
     attempt = run(tmp_path, validator, script)
-    assert path_of(attempt)[2:4] == [("pass_at_k", "all_solved"), ("author", "written")]
+    assert path_of(attempt)[2:4] == [("pass_at_k", "all_solved"), ("author", "ok")]
     assert attempt.visits[2].mark == "too_easy"
-    assert script.prompts[2].startswith("Revise: all_solved.")
-    assert attempt.visits[3].data == {"report_artifacts": [f"trial-{i}" for i in range(K)]}
+    trials = [f"trial-{i}" for i in range(K)]
+    assert script.prompts[2].startswith(f"Revise: all_solved; see {trials}.")
     diff = attempt.visits[2].outputs["trial-0"] / "diff"
     assert diff.read_text() == "diff of valid 1"
     assert attempt.status == "passed"
@@ -252,9 +252,8 @@ def test_kept_visit_cuts_the_final_record(tmp_path: Path, validator: Path) -> No
     script = Script(tasks=["valid"] * 3, verdicts=[True, True, False], solved=[1, K])
 
     def in_range_goes_back(states: list[State]) -> list[State]:
-        pass_at_k = states[2]
-        transitions = {**pass_at_k.transitions, "in_range": Goto("author")}
-        return [*states[:2], State("pass_at_k", pass_at_k.body, transitions, 3)]
+        states[2].transitions = {**states[2].transitions, "in_range": Goto("author")}
+        return states
 
     attempt = run(tmp_path, validator, script, states=in_range_goes_back)
     assert attempt.status == "too_easy"
@@ -274,13 +273,13 @@ def test_cap_without_a_mark_fails(tmp_path: Path, validator: Path) -> None:
 def test_guard_blocks_with_budget(tmp_path: Path, validator: Path) -> None:
     script = Script(tasks=["valid"], verdicts=[True])
 
-    def guard(_ctx: Context, state: State) -> str | None:
+    def guard(ctx: Context, state: State) -> str | None:
         return "out of budget" if state.name == "pass_at_k" else None
 
     attempt = run(tmp_path, validator, script, guard=guard)
     assert attempt.status == "budget"
     assert attempt.reason == "pass_at_k visit 1: out of budget"
-    assert path_of(attempt) == [("author", "written"), ("rubric", "pass")]
+    assert path_of(attempt) == [("author", "ok"), ("rubric", "pass")]
 
 
 def test_guard_after_a_mark_keeps_the_marked_visit(tmp_path: Path, validator: Path) -> None:
@@ -323,16 +322,35 @@ def test_to_json_is_json(tmp_path: Path, validator: Path) -> None:
     assert [visit["state"] for visit in visits] == ["author", "rubric", "pass_at_k"]
 
 
+class Step(State):
+    """A state that calls a function, for the tests below."""
+
+    def __init__(
+        self,
+        name: str,
+        step: Callable[[Context], Outcome],
+        transitions: dict[str, Goto | End],
+        max_visits: int = 1,
+        on_exhausted: str = "failed",
+    ) -> None:
+        super().__init__(name, transitions, max_visits, on_exhausted)
+        self.step: Callable[[Context], Outcome] = step
+
+    @override
+    def run(self, ctx: Context) -> Outcome:
+        return self.step(ctx)
+
+
 def test_artifacts_keep_each_version(tmp_path: Path) -> None:
     actions = Actions()
 
-    def body(ctx: Context) -> Outcome:
+    def step(ctx: Context) -> Outcome:
         argv = ["sh", "-c", f'echo {ctx.visit} > "$DATAFORGE_OUTPUTS/n"']
         _ = actions.script(ctx, ScriptSpec(argv, outputs=["n"]))
         versions = [(v.state, v.visit, v.path) for v in ctx.artifacts.history("n")]
         return Outcome("again", {"latest": str(ctx.artifacts.get("n")), "n": len(versions)})
 
-    attempt = run_attempt([State("a", body, {"again": Goto("a")}, 2)], tmp_path)
+    attempt = Machine([Step("a", step, {"again": Goto("a")}, 2)]).run(tmp_path)
     assert [visit.data for visit in attempt.visits] == [
         {"latest": str(tmp_path / "artifacts/a/1/n"), "n": 1},
         {"latest": str(tmp_path / "artifacts/a/2/n"), "n": 2},
@@ -340,39 +358,26 @@ def test_artifacts_keep_each_version(tmp_path: Path) -> None:
 
 
 def test_last_outcome_ends_on_reentry(tmp_path: Path) -> None:
-    states = [
-        State(
-            "a", lambda _ctx: Outcome("on", last=True), {"on": Goto("b")}, 5, on_exhausted="error"
-        ),
-        State("b", lambda _ctx: Outcome("back"), {"back": Goto("a")}, 5),
-    ]
-    attempt = run_attempt(states, tmp_path)
+    machine = Machine(
+        [
+            Step("a", lambda _: Outcome("on", last=True), {"on": Goto("b")}, 5, "error"),
+            Step("b", lambda _: Outcome("back"), {"back": Goto("a")}, 5),
+        ]
+    )
+    attempt = machine.run(tmp_path)
     assert attempt.status == "error"
     assert attempt.reason == "a visit 2: entered after its last visit"
 
 
-def test_a_raising_body_is_recorded_and_raised(tmp_path: Path) -> None:
-    def body(_ctx: Context) -> Outcome:
+def test_a_raising_state_is_recorded_and_raised(tmp_path: Path) -> None:
+    def step(ctx: Context) -> Outcome:
         raise OSError("disk full")
 
     seen: list[str | None] = []
+    machine = Machine([Step("a", step, {})], on_step=lambda a: seen.append(a.visits[-1].outcome))
     with pytest.raises(OSError, match="disk full"):
-        _ = run_attempt(
-            [State("a", body, {}, 1)],
-            tmp_path,
-            on_step=lambda a: seen.append(a.visits[-1].outcome),
-        )
+        _ = machine.run(tmp_path)
     assert seen == ["raised"]
-
-
-def test_an_outcome_without_a_transition_is_an_error(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="a has no transition for outcome 'odd'"):
-        _ = run_attempt([State("a", lambda _ctx: Outcome("odd"), {}, 1)], tmp_path)
-
-
-def test_a_goto_to_an_unknown_state_is_an_error(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="unknown b"):
-        _ = run_attempt([State("a", lambda _ctx: Outcome("x"), {"x": Goto("b")}, 1)], tmp_path)
 
 
 def test_a_raising_guard_or_on_step_adds_nothing_to_the_record(tmp_path: Path) -> None:
@@ -382,9 +387,9 @@ def test_a_raising_guard_or_on_step_adds_nothing_to_the_record(tmp_path: Path) -
         attempts.append(ctx.attempt)
         raise RuntimeError("guard broke")
 
-    states = [State("a", lambda _ctx: Outcome("x"), {"x": End("ok")}, 1)]
+    states = [Step("a", lambda _: Outcome("x"), {"x": End("ok")})]
     with pytest.raises(RuntimeError, match="guard broke"):
-        _ = run_attempt(states, tmp_path, guard=guard)
+        _ = Machine(states, guard=guard).run(tmp_path)
     assert attempts[0].visits == []
 
     def on_step(attempt: Attempt) -> None:
@@ -392,5 +397,25 @@ def test_a_raising_guard_or_on_step_adds_nothing_to_the_record(tmp_path: Path) -
         raise RuntimeError("on_step broke")
 
     with pytest.raises(RuntimeError, match="on_step broke"):
-        _ = run_attempt(states, tmp_path, on_step=on_step)
+        _ = Machine(states, on_step=on_step).run(tmp_path)
     assert [(visit.state, visit.outcome) for visit in attempts[1].visits] == [("a", "x")]
+
+
+def test_a_machine_subclass_may_override_guard(tmp_path: Path) -> None:
+    class Capped(Machine):
+        @override
+        def guard(self, ctx: Context, state: State) -> str | None:
+            return "capped" if ctx.visit == 2 else None
+
+    attempt = Capped([Step("a", lambda _: Outcome("again"), {"again": Goto("a")}, 5)]).run(tmp_path)
+    assert (attempt.status, attempt.reason) == ("budget", "a visit 2: capped")
+
+
+def test_an_outcome_without_a_transition_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="a has no transition for outcome 'odd'"):
+        _ = Machine([Step("a", lambda _: Outcome("odd"), {})]).run(tmp_path)
+
+
+def test_a_goto_to_an_unknown_state_is_an_error() -> None:
+    with pytest.raises(ValueError, match="unknown b"):
+        _ = Machine([Step("a", lambda _: Outcome("x"), {"x": Goto("b")})])

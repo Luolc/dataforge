@@ -1,4 +1,4 @@
-"""Actions a state's body calls: agent, script and trial, each in an environment, and fan_out.
+"""Actions a state runs: agent, script and trial, each in an environment, and fan_out.
 
 What an action does (agent, script) and where it runs (Host, or a Docker container) are
 independent. Memory is shared through one ResourcePool per process: a Docker env reserves
@@ -21,7 +21,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Protocol, Self, cast
 
-from dataforge.statemachine.engine import ActionRecord, Context, Data, Input
+from dataforge.curation.engine import ActionRecord, Context, Data, Input
 
 
 @dataclass(frozen=True)
@@ -199,7 +199,9 @@ class Docker:
 
     Inputs are copied in under /dataforge/<state>/<visit>/<action>/inputs, outputs copied
     out from .../outputs, and a validator copied to /dataforge/validator/<name>, read-only.
-    The image must have `sleep`. cli runs one docker command; tests replace it.
+    The image must have `sleep`. Hooks for what a dataset adds, such as a gateway: mounts,
+    env (variables set at create) and pre_start, run on the host before each docker start.
+    cli runs one docker command; tests replace it.
     """
 
     image: str
@@ -211,6 +213,8 @@ class Docker:
     network: bool = False
     labels: Mapping[str, str] = field(default_factory=dict[str, str])
     security: Sequence[str] = ()
+    env: Mapping[str, str] = field(default_factory=dict[str, str])
+    pre_start: Callable[[Docker], None] | None = None
     cli: Callable[[Sequence[str]], CommandResult] = run_docker
     _id: str | None = field(default=None, init=False)
     _users: int = field(default=0, init=False)
@@ -241,6 +245,8 @@ class Docker:
         for mount in self.mounts:
             suffix = ":ro" if mount.read_only else ""
             args += ["--volume", f"{mount.source.resolve()}:{mount.target}{suffix}"]
+        for key, value in self.env.items():
+            args += ["--env", f"{key}={value}"]
         return [*args, self.image, "sleep", "infinity"]
 
     def start(self, pool: ResourcePool | None) -> None:
@@ -252,6 +258,8 @@ class Docker:
                 try:
                     if self._id is None:
                         self._id = self._docker(self.create_args()).strip()
+                    if self.pre_start is not None:
+                        self.pre_start(self)
                     _ = self._docker(["start", self._id])
                 except BaseException:
                     self._release()

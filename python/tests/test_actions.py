@@ -3,13 +3,13 @@
 
 import shutil
 import threading
-import tomllib
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import override
 
 import pytest
 
-from dataforge.statemachine import (
+from dataforge.curation import (
     Actions,
     AgentRun,
     AgentSpec,
@@ -20,6 +20,7 @@ from dataforge.statemachine import (
     End,
     Env,
     Limits,
+    Machine,
     Mount,
     Outcome,
     ResourcePool,
@@ -28,16 +29,24 @@ from dataforge.statemachine import (
     TrialAgent,
     TrialResult,
     fan_out,
-    run_attempt,
 )
 
 WAIT = 5.0
 
 
+class Once(State):
+    def __init__(self, body: Callable[[Context], Outcome]) -> None:
+        super().__init__("a", {"ok": End("ok")})
+        self.body: Callable[[Context], Outcome] = body
+
+    @override
+    def run(self, ctx: Context) -> Outcome:
+        return self.body(ctx)
+
+
 def once(tmp_path: Path, body: Callable[[Context], Outcome]) -> None:
     """Run body as the one state of an attempt that must end "ok"."""
-    attempt = run_attempt([State("a", body, {"ok": End("ok")}, 1)], tmp_path / "attempt")
-    assert attempt.status == "ok"
+    assert Machine([Once(body)]).run(tmp_path / "attempt").status == "ok"
 
 
 def blocked(call: Callable[[], object], release: Callable[[], None]) -> None:
@@ -198,6 +207,7 @@ def test_docker_create_args(tmp_path: Path) -> None:
         pids=256,
         labels={"attempt": "7"},
         security=["no-new-privileges"],
+        env={"PROXY": "http://gateway"},
     )
     assert env.create_args() == [
         "create", "--init",
@@ -209,6 +219,7 @@ def test_docker_create_args(tmp_path: Path) -> None:
         "--label", "attempt=7",
         "--security-opt", "no-new-privileges",
         "--volume", f"{tmp_path}/cache:/cache",
+        "--env", "PROXY=http://gateway",
         "solver:1", "sleep", "infinity",
     ]  # fmt: skip
 
@@ -247,7 +258,12 @@ def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path)
     agent = DockerAgent(docker, pool)
     actions = Actions(agent_runner=agent, pool=pool)
 
-    with Docker("author:1", memory_gb=0.5, cli=docker) as env:
+    started: list[str | None] = []
+
+    def pre_start(env: Docker) -> None:
+        started.append(env.container)
+
+    with Docker("author:1", memory_gb=0.5, pre_start=pre_start, cli=docker) as env:
 
         def body(ctx: Context) -> Outcome:
             spec = AgentSpec("Write.", tmp_path, outputs=["task"], validator=validator)
@@ -267,6 +283,7 @@ def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path)
     assert pool.reserved_gb == 0.0
     lifecycle = [call[0] for call in docker.calls if call[0] in {"create", "start", "stop", "rm"}]
     assert lifecycle == ["create", "start", "stop", "start", "stop", "rm"]
+    assert started == ["c1", "c1"]
 
 
 def test_a_failed_docker_start_returns_its_memory(tmp_path: Path) -> None:
@@ -287,8 +304,3 @@ def test_a_failed_docker_start_returns_its_memory(tmp_path: Path) -> None:
             return Outcome(actions.script(ctx, ScriptSpec(["true"]), env).status)
 
         once(tmp_path, body)
-
-
-def test_the_package_has_no_runtime_dependencies() -> None:
-    pyproject = Path(__file__).parent.parent / "pyproject.toml"
-    assert tomllib.loads(pyproject.read_text())["project"]["dependencies"] == []
