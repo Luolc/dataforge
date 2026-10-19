@@ -34,7 +34,8 @@ Not in scope:
   ------------------------------------------------------------------
   machine/bootstrap.sh -> Ansible (machine/playbook.yml)
     installs uv, Docker, zsh, gh, herdr, Claude Code, gateway client,
-    Tailscale, op, direnv, fleet, fednet, atb, statute
+    Node.js, Google Chrome, CJK fonts, Tailscale, op, direnv, fleet, fednet,
+    atb, statute
 
   redcoast GitHub Release  ------>  gateway client (shim `claude` + redcoast-client)
 
@@ -57,8 +58,8 @@ The setup in `machine/` runs once per machine and again for upgrades. The gatewa
 
 Each one links to the test that guards it. Test files: [`machine/tests/`](../machine/tests/) (setup in a clean container), [`.github/scripts/`](../.github/scripts/).
 
-1. The setup is idempotent: a second run reports `changed=0`, and so does a run in check mode. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "second run changed something", "check-mode run would change something".
-2. Every third-party tool version is pinned in [`machine/versions.yml`](../machine/versions.yml) (Ubuntu archive packages follow the release). The tools the repository owner publishes, statute, fleet, fednet, atb and the gateway client (redcoast-client and the shim), are not pinned there: each setup run installs the latest non-draft, non-prerelease release of the tool, statute's being the newest `statute-v*` one of a repository that releases more than statute, and verifies it against the checksum file in that release; when the release has none, it installs nothing and fails the setup, naming the tool. A fednet that upgraded itself to its latest release is left as it is; any other is replaced. [`machine/tests/inside.sh`](../machine/tests/inside.sh): the per-tool version checks, "statute: run reports …", "a release without its checksum file was accepted", "fednet replaced".
+1. The setup is idempotent: a second run reports `changed=0`, and so does a run in check mode. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "second run changed something", "check-mode run would change something". A run in check mode on a machine that lacks a vendor apt source added by a newer setup (here the Node.js one) still runs to the end: "check-mode run without the Node.js source".
+2. Every third-party tool version is pinned in [`machine/versions.yml`](../machine/versions.yml) (Ubuntu archive packages follow the release); this covers Node.js and Google Chrome, and Chrome has no apt source, so `apt upgrade` cannot move it off its pin. The tools the repository owner publishes, statute, fleet, fednet, atb and the gateway client (redcoast-client and the shim), are not pinned there: each setup run installs the latest non-draft, non-prerelease release of the tool, statute's being the newest `statute-v*` one of a repository that releases more than statute, and verifies it against the checksum file in that release; when the release has none, it installs nothing and fails the setup, naming the tool. A fednet that upgraded itself to its latest release is left as it is; any other is replaced. [`machine/tests/inside.sh`](../machine/tests/inside.sh): the per-tool version checks, "statute: run reports …", "a release without its checksum file was accepted", "fednet replaced", and for the pins "a Chrome .deb with the wrong sha256 was accepted", "an apt source for Chrome: …".
 3. A gateway client download that does not match its release's `SHA256SUMS` installs nothing, and the installed version stays in use; a failed replacement puts the old copy back. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "tampered download was accepted", "current moved after a failed replacement".
 4. The setup merges its Claude Code settings into the existing files and keeps keys it does not own, including the gateway's auth and proxy settings. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "an existing setting was dropped".
 5. The gateway shim is first on `PATH` in every zsh, interactive or not, as long as `zshenv.local` (section 4), which is sourced after the setup's `PATH`, puts nothing in front of it. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "in a non-interactive zsh, claude is …, not the shim".
@@ -92,7 +93,7 @@ The Claude Code runner's invariants (section 5), guarded by [`test_claude.py`](.
 
 - Setting up a data machine: [`machine/README.md`](../machine/README.md); settings in [`machine/playbook.yml`](../machine/playbook.yml), versions in [`machine/versions.yml`](../machine/versions.yml).
 - The machine's own settings, which the setup reads and never writes: the GitHub token in `~/.config/dataforge/github-token`, the git identity and gateway address in `~/.config/dataforge/setup.yml`, and private environment variables in `~/.config/dataforge/zshenv.local`.
-- Install paths that other setups may rely on: `/usr/local/bin/<name>` for `fleet`, `fednet`, `atb`, `statute`, `herdr` and `gh`; `/usr/bin/<name>` for `tailscale`, `op` and `direnv`.
+- Install paths that other setups may rely on: `/usr/local/bin/<name>` for `fleet`, `fednet`, `atb`, `statute`, `herdr` and `gh`; `/usr/bin/<name>` for `tailscale`, `op`, `direnv`, `node`, `npm`, `npx` and `google-chrome`.
 - The Claude Code runner: the names section 5 gives of `dataforge.runtime.claude` ([`claude.py`](../python/src/dataforge/runtime/claude.py)).
 - The state machine: `dataforge.curation` exports the names in its `__all__` ([`__init__.py`](../python/src/dataforge/curation/__init__.py)), among them the classes section 5 names. A dataset repo installs it from git, pinned to a commit of main whose CI run for the push succeeded on its first attempt; upgrading is changing that SHA. There is no tag and no package index release. Each runtime dependency is added with its reason in the PR that adds it.
 
