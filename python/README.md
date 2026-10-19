@@ -6,11 +6,11 @@ The Python package of dataforge, for dataset repositories.
 gives the states: each runs and returns an outcome, maps each outcome to the next state or the
 end, and has its `max_visits`. `Machine` (`dataforge.curation.engine`) runs them, ends the
 attempt at a cap or a guard, and records it. The actions a state runs
-(`dataforge.curation.actions`) are `agent`, `script` and `trial`, each in an environment
+(`dataforge.curation.actions`) are `agent`, `script`, `judge` and `trial`, each in an environment
 (`Host()` or a `Docker` container), plus `fan_out`; they share memory through one
 `ResourcePool` per process. `dataforge.curation.states` has dataforge's own states, one per
 action (`AgentState`, `ScriptState`, `TrialState`, `PassAtKState`), which a dataset
-subclasses; `State` and `Machine` may be subclassed too.
+configures or subclasses; `State` and `Machine` may be subclassed too.
 
 `dataforge.curation.harbor` has `HarborRunner`, which runs each trial with the Harbor CLI at the
 path it is given; the dataset installs Harbor, and this package does not depend on it.

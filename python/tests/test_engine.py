@@ -788,4 +788,6 @@ def test_each_visit_records_its_round(tmp_path: Path) -> None:
   visits = cast(list[dict[str, object]], record["visits"])
   assert [visit["round"] for visit in visits] == [1, 1, 2, 2, 2]
   assert record["round"] == 2
-  assert record["budget"] == {"max_usd": None, "cost_usd": 0, "stopped": None}
+  assert json.dumps(record["budget"]) == (
+    '{"max_usd": null, "cost_usd": 0.0, "stopped": null}'
+  )

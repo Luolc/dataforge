@@ -20,8 +20,8 @@ type Data = Mapping[str, object]
 JSON."""
 
 type Input = str | Path
-"""An action input: a str names an artifact (its latest version), a Path is
-used as is."""
+"""An action input: a str names an artifact (its latest version), or a path
+inside it as "<artifact>/<path>"; a Path is used as is."""
 
 
 @dataclass(frozen=True)
@@ -290,7 +290,8 @@ class Attempt:
   def cost_usd(self) -> float:
     """What the recorded actions cost, in US dollars."""
     return sum(
-      action.cost_usd for visit in self.visits for action in visit.actions
+      (action.cost_usd for visit in self.visits for action in visit.actions),
+      0.0,
     )
 
   @property
@@ -444,22 +445,37 @@ class Context:
     self.outdir.mkdir(parents=True, exist_ok=True)
     return index
 
-  def resolve(self, inputs: Sequence[Input]) -> dict[str, Path]:
+  def resolve(
+    self, inputs: Sequence[Input], optional: Sequence[Input] = ()
+  ) -> dict[str, Path]:
     """Return input paths by name.
 
     Args:
       inputs: The inputs of an action.
+      optional: More inputs, each left out when its artifact has no version
+        or its path does not exist.
 
     Returns:
-      For a name, the artifact's latest version; for a path, the path by its
-      file name.
+      For a name, the artifact's latest version, or for "<artifact>/<path>"
+      that path in it, by the str; for a path, the path by its file name. An
+      artifact of inputs with no version raises KeyError.
     """
-    return {
-      item.name if isinstance(item, Path) else item: (
-        item if isinstance(item, Path) else self._artifacts.get(item)
-      )
-      for item in inputs
-    }
+    paths = {_name(item): self._path(item) for item in inputs}
+    for item in optional:
+      try:
+        path = self._path(item)
+      except KeyError:
+        continue
+      if path.exists():
+        paths[_name(item)] = path
+    return paths
+
+  def _path(self, item: Input) -> Path:
+    if isinstance(item, Path):
+      return item
+    artifact, _, inside = item.partition("/")
+    path = self._artifacts.get(artifact)
+    return path / inside if inside else path
 
   def record(self, action: ActionRecord) -> None:
     """Add an action to this visit and its outputs to the artifacts.
@@ -693,3 +709,7 @@ def _feedback(ctx: Context, state: State, outcome: Outcome) -> None:
       "report", "ok", {"feedback": path}, started, datetime.now(UTC), 0.0
     )
   )
+
+
+def _name(item: Input) -> str:
+  return item.name if isinstance(item, Path) else item

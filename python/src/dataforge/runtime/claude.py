@@ -561,12 +561,14 @@ def numbered(run_dir: Path, prefix: str = "agent") -> Files:
 
   Returns:
     `run_dir/<prefix>-<n>` for the n-th start and
-    `run_dir/<prefix>-<n>-fix-<k>` for its k-th fix.
+    `run_dir/<prefix>-<n>-fix-<k>` for its k-th fix, with the spec's name, when
+    it has one, in place of prefix.
   """
 
   def files(spec: AgentSpec, task: AgentTask, number: int, fix: int) -> Path:
-    del spec, task
-    name = f"{prefix}-{number}" + (f"-fix-{fix}" if fix else "")
+    del task
+    start = spec.name or prefix
+    name = f"{start}-{number}" + (f"-fix-{fix}" if fix else "")
     return run_dir / name
 
   return files
@@ -725,7 +727,15 @@ class Runner:
         if not session.resumable
         else f"${left:.2f} of the start's cap is left"
       )
-      return AgentRun(session, "ok", 0.0, None, f"no fix run: {why}")
+      return AgentRun(
+        session,
+        "ok",
+        0.0,
+        None,
+        f"no fix run: {why}",
+        session.subtype,
+        session.resumable,
+      )
     path = self.files(session.spec, session.task, session.number, session.fixes)
     return self._run(session, path, prompt, left)
 
@@ -801,7 +811,15 @@ class Runner:
           answer += f"; the last one rejected: {json.dumps(result.rejected)}"
       else:
         answer = json.dumps(result.output)
-    return AgentRun(conversation, status, spent, result.trace, answer)
+    return AgentRun(
+      conversation,
+      status,
+      spent,
+      result.trace,
+      answer,
+      result.subtype,
+      conversation.resumable,
+    )
 
 
 def _allow(tools: Sequence[str], dirs: Sequence[str]) -> list[str]:
