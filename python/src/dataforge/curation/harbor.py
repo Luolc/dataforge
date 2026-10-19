@@ -23,8 +23,13 @@ A trial reserves from the pool the task's memory plus the sidecar's limit (`memo
 whether or not the task has a sidecar; image builds and the cleanup's container use memory
 besides, so a dataset leaves the pool some headroom.
 
+The task directory's own compose file may set the same `cap_drop` and `security_opt` items as
+the overlay; compose rejects a list that has an item twice, so the overlay leaves out the items
+the task's `main` already has, and `main` still ends up with every one of them.
+
 A dataset connects its own host side (a model gateway, say) through `mounts`, `env`, extra
-compose files in `compose_overlay`, and `pre_start`, called before Harbor starts.
+compose files in `compose_overlay`, `pre_start`, called before Harbor starts, and `post_run`,
+called after the trial's cleanup whatever happened.
 """
 
 import json
@@ -94,9 +99,10 @@ class HarborRunner:
     some variables from their own environment. The overlay names env's variables without
     their values. compose_overlay files come after ours, so they can override it; one that
     names the container's network (`network_mode: none`, say) takes it off Harbor's egress
-    sidecar. pre_start is called with the trial's outdir before Harbor starts. docker is the
-    docker command the cleanup runs; when docker fails during the cleanup, run raises, since
-    it cannot tell what is left.
+    sidecar. pre_start is called with the trial's outdir before Harbor starts, and post_run
+    with it after the cleanup, also when pre_start or Harbor failed. docker is the docker
+    command that reads the task's compose file and that the cleanup runs; when docker fails
+    during the cleanup, run raises, since it cannot tell what is left.
     """
 
     harbor: Path
@@ -109,6 +115,7 @@ class HarborRunner:
     env: Mapping[str, str] = field(default_factory=dict[str, str])
     compose_overlay: Sequence[Path] = ()
     pre_start: Callable[[Path], None] | None = None
+    post_run: Callable[[Path], None] | None = None
     docker: str = "docker"
 
     def memory_gb(self, limits: Limits) -> float:
@@ -120,7 +127,8 @@ class HarborRunner:
         agent_args = _agent_args(agent)
         label = uuid.uuid4().hex
         overlay = outdir / "overlay.json"
-        _ = overlay.write_text(json.dumps(self.overlay(egress, limits, label), indent=2))
+        task = _task_main(task_dir, self.docker)
+        _ = overlay.write_text(json.dumps(self.overlay(egress, limits, label, task), indent=2))
         args = [
             str(self.harbor), "run",
             "--path", str(task_dir.resolve()),
@@ -144,20 +152,32 @@ class HarborRunner:
             try:
                 self._chown(outdir, label)
             finally:
-                left = cleanup(f"{LABEL}={label}", self.docker)
+                try:
+                    left = cleanup(f"{LABEL}={label}", self.docker)
+                finally:
+                    if self.post_run is not None:
+                        self.post_run(outdir)
         if any(left.values()):
             raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
         return _read(outdir, log, error, time.monotonic() - started)
 
-    def overlay(self, egress: bool, limits: Limits, label: str) -> object:
+    def overlay(
+        self, egress: bool, limits: Limits, label: str, task: Mapping[str, object] | None = None
+    ) -> object:
         """The compose overlay of one trial, as compose reads it from JSON.
 
-        egress says whether Harbor starts its egress sidecar for the task.
+        egress says whether Harbor starts its egress sidecar for the task. task is the `main`
+        service of the task's own compose file; the overlay leaves out the `cap_drop` and
+        `security_opt` items it already has.
         """
+
+        def missing(key: str, item: str) -> list[str]:
+            return [] if item in cast(Sequence[object], (task or {}).get(key) or ()) else [item]
+
         labels = {LABEL: label}
         main: dict[str, object] = {
-            "cap_drop": ["ALL"],
-            "security_opt": ["no-new-privileges:true"],
+            "cap_drop": missing("cap_drop", "ALL"),
+            "security_opt": missing("security_opt", "no-new-privileges:true"),
             "pids_limit": self.pids,
             "cpus": self.cpus if limits.cpus is None else limits.cpus,
             "cpu_shares": self.cpu_shares,
@@ -271,6 +291,27 @@ def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
 
 def _passed() -> dict[str, str]:
     return {key: os.environ[key] for key in PASSED if key in os.environ}
+
+
+def _task_main(task_dir: Path, docker: str) -> Mapping[str, object]:
+    """The `main` service of the task's own compose file, empty when it has none."""
+    path = task_dir / "environment" / "docker-compose.yaml"
+    if not path.exists():
+        return {}
+    out = subprocess.run(
+        [
+            docker, "compose", "--file", str(path.resolve()), "config", "--format", "json",
+            "--no-interpolate", "--no-normalize", "--no-path-resolution", "--no-consistency",
+        ],
+        env=_passed(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    ).stdout  # fmt: skip
+    config = cast(Mapping[str, object], json.loads(out))
+    services = cast(Mapping[str, object], config.get("services") or {})
+    return cast(Mapping[str, object], services.get("main") or {})
 
 
 def _has_sidecar(task_dir: Path) -> bool:

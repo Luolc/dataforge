@@ -6,6 +6,7 @@
 import json
 import os
 import signal
+import subprocess
 import sys
 import time
 from dataclasses import replace
@@ -51,13 +52,16 @@ if mode == "no-reward":
 """
 
 # The fake docker appends its argv to calls.jsonl next to it. `<kind> ls` prints the ids
-# in <kind>.ids; `rm` and `rmi` remove them unless a file "stuck" is there.
+# in <kind>.ids; `rm` and `rmi` remove them unless a file "stuck" is there. `compose` goes to
+# the real docker on PATH, which only reads compose files here.
 FAKE_DOCKER = """\
-import json, pathlib, sys
+import json, os, pathlib, sys
 here = pathlib.Path(__file__).parent
 argv = sys.argv[1:]
 with (here / "calls.jsonl").open("a") as f:
     f.write(json.dumps(argv) + "\\n")
+if argv[0] == "compose":
+    os.execvp("docker", ["docker", *argv])
 if argv[0] in ("container", "image", "network", "volume"):
     ids = here / f"{argv[0]}.ids"
     if argv[1] == "ls":
@@ -307,6 +311,34 @@ def test_pre_start_runs_with_the_outdir_before_harbor(
     assert (out / "fake.json").exists()
 
 
+@pytest.mark.parametrize("mode", ["ok", "exit"])
+def test_post_run_runs_with_the_outdir_after_the_cleanup(
+    tmp_path: Path, fakes: tuple[Path, Path], mode: str
+) -> None:
+    calls: list[tuple[Path, int]] = []
+    out = outdir(tmp_path)
+
+    def post_run(path: Path) -> None:
+        calls.append((path, len(docker_calls(fakes))))
+
+    run = replace(runner(fakes, mode), post_run=post_run)
+    _ = run.run(task(tmp_path), "nop", Limits(2), out)
+    assert calls == [(out, len(docker_calls(fakes)))]
+
+
+def test_post_run_runs_when_pre_start_raises(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
+    calls: list[Path] = []
+    out = outdir(tmp_path)
+
+    def pre_start(_: Path) -> None:
+        raise OSError("the gateway did not start")
+
+    run = replace(runner(fakes), pre_start=pre_start, post_run=calls.append)
+    with pytest.raises(OSError, match="the gateway did not start"):
+        _ = run.run(task(tmp_path), "nop", Limits(2), out)
+    assert calls == [out]
+
+
 def test_every_trial_has_its_own_label(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
     labels: list[str] = []
     for name in ("a", "b"):
@@ -369,3 +401,33 @@ def alive(out: Path) -> list[int]:
             continue
         running.append(pid)
     return running
+
+
+@pytest.mark.parametrize(
+    "lists",
+    [
+        "",
+        "    cap_drop: [ALL]\n",
+        '    security_opt: ["no-new-privileges:true"]\n',
+        '    cap_drop: [ALL, NET_RAW]\n    security_opt: [label=disable, "no-new-privileges"]\n',
+    ],
+)
+def test_the_merged_main_has_each_cap_once_with_the_tasks_compose_file(
+    tmp_path: Path, fakes: tuple[Path, Path], lists: str
+) -> None:
+    compose = tmp_path / "task" / "environment" / "docker-compose.yaml"
+    compose.parent.mkdir(parents=True)
+    _ = compose.write_text(f"services:\n  main:\n    image: ubuntu:24.04\n{lists}")
+    out = outdir(tmp_path)
+    _ = runner(fakes).run(task(tmp_path), "nop", Limits(2), out)
+    merged = subprocess.run(
+        ["docker", "compose", "--file", str(compose), "--file", str(out / "overlay.json"),
+         "config", "--format", "json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )  # fmt: skip
+    assert merged.returncode == 0, merged.stderr
+    main = json.loads(merged.stdout)["services"]["main"]
+    assert main["cap_drop"].count("ALL") == 1
+    assert main["security_opt"].count("no-new-privileges:true") == 1
