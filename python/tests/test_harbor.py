@@ -80,12 +80,15 @@ def fakes(tmp_path: Path) -> tuple[Path, Path]:
     return script(bin_dir / "harbor", FAKE_HARBOR), script(bin_dir / "docker", FAKE_DOCKER)
 
 
-def task(tmp_path: Path, network_mode: str = "public", verifier: str | None = None) -> Path:
+def task(
+    tmp_path: Path, network_mode: str = "public", verifier: str | None = None, steps: str = ""
+) -> Path:
     task_dir = tmp_path / "task"
     task_dir.mkdir(exist_ok=True)
     toml = f'[environment]\nnetwork_mode = "{network_mode}"\nmemory_mb = 2048\n'
     if verifier is not None:
         toml += f'[verifier]\nnetwork_mode = "{verifier}"\n'
+    toml += steps
     _ = (task_dir / "task.toml").write_text(toml)
     return task_dir
 
@@ -253,6 +256,35 @@ def test_a_phase_without_public_network_caps_and_labels_a_sidecar(
     sidecar = json.loads((out / "overlay.json").read_text())["services"][SIDECAR]
     assert sidecar["mem_limit"] == "64m"
     assert LABEL in sidecar["labels"]
+
+
+STEPS = """
+[[steps]]
+name = "one"
+[[steps]]
+name = "two"
+[steps.agent]
+network_mode = "no-network"
+"""
+
+
+def test_a_step_without_public_network_caps_and_labels_a_sidecar(
+    tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+    out = outdir(tmp_path)
+    _ = runner(fakes).run(task(tmp_path, steps=STEPS), "nop", Limits(2), out)
+    sidecar = json.loads((out / "overlay.json").read_text())["services"][SIDECAR]
+    assert sidecar["mem_limit"] == "64m"
+    assert LABEL in sidecar["labels"]
+
+
+def test_steps_that_set_a_public_phase_override_the_tasks(
+    tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+    out = outdir(tmp_path)
+    steps = '\n[[steps]]\nname = "one"\n[steps.verifier]\nnetwork_mode = "public"\n'
+    _ = runner(fakes).run(task(tmp_path, verifier="no-network", steps=steps), "nop", Limits(2), out)
+    assert SIDECAR not in json.loads((out / "overlay.json").read_text())["services"]
 
 
 def test_a_trial_reserves_the_tasks_memory_and_the_sidecars(fakes: tuple[Path, Path]) -> None:
