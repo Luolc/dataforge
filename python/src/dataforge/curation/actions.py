@@ -211,8 +211,10 @@ class Docker:
     With outputs, a writable mount, every action writes its outputs straight into that
     mount instead, so what one visit wrote is still there in the next, as a session resumed
     across visits needs; collect copies the mount's source on the host into the visit's
-    outputs, so that each visit keeps its own version. The container's user must be able to
-    write the source.
+    outputs, so that each visit keeps its own version. That copy adds to the visit's outputs
+    and replaces what has the same name, as docker cp does, so a file deleted from the mount
+    between two collects of one action stays there. The container's user must be able to
+    write the source, and this process to read what that user writes.
     The image must have `sleep`. Hooks for what a dataset adds, such as a gateway: mounts,
     env (variables set at create), pre_start, run on the host before each docker start, and
     post_start, run on the host after it and before the action, such as to start a process

@@ -17,7 +17,7 @@ from typing import cast
 
 import pytest
 
-from dataforge.curation.actions import Limits, Mount
+from dataforge.curation.actions import Limits, Mount, TrialAgent
 from dataforge.curation.harbor import LABEL, SIDECAR, HarborRunner, Sidecar, TrialSetup
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json and then does what FAKE_MODE
@@ -308,9 +308,13 @@ class Setup:
         self.overlay: Path = tmp_path / "extra.json"
         _ = self.overlay.write_text("{}")
         self.calls: list[tuple[str, Path, bool, int]] = []
+        self.args: list[tuple[Path, TrialAgent, Limits]] = []
 
     @contextmanager
-    def __call__(self, outdir: Path) -> Generator[TrialSetup]:
+    def __call__(
+        self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+    ) -> Generator[TrialSetup]:
+        self.args.append((task_dir, agent, limits))
         self.calls.append(self._seen("enter", outdir))
         try:
             yield TrialSetup(
@@ -347,7 +351,9 @@ def test_what_the_setup_yields_reaches_the_trial(tmp_path: Path, fakes: tuple[Pa
         compose_overlay=[tmp_path / "own.json"],
         setup=setup,
     )
-    _ = run.run(task(tmp_path), "nop", Limits(2), out)
+    agent = {"name": "claude-code"}
+    _ = run.run(task(tmp_path), agent, Limits(2), out)
+    assert setup.args == [(tmp_path / "task", agent, Limits(2))]
     main = json.loads((out / "overlay.json").read_text())["services"]["main"]
     assert main["volumes"] == [
         f"{(tmp_path / 'cache').resolve()}:/cache:ro",

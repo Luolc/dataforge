@@ -110,11 +110,12 @@ class HarborRunner:
     some variables from their own environment. The overlay names env's variables without
     their values. compose_overlay files come after ours, so they can override it; one that
     names the container's network (`network_mode: none`, say) takes it off Harbor's egress
-    sidecar. setup, when given, is called with the trial's outdir; run enters the context it
-    returns before it writes the overlay and starts Harbor, adds the TrialSetup it yields to
-    the trial, and exits it after the cleanup, also when Harbor or the cleanup failed. A
-    dataset serves a model gateway on a socket there, say, and yields the socket's mount.
-    It runs inside the trial's reservation from the pool, as run does. docker is the docker
+    sidecar. setup, when given, is called with run's arguments, so that it can tell an
+    agent's trial from nop's or oracle's; run enters the context it returns before it writes
+    the overlay and starts Harbor, adds the TrialSetup it yields to the trial, and exits it
+    after the cleanup, also when Harbor or the cleanup failed. A dataset serves a model
+    gateway on a socket there, say, and yields the socket's mount. It runs inside the
+    trial's reservation from the pool, as run does. docker is the docker
     command that reads the task's compose file and that the cleanup runs; when docker fails
     during the cleanup, run raises, since it cannot tell what is left.
     """
@@ -128,7 +129,9 @@ class HarborRunner:
     mounts: Sequence[Mount] = ()
     env: Mapping[str, str] = field(default_factory=dict[str, str])
     compose_overlay: Sequence[Path] = ()
-    setup: Callable[[Path], AbstractContextManager[TrialSetup]] | None = None
+    setup: Callable[[Path, TrialAgent, Limits, Path], AbstractContextManager[TrialSetup]] | None = (
+        None
+    )
     docker: str = "docker"
 
     def memory_gb(self, limits: Limits) -> float:
@@ -136,7 +139,11 @@ class HarborRunner:
         return limits.memory_gb + self.sidecar.memory_gb
 
     def run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
-        context = nullcontext(TrialSetup()) if self.setup is None else self.setup(outdir)
+        context = (
+            nullcontext(TrialSetup())
+            if self.setup is None
+            else self.setup(task_dir, agent, limits, outdir)
+        )
         with context as extra:
             runner = replace(
                 self,
