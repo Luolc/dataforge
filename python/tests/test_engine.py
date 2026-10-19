@@ -3,6 +3,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, UTC
 import json
 from pathlib import Path
 from typing import cast, override
@@ -10,6 +11,7 @@ from typing import cast, override
 import pytest
 
 from dataforge.curation import (
+  ActionRecord,
   ActionResult,
   Actions,
   AgentRun,
@@ -416,6 +418,8 @@ class Step(State):
     transitions: Where each outcome leads.
     max_visits: How many times it may be entered.
     on_exhausted: The attempt's status when it is entered once too often.
+    feedback: Its feedback template.
+    max_cost_usd: The most one visit may spend.
   """
 
   def __init__(
@@ -425,8 +429,18 @@ class Step(State):
     transitions: dict[str, Goto | End],
     max_visits: int = 1,
     on_exhausted: str = "failed",
+    *,
+    feedback: str | None = None,
+    max_cost_usd: float = 0.0,
   ) -> None:
-    super().__init__(name, transitions, max_visits, on_exhausted)
+    super().__init__(
+      name,
+      transitions,
+      max_visits,
+      on_exhausted,
+      feedback=feedback,
+      max_cost_usd=max_cost_usd,
+    )
     self.step: Callable[[Context], Outcome] = step
 
   @override
@@ -524,3 +538,254 @@ def test_an_outcome_without_a_transition_is_an_error(tmp_path: Path) -> None:
 def test_a_goto_to_an_unknown_state_is_an_error() -> None:
   with pytest.raises(ValueError, match="unknown b"):
     _ = Machine([Step("a", lambda _: Outcome("x"), {"x": Goto("b")})])
+
+
+def spend(cost_usd: float, outcome: str) -> Callable[[Context], Outcome]:
+  """Return a step that records an action costing cost_usd.
+
+  Args:
+    cost_usd: What the action costs.
+    outcome: The step's outcome.
+
+  Returns:
+    The step.
+  """
+
+  def step(ctx: Context) -> Outcome:
+    now = datetime.now(UTC)
+    ctx.record(ActionRecord("agent", "ok", {}, now, now, cost_usd))
+    return Outcome(outcome)
+
+  return step
+
+
+def test_feedback_is_rendered_and_recorded_on_a_goto_with_a_report(
+  tmp_path: Path,
+) -> None:
+  seen: list[str] = []
+
+  def check(ctx: Context) -> Outcome:
+    feedback = {"details": f"bad {ctx.visit}", "round": "theirs"}
+    return Outcome("again" if ctx.visit == 1 else "fail", feedback=feedback)
+
+  def author(ctx: Context) -> Outcome:
+    if ctx.report is not None:
+      seen.append(ctx.report.artifacts["feedback"].read_text())
+      seen.append(ctx.artifacts.get("feedback").read_text())
+    return Outcome("done")
+
+  template = (
+    "Fix it.\n\n## ${state}, visit ${visit}, round ${round}\n${details}"
+  )
+  attempt = Machine(
+    [
+      Step("author", author, {"done": Goto("check", report=False)}, 2),
+      Step(
+        "check",
+        check,
+        {"again": Goto("check", report=False), "fail": Goto("author")},
+        3,
+        feedback=template,
+      ),
+    ]
+  ).run(tmp_path)
+  text = "Fix it.\n\n## check, visit 2, round 1\nbad 2"
+  assert seen == [text, text]
+  assert attempt.visits[1].actions == []
+  check_2 = attempt.visits[2]
+  assert [(a.kind, a.status, a.cost_usd) for a in check_2.actions] == [
+    ("report", "ok", 0.0)
+  ]
+  assert check_2.outputs == {
+    "feedback": tmp_path / "artifacts/check/2/feedback.md"
+  }
+
+
+def test_no_feedback_without_a_report_a_template_or_variables(
+  tmp_path: Path,
+) -> None:
+  def machine(goto: Goto, template: str | None, feedback: bool) -> Machine:
+    variables = {"details": "bad"} if feedback else None
+    return Machine(
+      [
+        Step(
+          "a",
+          lambda _: Outcome("x", feedback=variables),
+          {"x": goto},
+          2,
+          feedback=template,
+        ),
+        Step("b", lambda _: Outcome("y"), {"y": End("done")}),
+      ]
+    )
+
+  for goto, template, feedback in [
+    (Goto("b", report=False), "${details}", True),
+    (Goto("b"), None, True),
+    (Goto("b"), "${details}", False),
+  ]:
+    attempt = machine(goto, template, feedback).run(tmp_path / "x")
+    assert attempt.visits[0].actions == []
+  attempt = machine(Goto("b"), "${details}", True).run(tmp_path / "y")
+  assert [a.kind for a in attempt.visits[0].actions] == ["report"]
+
+
+def test_a_feedback_template_missing_a_variable_is_an_error(
+  tmp_path: Path,
+) -> None:
+  machine = Machine(
+    [
+      Step(
+        "a",
+        lambda _: Outcome("x", feedback={"details": "bad"}),
+        {"x": Goto("a")},
+        2,
+        feedback="${details} ${hint}",
+      )
+    ]
+  )
+  with pytest.raises(ValueError, match="a visit 1: its feedback template"):
+    _ = machine.run(tmp_path)
+
+
+def test_the_cost_cap_blocks_a_state_before_the_guard(tmp_path: Path) -> None:
+  guarded: list[str] = []
+
+  def guard(ctx: Context, state: State) -> str | None:
+    guarded.append(state.name)
+    return None
+
+  machine = Machine(
+    [
+      Step("a", spend(1.5, "x"), {"x": Goto("b")}, max_cost_usd=2.0),
+      Step("b", spend(1.0, "y"), {"y": Goto("c")}, max_cost_usd=1.5),
+      Step("c", spend(0.0, "z"), {"z": End("passed")}, max_cost_usd=0.75),
+    ],
+    guard=guard,
+    max_cost_usd=3.0,
+  )
+  attempt = machine.run(tmp_path)
+  assert attempt.status == "budget"
+  reason = (
+    "c visit 1: $2.50 spent and up to $0.75 more would pass the $3.00 the"
+    " attempt may spend"
+  )
+  assert (attempt.reason, attempt.stopped) == (reason, reason)
+  assert guarded == ["a", "b"]
+  assert attempt.to_json()["budget"] == {
+    "max_usd": 3.0,
+    "cost_usd": 2.5,
+    "stopped": reason,
+  }
+
+
+def test_the_cost_cap_lets_a_state_in_up_to_the_cap(tmp_path: Path) -> None:
+  machine = Machine(
+    [
+      Step("a", spend(1.0, "x"), {"x": Goto("b")}),
+      Step("b", spend(0.5, "y"), {"y": End("passed")}, max_cost_usd=0.5),
+    ],
+    max_cost_usd=1.5,
+  )
+  attempt = machine.run(tmp_path)
+  assert (attempt.status, attempt.stopped) == ("passed", None)
+  assert attempt.to_json()["budget"] == {
+    "max_usd": 1.5,
+    "cost_usd": 1.5,
+    "stopped": None,
+  }
+
+
+def test_a_blocking_guard_leaves_stopped_unset(tmp_path: Path) -> None:
+  attempt = Machine(
+    [Step("a", lambda _: Outcome("x"), {"x": End("ok")})],
+    guard=lambda ctx, state: "no",
+    max_cost_usd=1.0,
+  ).run(tmp_path)
+  assert (attempt.status, attempt.reason, attempt.stopped) == (
+    "budget",
+    "a visit 1: no",
+    None,
+  )
+
+
+def test_end_on_last_visit_ends_instead_of_going_back(tmp_path: Path) -> None:
+  def machine(last: bool) -> Machine:
+    return Machine(
+      [
+        Step("author", lambda _: Outcome("done"), {"done": Goto("judge")}, 5),
+        Step(
+          "judge",
+          lambda _: Outcome("easy", last=last, feedback={"details": "d"}),
+          {"easy": Goto("author", mark="too_easy", end_on_last_visit=True)},
+          2,
+          "exhausted",
+          feedback="${details}",
+        ),
+      ]
+    )
+
+  attempt = machine(last=False).run(tmp_path / "cap")
+  assert path_of(attempt) == [
+    ("author", "done"),
+    ("judge", "easy"),
+    ("author", "done"),
+    ("judge", "easy"),
+  ]
+  assert (attempt.status, attempt.kept_visit) == ("too_easy", 3)
+  assert attempt.reason == "judge visit 2: its last visit, not going to author"
+  assert [a.kind for a in attempt.visits[1].actions] == ["report"]
+  assert attempt.visits[3].actions == []
+
+  attempt = machine(last=True).run(tmp_path / "last")
+  assert path_of(attempt) == [("author", "done"), ("judge", "easy")]
+  assert attempt.reason == "judge visit 1: its last visit, not going to author"
+
+
+def test_end_on_last_visit_without_a_mark_ends_with_on_exhausted(
+  tmp_path: Path,
+) -> None:
+  attempt = Machine(
+    [
+      Step(
+        "a",
+        lambda _: Outcome("x"),
+        {"x": Goto("a", end_on_last_visit=True)},
+        2,
+        "exhausted",
+      )
+    ]
+  ).run(tmp_path)
+  assert (attempt.status, attempt.kept_visit) == ("exhausted", None)
+  assert attempt.reason == "a visit 2: its last visit, not going to a"
+
+
+def test_each_visit_records_its_round(tmp_path: Path) -> None:
+  def check(ctx: Context) -> Outcome:
+    if ctx.round == 1:
+      return Outcome("back")
+    return Outcome("again" if ctx.visit == 2 else "end")
+
+  attempt = Machine(
+    [
+      Step("author", lambda _: Outcome("done"), {"done": Goto("check")}, 3),
+      Step(
+        "check",
+        check,
+        {"back": Goto("author"), "again": Goto("check"), "end": End("ok")},
+        3,
+      ),
+    ]
+  ).run(tmp_path)
+  assert [(v.state, v.visit, v.round) for v in attempt.visits] == [
+    ("author", 1, 1),
+    ("check", 1, 1),
+    ("author", 2, 2),
+    ("check", 2, 2),
+    ("check", 3, 2),
+  ]
+  record = attempt.to_json()
+  visits = cast(list[dict[str, object]], record["visits"])
+  assert [visit["round"] for visit in visits] == [1, 1, 2, 2, 2]
+  assert record["round"] == 2
+  assert record["budget"] == {"max_usd": None, "cost_usd": 0, "stopped": None}
