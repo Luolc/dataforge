@@ -1,0 +1,29 @@
+id = 41
+slug = "frontend-say-what-is-cut"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["decency.no-hallucination"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Never cut a long text without saying so and offering the whole"
+
+[text.statement]
+en = "Never cut a long text on a page without saying how many characters are left out and giving a control that shows the whole text."
+
+[text.reason]
+en = '''
+Long tool outputs and logs are cut to keep a page readable; the reader must still know that something is missing and be able to read it, since the line that matters is often in the part cut out.
+'''
+
+[text.verification]
+en = '''
+Violated when a page shows part of a text without the number of characters left out, or without a way to show the whole of it.
+'''

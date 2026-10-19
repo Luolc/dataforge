@@ -1,0 +1,29 @@
+id = 36
+slug = "frontend-skipped-is-not-failed"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["decency.no-hallucination"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Show a step that did not run as skipped"
+
+[text.statement]
+en = "Show a step that did not run because an earlier step ended the run as skipped, never as failed or passed, and never leave it out."
+
+[text.reason]
+en = '''
+Checks that run in order stop at the first one that fails; a step shown as failed, passed or missing after that claims a result nobody measured.
+'''
+
+[text.verification]
+en = '''
+Violated when a page shows such a step with a status other than skipped, or does not show it at all.
+'''

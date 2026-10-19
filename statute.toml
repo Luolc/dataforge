@@ -9,6 +9,9 @@ domains = [
   "R96",
   # The repository keeps a design, docs/design.md.
   "R232",
+  # The repository is to hold a frontend: a library of components and tokens that
+  # data pipelines compose into their own sites.
+  "R240",
 ]
 
 rules = [

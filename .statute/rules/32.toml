@@ -1,0 +1,31 @@
+id = 32
+slug = "frontend-no-dataset-specifics"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Keep what belongs to one dataset out of the frontend"
+
+[text.statement]
+en = "Keep out of this repository's frontend code every status word, label and route that only one dataset has, and take each as configuration from the project that uses the frontend."
+
+[text.reason]
+en = '''
+The frontend is a library that several data pipelines compose into their own sites; a word or a route that fits only one of them would show up wrong in the others, and each would have to fork the component to remove it.
+'''
+
+[text.verification]
+en = '''
+A status word, label or route counts as one dataset's when the generic state machine and its records do not have it.
+
+Violated when a component, style or module of this repository's frontend writes such a word, label or route itself instead of taking it as a parameter or configuration.
+'''

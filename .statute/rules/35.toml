@@ -1,0 +1,31 @@
+id = 35
+slug = "frontend-status-icon-and-word"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["purpose"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Show a status as an icon or dot with its word"
+
+[text.statement]
+en = "Show every status as an icon or a dot together with its word, never by color alone or by a single letter."
+
+[text.reason]
+en = '''
+A reader who does not tell the colors apart, or who reads a screenshot in grey, still reads the word; a letter such as C or I has to be learned before it says anything.
+'''
+
+[text.verification]
+en = '''
+A word shown only in a tooltip does not count. A cell of a dense matrix may hold a short word (`pass`, `fail`) in place of an icon.
+
+Violated when a page shows a status by color alone, by an icon or dot without its word, or by a single letter.
+'''
