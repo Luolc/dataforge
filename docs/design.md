@@ -46,7 +46,7 @@ Not in scope:
   ------------------------------------------------------------------
   pyproject.toml: dataforge @ git+https://github.com/Luolc/dataforge@<sha>#subdirectory=python
   its states (bodies, transitions, caps) -> dataforge.statemachine.run_attempt
-    -> actions: agent, script (on Host or Docker), trial, fan_out
+    -> Actions: agent, script (on Host or Docker), trial; fan_out
     -> ResourcePool (memory reservations shared by every attempt)
 ```
 
@@ -71,7 +71,7 @@ The state machine's invariants (section 5) are untested until `python/tests/test
 10. An attempt ends with the status the table "Ending an attempt" (section 5) gives, and never enters a state more than its `max_visits` times. Untested (`test_cap_without_a_mark_fails`, `test_cap_after_a_mark_keeps_the_marked_visit`, `test_guard_blocks_with_budget`, `test_last_outcome_ends_on_reentry`).
 11. The validator binds the agent: the host runs its own copy on the outputs, resumes the session with its output at most `max_fixes` times, and fails the action when it still fails. Untested (`test_validator_failure_resumes_the_agent_with_its_output`, `test_validator_failing_past_max_fixes_returns_to_author`).
 12. An exception from a body, an action, `guard` or `on_step` reaches the caller unchanged, after the visit is recorded with outcome `raised`. Untested (`test_a_raising_body_is_recorded_and_raised`).
-13. The pool never lets its reservations exceed `memory_gb`, or more than `max_running` of them run at once; a request waits until it fits. Untested.
+13. The pool never lets its reservations exceed `memory_gb`, or more than `max_running` of them run at once; a request waits until it fits. Untested (in `python/tests/test_actions.py`).
 14. The package imports nothing outside the standard library. Untested.
 
 ## 4. Interfaces
@@ -79,13 +79,13 @@ The state machine's invariants (section 5) are untested until `python/tests/test
 - Setting up a data machine: [`machine/README.md`](../machine/README.md); settings in [`machine/playbook.yml`](../machine/playbook.yml), versions in [`machine/versions.yml`](../machine/versions.yml).
 - The machine's own settings, which the setup reads and never writes: the GitHub token in `~/.config/dataforge/github-token`, the git identity and gateway address in `~/.config/dataforge/setup.yml`, and private environment variables in `~/.config/dataforge/zshenv.local`.
 - Install paths that other setups may rely on: `/usr/local/bin/<name>` for `fleet`, `fednet`, `atb`, `statute`, `herdr` and `gh`; `/usr/bin/<name>` for `tailscale`, `op` and `direnv`.
-- The state machine, planned, not built: `dataforge.statemachine` exports `run_attempt`, `State`, `Outcome`, `Goto`, `End`, `Report`, `Attempt` and `Visit`; the environments `Host` and `Docker` with `Mount`; `AgentSpec`, `ScriptSpec` and `ActionResult`; the protocols `AgentRunner` (returning `AgentRun`) and `TrialRunner` (returning `TrialResult`); and `ResourcePool` (section 5). A dataset repo installs it from git, pinned to a commit of main whose CI run for the push succeeded on its first attempt; upgrading is changing that SHA. There is no tag and no package index release.
+- The state machine, planned, not built: `dataforge.statemachine` exports `run_attempt`, `State`, `Outcome`, `Goto`, `End`, `Report`, `Attempt` and `Visit`; `Actions` and `fan_out`; the environments `Host` and `Docker` with `Mount`; `AgentSpec`, `ScriptSpec`, `Limits` and `ActionResult`; the protocols `AgentRunner` (returning `AgentRun`) and `TrialRunner` (returning `TrialResult`); and `ResourcePool` (section 5). A dataset repo installs it from git, pinned to a commit of main whose CI run for the push succeeded on its first attempt; upgrading is changing that SHA. There is no tag and no package index release.
 
 ## 5. The state machine
 
 Planned, not built: `python/` does not exist yet. It replaces nothing in this repo.
 
-An attempt makes one data item. It is a sequence of visits to states, starting at the first state given to `run_attempt(states, root, *, agent_runner, trial_runner, pool, guard, on_step)`, which first checks that state names are unique, every `Goto` target exists and every `max_visits` is at least 1. A dataset writes each state as `State(name, body, transitions, max_visits, on_exhausted="failed")`:
+An attempt makes one data item. It is a sequence of visits to states, starting at the first state given to `run_attempt(states, root, *, guard=None, on_step=None)`, which first checks that state names are unique, every `Goto` target exists and every `max_visits` is at least 1. A dataset writes each state as `State(name, body, transitions, max_visits, on_exhausted="failed")`:
 
 - `body(ctx) -> Outcome(name, data, last=False)` does the state's work by calling the actions below; `data` is a dict that converts to JSON.
 - `transitions` maps each outcome name to `Goto(state, report=True, mark=None)` or `End(status)`. Each state chooses where to go; the engine knows no state's name, and this repo holds no dataset's table.
@@ -95,18 +95,20 @@ A `Goto` with `report=True` hands the target state `ctx.report`, a `Report(from_
 
 ### Actions
 
-What runs and where it runs are apart. An environment is `Host()` or `Docker(image, mounts, cpus, cpu_shares, memory, pids, network, labels, security)`. A `Docker` environment is a container created on first use and removed when the attempt ends; it is started for each action in it and stopped after, so it keeps its files across visits. A body calls the actions on its context; they write their outputs to the visit's directory `ctx.outdir`, and `agent` and `script` return `ActionResult(status, outputs, log, value, cost_usd)`:
+The engine (`dataforge.statemachine.engine`) knows no action; the actions (`dataforge.statemachine.actions`) reach it only through the context's `claim`, `resolve` and `record`, and `dataforge.statemachine` exports both modules' names. A dataset binds the actions once, `actions = Actions(agent_runner, trial_runner, pool)`, and a body calls them with its context; they write their outputs to the visit's directory `ctx.outdir`, whose names are unique within the visit.
 
-- `ctx.agent(AgentSpec, env)` runs a headless coding agent: `prompt`, `workdir`, `inputs`, `outputs`, `tools`, an optional `output_schema` (whose parsed reply is `value`) and an optional `validator` with `max_fixes`. The agent gets a read-only copy of the validator at a path the prompt names and is told to make it pass; the host then reruns its own original on the outputs (invariant 11). A rubric judge is an agent with no tools and an `output_schema`.
-- `ctx.script(ScriptSpec, env)` runs a command with its inputs as paths and passes when it exits 0. A script that declares `memory_gb` reserves it from the pool, for heavy host work such as an image build. A validator is an executable that takes the output directory as its one argument.
-- `ctx.trial(task_dir, agent, limits)` runs one trial of a task the way Harbor does: it starts the task's environment, runs the agent (`nop`, `oracle` or an agent's configuration) and its verifier, and returns `TrialResult(rewards, exception, cost, seconds, artifacts)`.
-- `ctx.fan_out(calls)` runs each zero-argument call at once and returns their results in the order given. pass@k is a `fan_out` of k trials, and the body turns the rewards into its outcome.
+What runs and where it runs are apart. An environment is `Host()` or `Docker(image, mounts, cpus, cpu_shares, memory_gb, pids, network, labels, security)`. A `Docker` environment is a container the dataset opens with `with Docker(...) as env:`; it is created on first use, started for the actions in it and stopped when none runs, so it keeps its files across visits, and removed when the `with` block exits. Inputs, outputs and the validator are copied in and out of it. `agent` and `script` return `ActionResult(status, outputs, log, value, cost_usd)`:
 
-Agents run through the dataset's `AgentRunner`: `start(spec, task)` and `resume(session, prompt)` return `AgentRun(session, status, cost_usd, trace, result)`, and an optional `close(session)` runs after the action. The session is the runner's own object. Trials run through the dataset's `TrialRunner`. The engine depends on nothing else about either, and this package holds no implementation of them yet.
+- `actions.agent(ctx, spec, env)` runs an `AgentSpec`, a headless coding agent: `prompt`, `workdir`, `inputs`, `outputs`, `tools`, an optional `output_schema` (whose parsed reply is `value`) and an optional `validator` with `max_fixes`. The agent gets a read-only copy of the validator at a path the prompt names and is told to make it pass; the host then reruns its own original on the outputs (invariant 11). A rubric judge is an agent with no tools and an `output_schema`.
+- `actions.script(ctx, spec, env)` runs a `ScriptSpec`, a command with its inputs as paths, and passes when it exits 0. A script on the host that declares `memory_gb` reserves it from the pool, for heavy host work such as an image build. A validator is an executable that takes the output directory as its one argument.
+- `actions.trial(ctx, name, task_dir, agent, limits)` runs one trial of a task the way Harbor does: it starts the task's environment within `Limits(memory_gb, cpus)`, runs the agent (`nop`, `oracle` or an agent's configuration) and its verifier, and returns `TrialResult(rewards, exception, cost_usd, seconds, artifacts)`; its files become the artifact `name`.
+- `fan_out(calls)` runs each zero-argument call at once, each in its own thread, and returns their results in the order given. pass@k is a `fan_out` of k trials, and the body turns the rewards into its outcome.
+
+Agents run through the dataset's `AgentRunner`: `start(spec, task, env)` and `resume(session, prompt)` return `AgentRun(session, status, cost_usd, trace, result)`, and an optional `close(session)` runs after the action. The session is the runner's own object. Trials run through the dataset's `TrialRunner`, `run(task_dir, agent, limits, outdir)`. The actions depend on nothing else about either, and this package holds no implementation of them yet.
 
 ### Scheduling
 
-A `ResourcePool(memory_gb, max_running=None)`, one per process, is shared by every attempt and action in it, attempts running in threads and a visit's actions running concurrently. Before a `Docker` environment starts, a trial runs or a script with `memory_gb` runs, it reserves its memory limit, waiting while the pool lacks it, and returns it when it stops (invariant 13). Each action holds one reservation at most, so no two wait on each other. CPUs are shared by each container's `cpus` cap and `cpu_shares` weight, not reserved. Creating a pool larger than the machine's `MemAvailable` raises `ValueError`, and so does a reservation larger than the pool.
+A `ResourcePool(memory_gb, max_running=None)`, one per process, is shared by every attempt and action in it, attempts running in threads and a visit's actions running concurrently. Before a `Docker` environment starts, a trial runs or a host script with `memory_gb` runs, it reserves its memory limit, waiting while the pool lacks it, and returns it when it stops (invariant 13). Each action holds one reservation at most (a script in a `Docker` environment runs under the environment's), so no two wait on each other. CPUs are shared by each container's `cpus` cap and `cpu_shares` weight, not reserved. Creating a pool larger than the machine's `MemAvailable` raises `ValueError`, and so does a reservation larger than the pool.
 
 ### Artifacts
 
@@ -129,7 +131,7 @@ Each attempt has a directory, the `root` the dataset gives. An action's outputs 
 
 ### What a dataset gives
 
-Its states, with bodies, transitions, marks and caps; the attempt's root; an `AgentRunner` and a `TrialRunner` when its states use agents or trials; the pool; and optionally `guard` and `on_step`.
+Its states, with bodies, transitions, marks and caps; the attempt's root; its `Docker` environments; `Actions` bound to an `AgentRunner` and a `TrialRunner` when its states use agents or trials, and to the pool; and optionally `guard` and `on_step`.
 
 ### Open questions
 
