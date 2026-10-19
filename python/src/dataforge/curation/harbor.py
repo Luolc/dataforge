@@ -55,7 +55,7 @@ from typing import cast
 import uuid
 
 from dataforge.curation.actions import Limits, Mount, TrialAgent, TrialResult
-from dataforge.runtime.claude import read_trace
+from dataforge.runtime import claude
 
 LABEL = "dataforge.trial"
 CPUS = 2.0
@@ -534,7 +534,7 @@ def _read(
       artifacts[name] = trial / name
   cost = agent.get("cost_usd")
   if isinstance(cost, bool) or not isinstance(cost, int | float):
-    cost = read_trace(trial / CLAUDE_CODE_TRACE).cost_usd
+    cost = claude.read_trace(trial / CLAUDE_CODE_TRACE).cost_usd
   return TrialResult(
     {key: float(value) for key, value in rewards.items()},
     exception,
