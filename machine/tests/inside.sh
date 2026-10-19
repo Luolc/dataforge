@@ -87,10 +87,12 @@ recap() { grep -E '^localhost +:' "$out/$1"; }
 # The release a run reports for a tool, from its "<tool> <tag>" line.
 tag_of() { sed -n "s/^ *\"msg\": \"$1 \(.*\)\"$/\1/p" "$out/$2" | tail -n 1; }
 
-# A setting the gateway client might own; the setup must keep it.
+# A setting the gateway client might own; the setup must keep it. And
+# DISABLE_AUTOUPDATER, which an earlier setup wrote and the gateway client
+# refuses to start with; the setup must remove it.
 settings=$HOME/.claude/settings.json
 mkdir -p "$HOME/.claude"
-echo '{"env": {"ANTHROPIC_BASE_URL": "http://gateway.invalid"}}' >"$settings"
+echo '{"env": {"ANTHROPIC_BASE_URL": "http://gateway.invalid", "DISABLE_AUTOUPDATER": "1"}}' >"$settings"
 
 # A new machine runs the setup before any of its settings are in place: no
 # gateway address, git identity or GitHub token. Every tool comes from its
@@ -160,8 +162,10 @@ id -nG agent | grep -qw docker || fail "docker group"
 ok "login shell zsh, in docker group"
 [ "$(jq -r .autoMemoryEnabled "$settings")" = false ] || fail "memory not off"
 [ "$(jq -r .env.ANTHROPIC_BASE_URL "$settings")" = http://gateway.invalid ] || fail "an existing setting was dropped"
+[ "$(jq -r .env.DISABLE_ERROR_REPORTING "$settings")" = 1 ] || fail "an owned env setting is missing"
+[ "$(jq -r '.env | has("DISABLE_AUTOUPDATER")' "$settings")" = false ] || fail "env.DISABLE_AUTOUPDATER still in settings"
 [ "$(jq -r .hasCompletedOnboarding "$HOME/.claude.json")" = true ] || fail "onboarding"
-ok "Claude Code settings merged, existing key kept"
+ok "Claude Code settings merged, existing key kept, DISABLE_AUTOUPDATER removed"
 
 # Gateway client: the shim resolves first in every zsh, interactive or not.
 shim() { zsh -i -c 'command -v claude' 2>/dev/null | tail -n 1; }
