@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 from collections.abc import Callable, Generator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -211,10 +212,12 @@ class Docker:
     With outputs, a writable mount, every action writes its outputs straight into that
     mount instead, so what one visit wrote is still there in the next, as a session resumed
     across visits needs; collect copies the mount's source on the host into the visit's
-    outputs, so that each visit keeps its own version. That copy adds to the visit's outputs
-    and replaces what has the same name, as docker cp does, so a file deleted from the mount
-    between two collects of one action stays there. The container's user must be able to
+    outputs, so that each visit keeps its own version. The container's user must be able to
     write the source, and this process to read what that user writes.
+    Each collect leaves the visit's outputs as the action's output directory is then: what
+    it copies out replaces what has the same name, and what an earlier collect of the same
+    action copied out and is gone now, such as a file a fix deleted, is removed. Nothing else
+    in the visit's outputs is touched.
     The image must have `sleep`. Hooks for what a dataset adds, such as a gateway: mounts,
     env (variables set at create), pre_start, run on the host before each docker start, and
     post_start, run on the host after it and before the action, such as to start a process
@@ -246,6 +249,9 @@ class Docker:
     _users: int = field(default=0, init=False)
     _pool: ResourcePool | None = field(default=None, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
+    _collected: dict[tuple[str, Path], set[str]] = field(
+        default_factory=dict[tuple[str, Path], set[str]], init=False
+    )
 
     @property
     def container(self) -> str | None:
@@ -364,10 +370,22 @@ class Docker:
         return self.cli(["exec", *variables, cast(str, self._id), *argv])
 
     def collect(self, staged: Staged, outdir: Path) -> None:
-        if self.outputs is None:
-            _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(outdir)])
-        else:
-            _ = shutil.copytree(self.outputs.source, outdir, symlinks=True, dirs_exist_ok=True)
+        fresh = Path(tempfile.mkdtemp(prefix=f".{outdir.name}.", dir=outdir.parent))
+        try:
+            if self.outputs is None:
+                _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(fresh)])
+            else:
+                _ = shutil.copytree(self.outputs.source, fresh, symlinks=True, dirs_exist_ok=True)
+            names = {path.name for path in fresh.iterdir()}
+            with self._lock:
+                key = (staged.outdir, outdir)
+                for name in self._collected.get(key, set()) | names:
+                    _remove(outdir / name)
+                for name in names:
+                    _ = (fresh / name).rename(outdir / name)
+                self._collected[key] = names
+        finally:
+            shutil.rmtree(fresh)
 
     def _exec_ok(self, argv: Sequence[str], root: bool = True) -> str:
         """Runs argv as root, or with root=False as the container's user, who owns what
@@ -585,6 +603,13 @@ def fan_out[T](calls: Sequence[Callable[[], T]]) -> list[T]:
     with ThreadPoolExecutor(max_workers=len(calls)) as executor:
         futures = [executor.submit(call) for call in calls]
         return [future.result() for future in futures]
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def _finish(

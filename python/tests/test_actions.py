@@ -433,3 +433,51 @@ def test_a_failed_post_start_stops_the_container_and_returns_its_memory(tmp_path
         env.start(pool)
     assert pool.reserved_gb == 0.0
     assert [call[0] for call in docker.calls if call[0] in {"start", "stop"}] == ["start", "stop"]
+
+
+class DeletingAgent:
+    """Writes a broken task and notes, then on the fix a valid task, deleting notes."""
+
+    def __init__(self, host: Callable[[str], Path]) -> None:
+        self.host: Callable[[str], Path] = host
+
+    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+        outdir = self.host(task.outdir)
+        _ = (outdir / "task").write_text("broken")
+        _ = (outdir / "notes").write_text("notes")
+        return AgentRun(outdir, "ok", 0.0, None, "done")
+
+    def resume(self, session: object, prompt: str) -> AgentRun:
+        assert isinstance(session, Path)
+        _ = (session / "task").write_text("valid")
+        (session / "notes").unlink()
+        return AgentRun(session, "ok", 0.0, None, "done")
+
+
+@pytest.mark.parametrize("mounted", [False, True])
+def test_collect_removes_what_a_fix_deleted(tmp_path: Path, mounted: bool) -> None:
+    validator = tmp_path / "check.sh"
+    _ = validator.write_text('#!/bin/sh\ngrep -q valid "$1/task" && test -f "$1/notes"\n')
+    validator.chmod(0o755)
+    docker = FakeDocker(tmp_path / "container")
+    source = tmp_path / "out"
+    source.mkdir()
+    agent = DeletingAgent(lambda outdir: source if mounted else docker.path(outdir))
+    outputs = Mount(source, "/out", read_only=False) if mounted else None
+    actions = Actions(agent_runner=agent)
+    with Docker("author:1", outputs=outputs, cli=docker) as env:
+
+        def body(ctx: Context) -> Outcome:
+            ctx.outdir.mkdir(parents=True)
+            _ = (ctx.outdir / "other").write_text("another action's")
+            spec = AgentSpec(
+                "Write.", tmp_path, outputs=["task", "notes"], validator=validator, max_fixes=1
+            )
+            result = actions.agent(ctx, spec, env)
+            assert not result.ok
+            assert "missing outputs: notes" in result.log
+            assert sorted(path.name for path in ctx.outdir.iterdir()) == ["other", "task"]
+            assert sorted(path.name for path in ctx.outdir.parent.iterdir()) == ["1"]
+            return Outcome("ok")
+
+        once(tmp_path, body)
