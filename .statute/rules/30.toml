@@ -1,8 +1,9 @@
 id = 30
 slug = "setup-latest-own-tools-without-asking"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 32
 lang = "en"
 parent = "R268"
 default = "on"
