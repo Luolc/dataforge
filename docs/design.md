@@ -51,7 +51,7 @@ Not in scope:
   gateway, if any: wired in through the Docker and HarborRunner hooks
 ```
 
-The setup in `machine/` runs once per machine and again for upgrades. The gateway shim is first on `PATH` in every zsh (invariant 5), so a `claude` started in a shell goes through it; the setup passes no token.
+The setup in `machine/` runs once per machine and again for upgrades. The gateway shim is first on `PATH` in every zsh (invariant 5), so a `claude` started in a shell goes through it; the setup passes no token. It also sets Docker's log rotation in `/etc/docker/daemon.json`, merged with the keys already there, and restarts dockerd when that changes the file, which stops the containers then running (`machine/README.md`, step 2).
 
 ## 3. Invariants
 
