@@ -10,7 +10,8 @@
 # checksum file or a tampered download must not replace it), the zshenv
 # extension point, fednet being brought to its latest release and the
 # personal zsh switch. Docker is checked as installed, with its log rotation
-# in daemon.json.
+# in daemon.json, Chrome as running, with the CJK fonts, and check mode on
+# a machine that lacks a vendor apt source as running to the end.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -176,12 +177,33 @@ check_version zsh "zsh " zsh --version
 # The tools other setups refer to by absolute path, at those paths.
 check_version tailscale "$(pin tailscale_version)" /usr/bin/tailscale version
 check_version op "$(pin op_version | sed 's/-.*//')" /usr/bin/op --version
+check_version node "v$(pin nodejs_version | sed 's/-.*//')" /usr/bin/node --version
+check_version "node major" "v$(pin node_major)." /usr/bin/node --version
+check_version chrome "Google Chrome " /usr/bin/google-chrome --version
+cjk=$(fc-list | grep -c 'Noto Sans CJK') || fail "fc-list lists no Noto Sans CJK font"
+ok "fc-list: $cjk Noto Sans CJK faces"
 check_version direnv "$(dpkg-query -W -f '${Version}' direnv | sed 's/-.*//')" /usr/bin/direnv version
 check_version fleet "fleet $(tag_of fleet run2.log | sed 's/^v//')" /usr/local/bin/fleet --version
 check_version fednet "$(tag_of fednet run2.log)" /usr/local/bin/fednet version
 check_version atb "atb $(tag_of atb run2.log | sed 's/^v//')" /usr/local/bin/atb --version
 [ "$(tag_of statute run2.log)" = "$statute_tag" ] || fail "statute: run reports $(tag_of statute run2.log), not $statute_tag"
 check_version statute "statute ${statute_tag#statute-v}" /usr/local/bin/statute --version
+
+# A machine set up before a vendor apt source was added (here, without the
+# Node.js and Chrome sources, and Node.js pinned to a version it does not
+# have): check mode cannot look up that source's packages, reports it and
+# still previews the rest of the setup.
+sources=/etc/apt/sources.list.d
+sudo mv "$sources/nodesource.sources" "$sources/chrome.sources" "$out/"
+setup run2v.log --check -e nodejs_version=26.11.1-1nodesource1 ||
+  { tail -n 40 "$out/run2v.log"; fail "check-mode run without the Node.js and Chrome sources"; }
+sudo mv "$out/nodesource.sources" "$out/chrome.sources" "$sources/"
+recap run2v.log | grep -Eq 'unreachable=0 +failed=0 .*ignored=1' || {
+  grep -A3 -E '^TASK \[Tailscale' "$out/run2v.log" || true
+  fail "check-mode run without the Node.js and Chrome sources: $(recap run2v.log)"
+}
+grep -q 'TASK \[Base agent instructions\]' "$out/run2v.log" || fail "check-mode run without the Node.js and Chrome sources stopped before the last task"
+ok "check-mode run without the Node.js and Chrome sources: $(recap run2v.log)"
 
 for d in dev wt scratch; do [ -d "$HOME/$d" ] || fail "$HOME/$d missing"; done
 ok "dev, wt and scratch under $HOME"

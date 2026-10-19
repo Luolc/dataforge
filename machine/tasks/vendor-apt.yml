@@ -1,7 +1,8 @@
-# Tailscale and the 1Password CLI from their vendors' apt repositories, set
-# up like Docker's (tasks/docker.yml): a pinned key, a deb822 source and
-# pinned package versions. Only the programs are installed; nothing here
-# joins a tailnet or signs in to an account.
+# Tailscale, the 1Password CLI, Node.js and Google Chrome from their vendors'
+# apt repositories, set up like Docker's (tasks/docker.yml): a pinned key, a
+# deb822 source and pinned package versions where the repository keeps them.
+# Only the programs are installed; nothing here joins a tailnet or signs in
+# to an account.
 
 - name: Vendor apt keys
   become: true
@@ -13,6 +14,8 @@
   loop:
     - { url: https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg, file: tailscale.gpg, sha256: "{{ tailscale_apt_gpg_sha256 }}" }
     - { url: https://downloads.1password.com/linux/keys/1password.asc, file: 1password.asc, sha256: "{{ op_apt_gpg_sha256 }}" }
+    - { url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key, file: nodesource.asc, sha256: "{{ nodesource_apt_gpg_sha256 }}" }
+    - { url: https://dl.google.com/linux/linux_signing_key.pub, file: chrome.asc, sha256: "{{ chrome_apt_gpg_sha256 }}" }
   loop_control:
     label: "{{ item.file }}"
 
@@ -31,14 +34,36 @@
   loop:
     - { name: tailscale, uri: https://pkgs.tailscale.com/stable/ubuntu, suite: noble, key: tailscale.gpg }
     - { name: 1password, uri: https://downloads.1password.com/linux/debian/amd64, suite: stable, key: 1password.asc }
+    # The URI fixes the major version (versions.yml).
+    - { name: nodesource, uri: "https://deb.nodesource.com/node_{{ node_major }}.x", suite: nodistro, key: nodesource.asc }
+    # Not google-chrome.sources: that is the file the package itself writes.
+    - { name: chrome, uri: https://dl.google.com/linux/chrome/deb/, suite: stable, key: chrome.asc }
   loop_control:
     label: "{{ item.name }}"
   register: vendor_repos
 
-- name: Tailscale and the 1Password CLI
+# Left alone, google-chrome-stable's postinst and its /etc/cron.daily job each
+# write google-chrome.sources, a second source for the same packages beside
+# chrome.sources. With both switches false they leave the sources alone.
+- name: Keep the Chrome package from adding its own apt source
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/default/google-chrome
+    mode: "0644"
+    content: |
+      # Managed by the dataforge machine setup: the apt source is chrome.sources.
+      repo_add_once="false"
+      repo_reenable_on_distupgrade="false"
+
+# Check mode adds no source, so the packages of a source it would add cannot
+# be found yet; it reports the error and goes on to preview the rest.
+- name: Tailscale, the 1Password CLI, Node.js and Google Chrome
   become: true
   ansible.builtin.apt:
     name:
       - "tailscale={{ tailscale_version }}"
       - "1password-cli={{ op_version }}"
+      - "nodejs={{ nodejs_version }}"
+      - google-chrome-stable
     update_cache: "{{ vendor_repos.changed }}"
+  ignore_errors: "{{ ansible_check_mode and vendor_repos.changed }}"
