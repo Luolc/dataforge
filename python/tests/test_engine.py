@@ -100,6 +100,9 @@ class FakeTrials:
         self.script: Script = script
         self.solved: list[int] = []
 
+    def memory_gb(self, limits: Limits) -> float:
+        return limits.memory_gb
+
     def run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
         visit = int(outdir.parent.name)
         index = int(outdir.name.removeprefix("trial-"))

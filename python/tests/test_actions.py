@@ -115,6 +115,15 @@ def test_pool_max_running_caps_the_reservations_held() -> None:
     blocked(lambda: pool.acquire(0.1), lambda: pool.release(0.1))
 
 
+def test_pool_gives_back_fractions_of_a_gb_exactly() -> None:
+    pool = ResourcePool(1.0)
+    for _ in range(3):
+        pool.acquire(0.1)
+    for _ in range(3):
+        pool.release(0.1)
+    assert pool.reserved_gb == 0.0
+
+
 def test_pool_rejects_a_reservation_larger_than_itself() -> None:
     with pytest.raises(ValueError, match=r"asked of a pool of 0\.5 GB"):
         ResourcePool(0.5).acquire(1.0)
@@ -143,13 +152,16 @@ class Trials:
         self.pool: ResourcePool = pool
         self.reserved: list[float] = []
 
+    def memory_gb(self, limits: Limits) -> float:
+        return limits.memory_gb + 0.0625
+
     def run(self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path) -> TrialResult:
         self.reserved.append(self.pool.reserved_gb)
         return TrialResult({"reward": 1.0}, None, 0.25, 1.0, {})
 
 
-def test_a_trial_reserves_its_memory_and_records_its_directory(tmp_path: Path) -> None:
-    pool = ResourcePool(0.5)
+def test_a_trial_reserves_its_runners_memory_and_records_its_directory(tmp_path: Path) -> None:
+    pool = ResourcePool(0.5625)
     trials = Trials(pool)
 
     def body(ctx: Context) -> Outcome:
@@ -161,7 +173,7 @@ def test_a_trial_reserves_its_memory_and_records_its_directory(tmp_path: Path) -
         return Outcome("ok")
 
     once(tmp_path, body)
-    assert trials.reserved == [0.5]
+    assert trials.reserved == [0.5625]
     assert pool.reserved_gb == 0.0
 
 
