@@ -12,6 +12,9 @@ attempt at a cap or a guard, and records it. The actions a state runs
 action (`AgentState`, `ScriptState`, `TrialState`, `PassAtKState`), which a dataset
 subclasses; `State` and `Machine` may be subclassed too.
 
+`dataforge.curation.harbor` has `HarborRunner`, which runs each trial with the Harbor CLI at the
+path it is given; the dataset installs Harbor, and this package does not depend on it.
+
 A dataset repository depends on it at a commit of main:
 
 ```toml
