@@ -30,6 +30,7 @@ From this directory:
 ```sh
 uv run --locked ruff check
 uv run --locked ruff format --check
+uv run --locked pydoclint --config pyproject.toml --quiet src tests
 uv run --locked basedpyright
 uv run --locked pytest
 ```

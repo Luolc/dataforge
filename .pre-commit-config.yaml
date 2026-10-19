@@ -1,5 +1,5 @@
 # Hooks: secret scan (gitleaks), Chinese Markdown typography (limae), the
-# statute compile check and ruff on python/.
+# statute compile check, the uv.lock check, and ruff and pydoclint on python/.
 repos:
   # Runs first: a leaked secret must be stopped before other hooks rewrite
   # staged files. The upstream entry scans the staged diff only (it ends in
@@ -37,6 +37,15 @@ repos:
       # links must match a fresh compile of statute.toml, statute.lock and the
       # local rules. The private output, which git ignores, is not compared.
       - id: statute-compile
+  # Keeps python/uv.lock in step with python/pyproject.toml: fails when
+  # `uv lock` would change the lock. rev is the uv version CI installs, so the
+  # two change together.
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.22
+    hooks:
+      - id: uv-lock
+        args: ["--project", "python"]
+        files: ^python/(pyproject\.toml|uv\.lock)$
   # Lint and format check only; the type check and the tests run before a
   # push and in CI. rev is the ruff version python/pyproject.toml pins, so
   # the two change together.
@@ -47,4 +56,14 @@ repos:
         files: ^python/
       - id: ruff-format
         args: ["--check"]
+        files: ^python/
+  # Docstring sections against the signatures. rev is the pydoclint version
+  # python/pyproject.toml pins, so the two change together; the settings are
+  # in its [tool.pydoclint], which pydoclint reads only from the file --config
+  # names.
+  - repo: https://github.com/jsh9/pydoclint
+    rev: 0.11.0
+    hooks:
+      - id: pydoclint
+        args: ["--config=python/pyproject.toml", "--quiet"]
         files: ^python/

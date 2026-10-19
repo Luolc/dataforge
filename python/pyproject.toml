@@ -10,6 +10,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "basedpyright==1.40.2",
+    "pydoclint==0.11.0",
     "pytest==9.1.1",
     "ruff==0.17.1",
 ]
@@ -19,10 +20,67 @@ requires = ["uv_build>=0.12.22,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.ruff]
-line-length = 100
+line-length = 80
+indent-width = 2
+include = ["*.py", "*.pyi", "**/pyproject.toml"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+select = [
+    "B",
+    "BLE",
+    "C",
+    "D",
+    "D401",
+    "D417",
+    "E",
+    "F",
+    "I",
+    "ISC001",
+    "N",
+    "PLW0129",
+    "RUF",
+    "SIM",
+    "UP",
+    "W",
+    "W505",
+]
+ignore = ["D105"]
+# pydoclint's codes, which a noqa may name.
+external = ["DOC"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+order-by-type = false
+extra-standard-library = ["typing_extensions"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 80
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D1"]
+
+[tool.pydoclint]
+style = "google"
+allow-init-docstring = true
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-yield-types = false
+skip-checking-short-docstrings = false
+
+[tool.pytest.ini_options]
+addopts = ["--strict-markers"]
+# A file or connection left open fails the test; a ResourceWarning raised
+# while an object is collected reaches pytest as an unraisable exception.
+filterwarnings = [
+    "error::ResourceWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
 
 [tool.basedpyright]
 include = ["src", "tests"]
