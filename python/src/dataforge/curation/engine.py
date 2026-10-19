@@ -10,8 +10,9 @@ the states, their transitions and their caps all come from the dataset.
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
+import string
 import threading
 
 type Data = Mapping[str, object]
@@ -31,11 +32,14 @@ class Outcome:
     name: The outcome's name, which the state's transitions map.
     data: Data the state hands on.
     last: With True, the state is never entered again.
+    feedback: The variables of the state's feedback template; with None, the
+      visit writes no feedback.
   """
 
   name: str
   data: Data = field(default_factory=dict[str, object])
   last: bool = False
+  feedback: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -48,11 +52,16 @@ class Goto:
     mark: A mark (for example "too_easy") keeps this visit: when the attempt
       later ends at a cap or a guard, the last marked visit is kept and the
       mark becomes the attempt's status.
+    end_on_last_visit: With True, a visit after which the state cannot be
+      entered again (its max_visits-th, or one whose outcome has last=True)
+      ends the attempt instead of going to the state, as entering the state
+      once too often would; the mark is recorded first.
   """
 
   state: str
   report: bool = True
   mark: str | None = None
+  end_on_last_visit: bool = False
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,9 @@ class State:
     transitions: Mapping[str, Goto | End],
     max_visits: int = 1,
     on_exhausted: str = "failed",
+    *,
+    feedback: str | None = None,
+    max_cost_usd: float = 0.0,
   ) -> None:
     """Make a state.
 
@@ -89,11 +101,19 @@ class State:
       max_visits: How many times the state may be entered.
       on_exhausted: The attempt's status when it is entered once too often
         and no visit was marked.
+      feedback: A string.Template the machine renders into the visit's
+        feedback.md when the visit goes on through a Goto with report=True
+        and its outcome gives feedback; it sees ${state}, ${visit} and
+        ${round} besides the outcome's variables, which those three override.
+      max_cost_usd: The most one visit may spend, in US dollars, which the
+        machine's cost cap counts before the state is entered.
     """
     self.name: str = name
     self.transitions: Mapping[str, Goto | End] = transitions
     self.max_visits: int = max_visits
     self.on_exhausted: str = on_exhausted
+    self.feedback: str | None = feedback
+    self.max_cost_usd: float = max_cost_usd
 
   def run(self, ctx: Context) -> Outcome:
     """Run one visit of the state; a subclass implements it.
@@ -221,6 +241,8 @@ class Visit:
     data: The outcome's data.
     mark: The mark of the transition taken, if any.
     actions: The actions the visit ran.
+    round: How many times the attempt's first state had been entered when
+      this visit began, this visit included.
   """
 
   state: str
@@ -229,6 +251,7 @@ class Visit:
   data: Data = field(default_factory=dict[str, object])
   mark: str | None = None
   actions: list[ActionRecord] = field(default_factory=list[ActionRecord])
+  round: int = 1
 
   @property
   def outputs(self) -> dict[str, Path]:
@@ -251,6 +274,8 @@ class Attempt:
     kept_visit: The index into visits of the marked visit the attempt kept, if
       any.
     visits: Its visits, in order.
+    max_cost_usd: What the attempt may spend, in US dollars; None for no cap.
+    stopped: The reason, when the cost cap ended the attempt.
   """
 
   root: Path
@@ -258,6 +283,20 @@ class Attempt:
   reason: str | None = None
   kept_visit: int | None = None
   visits: list[Visit] = field(default_factory=list[Visit])
+  max_cost_usd: float | None = None
+  stopped: str | None = None
+
+  @property
+  def cost_usd(self) -> float:
+    """What the recorded actions cost, in US dollars."""
+    return sum(
+      action.cost_usd for visit in self.visits for action in visit.actions
+    )
+
+  @property
+  def round(self) -> int:
+    """The round of the last visit; 0 before the first."""
+    return self.visits[-1].round if self.visits else 0
 
   @property
   def final(self) -> dict[str, Visit]:
@@ -275,6 +314,12 @@ class Attempt:
       "status": self.status,
       "reason": self.reason,
       "kept_visit": self.kept_visit,
+      "round": self.round,
+      "budget": {
+        "max_usd": self.max_cost_usd,
+        "cost_usd": self.cost_usd,
+        "stopped": self.stopped,
+      },
       "final": {
         state: self._visit_json(visit) for state, visit in self.final.items()
       },
@@ -285,6 +330,7 @@ class Attempt:
     return {
       "state": visit.state,
       "visit": visit.visit,
+      "round": visit.round,
       "outcome": visit.outcome,
       "data": dict(visit.data),
       "mark": visit.mark,
@@ -347,6 +393,11 @@ class Context:
   def visit(self) -> int:
     """How many times the state has been entered, this time included."""
     return self._record.visit
+
+  @property
+  def round(self) -> int:
+    """How many times the attempt's first state has been entered."""
+    return self._record.round
 
   @property
   def report(self) -> Report | None:
@@ -425,10 +476,10 @@ class Context:
 class Machine:
   """Runs attempts over a list of states; the first state is the start.
 
-  guard runs before each state is entered; a reason it returns ends the attempt.
-  on_step gets the attempt after each visit and when it ends. A subclass may
-  override either method instead of passing it. One machine may run several
-  attempts at once, each with its own root.
+  Before each state is entered, the cost cap and then guard may block it,
+  which ends the attempt. on_step gets the attempt after each visit and when it
+  ends. A subclass may override either method instead of passing it. One
+  machine may run several attempts at once, each with its own root.
   """
 
   def __init__(
@@ -437,6 +488,7 @@ class Machine:
     *,
     guard: Guard | None = None,
     on_step: Callable[[Attempt], None] | None = None,
+    max_cost_usd: float | None = None,
   ) -> None:
     """Make a machine.
 
@@ -444,11 +496,15 @@ class Machine:
       states: The states; the first is the start.
       guard: The guard, if any.
       on_step: Gets the attempt after each visit and when it ends, if given.
+      max_cost_usd: What one attempt may spend, in US dollars; None for no
+        cap. A state is not entered when what the attempt's actions cost so
+        far and the state's max_cost_usd together would pass it.
     """
     self.states: list[State] = list(states)
     self._by_name: dict[str, State] = _check_states(self.states)
     self._guard: Guard | None = guard
     self._on_step: Callable[[Attempt], None] | None = on_step
+    self.max_cost_usd: float | None = max_cost_usd
 
   def guard(self, ctx: Context, state: State) -> str | None:
     """Check a state before it is entered.
@@ -475,6 +531,8 @@ class Machine:
     """Run one attempt until an End, a cap or the guard ends it.
 
     An exception from a state's run is recorded and raised again unchanged.
+    A ValueError says that a state has no transition for its outcome, or that
+    its feedback template needs a variable the outcome does not give.
 
     Args:
       root: The attempt's directory; outputs go to
@@ -485,30 +543,20 @@ class Machine:
 
     Raises:
       BaseException: Whatever a state's run raised, unchanged.
-      ValueError: When a state has no transition for its outcome.
     """
-    attempt = Attempt(root)
+    attempt = Attempt(root, max_cost_usd=self.max_cost_usd)
     artifacts = Artifacts()
     visits: Counter[str] = Counter()
     closed: set[str] = set()
+    first = self.states[0].name
     state, report = self.states[0], None
     while True:
       visit = visits[state.name] + 1
-      if visit > state.max_visits or state.name in closed:
-        why = (
-          "after its last visit" if state.name in closed else "over max_visits"
-        )
-        _stop(
-          attempt,
-          state.on_exhausted,
-          f"{state.name} visit {visit}: entered {why}",
-        )
-        self.on_step(attempt)
-        return attempt
-      record = Visit(state.name, visit)
+      round_ = visit if state.name == first else visits[first]
+      record = Visit(state.name, visit, round=round_)
       ctx = Context(attempt, artifacts, record, report)
-      if (why := self.guard(ctx, state)) is not None:
-        _stop(attempt, "budget", f"{state.name} visit {visit}: {why}")
+      if (blocked := self._blocked(ctx, state, closed)) is not None:
+        _stop(attempt, *blocked)
         self.on_step(attempt)
         return attempt
       visits[state.name] = visit
@@ -523,21 +571,79 @@ class Machine:
       record.outcome, record.data = outcome.name, outcome.data
       if outcome.last:
         closed.add(state.name)
-      transition = state.transitions.get(outcome.name)
-      if transition is None:
-        raise ValueError(
-          f"{state.name} has no transition for outcome {outcome.name!r}"
-        )
-      if isinstance(transition, End):
-        attempt.status = transition.status
-        self.on_step(attempt)
-        return attempt
-      record.mark = transition.mark
-      report = None
-      if transition.report:
-        report = Report(state.name, outcome.name, outcome.data, record.outputs)
-      state = self._by_name[transition.state]
+      step = self._go(ctx, record, state, outcome, state.name in closed)
       self.on_step(attempt)
+      if step is None:
+        return attempt
+      state, report = step
+
+  def _blocked(
+    self, ctx: Context, state: State, closed: set[str]
+  ) -> tuple[str, str] | None:
+    where = f"{state.name} visit {ctx.visit}"
+    if ctx.visit > state.max_visits or state.name in closed:
+      why = (
+        "after its last visit" if state.name in closed else "over max_visits"
+      )
+      return state.on_exhausted, f"{where}: entered {why}"
+    attempt, cap = ctx.attempt, self.max_cost_usd
+    if cap is not None and attempt.cost_usd + state.max_cost_usd > cap:
+      attempt.stopped = (
+        f"{where}: ${attempt.cost_usd:.2f} spent and up to"
+        f" ${state.max_cost_usd:.2f} more would pass the ${cap:.2f} the"
+        " attempt may spend"
+      )
+      return "budget", attempt.stopped
+    if (why := self.guard(ctx, state)) is not None:
+      return "budget", f"{where}: {why}"
+    return None
+
+  def _go(
+    self,
+    ctx: Context,
+    record: Visit,
+    state: State,
+    outcome: Outcome,
+    closed: bool,
+  ) -> tuple[State, Report | None] | None:
+    """Take the transition of a visit's outcome.
+
+    Args:
+      ctx: The visit's context.
+      record: The visit's record.
+      state: The state.
+      outcome: The visit's outcome.
+      closed: Whether the state may not be entered again.
+
+    Returns:
+      The next state and its report, or None when the attempt ended.
+
+    Raises:
+      ValueError: When the state has no transition for the outcome, or its
+        feedback template needs a variable the outcome does not give.
+    """
+    attempt = ctx.attempt
+    transition = state.transitions.get(outcome.name)
+    if transition is None:
+      raise ValueError(
+        f"{state.name} has no transition for outcome {outcome.name!r}"
+      )
+    if isinstance(transition, End):
+      attempt.status = transition.status
+      return None
+    record.mark = transition.mark
+    last = closed or ctx.visit == state.max_visits
+    if transition.end_on_last_visit and last:
+      why = f"its last visit, not going to {transition.state}"
+      _stop(
+        attempt, state.on_exhausted, f"{state.name} visit {ctx.visit}: {why}"
+      )
+      return None
+    report = None
+    if transition.report:
+      _feedback(ctx, state, outcome)
+      report = Report(state.name, outcome.name, outcome.data, record.outputs)
+    return self._by_name[transition.state], report
 
 
 def _check_states(states: Sequence[State]) -> dict[str, State]:
@@ -565,3 +671,25 @@ def _stop(attempt: Attempt, status: str, reason: str) -> None:
   else:
     attempt.status = status
   attempt.reason = reason
+
+
+def _feedback(ctx: Context, state: State, outcome: Outcome) -> None:
+  if state.feedback is None or outcome.feedback is None:
+    return
+  started = datetime.now(UTC)
+  try:
+    text = string.Template(state.feedback).substitute(
+      outcome.feedback, state=ctx.state, visit=ctx.visit, round=ctx.round
+    )
+  except (KeyError, ValueError) as error:
+    raise ValueError(
+      f"{ctx.state} visit {ctx.visit}: its feedback template: {error!r}"
+    ) from error
+  _ = ctx.claim(["feedback"])
+  path = ctx.outdir / "feedback.md"
+  _ = path.write_text(text)
+  ctx.record(
+    ActionRecord(
+      "report", "ok", {"feedback": path}, started, datetime.now(UTC), 0.0
+    )
+  )
