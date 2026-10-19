@@ -10,8 +10,9 @@
 # checksum file or a tampered download must not replace it), the zshenv
 # extension point, fednet being brought to its latest release and the
 # personal zsh switch. Docker is checked as installed, with its log rotation
-# in daemon.json, Chrome as running, with the CJK fonts, and check mode on
-# a machine that lacks a vendor apt source as running to the end.
+# in daemon.json, Chrome as running, with the CJK fonts and no apt source,
+# a Chrome .deb with the wrong sha256 as refused, and check mode on a
+# machine that lacks a vendor apt source as running to the end.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -178,8 +179,13 @@ check_version zsh "zsh " zsh --version
 check_version tailscale "$(pin tailscale_version)" /usr/bin/tailscale version
 check_version op "$(pin op_version | sed 's/-.*//')" /usr/bin/op --version
 check_version node "v$(pin nodejs_version | sed 's/-.*//')" /usr/bin/node --version
-check_version "node major" "v$(pin node_major)." /usr/bin/node --version
-check_version chrome "Google Chrome " /usr/bin/google-chrome --version
+check_version chrome "Google Chrome $(pin google_chrome_version | sed 's/-.*//')" /usr/bin/google-chrome --version
+# Chrome has no apt source, so apt upgrade cannot move it off the pin:
+# neither the package's postinst nor its daily cron job has added one.
+sudo /etc/cron.daily/google-chrome || fail "Chrome's cron job failed"
+chrome_sources=$(ls /etc/apt/sources.list.d | grep -i chrome || true)
+[ -z "$chrome_sources" ] || fail "an apt source for Chrome: $chrome_sources"
+ok "no apt source for Chrome, after its cron job"
 cjk=$(fc-list | grep -c 'Noto Sans CJK') || fail "fc-list lists no Noto Sans CJK font"
 ok "fc-list: $cjk Noto Sans CJK faces"
 check_version direnv "$(dpkg-query -W -f '${Version}' direnv | sed 's/-.*//')" /usr/bin/direnv version
@@ -189,21 +195,28 @@ check_version atb "atb $(tag_of atb run2.log | sed 's/^v//')" /usr/local/bin/atb
 [ "$(tag_of statute run2.log)" = "$statute_tag" ] || fail "statute: run reports $(tag_of statute run2.log), not $statute_tag"
 check_version statute "statute ${statute_tag#statute-v}" /usr/local/bin/statute --version
 
+# A pinned Chrome .deb whose digest does not match: the run fails, naming
+# the package, and the installed Chrome stays.
+bad=0000000000000000000000000000000000000000000000000000000000000000
+if setup run2g.log -e google_chrome_sha256=$bad; then fail "a Chrome .deb with the wrong sha256 was accepted"; fi
+grep -q 'google-chrome-stable: the pinned .deb' "$out/run2g.log" || { tail -n 20 "$out/run2g.log"; fail "run2g failed for another reason"; }
+check_version "chrome after a wrong sha256" "Google Chrome $(pin google_chrome_version | sed 's/-.*//')" /usr/bin/google-chrome --version
+
 # A machine set up before a vendor apt source was added (here, without the
-# Node.js and Chrome sources, and Node.js pinned to a version it does not
-# have): check mode cannot look up that source's packages, reports it and
-# still previews the rest of the setup.
+# Node.js source, and Node.js pinned to a version it does not have): check
+# mode cannot look up that source's packages, reports it and still previews
+# the rest of the setup.
 sources=/etc/apt/sources.list.d
-sudo mv "$sources/nodesource.sources" "$sources/chrome.sources" "$out/"
+sudo mv "$sources/nodesource.sources" "$out/"
 setup run2v.log --check -e nodejs_version=26.11.1-1nodesource1 ||
-  { tail -n 40 "$out/run2v.log"; fail "check-mode run without the Node.js and Chrome sources"; }
-sudo mv "$out/nodesource.sources" "$out/chrome.sources" "$sources/"
+  { tail -n 40 "$out/run2v.log"; fail "check-mode run without the Node.js source"; }
+sudo mv "$out/nodesource.sources" "$sources/"
 recap run2v.log | grep -Eq 'unreachable=0 +failed=0 .*ignored=1' || {
   grep -A3 -E '^TASK \[Tailscale' "$out/run2v.log" || true
-  fail "check-mode run without the Node.js and Chrome sources: $(recap run2v.log)"
+  fail "check-mode run without the Node.js source: $(recap run2v.log)"
 }
-grep -q 'TASK \[Base agent instructions\]' "$out/run2v.log" || fail "check-mode run without the Node.js and Chrome sources stopped before the last task"
-ok "check-mode run without the Node.js and Chrome sources: $(recap run2v.log)"
+grep -q 'TASK \[Base agent instructions\]' "$out/run2v.log" || fail "check-mode run without the Node.js source stopped before the last task"
+ok "check-mode run without the Node.js source: $(recap run2v.log)"
 
 for d in dev wt scratch; do [ -d "$HOME/$d" ] || fail "$HOME/$d missing"; done
 ok "dev, wt and scratch under $HOME"
