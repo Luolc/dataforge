@@ -178,7 +178,8 @@ def test_a_trial_reserves_its_runners_memory_and_records_its_directory(tmp_path:
 
 
 class FakeDocker:
-    """The docker CLI, with the container's file system under root."""
+    """The docker CLI, with the container's file system under root; it runs only root's
+    execs, as a container whose user cannot write to / would."""
 
     def __init__(self, root: Path) -> None:
         self.root: Path = root
@@ -193,10 +194,10 @@ class FakeDocker:
         match args:
             case ["create", *_]:
                 return CommandResult(0, "c1\n")
-            case ["exec", "c1", "mkdir", "-p", *paths]:
+            case ["exec", "--user", "0", "c1", "mkdir", "-p", *paths]:
                 for path in paths:
                     self.path(path).mkdir(parents=True, exist_ok=True)
-            case ["exec", "c1", "chmod", mode, path]:
+            case ["exec", "--user", "0", "c1", "chmod", mode, path]:
                 self.path(path).chmod(int(mode, 8))
             case ["cp", source, target] if source.startswith("c1:"):
                 _ = shutil.copytree(
@@ -289,7 +290,9 @@ def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path)
     def pre_start(env: Docker) -> None:
         started.append(env.container)
 
-    with Docker("author:1", memory_gb=0.5, pre_start=pre_start, cli=docker) as env:
+    with Docker(
+        "author:1", memory_gb=0.5, user="1000:1000", pre_start=pre_start, cli=docker
+    ) as env:
 
         def body(ctx: Context) -> Outcome:
             spec = AgentSpec("Write.", tmp_path, outputs=["task"], validator=validator)
@@ -305,6 +308,8 @@ def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path)
     assert agent.validator is not None
     assert agent.validator == docker.path("/dataforge/validator/check.sh")
     assert agent.validator.stat().st_mode & 0o777 == 0o555
+    outdirs = list(docker.root.glob("dataforge/*/*/*/outputs"))
+    assert outdirs and all(path.stat().st_mode & 0o777 == 0o777 for path in outdirs)
     assert agent.reserved == [0.5, 0.5]
     assert pool.reserved_gb == 0.0
     lifecycle = [call[0] for call in docker.calls if call[0] in {"create", "start", "stop", "rm"}]

@@ -206,10 +206,13 @@ class Docker:
 
     Inputs are copied in under /dataforge/<state>/<visit>/<action>/inputs, outputs copied
     out from .../outputs, and a validator copied to /dataforge/validator/<name>, read-only.
+    These directories are made as root and outputs is left writable by all, so that any
+    user the container runs as can write there.
     The image must have `sleep`. Hooks for what a dataset adds, such as a gateway: mounts,
     env (variables set at create) and pre_start, run on the host before each docker start.
-    memory_swap_gb is memory plus swap, as docker's --memory-swap counts it: equal to
-    memory_gb, the container gets no swap. cli runs one docker command; tests replace it.
+    memory_swap_gb is memory plus swap, as docker's --memory-swap counts it, and needs
+    memory_gb: equal to it, the container gets no swap. cli runs one docker command; tests
+    replace it.
     """
 
     image: str
@@ -322,6 +325,7 @@ class Docker:
     ) -> Staged:
         base = f"/dataforge/{ctx.state}/{ctx.visit}/{index}"
         _ = self._exec_ok(["mkdir", "-p", f"{base}/inputs", f"{base}/outputs"])
+        _ = self._exec_ok(["chmod", "0777", f"{base}/outputs"])
         staged = {name: f"{base}/inputs/{name}" for name in inputs}
         for name, path in inputs.items():
             _ = self._docker(["cp", str(path), f"{self._id}:{staged[name]}"])
@@ -341,7 +345,7 @@ class Docker:
         _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(outdir)])
 
     def _exec_ok(self, argv: Sequence[str]) -> str:
-        result = self.exec(argv, {})
+        result = self.cli(["exec", "--user", "0", cast(str, self._id), *argv])
         if result.exit_code != 0:
             raise RuntimeError(f"{' '.join(argv)} failed in {self._id}: {result.log}")
         return result.log
