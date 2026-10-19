@@ -206,9 +206,13 @@ class Docker:
 
     Inputs are copied in under /dataforge/<state>/<visit>/<action>/inputs, outputs copied
     out from .../outputs, and a validator copied to /dataforge/validator/<name>, read-only.
+    These directories are made as root and outputs is left writable by all, so that any
+    user the container runs as can write there.
     The image must have `sleep`. Hooks for what a dataset adds, such as a gateway: mounts,
     env (variables set at create) and pre_start, run on the host before each docker start.
-    cli runs one docker command; tests replace it.
+    memory_swap_gb is memory plus swap, as docker's --memory-swap counts it, and needs
+    memory_gb: equal to it, the container gets no swap. cli runs one docker command; tests
+    replace it.
     """
 
     image: str
@@ -216,10 +220,14 @@ class Docker:
     cpus: float | None = None
     cpu_shares: int | None = None
     memory_gb: float | None = None
+    memory_swap_gb: float | None = None
     pids: int | None = None
     network: bool = False
     labels: Mapping[str, str] = field(default_factory=dict[str, str])
     security: Sequence[str] = ()
+    cap_drop: Sequence[str] = ()
+    user: str | None = None
+    workdir: str | None = None
     env: Mapping[str, str] = field(default_factory=dict[str, str])
     pre_start: Callable[[Docker], None] | None = None
     cli: Callable[[Sequence[str]], CommandResult] = run_docker
@@ -243,12 +251,20 @@ class Docker:
             args += ["--cpu-shares", str(self.cpu_shares)]
         if self.memory_gb is not None:
             args += ["--memory", f"{round(self.memory_gb * 1024)}m"]
+        if self.memory_swap_gb is not None:
+            args += ["--memory-swap", f"{round(self.memory_swap_gb * 1024)}m"]
         if self.pids is not None:
             args += ["--pids-limit", str(self.pids)]
         for key, value in self.labels.items():
             args += ["--label", f"{key}={value}"]
         for option in self.security:
             args += ["--security-opt", option]
+        for capability in self.cap_drop:
+            args += ["--cap-drop", capability]
+        if self.user is not None:
+            args += ["--user", self.user]
+        if self.workdir is not None:
+            args += ["--workdir", self.workdir]
         for mount in self.mounts:
             suffix = ":ro" if mount.read_only else ""
             args += ["--volume", f"{mount.source.resolve()}:{mount.target}{suffix}"]
@@ -309,6 +325,7 @@ class Docker:
     ) -> Staged:
         base = f"/dataforge/{ctx.state}/{ctx.visit}/{index}"
         _ = self._exec_ok(["mkdir", "-p", f"{base}/inputs", f"{base}/outputs"])
+        _ = self._exec_ok(["chmod", "0777", f"{base}/outputs"])
         staged = {name: f"{base}/inputs/{name}" for name in inputs}
         for name, path in inputs.items():
             _ = self._docker(["cp", str(path), f"{self._id}:{staged[name]}"])
@@ -317,7 +334,7 @@ class Docker:
             copy = f"/dataforge/validator/{validator.name}"
             _ = self._exec_ok(["mkdir", "-p", "/dataforge/validator"])
             _ = self._docker(["cp", str(validator), f"{self._id}:{copy}"])
-            _ = self._exec_ok(["chmod", "0555", copy])
+            _ = self._exec_ok(["chmod", "0555", copy], root=False)
         return Staged(staged, f"{base}/outputs", copy)
 
     def exec(self, argv: Sequence[str], env: Mapping[str, str]) -> CommandResult:
@@ -327,8 +344,11 @@ class Docker:
     def collect(self, staged: Staged, outdir: Path) -> None:
         _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(outdir)])
 
-    def _exec_ok(self, argv: Sequence[str]) -> str:
-        result = self.exec(argv, {})
+    def _exec_ok(self, argv: Sequence[str], root: bool = True) -> str:
+        """Runs argv as root, or with root=False as the container's user, who owns what
+        docker cp copies in; under cap_drop ALL root cannot chmod another user's file."""
+        user = ["--user", "0"] if root else []
+        result = self.cli(["exec", *user, cast(str, self._id), *argv])
         if result.exit_code != 0:
             raise RuntimeError(f"{' '.join(argv)} failed in {self._id}: {result.log}")
         return result.log

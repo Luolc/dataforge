@@ -178,11 +178,14 @@ def test_a_trial_reserves_its_runners_memory_and_records_its_directory(tmp_path:
 
 
 class FakeDocker:
-    """The docker CLI, with the container's file system under root."""
+    """The docker CLI, with the container's file system under root, for a non-root user
+    and cap_drop ALL: only root makes directories under /, and only the container's user,
+    who owns what docker cp copies in, can chmod a copied file."""
 
     def __init__(self, root: Path) -> None:
         self.root: Path = root
         self.calls: list[list[str]] = []
+        self.copied: set[Path] = set()
 
     def path(self, inside: str) -> Path:
         return self.root / inside.lstrip("/")
@@ -193,16 +196,23 @@ class FakeDocker:
         match args:
             case ["create", *_]:
                 return CommandResult(0, "c1\n")
-            case ["exec", "c1", "mkdir", "-p", *paths]:
+            case ["exec", "--user", "0", "c1", "mkdir", "-p", *paths]:
                 for path in paths:
                     self.path(path).mkdir(parents=True, exist_ok=True)
-            case ["exec", "c1", "chmod", mode, path]:
+            case ["exec", "--user", "0", "c1", "chmod", mode, path] if (
+                self.path(path) not in self.copied
+            ):
                 self.path(path).chmod(int(mode, 8))
+            case ["exec", "c1", "chmod", mode, path] if self.path(path) in self.copied:
+                self.path(path).chmod(int(mode, 8))
+            case ["exec", *_, "chmod", _, _]:
+                return CommandResult(1, "chmod: Operation not permitted")
             case ["cp", source, target] if source.startswith("c1:"):
                 _ = shutil.copytree(
                     self.path(source[3:].removesuffix("/.")), target, dirs_exist_ok=True
                 )
             case ["cp", source, target]:
+                self.copied.add(self.path(target.removeprefix("c1:")))
                 _ = shutil.copy(source, self.path(target.removeprefix("c1:")))
             case _:
                 pass
@@ -216,9 +226,13 @@ def test_docker_create_args(tmp_path: Path) -> None:
         cpus=2.0,
         cpu_shares=512,
         memory_gb=4.0,
+        memory_swap_gb=4.0,
         pids=256,
         labels={"attempt": "7"},
         security=["no-new-privileges"],
+        cap_drop=["ALL"],
+        user="1000:1000",
+        workdir="/app",
         env={"PROXY": "http://gateway.example.test"},
     )
     assert env.create_args() == [
@@ -227,12 +241,22 @@ def test_docker_create_args(tmp_path: Path) -> None:
         "--cpus", "2.0",
         "--cpu-shares", "512",
         "--memory", "4096m",
+        "--memory-swap", "4096m",
         "--pids-limit", "256",
         "--label", "attempt=7",
         "--security-opt", "no-new-privileges",
+        "--cap-drop", "ALL",
+        "--user", "1000:1000",
+        "--workdir", "/app",
         "--volume", f"{tmp_path}/cache:/cache",
         "--env", "PROXY=http://gateway.example.test",
         "solver:1", "sleep", "infinity",
+    ]  # fmt: skip
+
+
+def test_docker_create_args_by_default() -> None:
+    assert Docker("solver:1").create_args() == [
+        "create", "--init", "--network", "none", "solver:1", "sleep", "infinity"
     ]  # fmt: skip
 
 
@@ -275,7 +299,9 @@ def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path)
     def pre_start(env: Docker) -> None:
         started.append(env.container)
 
-    with Docker("author:1", memory_gb=0.5, pre_start=pre_start, cli=docker) as env:
+    with Docker(
+        "author:1", memory_gb=0.5, user="1000:1000", pre_start=pre_start, cli=docker
+    ) as env:
 
         def body(ctx: Context) -> Outcome:
             spec = AgentSpec("Write.", tmp_path, outputs=["task"], validator=validator)
@@ -291,6 +317,8 @@ def test_an_agent_in_docker_is_checked_on_its_copied_out_outputs(tmp_path: Path)
     assert agent.validator is not None
     assert agent.validator == docker.path("/dataforge/validator/check.sh")
     assert agent.validator.stat().st_mode & 0o777 == 0o555
+    outdirs = list(docker.root.glob("dataforge/*/*/*/outputs"))
+    assert outdirs and all(path.stat().st_mode & 0o777 == 0o777 for path in outdirs)
     assert agent.reserved == [0.5, 0.5]
     assert pool.reserved_gb == 0.0
     lifecycle = [call[0] for call in docker.calls if call[0] in {"create", "start", "stop", "rm"}]
