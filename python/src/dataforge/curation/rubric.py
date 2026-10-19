@@ -10,6 +10,7 @@ no verdict fails the review; one of severity "warning" is only reported.
 """
 
 from collections.abc import Mapping
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 import tomllib
@@ -141,6 +142,9 @@ class Rubric:
     if not isinstance(system, str) or not criteria:
       raise ValueError(f"{path}: not a rubric: no system text or criteria")
     for criterion in criteria:
+      fields = cast(tuple[object, ...], dataclasses.astuple(criterion))
+      if not all(isinstance(field, str) for field in fields):
+        raise ValueError(f"{path}: {criterion.id}: a field is not a string")
       if criterion.severity not in {"error", "warning"}:
         raise ValueError(f"{path}: {criterion.id}: unknown severity")
     return cls(system, criteria)

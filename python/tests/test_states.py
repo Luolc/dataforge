@@ -27,6 +27,7 @@ from dataforge.curation import (
   Machine,
   Outcome,
   PassAtKState,
+  RubricState,
   ScriptSpec,
   ScriptState,
   TrialAgent,
@@ -512,3 +513,26 @@ def test_a_judge_state_takes_its_verdict_on_earlier_outputs(
   assert attempt.visits[1].data == {"log": "broken"}
   feedback = attempt.visits[1].outputs["feedback"]
   assert feedback.read_text() == "The build: broken"
+
+
+def test_each_state_names_the_outcomes_it_gives() -> None:
+  assert {
+    cls.__name__: cls.OUTCOMES
+    for cls in [
+      AgentState,
+      ScriptState,
+      TrialState,
+      PassAtKState,
+      TrialsState,
+      JudgeState,
+      RubricState,
+    ]
+  } == {
+    "AgentState": {"ok", "failed", "error"},
+    "ScriptState": {"ok", "failed"},
+    "TrialState": {"solved", "unsolved", "error"},
+    "PassAtKState": {"all_solved", "none_solved", "in_range", "error"},
+    "TrialsState": {"ok", "error"},
+    "JudgeState": None,
+    "RubricState": {"pass", "fail", "error"},
+  }

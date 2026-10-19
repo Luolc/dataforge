@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from pathlib import Path
 import string
-from typing import override
+from typing import ClassVar, override
 
 from dataforge.curation.actions import (
   ActionResult,
@@ -93,7 +93,14 @@ class AgentState(_ActionState):
   so there is nothing to judge). Data: {"ending", "fixes", "cost_usd"}. On
   "failed" the outcome's feedback is {"details": the validator's last output,
   or the action's log when the validator passed or there is none}.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"ok", "failed", "error"}
+  )
 
   def __init__(
     self,
@@ -204,7 +211,12 @@ class ScriptState(_ActionState):
 
   Outcomes: "ok" (exit 0, every output present) or "failed", whose feedback is
   {"details": the script's log}.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset({"ok", "failed"})
 
   def __init__(
     self,
@@ -295,7 +307,14 @@ class TrialState(_ActionState):
   task_dir may be a path, an artifact (or a path inside one, as an Input
   names it) or a function of the context; agent and limits are fixed, or
   overridden as methods.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"solved", "unsolved", "error"}
+  )
 
   def __init__(
     self,
@@ -434,7 +453,15 @@ class PassAtKState(TrialState):
   ran (no exception), so a failure of the trial machinery never reads as a hard
   task; "error" when none ran. Data: {"solved": n, "errors": m, "k": k}. With a
   judge, the judge decides instead, given the k trials' outputs as inputs.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename; with a judge, the
+      judge's.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"all_solved", "none_solved", "in_range", "error"}
+  )
 
   def __init__(
     self,
@@ -533,7 +560,12 @@ class TrialsState(_ActionState):
   Outcomes: "ok" when no trial reports an exception, else "error". Data: each
   trial's {"rewards", "exception"}, by output name. A judge that reads the
   trials is a JudgeState after this one.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset({"ok", "error"})
 
   def __init__(
     self,
@@ -634,7 +666,13 @@ class JudgeState(_ActionState):
   """Runs a judge (see Judge) and takes its verdict as the outcome.
 
   Its inputs, such as the outputs of an earlier state, are its spec's.
+
+  Attributes:
+    OUTCOMES: None: the judge decides, and Judge.outcomes may name what it
+      gives.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = None
 
   def __init__(
     self,
@@ -688,7 +726,14 @@ class RubricState(_ActionState):
   "### <name>"}; "error" when a review's agent run itself failed, so there
   is nothing to judge. Data: each review's {"ending", "cost_usd", "passed",
   "failed", "warnings", "verdicts"}, by name.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"pass", "fail", "error"}
+  )
 
   def __init__(
     self,

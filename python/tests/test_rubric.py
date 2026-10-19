@@ -235,6 +235,19 @@ def test_a_failed_review_fails_with_its_findings(
     assert outcome.data["docs"]["failed"] == ["sound"]  # pyright: ignore[reportIndexIssue]
 
 
+def test_failed_reviews_give_their_findings_in_order(
+  tmp_path: Path, task: Path
+) -> None:
+  fail = verdicts(sound=("fail", "it breaks", "mend it"), tidy=PASS)
+  reviewers = Reviewers({"tests": ("ok", fail), "docs": ("ok", fail)})
+  _, outcome = run(rubric_state(tmp_path, reviewers, task), tmp_path / "a")
+  assert outcome is not None
+  findings = "sound: it breaks\nFix: mend it"
+  assert outcome.feedback == {
+    "details": f"### tests\n\n{findings}\n\n### docs\n\n{findings}"
+  }
+
+
 def test_a_review_whose_run_failed_is_an_error(
   tmp_path: Path, task: Path
 ) -> None:
@@ -246,6 +259,7 @@ def test_a_review_whose_run_failed_is_an_error(
 
 
 FATAL = '[[criteria]]\nid = "a"\nseverity = "fatal"\nquestion = "q"\n'
+NUMBER = '[[criteria]]\nid = "a"\nseverity = "error"\nquestion = 1\n'
 
 
 def test_a_bad_rubric_or_a_repeated_name_is_an_error(
@@ -256,6 +270,7 @@ def test_a_bad_rubric_or_a_repeated_name_is_an_error(
     ('[[criteria]]\nid = "a"\nseverity = "error"\nquestion = "q"\n', "system"),
     ('system = "s"\n', "criteria"),
     (f'system = "s"\n{FATAL}', "unknown severity"),
+    (f'system = "s"\n{NUMBER}', "a: a field is not a string"),
   ]:
     _ = bad.write_text(text)
     with pytest.raises(ValueError, match=why):

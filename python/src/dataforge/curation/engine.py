@@ -21,7 +21,8 @@ JSON."""
 
 type Input = str | Path
 """An action input: a str names an artifact (its latest version), or else a
-path inside one as "<artifact>/<path>"; a Path is used as is."""
+path inside one as "<artifact>/<path>", either one prefixed with "<state>:"
+for the latest version a visit of that state wrote; a Path is used as is."""
 
 
 @dataclass(frozen=True)
@@ -457,9 +458,10 @@ class Context:
 
     Returns:
       For a name, the artifact's latest version, or when no artifact has the
-      name and it is "<artifact>/<path>", that path in it, by the str; for a
-      path, the path by its file name. An artifact of inputs with no version
-      raises KeyError.
+      name and it is "[<state>:]<artifact>[/<path>]", that path in the latest
+      version (of that state's visits), by the str; for a path, the path by
+      its file name. An artifact of inputs with no such version raises
+      KeyError.
     """
     paths = {_name(item): self._path(item) for item in inputs}
     for item in optional:
@@ -476,8 +478,16 @@ class Context:
       return item
     if self._artifacts.history(item):
       return self._artifacts.get(item)
-    artifact, _, inside = item.partition("/")
-    path = self._artifacts.get(artifact)
+    state, colon, rest = item.partition(":")
+    artifact, _, inside = (rest if colon else item).partition("/")
+    versions = [
+      version
+      for version in self._artifacts.history(artifact)
+      if not colon or version.state == state
+    ]
+    if not versions:
+      raise KeyError(item)
+    path = versions[-1].path
     return path / inside if inside else path
 
   def record(self, action: ActionRecord) -> None:
