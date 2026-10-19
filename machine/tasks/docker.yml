@@ -37,3 +37,44 @@
     name: "{{ user }}"
     groups: docker
     append: true
+
+# The setup owns log-driver and log-opts in /etc/docker/daemon.json (values
+# in playbook.yml): json-file without rotation, Docker's default, grows each
+# container's log without bound. The file is merged, not replaced: keys the
+# setup does not own stay as they are, and it is written only when the merge
+# changes its content. A change restarts dockerd at once, which stops the
+# running containers; the new options apply to containers created after it.
+
+- name: Read Docker daemon settings
+  become: true
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: docker_daemon_file
+  failed_when: false
+
+- name: Docker daemon settings directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+
+- name: Write Docker daemon settings
+  become: true
+  vars:
+    current: "{{ (docker_daemon_file.content | b64decode | from_json) if 'content' in docker_daemon_file else {} }}"
+    owned:
+      log-driver: json-file
+      log-opts:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file | string }}"
+    merged: "{{ current | combine(owned, recursive=true) }}"
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ merged | to_nice_json }}\n"
+    mode: "0644"
+  when: merged != current
+  notify: Restart dockerd
+
+- name: Restart dockerd now if its settings changed
+  ansible.builtin.meta: flush_handlers

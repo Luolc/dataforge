@@ -7,7 +7,8 @@
 # reports, statute's picked from a fake release list. Then it drives the
 # gateway client install from a fake release (a missing checksum file or a
 # tampered download must not replace it), the zshenv extension point, fednet
-# being brought to its latest release and the personal zsh switch.
+# being brought to its latest release and the personal zsh switch. Docker
+# is checked as installed, with its log rotation in daemon.json.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -94,6 +95,12 @@ settings=$HOME/.claude/settings.json
 mkdir -p "$HOME/.claude"
 echo '{"env": {"EXISTING_SETTING": "kept", "DISABLE_AUTOUPDATER": "1"}}' >"$settings"
 
+# A Docker daemon setting the setup does not own, which it must keep, next
+# to the log options it owns.
+daemon=/etc/docker/daemon.json
+sudo mkdir -p /etc/docker
+echo '{"debug": true, "log-opts": {"labels": "kept"}}' | sudo tee "$daemon" >/dev/null
+
 # A new machine runs the setup before any of its settings are in place: no
 # gateway address, git identity or GitHub token. Every tool comes from its
 # real latest release, found without a token.
@@ -160,6 +167,11 @@ ok "git identity"
 [ "$(getent passwd agent | cut -d: -f7)" = /usr/bin/zsh ] || fail "login shell"
 id -nG agent | grep -qw docker || fail "docker group"
 ok "login shell zsh, in docker group"
+[ "$(jq -r '."log-driver"' "$daemon")" = json-file ] || fail "daemon.json: log-driver is not json-file"
+[ "$(jq -r '."log-opts"."max-size"' "$daemon")" = 50m ] || fail "daemon.json: log-opts.max-size is not 50m"
+[ "$(jq '."log-opts"."max-file"' "$daemon")" = '"5"' ] || fail "daemon.json: log-opts.max-file is not the string \"5\""
+[ "$(jq -c '[.debug, ."log-opts".labels]' "$daemon")" = '[true,"kept"]' ] || fail "daemon.json: an existing setting was dropped"
+ok "Docker logs rotate: $(jq -c '."log-opts"' "$daemon"), existing keys kept"
 [ "$(jq -r .autoMemoryEnabled "$settings")" = false ] || fail "memory not off"
 [ "$(jq -r .env.EXISTING_SETTING "$settings")" = kept ] || fail "an existing setting was dropped"
 [ "$(jq -r .env.DISABLE_UPDATES "$settings")" = 1 ] || fail "env.DISABLE_UPDATES is not 1"
