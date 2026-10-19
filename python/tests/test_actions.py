@@ -263,28 +263,28 @@ def test_docker_create_args(tmp_path: Path) -> None:
     env={"PROXY": "http://gateway.example.test"},
   )
   assert env.create_args() == [
-        "create", "--init",
-        "--network", "none",
-        "--cpus", "2.0",
-        "--cpu-shares", "512",
-        "--memory", "4096m",
-        "--memory-swap", "4096m",
-        "--pids-limit", "256",
-        "--label", "attempt=7",
-        "--security-opt", "no-new-privileges",
-        "--cap-drop", "ALL",
-        "--user", "1000:1000",
-        "--workdir", "/app",
-        "--volume", f"{tmp_path}/cache:/cache",
-        "--env", "PROXY=http://gateway.example.test",
-        "solver:1", "sleep", "infinity",
-    ]  # fmt: skip
+    "create", "--init",
+    "--network", "none",
+    "--cpus", "2.0",
+    "--cpu-shares", "512",
+    "--memory", "4096m",
+    "--memory-swap", "4096m",
+    "--pids-limit", "256",
+    "--label", "attempt=7",
+    "--security-opt", "no-new-privileges",
+    "--cap-drop", "ALL",
+    "--user", "1000:1000",
+    "--workdir", "/app",
+    "--volume", f"{tmp_path}/cache:/cache",
+    "--env", "PROXY=http://gateway.example.test",
+    "solver:1", "sleep", "infinity",
+  ]  # fmt: skip
 
 
 def test_docker_create_args_by_default() -> None:
   assert Docker("solver:1").create_args() == [
-        "create", "--init", "--network", "none", "solver:1", "sleep", "infinity"
-    ]  # fmt: skip
+    "create", "--init", "--network", "none", "solver:1", "sleep", "infinity"
+  ]  # fmt: skip
 
 
 class DockerAgent:
