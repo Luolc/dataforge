@@ -1,6 +1,6 @@
-"""A state machine for building data: the engine, and the actions a state's body calls."""
+"""Curating data as a state machine: the engine, the actions, and dataforge's own states."""
 
-from dataforge.statemachine.actions import (
+from dataforge.curation.actions import (
     HOST,
     ActionResult,
     Actions,
@@ -22,7 +22,7 @@ from dataforge.statemachine.actions import (
     TrialRunner,
     fan_out,
 )
-from dataforge.statemachine.engine import (
+from dataforge.curation.engine import (
     ActionRecord,
     Artifacts,
     Attempt,
@@ -32,13 +32,14 @@ from dataforge.statemachine.engine import (
     Goto,
     Guard,
     Input,
+    Machine,
     Outcome,
     Report,
     State,
     Version,
     Visit,
-    run_attempt,
 )
+from dataforge.curation.states import AgentState, PassAtKState, ScriptState, TrialState
 
 __all__ = [
     "HOST",
@@ -48,6 +49,7 @@ __all__ = [
     "AgentRun",
     "AgentRunner",
     "AgentSpec",
+    "AgentState",
     "AgentTask",
     "Artifacts",
     "Attempt",
@@ -62,18 +64,21 @@ __all__ = [
     "Host",
     "Input",
     "Limits",
+    "Machine",
     "Mount",
     "Outcome",
+    "PassAtKState",
     "Report",
     "ResourcePool",
     "ScriptSpec",
+    "ScriptState",
     "Staged",
     "State",
     "TrialAgent",
     "TrialResult",
     "TrialRunner",
+    "TrialState",
     "Version",
     "Visit",
     "fan_out",
-    "run_attempt",
 ]

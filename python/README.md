@@ -1,14 +1,16 @@
 # dataforge (Python)
 
-The Python package of dataforge, for dataset repositories. It uses only the standard library.
+The Python package of dataforge, for dataset repositories.
 
-`dataforge.statemachine` runs the process that builds a dataset as a state machine. The
-dataset gives the states: each has a body that does the work and returns an outcome, the
-transitions from each outcome to the next state or the end, and its `max_visits`. The engine
-(`dataforge.statemachine.engine`) runs them, ends the attempt at a cap or a guard, and records
-it. The actions a body calls (`dataforge.statemachine.actions`) are `agent`, `script` and
-`trial`, each in an environment (`Host()` or a `Docker` container), plus `fan_out`; they share
-memory through one `ResourcePool` per process.
+`dataforge.curation` runs the process that curates a dataset as a state machine. A dataset
+gives the states: each runs and returns an outcome, maps each outcome to the next state or the
+end, and has its `max_visits`. `Machine` (`dataforge.curation.engine`) runs them, ends the
+attempt at a cap or a guard, and records it. The actions a state runs
+(`dataforge.curation.actions`) are `agent`, `script` and `trial`, each in an environment
+(`Host()` or a `Docker` container), plus `fan_out`; they share memory through one
+`ResourcePool` per process. `dataforge.curation.states` has dataforge's own states, one per
+action (`AgentState`, `ScriptState`, `TrialState`, `PassAtKState`), which a dataset
+subclasses; `State` and `Machine` may be subclassed too.
 
 A dataset repository depends on it at a commit of main:
 

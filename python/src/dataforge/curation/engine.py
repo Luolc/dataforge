@@ -1,7 +1,7 @@
 """The engine: states, transitions, caps, artifacts and the record of an attempt.
 
-A dataset describes its process as states. Each state has a body, written by the dataset,
-that does the work (usually through the actions of dataforge.statemachine.actions) and
+A dataset describes its process as states. Each state runs (usually through the actions
+of dataforge.curation.actions, or as one of the states of dataforge.curation.states) and
 returns an outcome; the state's transitions map each outcome to the next state or to the
 end. The engine knows no state by name: the states, their transitions and their caps all
 come from the dataset.
@@ -23,7 +23,7 @@ type Input = str | Path
 
 @dataclass(frozen=True)
 class Outcome:
-    """What a state's body returns. With last=True the state is never entered again."""
+    """What a state's run returns. With last=True the state is never entered again."""
 
     name: str
     data: Data = field(default_factory=dict[str, object])
@@ -50,19 +50,29 @@ class End:
     status: str
 
 
-@dataclass(frozen=True)
 class State:
-    """A state: its body, where each outcome leads, and how often it may be entered.
+    """A state: what it does (run), where each outcome leads, and how often it may run.
 
-    Entering it once more than max_visits times, or after it returned last=True, ends the
-    attempt: with the last mark if there was one, else with the status on_exhausted.
+    Subclass it and implement run. Entering a state once more than max_visits times, or
+    after it returned last=True, ends the attempt: with the last mark if there was one, else
+    with the status on_exhausted.
     """
 
-    name: str
-    body: Callable[[Context], Outcome]
-    transitions: Mapping[str, Goto | End]
-    max_visits: int
-    on_exhausted: str = "failed"
+    def __init__(
+        self,
+        name: str,
+        transitions: Mapping[str, Goto | End],
+        max_visits: int = 1,
+        on_exhausted: str = "failed",
+    ) -> None:
+        self.name: str = name
+        self.transitions: Mapping[str, Goto | End] = transitions
+        self.max_visits: int = max_visits
+        self.on_exhausted: str = on_exhausted
+
+    def run(self, ctx: Context) -> Outcome:
+        _ = ctx
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -117,7 +127,7 @@ class ActionRecord:
 
 @dataclass
 class Visit:
-    """One entry into a state. A body that raised has outcome "raised"."""
+    """One entry into a state. A state whose run raised has outcome "raised"."""
 
     state: str
     visit: int
@@ -187,7 +197,7 @@ type Guard = Callable[[Context, State], str | None]
 
 
 class Context:
-    """What a state's body sees: where it is, the report it got and the artifacts so far.
+    """What a running state sees: where it is, the report it got and the artifacts so far.
 
     Actions record themselves through claim, resolve and record; they may run concurrently.
     """
@@ -260,69 +270,83 @@ class Context:
             self._artifacts._add(name, Version(self.state, self.visit, path))  # pyright: ignore[reportPrivateUsage]
 
 
-def run_attempt(
-    states: Sequence[State],
-    root: Path,
-    *,
-    guard: Guard | None = None,
-    on_step: Callable[[Attempt], None] | None = None,
-) -> Attempt:
-    """Run one attempt from the first state until an End, a cap or the guard ends it.
+class Machine:
+    """Runs attempts over a list of states; the first state is the start.
 
-    root is the attempt's directory; outputs go to root/artifacts/<state>/<visit>/<name>.
     guard runs before each state is entered; a reason it returns ends the attempt. on_step
-    gets the attempt after each visit and when it ends. A body's exception is recorded and
-    raised again unchanged. Several attempts may run at once, each with its own root.
+    gets the attempt after each visit and when it ends. A subclass may override either
+    method instead of passing it. One machine may run several attempts at once, each with its
+    own root.
     """
-    by_name = _check_states(states)
-    attempt = Attempt(root)
-    artifacts = Artifacts()
 
-    def step() -> None:
-        if on_step is not None:
-            on_step(attempt)
+    def __init__(
+        self,
+        states: Sequence[State],
+        *,
+        guard: Guard | None = None,
+        on_step: Callable[[Attempt], None] | None = None,
+    ) -> None:
+        self.states: list[State] = list(states)
+        self._by_name: dict[str, State] = _check_states(self.states)
+        self._guard: Guard | None = guard
+        self._on_step: Callable[[Attempt], None] | None = on_step
 
-    visits: Counter[str] = Counter()
-    closed: set[str] = set()
-    state, report = states[0], None
-    while True:
-        visit = visits[state.name] + 1
-        if visit > state.max_visits or state.name in closed:
-            why = "after its last visit" if state.name in closed else "over max_visits"
-            _stop(attempt, state.on_exhausted, f"{state.name} visit {visit}: entered {why}")
-            step()
-            return attempt
-        record = Visit(state.name, visit)
-        ctx = Context(attempt, artifacts, record, report)
-        if guard is not None and (why := guard(ctx, state)) is not None:
-            _stop(attempt, "budget", f"{state.name} visit {visit}: {why}")
-            step()
-            return attempt
-        visits[state.name] = visit
-        attempt.visits.append(record)
-        try:
-            outcome = state.body(ctx)
-        except BaseException as error:
-            record.outcome = "raised"
-            record.data = {"error": f"{type(error).__name__}: {error}"}
-            step()
-            raise
-        record.outcome, record.data = outcome.name, outcome.data
-        if outcome.last:
-            closed.add(state.name)
-        transition = state.transitions.get(outcome.name)
-        if transition is None:
-            raise ValueError(f"{state.name} has no transition for outcome {outcome.name!r}")
-        if isinstance(transition, End):
-            attempt.status = transition.status
-            step()
-            return attempt
-        record.mark = transition.mark
-        report = None
-        if transition.report:
-            report = Report(state.name, outcome.name, outcome.data, record.outputs)
-        state = by_name[transition.state]
-        step()
+    def guard(self, ctx: Context, state: State) -> str | None:
+        return None if self._guard is None else self._guard(ctx, state)
+
+    def on_step(self, attempt: Attempt) -> None:
+        if self._on_step is not None:
+            self._on_step(attempt)
+
+    def run(self, root: Path) -> Attempt:
+        """Run one attempt until an End, a cap or the guard ends it.
+
+        root is the attempt's directory; outputs go to root/artifacts/<state>/<visit>/<name>.
+        An exception from a state's run is recorded and raised again unchanged.
+        """
+        attempt = Attempt(root)
+        artifacts = Artifacts()
+        visits: Counter[str] = Counter()
+        closed: set[str] = set()
+        state, report = self.states[0], None
+        while True:
+            visit = visits[state.name] + 1
+            if visit > state.max_visits or state.name in closed:
+                why = "after its last visit" if state.name in closed else "over max_visits"
+                _stop(attempt, state.on_exhausted, f"{state.name} visit {visit}: entered {why}")
+                self.on_step(attempt)
+                return attempt
+            record = Visit(state.name, visit)
+            ctx = Context(attempt, artifacts, record, report)
+            if (why := self.guard(ctx, state)) is not None:
+                _stop(attempt, "budget", f"{state.name} visit {visit}: {why}")
+                self.on_step(attempt)
+                return attempt
+            visits[state.name] = visit
+            attempt.visits.append(record)
+            try:
+                outcome = state.run(ctx)
+            except BaseException as error:
+                record.outcome = "raised"
+                record.data = {"error": f"{type(error).__name__}: {error}"}
+                self.on_step(attempt)
+                raise
+            record.outcome, record.data = outcome.name, outcome.data
+            if outcome.last:
+                closed.add(state.name)
+            transition = state.transitions.get(outcome.name)
+            if transition is None:
+                raise ValueError(f"{state.name} has no transition for outcome {outcome.name!r}")
+            if isinstance(transition, End):
+                attempt.status = transition.status
+                self.on_step(attempt)
+                return attempt
+            record.mark = transition.mark
+            report = None
+            if transition.report:
+                report = Report(state.name, outcome.name, outcome.data, record.outputs)
+            state = self._by_name[transition.state]
+            self.on_step(attempt)
 
 
 def _check_states(states: Sequence[State]) -> dict[str, State]:
