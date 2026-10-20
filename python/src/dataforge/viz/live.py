@@ -6,6 +6,7 @@ item's attempts runs. The viewer learns whether that lock is held only from
 that tried to take it at that moment would find it busy and fail.
 """
 
+import logging
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,8 @@ PROC_LOCKS = Path("/proc/locks")
 RUNNING = "running"
 MAY_HAVE_STOPPED = "may have stopped"
 NOT_ENDED = "not ended"
+
+_log = logging.getLogger(__name__)
 
 _FILE = re.compile(r"([0-9a-f]+):([0-9a-f]+):([0-9]+)")
 
@@ -76,7 +79,8 @@ def read_held_locks() -> set[tuple[int, int, int]]:
   """
   try:
     return held_locks(PROC_LOCKS.read_text())
-  except OSError:
+  except OSError as error:
+    _log.warning("%s: %s; no lock counts as held", PROC_LOCKS, error.strerror)
     return set()
 
 
@@ -110,14 +114,16 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
 
   Args:
     project: The project.
-    rows: The listing, newest modified first, live "not ended" or None.
+    rows: The listing, newest modified first, live "not ended" or None; a
+      row whose record could not be read has an error and is no item's
+      newest.
   """
   if project.lock is None:
     return
   held = read_held_locks()
   seen: set[str] = set()
   for row in rows:
-    if row["modified"] is None:
+    if row["error"] is not None:
       continue
     item = str(row["item"])
     newest = item not in seen

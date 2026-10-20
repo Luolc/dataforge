@@ -84,6 +84,20 @@ def test_a_held_lock_is_found(tree: Tree, static: Path, posix: bool) -> None:
   }
 
 
+def test_an_unreadable_record_is_no_items_newest(
+  tree: Tree, static: Path
+) -> None:
+  newest = tree.root / "batch-1" / "task-3" / "record.json"
+  newest.parent.mkdir()
+  _ = newest.write_text("{not json")
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = live(tree, static)
+
+  assert found["batch-1/task-3"] is None
+  assert found["batch-1/task-2"] == "running"
+
+
 def test_a_free_lock_is_not(tree: Tree, static: Path) -> None:
   # Another file held, so that /proc/locks is not empty.
   with holding(tree.root / "batch-1" / "other.lock"):
