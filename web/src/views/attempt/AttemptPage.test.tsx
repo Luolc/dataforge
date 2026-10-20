@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import older from "../../../fixtures/oldrec/attempts/older/task-0301/record.json";
 import other from "../../../fixtures/oldrec/attempts/older/task-0302/record.json";
+import resumed from "../../../fixtures/attempts/resumeviz/task-0401/record.json";
 import { sampleProject } from "../../../fixtures/sample";
 import type { Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
@@ -72,6 +73,19 @@ describe("a record an older dataforge wrote", () => {
     fireEvent.click(input ?? run);
     expect(
       within(run).getByText(/This record has no graph, so whether/),
+    ).toBeVisible();
+  });
+});
+
+describe("a resumed record", () => {
+  it("opens the discarded run the address names", async () => {
+    show(resumed, "&tab=runs&discarded=0");
+
+    expect(
+      await screen.findByRole("heading", { name: "Check · visit 2" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/^Left out when the attempt was resumed/),
     ).toBeVisible();
   });
 });

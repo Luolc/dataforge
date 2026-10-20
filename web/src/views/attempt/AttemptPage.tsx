@@ -64,6 +64,7 @@ export function AttemptPage() {
         record={loaded.data.record}
         tab={query.get("tab") ?? "runs"}
         run={runOf(query.get("run"))}
+        discarded={runOf(query.get("discarded"))}
       />
     );
   return <Frame crumbs={crumbs}>{body}</Frame>;
@@ -80,12 +81,14 @@ function Attempt({
   record,
   tab,
   run,
+  discarded,
 }: {
   project: Project;
   attempt: string;
   record: AttemptRecord;
   tab: string;
   run: number | null;
+  discarded: number | null;
 }) {
   const deliverables = deliverablesOf(record);
   const kinds = [...new Set(deliverables.map((d) => d.kind))];
@@ -122,6 +125,7 @@ function Attempt({
           attempt={attempt}
           record={record}
           run={run}
+          discarded={discarded}
         />
       ) : kinds.includes(tab) ? (
         <KindTab
