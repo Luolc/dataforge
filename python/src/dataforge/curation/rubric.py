@@ -12,6 +12,9 @@ The text of every input block, and of every other block made of what an
 author or a reviewer wrote, is HTML-escaped, so that no block can close itself
 or open another.
 
+A review may also give the criteria of the other reviews of its state
+(others_text), so that its fixes do not break them (CROSS_CRITERIA).
+
 A review may be called again, as RubricState's later visits do: a re-review
 also gives the reviewer its last verdicts and what changed in each block since
 (rereview_prompt), and asks it to judge everything again (REREVIEW). Each call
@@ -78,6 +81,14 @@ REREVIEW = (
 )
 """What a re-review asks of the reviewer, after its last verdicts and the
 changes since."""
+
+CROSS_CRITERIA = (
+  "The other reviews of this work judge it by the criteria below. Before you"
+  " write a fix, check it against each of them: no fix may make any of them"
+  " fail. When a fix cannot avoid a conflict with one of them, say in the fix"
+  " which criterion of which review it conflicts with."
+)
+"""What a prompt says before the criteria of the other reviews."""
 
 VERDICTS_SCHEMA: Data = {
   "type": "object",
@@ -408,8 +419,34 @@ def notes_text(notes: Mapping[str, Sequence[Version]]) -> str:
   return "\n\n".join(blocks)
 
 
+def others_text(rubrics: Mapping[str, Rubric]) -> str:
+  """Return the criteria of the other reviews as the prompt gives them.
+
+  Args:
+    rubrics: The rubric of each other review, by the review's name, in order.
+
+  Returns:
+    CROSS_CRITERIA, then a block with a block for each review that holds its
+    criteria, their text escaped as block_text does; empty when there are no
+    other reviews.
+  """
+  if not rubrics:
+    return ""
+  reviews = "\n\n".join(
+    f'<review name="{html.escape(name)}">\n'
+    + "\n\n".join(_escaped(c).render() for c in rubric.criteria)
+    + "\n</review>"
+    for name, rubric in rubrics.items()
+  )
+  return f"{CROSS_CRITERIA}\n\n<other_criteria>\n{reviews}\n</other_criteria>"
+
+
 def review_prompt(
-  rubric: Rubric, blocks: Mapping[str, str], notes: str = "", again: str = ""
+  rubric: Rubric,
+  blocks: Mapping[str, str],
+  notes: str = "",
+  again: str = "",
+  others: str = "",
 ) -> str:
   """Return the whole prompt of a review.
 
@@ -419,10 +456,11 @@ def review_prompt(
       tag, in order.
     notes: The author's notes, as notes_text gives them.
     again: For a re-review, what rereview_prompt gives with whole=True.
+    others: The criteria of the other reviews, as others_text gives them.
 
   Returns:
     The rubric's system text, the inputs as tagged blocks, the notes, the
-    criteria, what a re-review adds and ANSWER.
+    criteria, those of the other reviews, what a re-review adds and ANSWER.
   """
   criteria = "\n\n".join(c.render() for c in rubric.criteria)
   parts = [
@@ -430,6 +468,7 @@ def review_prompt(
     *(f"<{tag}>\n{text}\n</{tag}>" for tag, text in blocks.items()),
     notes,
     f"<rubric>\n{criteria}\n</rubric>",
+    others,
     again,
     ANSWER,
   ]
@@ -741,6 +780,19 @@ def _escape(text: str) -> str:
   # What an author or a reviewer wrote: "&", "<" and ">" escaped, so that it
   # can neither close the block it is in nor open another.
   return html.escape(text, quote=False)
+
+
+def _escaped(criterion: Criterion) -> Criterion:
+  # Another review's criterion, which its rubric's author wrote: escaped as
+  # what an author wrote is, since it is given inside a block.
+  return dataclasses.replace(
+    criterion,
+    id=_escape(criterion.id),
+    question=_escape(criterion.question),
+    check=_escape(criterion.check),
+    pass_if=_escape(criterion.pass_if),
+    fail_if=_escape(criterion.fail_if),
+  )
 
 
 def _flat(text: str) -> str:

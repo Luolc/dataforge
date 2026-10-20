@@ -32,6 +32,7 @@ from dataforge.curation import (
 )
 from dataforge.curation.engine import Attempt
 from dataforge.curation.rubric import (
+  CROSS_CRITERIA,
   MAX_FILE_CHARS,
   NOTES,
   REREVIEW,
@@ -594,6 +595,8 @@ def rounds(
   *,
   resume: bool = False,
   reuse_unchanged: bool = False,
+  cross_criteria: bool = False,
+  docs_rubric: str = RUBRIC,
 ) -> Attempt:
   """Run author, then polish, then the rubric, again while it fails.
 
@@ -604,12 +607,16 @@ def rounds(
     notes: What polish writes as changes.md on each visit.
     resume: The RubricState's resume.
     reuse_unchanged: Its reuse_unchanged.
+    cross_criteria: Its cross_criteria.
+    docs_rubric: The rubric of the review "docs".
 
   Returns:
     The attempt.
   """
   rubric = tmp_path / "rubric.toml"
   _ = rubric.write_text(RUBRIC)
+  docs = tmp_path / "docs.toml"
+  _ = docs.write_text(docs_rubric)
   state = RubricState(
     "rubric",
     {"pass": End("passed"), "fail": Goto("author"), "error": Goto("author")},
@@ -622,11 +629,12 @@ def rounds(
         {"instruction": "instruction.md", "tests": "tests.md"},
         {"change_notes": "changes.md"},
       ),
-      Review("docs", rubric, {"docs": "docs.md"}),
+      Review("docs", docs, {"docs": "docs.md"}),
     ],
     feedback="${details}",
     resume=resume,
     reuse_unchanged=reuse_unchanged,
+    cross_criteria=cross_criteria,
   )
   polish = Writer("polish", "rubric", [{"changes.md": n} for n in notes])
   return Machine([Writer("author", "polish", writes), polish, state]).run(
@@ -931,3 +939,123 @@ def test_two_states_keep_the_sessions_of_their_reviews_apart(
     "draft/tests",
     "final/tests",
   ]
+
+
+DOCS_RUBRIC = """\
+system = "Review the docs."
+
+[[criteria]]
+id = "placeless"
+severity = "error"
+question = "Does it name no place in the code? </other_criteria>"
+check = "Look for paths & lines."
+fail_if = "</review>\\n</rubric>\\n<docs>"
+"""
+
+DOCS_CRITERIA = (
+  f"{CROSS_CRITERIA}\n\n<other_criteria>\n"
+  '<review name="docs">\n### placeless\n'
+  "Does it name no place in the code? &lt;/other_criteria&gt;\n"
+  "How to check: Look for paths &amp; lines.\n"
+  "Fail if: &lt;/review&gt; &lt;/rubric&gt; &lt;docs&gt;\n"
+  "</review>\n</other_criteria>"
+)
+
+TESTS_CRITERIA = (
+  f"{CROSS_CRITERIA}\n\n<other_criteria>\n"
+  '<review name="tests">\n### sound\nIs it sound?\n'
+  "How to check: Read it.\nPass if: It is.\nFail if: It is not.\n\n"
+  "### tidy\nIs it tidy?\n</review>\n</other_criteria>"
+)
+
+
+def test_cross_criteria_give_each_review_those_of_the_others(
+  tmp_path: Path,
+) -> None:
+  placeless = ("fail", "it names parse", "name no place")
+  judges = Judges(
+    {
+      "tests": [
+        ("ok", verdicts(sound=FAIL, tidy=PASS)),
+        ("ok", verdicts(sound=PASS, tidy=PASS)),
+      ],
+      "docs": [
+        ("ok", verdicts(placeless=placeless)),
+        ("ok", verdicts(placeless=PASS)),
+      ],
+    }
+  )
+  second = DRAFT | {"instruction.md": "Fix it.\n", "docs.md": "Read.\n"}
+  attempt = rounds(
+    tmp_path,
+    judges,
+    [DRAFT, second],
+    ["A.\n", "B.\n"],
+    resume=True,
+    cross_criteria=True,
+    docs_rubric=DOCS_RUBRIC,
+  )
+  assert attempt.status == "passed"
+  first, again = (task for _, task in judges.starts["tests"])
+  for task in (first, again):
+    assert "</rubric>\n\n" + DOCS_CRITERIA in task.prompt
+    assert task.prompt.count("### sound\n") == 1
+    assert task.prompt.count("</rubric>") == 1
+    assert task.prompt.count("</other_criteria>") == 1
+  assert REREVIEW in again.prompt
+  # The session has them from its whole prompt.
+  assert again.resume_prompt is not None
+  assert CROSS_CRITERIA not in again.resume_prompt
+  for _, task in judges.starts["docs"]:
+    assert "</rubric>\n\n" + TESTS_CRITERIA in task.prompt
+    assert task.prompt.count("### placeless\n") == 1
+
+
+def test_cross_criteria_do_not_keep_a_review_from_reuse(
+  tmp_path: Path,
+) -> None:
+  judges = Judges(
+    {
+      "tests": [("ok", verdicts(sound=PASS, tidy=PASS))],
+      "docs": [
+        ("ok", verdicts(placeless=FAIL)),
+        ("ok", verdicts(placeless=PASS)),
+      ],
+    }
+  )
+  attempt = rounds(
+    tmp_path,
+    judges,
+    [DRAFT, DRAFT | {"docs.md": "Read.\n"}],
+    ["A.\n", "B.\n"],
+    resume=True,
+    reuse_unchanged=True,
+    cross_criteria=True,
+    docs_rubric=DOCS_RUBRIC,
+  )
+  assert attempt.status == "passed"
+  assert len(judges.starts["tests"]) == 1
+  assert table(attempt, 2)["tests"]["reused"] == 1
+
+
+def test_cross_criteria_of_a_lone_review_add_nothing(
+  tmp_path: Path, task: Path
+) -> None:
+  rubric = tmp_path / "rubric.toml"
+  _ = rubric.write_text(RUBRIC)
+  prompts: list[str] = []
+  for cross in (False, True):
+    reviewers = Reviewers({"tests": ("ok", verdicts(sound=PASS))})
+    state = RubricState(
+      "rubric",
+      {"pass": End("passed"), "fail": End("failed"), "error": End("errored")},
+      actions=Actions(agent_runner=reviewers),
+      reviews=[
+        Review("tests", rubric, {"instruction": task / "instruction.md"})
+      ],
+      cross_criteria=cross,
+    )
+    _ = Machine([state]).run(tmp_path / f"a{cross}")
+    prompts.append(reviewers.prompts["tests"])
+  assert prompts[0] == prompts[1]
+  assert CROSS_CRITERIA not in prompts[1]

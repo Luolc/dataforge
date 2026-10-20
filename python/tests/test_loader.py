@@ -1239,22 +1239,31 @@ REVIEW = {
 }
 
 
-def test_a_rubric_reads_resume_reuse_unchanged_and_notes(
+def test_a_rubric_reads_resume_reuse_unchanged_cross_criteria_and_notes(
   tmp_path: Path,
 ) -> None:
   files(tmp_path)
   doc = agent_doc()
   put("states.review.with.resume", True)(doc)
   put("states.review.with.reuse_unchanged", True)(doc)
+  put("states.review.with.cross_criteria", True)(doc)
   notes = {"change_notes": "changes.md"}
   put("states.review.with.reviews", [REVIEW | {"notes": notes}])(doc)
   state = load_doc(doc, {}, base_dir=tmp_path).states[1]
   assert isinstance(state, RubricState)
-  assert (state.resume, state.reuse_unchanged) == (True, True)
+  assert (state.resume, state.reuse_unchanged, state.cross_criteria) == (
+    True,
+    True,
+    True,
+  )
   assert state.reviews[0].notes == notes
   default = load_doc(agent_doc(), {}, base_dir=tmp_path).states[1]
   assert isinstance(default, RubricState)
-  assert (default.resume, default.reuse_unchanged) == (False, False)
+  assert (
+    default.resume,
+    default.reuse_unchanged,
+    default.cross_criteria,
+  ) == (False, False, False)
   assert default.reviews[0].notes == {}
 
 
@@ -1270,6 +1279,11 @@ def test_a_rubric_reads_resume_reuse_unchanged_and_notes(
       "states.review.with.reuse_unchanged",
       1,
       "states.review.with.reuse_unchanged: expected a boolean, got an integer",
+    ),
+    (
+      "states.review.with.cross_criteria",
+      "on",
+      "states.review.with.cross_criteria: expected a boolean, got a string",
     ),
     (
       "states.review.with.reviews",
