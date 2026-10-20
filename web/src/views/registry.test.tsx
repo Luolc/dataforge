@@ -1,9 +1,22 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
 import type { Deliverable } from "../api/types";
+import type { DeliverableProps } from "./kind";
 import { KindTab } from "./registry";
+
+// Each view stands in as a heading that names its module, so these tests hold
+// whatever the views themselves show.
+vi.mock("./files", () => ({ default: stub("files") }));
+vi.mock("./report", () => ({ default: stub("report") }));
+vi.mock("./trials", () => ({ default: stub("trials") }));
+
+function stub(module: string) {
+  return function View({ deliverable }: DeliverableProps) {
+    return <h3>{`${module} view: ${deliverable.title}`}</h3>;
+  };
+}
 
 const item = (name: string, kind: string): Deliverable => ({
   name,
@@ -31,9 +44,13 @@ function show(kind: string, items: Deliverable[]) {
 
 describe("the kind registry", () => {
   it("a view is chosen by kind only", () => {
-    show("files", [item("trials", "files")]);
-
-    expect(screen.getByText("The files view is not built yet.")).toBeVisible();
+    for (const kind of ["files", "report", "trials"]) {
+      const { unmount } = show(kind, [item("one", kind)]);
+      expect(screen.getByRole("heading")).toHaveTextContent(
+        `${kind} view: Title of one`,
+      );
+      unmount();
+    }
   });
 
   it("an unknown kind falls back to a card", () => {
@@ -44,7 +61,7 @@ describe("the kind registry", () => {
     ).toBeVisible();
     expect(screen.getByText("dataset-card")).toBeVisible();
     expect(screen.getByText("author was never visited")).toBeVisible();
-    expect(screen.queryByText(/not built yet/)).toBeNull();
+    expect(screen.queryByText(/ view: /)).toBeNull();
   });
 
   it("reports stack; files show one, chosen from a menu", () => {
@@ -57,7 +74,7 @@ describe("the kind registry", () => {
 
     show("files", [item("one", "files"), item("two", "files")]);
     expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual([
-      "Title of one",
+      "files view: Title of one",
     ]);
     expect(
       screen.getByRole("button", { name: "Title of one" }),
