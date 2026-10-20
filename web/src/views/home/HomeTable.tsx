@@ -384,7 +384,7 @@ export function HomeTable({
     const href = attemptHref(project.id, line.row.id);
     return (
       <tr
-        key={line.row.id}
+        key={line.sub ? line.row.id : `item:${line.item.id}`}
         {...props}
         onClick={(e) => {
           open(e, href);
@@ -402,7 +402,8 @@ export function HomeTable({
   const itemRows = (row: TableRow, prefix: string) => {
     const item = row.original;
     const expanded = row.getIsExpanded();
-    const subIds = item.attempts.map((_, a) => `${prefix}-${a.toString()}`);
+    const subId = (a: number) => `${prefix}-${a.toString()}`;
+    const subIds = item.attempts.map((_, a) => subId(a));
     const count = item.attempts.length;
     const attempts = row.getCanExpand() ? (
       <button
@@ -432,7 +433,7 @@ export function HomeTable({
       ...(row.getCanExpand()
         ? item.attempts.map((attempt, a) =>
             lineRow({ item, row: attempt, sub: true }, null, {
-              id: subIds[a],
+              id: subId(a),
               hidden: !expanded,
               className:
                 "cursor-pointer border-b border-line-subtle bg-app hover:bg-hover",

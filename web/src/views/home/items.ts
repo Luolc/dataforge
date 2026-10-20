@@ -68,7 +68,8 @@ export function rowStatus(row: AttemptRow): string | null {
 export function rowSeconds(row: AttemptRow): number | null {
   if (notEnded(row) || row.started_at === null || row.ended_at === null)
     return null;
-  const seconds = (Date.parse(row.ended_at) - Date.parse(row.started_at)) / 1000;
+  const seconds =
+    (Date.parse(row.ended_at) - Date.parse(row.started_at)) / 1000;
   return Number.isNaN(seconds) ? null : seconds;
 }
 
@@ -83,6 +84,14 @@ function ms(iso: string | null): number {
   const t = iso === null ? NaN : Date.parse(iso);
   return Number.isNaN(t) ? -Infinity : t;
 }
+
+/**
+ * When an attempt started, for finding an item's newest: a readable record
+ * with no started_at has not finished its first action yet, so it is newer
+ * than any that has.
+ */
+const startMs = (row: AttemptRow): number =>
+  row.error === null && row.started_at === null ? Infinity : ms(row.started_at);
 
 const newestFirst = (a: number, b: number) => (a === b ? 0 : a > b ? -1 : 1);
 
@@ -100,7 +109,7 @@ export function toItems(rows: AttemptRow[]): Item[] {
   const items: Item[] = [];
   for (const [id, list] of byItem) {
     const attempts = [...list].sort((a, b) =>
-      newestFirst(ms(a.started_at), ms(b.started_at)),
+      newestFirst(startMs(a), startMs(b)),
     );
     const newest = attempts[0];
     if (newest === undefined) continue;
@@ -114,7 +123,7 @@ export function toItems(rows: AttemptRow[]): Item[] {
   }
   const rank = (g: Group) => GROUPS.findIndex((x) => x.group === g);
   const time = (i: Item) =>
-    ms(i.group === "open" ? i.newest.started_at : i.newest.ended_at);
+    i.group === "open" ? startMs(i.newest) : ms(i.newest.ended_at);
   return items.sort(
     (a, b) =>
       rank(a.group) - rank(b.group) ||

@@ -45,8 +45,7 @@ function useListing(project: string) {
 /** A project's home page: one row per data item (design-viz.md section 5). */
 export default function Home({ project }: { project: Project }) {
   const { read, error, reading, refresh } = useListing(project.id);
-  if (read === null)
-    return <Note>{error ?? "Loading…"}</Note>;
+  if (read === null) return <Note>{error ?? "Loading…"}</Note>;
   return (
     <HomeTable
       project={project}
