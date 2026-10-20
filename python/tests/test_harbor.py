@@ -808,7 +808,83 @@ def test_a_trial_gives_its_name_directory_and_claude_code_trace(
   assert (result.id, result.path) == ("task__abc", trial)
   trace = trial / "agent" / "claude-code.txt" if traced else None
   assert result.trace == trace
-  assert result.trace_format == "claude-code-stream-json"
+  assert result.trace_format == ("claude-code-stream-json" if traced else None)
+
+
+def jsonl(*events: object) -> str:
+  return "\n".join(json.dumps(e) for e in events)
+
+
+def pi_end(role: str, cost: float) -> dict[str, object]:
+  return {
+    "type": "message_end",
+    "message": {"role": role, "usage": {"cost": {"total": cost}}},
+  }
+
+
+# Synthetic traces of Harbor's pi and codex agents. Pi's two assistant messages
+# cost 0.25 and 0.5; the user's message and the turn_end that repeats the last
+# message are not counted.
+PI_TRACE = jsonl(
+  pi_end("user", 1.0),
+  pi_end("assistant", 0.25),
+  pi_end("assistant", 0.5),
+  {**pi_end("assistant", 0.5), "type": "turn_end"},
+)
+CODEX_TRACE = jsonl(
+  {"type": "thread.started", "thread_id": "t1"},
+  {"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}},
+)
+
+
+@pytest.mark.parametrize(
+  ("name", "text", "trace_format", "cost"),
+  [
+    ("pi.txt", PI_TRACE, "pi-json", 0.75),
+    ("codex.txt", CODEX_TRACE, "codex-exec-jsonl", 0.0),
+  ],
+  ids=["pi", "codex"],
+)
+def test_a_trial_gives_its_pi_or_codex_trace_and_the_cost_it_gives(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  name: str,
+  text: str,
+  trace_format: str,
+  cost: float,
+) -> None:
+  out = outdir(tmp_path)
+  env = {"FAKE_COST": "none", "FAKE_FILES": json.dumps({f"agent/{name}": text})}
+  result = runner(fakes, env=env).run(task(tmp_path), "oracle", Limits(2), out)
+  assert result.trace == out / "job" / "task__abc" / "agent" / name
+  assert result.trace_format == trace_format
+  assert result.cost_usd == cost
+
+
+def test_harbors_cost_comes_before_the_pi_traces(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  env = {"FAKE_FILES": json.dumps({"agent/pi.txt": PI_TRACE})}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.cost_usd == 0.25
+
+
+def test_a_pi_trace_that_is_a_symlink_is_neither_given_nor_read(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  host = tmp_path / "host-pi.txt"
+  _ = host.write_text(PI_TRACE)
+  env = {
+    "FAKE_COST": "none",
+    "FAKE_LINKS": json.dumps({"agent/pi.txt": str(host)}),
+  }
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert (result.trace, result.trace_format) == (None, None)
+  assert result.cost_usd == 0.0
 
 
 def test_no_symlink_in_a_trial_leads_a_reader_out_of_it(
