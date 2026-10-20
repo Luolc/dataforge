@@ -1,0 +1,4 @@
+# For the files and report views' screenshots: `dataforge viz serve --config
+# web/fixtures/p2/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8802 }
+projects: [project.yaml]

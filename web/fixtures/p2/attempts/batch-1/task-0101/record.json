@@ -1,0 +1,579 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 2,
+  "budget": {
+    "max_usd": 40.0,
+    "cost_usd": 5.34,
+    "stopped": null
+  },
+  "final": {
+    "author": {
+      "state": "author",
+      "visit": 2,
+      "round": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/2/task"
+          },
+          "started_at": "2026-03-02T09:29:24+00:00",
+          "ended_at": "2026-03-02T09:40:27+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    "check": {
+      "state": "check",
+      "visit": 2,
+      "round": 2,
+      "outcome": "pass",
+      "data": {
+        "failed": 0
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/2/check.log"
+          },
+          "started_at": "2026-03-02T09:40:36+00:00",
+          "ended_at": "2026-03-02T09:43:39+00:00",
+          "cost_usd": 0.0,
+          "summary": "All 6 tests pass after the fix; 2 fail before it."
+        }
+      ]
+    },
+    "review": {
+      "state": "review",
+      "visit": 1,
+      "round": 2,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "report": "artifacts/review/1/report.md",
+            "scores": "artifacts/review/1/scores.json"
+          },
+          "started_at": "2026-03-02T09:43:48+00:00",
+          "ended_at": "2026-03-02T09:45:51+00:00",
+          "cost_usd": 0.42,
+          "summary": "Review **passed**: 4 of 4 criteria."
+        }
+      ]
+    },
+    "solve": {
+      "state": "solve",
+      "visit": 1,
+      "round": 2,
+      "outcome": "in_range",
+      "data": {
+        "solved": 2,
+        "k": 4
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-02T09:46:00+00:00",
+          "ended_at": "2026-03-02T09:55:03+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-03-02T09:55:12+00:00",
+          "ended_at": "2026-03-02T10:04:32+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-03-02T10:04:41+00:00",
+          "ended_at": "2026-03-02T10:14:18+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-4": "artifacts/solve/1/trial-4"
+          },
+          "started_at": "2026-03-02T10:14:27+00:00",
+          "ended_at": "2026-03-02T10:24:21+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-02T10:24:30+00:00",
+          "ended_at": "2026-03-02T10:25:41+00:00",
+          "cost_usd": 0.0,
+          "summary": "pass@4 solved **2 of 4**."
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task"
+          },
+          "started_at": "2026-03-02T09:15:00+00:00",
+          "ended_at": "2026-03-02T09:26:03+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "fail",
+      "data": {
+        "failed": 2
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/1/check.log"
+          },
+          "started_at": "2026-03-02T09:26:12+00:00",
+          "ended_at": "2026-03-02T09:29:15+00:00",
+          "cost_usd": 0.0,
+          "summary": "**2 of 6 tests failed** before the fix, as expected, but `test_trailing_semicolon`\nalso failed after it:\n\n```text\nFAILED tests/test_header.py::test_trailing_semicolon\n```"
+        }
+      ]
+    },
+    {
+      "state": "author",
+      "visit": 2,
+      "round": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/2/task"
+          },
+          "started_at": "2026-03-02T09:29:24+00:00",
+          "ended_at": "2026-03-02T09:40:27+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 2,
+      "round": 2,
+      "outcome": "pass",
+      "data": {
+        "failed": 0
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/2/check.log",
+            "checks": "artifacts/check/2/checks.md"
+          },
+          "started_at": "2026-03-02T09:40:36+00:00",
+          "ended_at": "2026-03-02T09:43:39+00:00",
+          "cost_usd": 0.0,
+          "summary": "All 6 tests pass after the fix; 2 fail before it."
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 1,
+      "round": 2,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "report": "artifacts/review/1/report.md",
+            "scores": "artifacts/review/1/scores.json"
+          },
+          "started_at": "2026-03-02T09:43:48+00:00",
+          "ended_at": "2026-03-02T09:45:51+00:00",
+          "cost_usd": 0.42,
+          "summary": "Review **passed**: 4 of 4 criteria."
+        }
+      ]
+    },
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 2,
+      "outcome": "in_range",
+      "data": {
+        "solved": 2,
+        "k": 4
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-02T09:46:00+00:00",
+          "ended_at": "2026-03-02T09:55:03+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-03-02T09:55:12+00:00",
+          "ended_at": "2026-03-02T10:04:32+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-03-02T10:04:41+00:00",
+          "ended_at": "2026-03-02T10:14:18+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-4": "artifacts/solve/1/trial-4"
+          },
+          "started_at": "2026-03-02T10:14:27+00:00",
+          "ended_at": "2026-03-02T10:24:21+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-02T10:24:30+00:00",
+          "ended_at": "2026-03-02T10:25:41+00:00",
+          "cost_usd": 0.0,
+          "summary": "pass@4 solved **2 of 4**."
+        }
+      ]
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "task",
+      "kind": "files",
+      "title": "Artifacts",
+      "state": "author",
+      "output": "task",
+      "visit": 2,
+      "visit_index": 2,
+      "path": "artifacts/author/2/task",
+      "reason": null
+    },
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "state": "solve",
+      "output": null,
+      "visit": 1,
+      "visit_index": 5,
+      "path": "artifacts/solve/1",
+      "reason": null,
+      "k": 4,
+      "value": {
+        "output": null,
+        "field": ["solved"],
+        "value": 2,
+        "reason": null
+      },
+      "trials": [
+        {
+          "id": "tinyparse-header__aaa1",
+          "output": "trial-1",
+          "path": "artifacts/solve/1/trial-1",
+          "trace": {
+            "path": "artifacts/solve/1/trial-1/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-header__bbb2",
+          "output": "trial-2",
+          "path": "artifacts/solve/1/trial-2",
+          "trace": {
+            "path": "artifacts/solve/1/trial-2/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-header__ccc3",
+          "output": "trial-3",
+          "path": "artifacts/solve/1/trial-3",
+          "trace": {
+            "path": "artifacts/solve/1/trial-3/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-header__ddd4",
+          "output": "trial-4",
+          "path": "artifacts/solve/1/trial-4",
+          "trace": {
+            "path": "artifacts/solve/1/trial-4/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "review",
+      "kind": "report",
+      "title": "Rubrics",
+      "state": "review",
+      "output": "report",
+      "visit": 1,
+      "visit_index": 4,
+      "path": "artifacts/review/1/report.md",
+      "reason": null,
+      "table": {
+        "state": "review",
+        "output": "scores",
+        "visit": 1,
+        "visit_index": 4,
+        "path": "artifacts/review/1/scores.json",
+        "reason": null
+      }
+    },
+    {
+      "name": "static_checks",
+      "kind": "report",
+      "title": "Static checks",
+      "state": "check",
+      "output": "checks",
+      "visit": 2,
+      "visit_index": 3,
+      "path": "artifacts/check/2/checks.md",
+      "reason": null,
+      "table": null
+    },
+    {
+      "name": "check_logs",
+      "kind": "files",
+      "title": "Check logs",
+      "state": "check",
+      "output": "log",
+      "visit": 2,
+      "visit_index": 3,
+      "path": "artifacts/check/2",
+      "reason": null
+    }
+  ],
+  "graph": {
+    "start": "author",
+    "states": [
+      {
+        "name": "author",
+        "kind": "AgentState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 6.0
+      },
+      {
+        "name": "check",
+        "kind": "ScriptState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "review",
+        "kind": "RubricState",
+        "max_visits": 2,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 2.0
+      },
+      {
+        "name": "solve",
+        "kind": "PassAtKState",
+        "max_visits": 1,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 8.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "author",
+        "outcome": "done",
+        "to": "check",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "author",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "pass",
+        "to": "review",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": true
+      },
+      {
+        "from": "review",
+        "outcome": "pass",
+        "to": "solve",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "in_range",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "all_solved",
+        "to": null,
+        "end": "too_easy",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "none_solved",
+        "to": null,
+        "end": "too_hard",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  }
+}
