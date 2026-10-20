@@ -9,7 +9,7 @@ import pytest
 
 from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
-from tests.viz.sites import FIXTURES, make_tree, Tree
+from tests.viz.sites import FIXTURES, make_tree, PROJECT, Tree
 
 API = "/api/projects/example"
 QUERY = {"attempt": "batch-1/task-1"}
@@ -141,7 +141,18 @@ def test_projects_leave_out_where_the_files_are(
       {"title": "Missing", "field": ["absent", "key"], "format": "text"},
     ],
     "session": {"thinking": "collapsed"},
+    "not_ended": None,
   }
+
+
+def test_projects_carry_not_ended(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(PROJECT + "not_ended: [running, queued]\n")
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["not_ended"] == ["running", "queued"]
 
 
 def test_attempts_are_newest_first_with_their_values(

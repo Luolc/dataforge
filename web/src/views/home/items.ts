@@ -1,7 +1,13 @@
 // The home page's model: attempt rows grouped into data items, the items
 // split into the page's groups, and what search and the status chips keep.
 import type { AttemptRow, Live, Project } from "../../api/types";
-import { liveStatus, NOT_ENDED, RAISED, statusOf } from "../../ui/status";
+import {
+  liveStatus,
+  NOT_ENDED,
+  RAISED,
+  statusOf,
+  viewerStatus,
+} from "../../ui/status";
 
 /**
  * Each live word as a status word of the home page; not ended is null, the
@@ -141,8 +147,8 @@ export function withHomeStatuses(project: Project): Project {
       ...project.statuses,
       "~running": liveStatus.running,
       "~may-have-stopped": liveStatus["may have stopped"],
-      [NO_STATUS]: { label: "No status", tone: "neutral" },
-      [UNREADABLE]: { label: "Unreadable", tone: "bad" },
+      [NO_STATUS]: viewerStatus.noStatus,
+      [UNREADABLE]: viewerStatus.unreadable,
     },
   };
 }

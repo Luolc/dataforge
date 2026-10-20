@@ -1,0 +1,4 @@
+# For the screenshots of an attempt whose status is a not_ended word:
+# `dataforge viz serve --config web/fixtures/p5/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8805 }
+projects: [project.yaml]

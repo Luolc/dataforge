@@ -18,11 +18,11 @@ const project = {
   },
 };
 
-function show(rec: AttemptRecord, index: number) {
+function show(rec: AttemptRecord, index: number, shown = project) {
   return render(
     <MemoryRouter>
       <RunPage
-        project={project}
+        project={shown}
         attempt="p4/task-0101"
         record={rec}
         visit={must(rec.visits[index])}
@@ -208,6 +208,13 @@ describe("the input and the output", () => {
     show(rec, 2);
 
     expect(step(/^Output/)).toHaveTextContent("NextEnd · Error");
+  });
+
+  it("a status the project names as not ended leads to Not ended", () => {
+    const rec = { ...structuredClone(failed), status: "running" };
+    show(rec, 2, { ...project, not_ended: ["running"] });
+
+    expect(step(/^Output/)).toHaveTextContent("NextNot ended");
   });
 });
 

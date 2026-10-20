@@ -283,7 +283,7 @@ function OutputStep({
   runLink: (at: number) => ReactNode;
 }) {
   const last = index === record.visits.length - 1;
-  const end = attemptStatus(record);
+  const end = attemptStatus(project, record);
   return (
     <Step name="Output" status={statusOf(project, visit.outcome)} open={open}>
       <dl className={fields}>
