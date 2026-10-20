@@ -71,6 +71,7 @@ export function SessionBody({
         )}
       </header>
       <ol className="flex flex-col py-2">
+        {session.preamble.length > 0 && <Preamble lines={session.preamble} />}
         {session.entries.map((entry, i) =>
           entry.kind === "bad" ? (
             <BadRow key={i} entry={entry} />
@@ -100,6 +101,45 @@ function Row({ at, children }: { at: number | null; children: ReactNode }) {
       </span>
       <div className="flex min-w-0 flex-col gap-1.5">{children}</div>
     </li>
+  );
+}
+
+/**
+ * The lines before the session began, folded into one grey line that opens
+ * to show them as they are.
+ */
+function Preamble({ lines }: { lines: BadLine[] }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const Chevron = open ? ChevronDown : ChevronRight;
+  const more = lines.length - 1;
+  return (
+    <Row at={null}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => {
+          setOpen(!open);
+        }}
+        className="flex target min-w-0 items-center gap-1.5 text-left text-xs text-fg-3 hover:text-fg-2"
+      >
+        <Chevron className="size-3.5 flex-none text-icon" aria-hidden />
+        <span className="min-w-0 truncate">{lines[0]?.text}</span>
+        {more > 0 && (
+          <span className="flex-none">
+            {` · ${more.toString()} more ${more === 1 ? "line" : "lines"}`}
+          </span>
+        )}
+      </button>
+      <pre
+        id={id}
+        hidden={!open}
+        className="overflow-x-auto rounded-code bg-code-bg px-3 py-2 font-mono text-code whitespace-pre-wrap text-fg-2"
+      >
+        {lines.map((line) => line.text).join("\n")}
+      </pre>
+    </Row>
   );
 }
 
