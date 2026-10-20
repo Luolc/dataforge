@@ -897,6 +897,11 @@ class AgentSpec:
       its bytes from the artifact's last version, if it has one. While one
       does not, the session is resumed and told which, and these resumes
       count against max_fixes too.
+    session: The key of the session it goes on with, or None for none: a
+      runner that keeps sessions by key resumes, for each start with a key,
+      the session of the last start with the same key.
+    resume_prompt: What the agent is asked when its start resumes a session,
+      in place of prompt; None to ask prompt then too.
   """
 
   prompt: str
@@ -910,6 +915,8 @@ class AgentSpec:
   name: str | None = None
   optional_inputs: Sequence[Input] = ()
   fresh_outputs: Sequence[str] = ()
+  session: str | None = None
+  resume_prompt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -921,12 +928,15 @@ class AgentTask:
     inputs: The input paths in the env, by name.
     outdir: The output directory in the env.
     validator: The validator's path in the env, if any.
+    resume_prompt: The prompt of a start that resumes a session, the spec's
+      resume_prompt with the paths added, or None to use prompt.
   """
 
   prompt: str
   inputs: Mapping[str, str]
   outdir: str
   validator: str | None
+  resume_prompt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1181,12 +1191,16 @@ class Actions:
       staged = dataclasses.replace(
         env.stage(ctx, index, inputs, spec.validator), summary=None
       )
-      prompt = _agent_prompt(spec, staged)
-      run = runner.start(
-        spec,
-        AgentTask(prompt, staged.inputs, staged.outdir, staged.validator),
-        env,
+      prompt = _agent_prompt(spec.prompt, spec, staged)
+      resume_prompt = (
+        None
+        if spec.resume_prompt is None
+        else _agent_prompt(spec.resume_prompt, spec, staged)
       )
+      task = AgentTask(
+        prompt, staged.inputs, staged.outdir, staged.validator, resume_prompt
+      )
+      run = runner.start(spec, task, env)
       cost, log, fixes = run.cost_usd, [run.result], 0
       check: CommandResult | None = None
       stale: list[str] = []
@@ -1766,8 +1780,8 @@ def _verdict(path: Path) -> Verdict:
   )
 
 
-def _agent_prompt(spec: AgentSpec, staged: Staged) -> str:
-  parts = [spec.prompt]
+def _agent_prompt(text: str, spec: AgentSpec, staged: Staged) -> str:
+  parts = [text]
   if staged.inputs:
     lines = "\n".join(
       f"- {name}: {path}" for name, path in staged.inputs.items()
