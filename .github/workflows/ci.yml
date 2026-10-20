@@ -94,7 +94,7 @@ jobs:
       - name: Design length test
         run: .github/scripts/design-length.test.sh
 
-      - name: Design length (docs/design.md, at most 200 lines)
+      - name: Design length (docs/design.md and docs/design-viz.md, at most 200 lines each)
         run: .github/scripts/design-length.sh
 
       # The uv project's checks, as AGENTS.md lists them (L31), at the
