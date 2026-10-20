@@ -1,3 +1,5 @@
-{"type": "system", "subtype": "init", "model": "example-model"}
-{"type": "assistant", "message": {"content": [{"type": "text", "text": "Reading the parser."}]}}
-{"type": "result", "subtype": "success", "total_cost_usd": 0.31, "num_turns": 6}
+Ignoring 3 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run the command again from a trusted workspace to use them.
+{"type": "system", "subtype": "init", "model": "example-model", "timestamp": "2026-03-02T10:01:00Z"}
+{"type": "assistant", "message": {"id": "msg-1", "content": [{"type": "thinking", "thinking": "", "signature": "c2lnbmF0dXJlLTM="}]}, "timestamp": "2026-03-02T10:01:05Z"}
+{"type": "assistant", "message": {"id": "msg-1", "content": [{"type": "text", "text": "Reading the parser."}]}, "timestamp": "2026-03-02T10:01:06Z"}
+{"type": "result", "subtype": "success", "total_cost_usd": 0.31, "num_turns": 6, "duration_ms": 543000}

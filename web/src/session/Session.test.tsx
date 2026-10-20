@@ -145,6 +145,32 @@ describe("the session view", () => {
     expect(container.querySelector("b, img, script, h1")).toBeNull();
   });
 
+  it("folds the lines before the session into one line, as text", () => {
+    const { container } = show(
+      `Ignoring 2 entries: <img src=x onerror=alert(1)>\nsecond line\n${unsolved}`,
+    );
+
+    const line = screen.getByRole("button", { name: /^Ignoring 2 entries/ });
+    expect(line).toHaveTextContent(
+      "Ignoring 2 entries: <img src=x onerror=alert(1)> · 1 more line",
+    );
+    expect(line).toHaveAttribute("aria-expanded", "false");
+    const all = document.getElementById(
+      must(line.getAttribute("aria-controls")),
+    );
+    if (all === null) throw new Error("missing");
+    expect(all).not.toBeVisible();
+    expect(screen.queryByText(/^Line [12] is not JSON/)).toBeNull();
+
+    fireEvent.click(line);
+
+    expect(all).toBeVisible();
+    expect(all.textContent).toBe(
+      "Ignoring 2 entries: <img src=x onerror=alert(1)>\nsecond line",
+    );
+    expect(container.querySelector("img")).toBeNull();
+  });
+
   it("shows a line that is not JSON as text", () => {
     show(unsolved);
 

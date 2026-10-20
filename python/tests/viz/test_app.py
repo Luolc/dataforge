@@ -140,7 +140,7 @@ def test_projects_leave_out_where_the_files_are(
       {"title": "Cost", "field": ["budget", "cost_usd"], "format": "usd"},
       {"title": "Missing", "field": ["absent", "key"], "format": "text"},
     ],
-    "session": {"thinking": "collapsed"},
+    "session": {"thinking": "hidden"},
     "not_ended": None,
     "trials": None,
   }

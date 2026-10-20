@@ -441,12 +441,10 @@ def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:
 
 def _thinking(path: Path, value: object) -> str:
   if value is None:
-    return "collapsed"
+    return "hidden"
   session = _mapping(path, "session", value)
   _keys(path, "session", session, required=set(), optional={"thinking"})
-  thinking = _str(
-    path, "session.thinking", session.get("thinking", "collapsed")
-  )
+  thinking = _str(path, "session.thinking", session.get("thinking", "hidden"))
   _one_of(path, "session.thinking", thinking, THINKING)
   return thinking
 

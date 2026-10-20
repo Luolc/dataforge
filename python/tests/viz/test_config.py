@@ -21,8 +21,20 @@ def test_a_valid_site_loads(tree: Tree) -> None:
   assert project.id == "example"
   assert project.attempts_dir == tree.root
   assert project.attempts == ("*", "*")
-  assert project.thinking == "collapsed"
+  assert project.thinking == "hidden"
   assert [c.format for c in project.columns] == ["text", "usd", "text"]
+
+
+def test_a_session_view_shows_thinking_as_the_project_file_says(
+  tree: Tree,
+) -> None:
+  _ = tree.project.write_text(
+    PROJECT.replace("statuses:", "session: {thinking: collapsed}\nstatuses:", 1)
+  )
+
+  [project] = load_site(tree.site).projects
+
+  assert project.thinking == "collapsed"
 
 
 def test_the_server_binds_only_the_configured_address(
