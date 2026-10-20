@@ -128,6 +128,24 @@ describe("the files view", () => {
     expect(part).not.toBeVisible();
   });
 
+  it("marks each file with the icon of its kind, and a folder as open or closed", async () => {
+    show(task);
+
+    const kindOf = (name: string) =>
+      screen
+        .getByRole(name === "solution" ? "button" : "link", { name })
+        .querySelector("[data-kind]")
+        ?.getAttribute("data-kind");
+    const folder = await screen.findByRole("button", { name: "solution" });
+    expect(kindOf("instruction.md")).toBe("markdown");
+    expect(kindOf("solution")).toBe("folder");
+
+    fireEvent.click(folder);
+    await screen.findByRole("link", { name: "fix.patch" });
+    expect(kindOf("solution")).toBe("folder-open");
+    expect(kindOf("fix.patch")).toBe("diff");
+  });
+
   it("highlights source by its extension", async () => {
     const { container } = show(task, `${root}/src/tinyparse/header.py`);
 

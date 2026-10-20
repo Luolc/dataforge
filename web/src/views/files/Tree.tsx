@@ -1,12 +1,13 @@
 // The file tree of a files deliverable: each directory is read when it is
 // first opened, directories before the other entries, each group by name.
-import { ChevronRight, File, Folder, Link2 } from "lucide-react";
+import { ChevronRight, File, Link2 } from "lucide-react";
 import { type CSSProperties, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { urls, useJson } from "../../api/client";
 import { listing } from "../../api/types";
 import { type Entry, inTreeOrder } from "./entries";
+import { FileIcon, FolderIcon } from "./FileIcon";
 
 interface TreeProps {
   project: string;
@@ -90,7 +91,7 @@ function EntryRow({
         style={indent(depth)}
         className={`${row} text-fg-2 hover:bg-hover hover:text-fg aria-[current=page]:bg-active aria-[current=page]:text-fg aria-[current=page]:shadow-current`}
       >
-        <File className="size-3.5 flex-none text-icon" aria-hidden />
+        <FileIcon name={entry.name} />
         {entry.name}
       </Link>
     );
@@ -133,7 +134,7 @@ function DirRow({
           className={`size-3 flex-none text-icon ${open ? "rotate-90" : ""}`}
           aria-hidden
         />
-        <Folder className="size-3.5 flex-none text-icon" aria-hidden />
+        <FolderIcon open={open} />
         {name}
       </button>
       <div id={id} hidden={!open}>
