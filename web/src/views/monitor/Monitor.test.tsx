@@ -99,6 +99,7 @@ const WINDOW = {
     bar("c-3", { attempt: "batch-1/task-0002", start_t: T + 300 }),
   ],
   bars_total: 3,
+  bars_until: null,
 };
 
 // jsdom has no ResizeObserver; the page measures nothing in these tests.
@@ -236,9 +237,16 @@ describe("the Monitor page", () => {
     fetchMock.mockImplementation((url: string) =>
       Promise.resolve(
         url.includes("/window")
-          ? new Response(JSON.stringify({ ...WINDOW, bars_total: 12000 }), {
-              status: 200,
-            })
+          ? new Response(
+              JSON.stringify({
+                ...WINDOW,
+                bars_total: 12000,
+                bars_until: T + 125.5,
+              }),
+              {
+                status: 200,
+              },
+            )
           : answer(url),
       ),
     );
@@ -246,7 +254,7 @@ describe("the Monitor page", () => {
 
     expect(
       await screen.findByText(
-        "3 of 12,000 containers shown; zoom in to see the rest.",
+        "3 of 12,000 containers shown, those started before 14:15:25 UTC; zoom in to see the rest.",
       ),
     ).toBeInTheDocument();
   });

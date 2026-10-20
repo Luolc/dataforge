@@ -91,6 +91,7 @@ export const window = z.looseObject({
   pauses: z.array(z.looseObject({ start_t: z.number(), end_t: num })),
   bars: z.array(bar),
   bars_total: z.number(),
+  bars_until: z.number().nullable(),
 });
 export type Window = z.infer<typeof window>;
 export type Pause = Window["pauses"][number];

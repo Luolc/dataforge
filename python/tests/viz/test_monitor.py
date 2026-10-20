@@ -85,16 +85,27 @@ def test_a_window_holds_what_overlaps_it(db: Path, web: TestClient) -> None:
   assert t0 <= min(times) and max(times) < t1
 
 
-def test_the_bars_stop_at_the_limit_and_say_how_many_there_are(
+def test_the_bars_stop_at_the_limit_at_the_earliest_starts(
   db: Path, web: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
   del db
+  every = cast(
+    list[dict[str, object]], web.get(f"{API}/window?run=2").json()["bars"]
+  )
+  starts = sorted(cast(float, b["start_t"]) for b in every)
   monkeypatch.setattr(monitor, "BARS_LIMIT", 5)
 
   window = cast(dict[str, object], web.get(f"{API}/window?run=2").json())
 
-  assert len(cast(list[object], window["bars"])) == 5
-  assert cast(int, window["bars_total"]) > 5
+  bars = cast(list[dict[str, object]], window["bars"])
+  # The five that start first, whatever their items, so that only the
+  # window's last stretch is cut.
+  assert sorted(cast(float, b["start_t"]) for b in bars) == starts[:5]
+  assert window["bars_total"] == len(every)
+  assert window["bars_until"] == starts[5]
+  assert web.get(f"{API}/window?run=2").json() == window
+  monkeypatch.setattr(monitor, "BARS_LIMIT", 5000)
+  assert web.get(f"{API}/window?run=2").json()["bars_until"] is None
 
 
 @pytest.mark.parametrize("by", ["attempt", "container"])

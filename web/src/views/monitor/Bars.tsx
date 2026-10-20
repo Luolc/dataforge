@@ -22,6 +22,7 @@ export function Bars({
   project,
   bars,
   total,
+  until,
   from,
   to,
   selected,
@@ -30,6 +31,8 @@ export function Bars({
   project: Project;
   bars: Bar[];
   total: number;
+  /** When the first bar the limit left out starts; null when none is. */
+  until: number | null;
   from: number;
   to: number;
   selected: Selected | null;
@@ -41,11 +44,11 @@ export function Bars({
   }
   return (
     <div className="flex flex-col gap-3">
-      {total > bars.length && (
+      {until !== null && (
         <p className="text-xs text-fg-3">
           {bars.length.toLocaleString("en-US")} of{" "}
-          {total.toLocaleString("en-US")} containers shown; zoom in to see the
-          rest.
+          {total.toLocaleString("en-US")} containers shown, those started before{" "}
+          {instant(until)}; zoom in to see the rest.
         </p>
       )}
       {groups.map((g) => (

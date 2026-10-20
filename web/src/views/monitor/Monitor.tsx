@@ -525,6 +525,7 @@ function Panels({
           project={project}
           bars={w.bars}
           total={w.bars_total}
+          until={w.bars_until}
           from={w.t0}
           to={w.t1}
           selected={selected}

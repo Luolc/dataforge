@@ -213,7 +213,8 @@ def window(
   Returns:
     The window as read: its bounds and bucket, the machine's CPUs and
     memory, the machine's and the batch's buckets, the pauses, at most
-    BARS_LIMIT bars and how many there are.
+    BARS_LIMIT bars, those that start first, how many there are and when
+    the first one left out starts.
 
   Raises:
     RefusedError: 404 when there is no such run; 400 when the window is
@@ -252,8 +253,7 @@ def window(
       "machine": list(c.execute(MACHINE, args)),
       "batch": list(c.execute(BATCH, args)),
       "pauses": list(c.execute(PAUSES, args)),
-      "bars": bars[:BARS_LIMIT],
-      "bars_total": len(bars),
+      **_cut(bars),
     }
 
 
@@ -293,6 +293,26 @@ def curve(
     else:
       found = c.execute(CONTAINER, args | {"container_id": container})
     return list(found)
+
+
+def _cut(bars: list[dict[str, object]]) -> dict[str, object]:
+  # The bars that start first, so that what is left out is the window's last
+  # stretch rather than whole items; they keep the query's order.
+  by_start = sorted(
+    range(len(bars)),
+    key=lambda i: (
+      cast(float, bars[i]["start_t"]),
+      cast(str | None, bars[i]["item"]) or "",
+      cast(str | None, bars[i]["attempt"]) or "",
+    ),
+  )
+  kept = set(by_start[:BARS_LIMIT])
+  left = by_start[BARS_LIMIT:]
+  return {
+    "bars": [b for i, b in enumerate(bars) if i in kept],
+    "bars_total": len(bars),
+    "bars_until": bars[left[0]]["start_t"] if left else None,
+  }
 
 
 def _row(cursor: sqlite3.Cursor, row: tuple[object, ...]) -> dict[str, object]:
