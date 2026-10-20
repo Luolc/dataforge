@@ -21,7 +21,7 @@ const report = [
 ].join("\n");
 
 const deliverable = (reached: boolean): Deliverable => ({
-  ...must(records.passed.deliverables.find((d) => d.kind === "report")),
+  ...must(records.passed.deliverables?.find((d) => d.kind === "report")),
   path: reached ? path : null,
   reason: reached ? null : "review was never visited",
 });
