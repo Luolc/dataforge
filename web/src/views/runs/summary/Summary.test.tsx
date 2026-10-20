@@ -21,7 +21,7 @@ describe("Summary", () => {
   it("draws the machine with its states linked to their last runs", () => {
     show("passed");
 
-    const graph = screen.getByRole("img", { name: "State machine" });
+    const graph = screen.getByRole("group", { name: "State machine" });
     const solve = within(graph).getByRole("link", {
       name: "Pass@k: its last run",
     });

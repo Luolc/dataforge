@@ -120,8 +120,22 @@ export async function countFiles(
   return { files, complete: queue.length === 0 };
 }
 
+// One walk per path while the page is open, shared by a tab's count and a
+// deliverable's card; a failed walk is dropped, to be tried again. The page
+// shows what was on disk when it was loaded, as everywhere else.
+const fileCounts = new Map<string, Promise<FileCount>>();
+
 /** countFiles as a hook, for a tab's count and a deliverable's card. */
 export function useFileCount(p: string, attempt: string, path: string | null) {
   const key = path === null ? null : JSON.stringify([p, attempt, path]);
-  return useLoaded(key, (signal) => countFiles(p, attempt, path ?? "", signal));
+  return useLoaded(key, () => {
+    if (key === null || path === null) return Promise.reject(new Error(""));
+    let count = fileCounts.get(key);
+    if (count === undefined) {
+      count = countFiles(p, attempt, path);
+      fileCounts.set(key, count);
+      count.catch(() => fileCounts.delete(key));
+    }
+    return count;
+  });
 }

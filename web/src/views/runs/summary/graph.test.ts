@@ -26,11 +26,12 @@ describe("the graph", () => {
     expect(edge("review", "author").taken).toBe(false);
     expect(edge("author", END).taken).toBe(false);
     expect(edge("solve", END).taken).toBe(true);
-    // Three outcomes to the end: only the one taken is named.
-    expect(edge("solve", END).label).toMatchObject({
-      parts: [{ outcome: "in_range", taken: 1 }],
-      more: 2,
-    });
+    // Every outcome is named, the taken one with its count.
+    expect(edge("solve", END).label.parts).toEqual([
+      { outcome: "in_range", taken: 1 },
+      { outcome: "all_solved", taken: 0 },
+      { outcome: "none_solved", taken: 0 },
+    ]);
   });
 
   it("marks states not run and the end by the attempt's status", () => {

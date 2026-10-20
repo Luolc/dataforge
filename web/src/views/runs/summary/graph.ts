@@ -38,7 +38,7 @@ export interface Edge {
   key: string;
   path: string;
   taken: boolean;
-  label: { x: number; y: number; parts: LabelPart[]; more: number };
+  label: { x: number; y: number; parts: LabelPart[] };
 }
 
 export interface Layout {
@@ -116,8 +116,6 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
   const edges: Edge[] = [];
   for (const [key, g] of groups) {
     const on = g.parts.some((p) => p.taken > 0);
-    const shown = g.parts.length > 2 ? shownParts(g.parts) : g.parts;
-    const more = g.parts.length - shown.length;
     const s = span(g);
     let path: string;
     let label: { x: number; y: number };
@@ -148,7 +146,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
       key,
       path,
       taken: on,
-      label: { ...label, parts: shown, more },
+      label: { ...label, parts: g.parts },
     });
   }
 
@@ -183,10 +181,4 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
   });
 
   return { width, height, nodes, edges };
-}
-
-/** Of many outcomes, the ones taken, else the first; the rest fold away. */
-function shownParts(parts: LabelPart[]): LabelPart[] {
-  const on = parts.filter((p) => p.taken > 0);
-  return on.length > 0 ? on : parts.slice(0, 1);
 }

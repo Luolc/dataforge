@@ -7,7 +7,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 import pytest
 
-from dataforge.viz.app import create_app, CSP
+from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
 from tests.viz.sites import FIXTURES, make_tree, Tree
 
@@ -91,6 +91,16 @@ def test_files_are_served_as_bytes_with_nosniff(
   assert response.headers["content-type"] == "application/octet-stream"
   assert response.headers["x-content-type-options"] == "nosniff"
   assert response.content == b"<script>alert(1)</script>"
+
+
+# Invariant 3: scripts, images and connections only from the viewer's own
+# origin, images also as data:.
+CSP = (
+  "default-src 'self'; script-src 'self'; connect-src 'self';"
+  " img-src 'self' data:; font-src 'self'; style-src 'self';"
+  " object-src 'none'; base-uri 'none'; frame-ancestors 'none';"
+  " form-action 'none'"
+)
 
 
 def test_every_response_has_the_csp(tree: Tree, static: Path) -> None:

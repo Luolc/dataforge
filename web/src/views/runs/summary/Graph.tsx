@@ -5,6 +5,9 @@ import type { Tone } from "../../../api/types";
 import { toneGlyph } from "../../../ui/status";
 import type { Layout } from "./graph";
 
+/** The height of a line of an edge's label, in the graph's units. */
+const LINE = 12;
+
 const dot: Record<Tone, string> = {
   good: "fill-good",
   bad: "fill-bad",
@@ -28,7 +31,7 @@ export function Graph({
   return (
     <svg
       viewBox={`0 0 ${layout.width} ${layout.height}`}
-      role="img"
+      role="group"
       aria-label="State machine"
       className="block h-auto w-full font-sans"
     >
@@ -68,18 +71,18 @@ export function Graph({
             textAnchor="middle"
             className="fill-faint text-graph"
           >
-            {edge.label.parts.map((part, i) => (
-              <Fragment key={part.outcome}>
-                {i > 0 && <tspan> · </tspan>}
-                <tspan
-                  className={part.taken > 0 ? "fill-fg font-semibold" : ""}
-                >
-                  {part.outcome}
-                  {part.taken > 1 && ` ×${part.taken}`}
-                </tspan>
-              </Fragment>
+            {/* One outcome a line, the last on the label's baseline. */}
+            {edge.label.parts.map((part, i, all) => (
+              <tspan
+                key={part.outcome}
+                x={edge.label.x}
+                y={edge.label.y - (all.length - 1 - i) * LINE}
+                className={part.taken > 0 ? "fill-fg font-semibold" : ""}
+              >
+                {part.outcome}
+                {part.taken > 1 && ` ×${part.taken}`}
+              </tspan>
             ))}
-            {edge.label.more > 0 && <tspan> · +{edge.label.more} more</tspan>}
           </text>
         </g>
       ))}

@@ -21,7 +21,7 @@ export default function RunPage({ project, visit, index }: RunProps) {
       <p className="text-fg-3">
         The run page is not built yet: visit {visit.visit} of{" "}
         <code className="font-mono text-xs">{visit.state}</code>, with{" "}
-        {visit.actions.length} actions.
+        {visit.actions.length} action{visit.actions.length === 1 ? "" : "s"}.
       </p>
     </section>
   );

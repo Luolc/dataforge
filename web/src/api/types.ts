@@ -171,6 +171,7 @@ export const record = z.looseObject({
     cost_usd: z.number(),
     stopped: z.string().nullable(),
   }),
+  final: z.record(z.string(), visit),
   visits: z.array(visit),
   deliverables: z.array(deliverable),
   graph: graph.nullable(),
