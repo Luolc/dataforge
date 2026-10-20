@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 import threading
+from typing import cast
 
 import pytest
 
@@ -289,3 +290,128 @@ def test_a_bad_rubric_or_a_repeated_name_is_an_error(
       actions=Actions(),
       reviews=[Review("a", rubric, {}), Review("a", rubric, {})],
     )
+
+
+def test_a_visit_writes_its_scores_and_a_report(
+  tmp_path: Path, task: Path
+) -> None:
+  docs = verdicts(
+    sound=("fail", "it | breaks\n<b>here</b> & now", "mend it"), tidy=PASS
+  )
+  reviewers = Reviewers(
+    {"tests": ("ok", verdicts(sound=PASS)), "docs": ("ok", docs)}
+  )
+  state = rubric_state(tmp_path, reviewers, task)
+  end = ScriptState(
+    "end",
+    {"ok": End("sent back")},
+    actions=Actions(),
+    spec=ScriptSpec(["true"]),
+  )
+  attempt = Machine([state, end]).run(tmp_path / "a")
+  outputs = attempt.visits[0].outputs
+  assert [a.kind for a in attempt.visits[0].actions][-2:] == [
+    "report",
+    "report",
+  ]
+  assert json.loads(outputs["rubric.json"].read_text()) == {
+    "passed": False,
+    "reviews": [
+      {
+        "name": "tests",
+        "passed": True,
+        "ending": "success",
+        "criteria": [
+          {
+            "criterion": "sound",
+            "severity": "error",
+            "passed": True,
+            "note": "fine",
+            "fix": "",
+          },
+          {
+            "criterion": "tidy",
+            "severity": "warning",
+            "passed": False,
+            "note": "no verdict",
+            "fix": "",
+          },
+        ],
+      },
+      {
+        "name": "docs",
+        "passed": False,
+        "ending": "success",
+        "criteria": [
+          {
+            "criterion": "sound",
+            "severity": "error",
+            "passed": False,
+            "note": "it | breaks\n<b>here</b> & now",
+            "fix": "mend it",
+          },
+          {
+            "criterion": "tidy",
+            "severity": "warning",
+            "passed": True,
+            "note": "fine",
+            "fix": "",
+          },
+        ],
+      },
+    ],
+  }
+  assert outputs["report.md"].read_text() == REPORT
+
+
+REPORT = """\
+# Rubric report
+
+Failed: docs.
+
+## tests passes
+
+| Criterion | Severity | Result | Note |
+| --- | --- | --- | --- |
+| sound | error | pass | fine |
+| tidy | warning | fail | no verdict |
+
+1 of 2 criteria fail. Warnings: tidy.
+
+## docs fails
+
+| Criterion | Severity | Result | Note |
+| --- | --- | --- | --- |
+| sound | error | fail | it \\| breaks &lt;b&gt;here&lt;/b&gt; &amp; now |
+| tidy | warning | pass | fine |
+
+1 of 2 criteria fail. Errors: sound.
+"""
+
+
+def test_a_review_without_verdicts_is_reported_as_such(
+  tmp_path: Path, task: Path
+) -> None:
+  reviewers = Reviewers(
+    {"tests": ("ok", verdicts(sound=PASS, tidy=PASS)), "docs": ("failed", "x")}
+  )
+  end = ScriptState(
+    "end",
+    {"ok": End("sent back")},
+    actions=Actions(),
+    spec=ScriptSpec(["true"]),
+  )
+  attempt = Machine([rubric_state(tmp_path, reviewers, task), end]).run(
+    tmp_path / "a"
+  )
+  report = attempt.visits[0].outputs["report.md"].read_text()
+  assert "All 2 criteria pass." in report
+  assert "The review gave no verdicts (success)." in report
+  table = cast(
+    dict[str, list[dict[str, list[dict[str, str]]]]],
+    json.loads(attempt.visits[0].outputs["rubric.json"].read_text()),
+  )
+  assert [c["note"] for c in table["reviews"][1]["criteria"]] == [
+    "no verdict",
+    "no verdict",
+  ]
