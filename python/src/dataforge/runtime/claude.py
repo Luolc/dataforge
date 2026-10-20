@@ -58,6 +58,11 @@ from dataforge.curation.actions import (
 )
 
 DEFAULT_TIMEOUT = 1800.0
+# The values `--effort` takes: the levels of Harbor's claude-code agent
+# (`Literal` in harbor/agents/installed/claude_code.py), which rejects any
+# other. `claude` itself ignores an unknown level and runs at its default,
+# so a mistyped one would be recorded but not used. Read on 2026-10-19.
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # The tools an agent has when its spec names none.
 TOOLS = ("Read", "Glob", "Grep", "Write", "Edit", "Bash")
 # How a session ends when it did no work the host could judge: it printed no
@@ -186,7 +191,7 @@ def add_arguments(
     help="the claude command, split as a shell would (default: claude)",
   )
   _ = parser.add_argument("--model", default=model)
-  _ = parser.add_argument("--effort", default=effort)
+  _ = parser.add_argument("--effort", default=effort, choices=EFFORTS)
   _ = parser.add_argument(
     "--max-budget-usd",
     type=float,
