@@ -34,22 +34,29 @@ interface Props {
 export function Summary({ project, attempt, record }: Props) {
   const runHref = (index: number) =>
     attemptHref(project.id, attempt, { tab: "runs", run: index });
-  const machine = layout(record, project);
+  // Prototype only: ?lanes=own shows the other way of laying out edges back.
+  const machine = layout(
+    record,
+    project,
+    new URLSearchParams(window.location.search).get("lanes") === "own"
+      ? "own"
+      : "bundled",
+  );
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <TopRow project={project} record={record} />
       <Card
         title="State machine"
-        aside={`${record.visits.length} runs · solid arrows are the transitions this attempt took`}
+        aside={`${record.visits.length} runs · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
         flush
       >
-        <div className="rounded-b-panel bg-app px-3 pt-2 pb-1">
-          {machine ? (
-            <Graph layout={machine} runHref={runHref} />
-          ) : (
-            <p className="p-4 text-fg-3">The record has no graph.</p>
-          )}
-        </div>
+        {machine ? (
+          <Graph layout={machine} runHref={runHref} />
+        ) : (
+          <p className="rounded-b-panel bg-app p-4 text-fg-3">
+            The record has no graph.
+          </p>
+        )}
       </Card>
       <Summaries project={project} record={record} runHref={runHref} />
       <Deliverables project={project} attempt={attempt} record={record} />
