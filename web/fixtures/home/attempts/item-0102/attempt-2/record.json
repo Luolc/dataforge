@@ -1,1 +1,183 @@
-{"status":"passed","reason":null,"kept_visit":null,"round":4,"budget":{"max_usd":15.0,"cost_usd":9.2,"stopped":null},"final":{},"visits":[{"state":"author","visit":1,"round":1,"outcome":"done","data":{},"mark":null,"actions":[{"kind":"agent","status":"ok","outputs":{},"started_at":"2026-03-08T02:33:08.606493+00:00","ended_at":"2026-03-08T03:13:08.606493+00:00","cost_usd":1.72,"summary":null}]},{"state":"check","visit":1,"round":1,"outcome":"fail","data":{},"mark":null,"actions":[{"kind":"command","status":"ok","outputs":{},"started_at":"2026-03-08T03:14:08.606493+00:00","ended_at":"2026-03-08T03:53:08.606493+00:00","cost_usd":0.0,"summary":null}]},{"state":"author","visit":2,"round":2,"outcome":"done","data":{},"mark":null,"actions":[{"kind":"agent","status":"ok","outputs":{},"started_at":"2026-03-08T03:54:08.606493+00:00","ended_at":"2026-03-08T04:14:08.606493+00:00","cost_usd":2.37,"summary":null}]},{"state":"check","visit":2,"round":2,"outcome":"fail","data":{},"mark":null,"actions":[{"kind":"command","status":"ok","outputs":{},"started_at":"2026-03-08T04:15:08.606493+00:00","ended_at":"2026-03-08T04:51:08.606493+00:00","cost_usd":0.0,"summary":null}]},{"state":"author","visit":3,"round":3,"outcome":"done","data":{},"mark":null,"actions":[{"kind":"agent","status":"ok","outputs":{},"started_at":"2026-03-08T04:52:08.606493+00:00","ended_at":"2026-03-08T05:27:08.606493+00:00","cost_usd":2.24,"summary":null}]},{"state":"check","visit":3,"round":3,"outcome":"fail","data":{},"mark":null,"actions":[{"kind":"command","status":"ok","outputs":{},"started_at":"2026-03-08T05:28:08.606493+00:00","ended_at":"2026-03-08T05:50:08.606493+00:00","cost_usd":0.0,"summary":null}]},{"state":"author","visit":4,"round":4,"outcome":"done","data":{},"mark":null,"actions":[{"kind":"agent","status":"ok","outputs":{},"started_at":"2026-03-08T05:51:08.606493+00:00","ended_at":"2026-03-08T06:15:08.606493+00:00","cost_usd":0.64,"summary":null}]},{"state":"check","visit":4,"round":4,"outcome":"pass","data":{},"mark":null,"actions":[{"kind":"command","status":"ok","outputs":{},"started_at":"2026-03-08T06:16:08.606493+00:00","ended_at":"2026-03-08T06:50:08.606493+00:00","cost_usd":0.0,"summary":null}]},{"state":"solve","visit":1,"round":4,"outcome":"in_range","data":{},"mark":null,"actions":[{"kind":"command","status":"ok","outputs":{},"started_at":"2026-03-08T06:51:08.606493+00:00","ended_at":"2026-03-08T07:14:08.606493+00:00","cost_usd":2.23,"summary":null}]}],"deliverables":[],"graph":null}
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 4,
+  "budget": { "max_usd": 15.0, "cost_usd": 9.2, "stopped": null },
+  "final": {},
+  "visits": [
+    {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T02:33:08.606493+00:00",
+          "ended_at": "2026-03-08T03:13:08.606493+00:00",
+          "cost_usd": 1.72,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "fail",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "command",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T03:14:08.606493+00:00",
+          "ended_at": "2026-03-08T03:53:08.606493+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "author",
+      "visit": 2,
+      "round": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T03:54:08.606493+00:00",
+          "ended_at": "2026-03-08T04:14:08.606493+00:00",
+          "cost_usd": 2.37,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 2,
+      "round": 2,
+      "outcome": "fail",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "command",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T04:15:08.606493+00:00",
+          "ended_at": "2026-03-08T04:51:08.606493+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "author",
+      "visit": 3,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T04:52:08.606493+00:00",
+          "ended_at": "2026-03-08T05:27:08.606493+00:00",
+          "cost_usd": 2.24,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 3,
+      "round": 3,
+      "outcome": "fail",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "command",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T05:28:08.606493+00:00",
+          "ended_at": "2026-03-08T05:50:08.606493+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "author",
+      "visit": 4,
+      "round": 4,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T05:51:08.606493+00:00",
+          "ended_at": "2026-03-08T06:15:08.606493+00:00",
+          "cost_usd": 0.64,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 4,
+      "round": 4,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "command",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T06:16:08.606493+00:00",
+          "ended_at": "2026-03-08T06:50:08.606493+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 4,
+      "outcome": "in_range",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "command",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-08T06:51:08.606493+00:00",
+          "ended_at": "2026-03-08T07:14:08.606493+00:00",
+          "cost_usd": 2.23,
+          "summary": null
+        }
+      ]
+    }
+  ],
+  "deliverables": [],
+  "graph": null
+}
