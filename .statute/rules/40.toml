@@ -1,0 +1,31 @@
+id = 40
+slug = "frontend-not-reached-is-not-run"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["decency.no-hallucination"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Show what an attempt never reached as not run"
+
+[text.statement]
+en = "Show a state or a deliverable that an attempt never reached as not run, never as failed or passed."
+
+[text.reason]
+en = '''
+A state the attempt never entered, or a deliverable it never produced, has no result; a page that shows one as failed or passed claims a result nobody measured.
+'''
+
+[text.verification]
+en = '''
+A state never reached is one with no visit in the record; a deliverable never reached is one whose `path` is null.
+
+Violated when a page shows such a state or deliverable with a status other than not run.
+'''
