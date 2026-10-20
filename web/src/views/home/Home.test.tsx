@@ -86,7 +86,7 @@ function itemsOf(title: string): string[] {
 
 describe("the home page", () => {
   it("groups items: not ended, then ended, then unreadable", async () => {
-    show();
+    show("/sample?older=1");
     await screen.findByText("t-run");
 
     expect(itemsOf("Not ended")).toEqual(["t-run"]);
@@ -159,7 +159,7 @@ describe("the home page", () => {
   });
 
   it("filters by a status chip and says how many it hides", async () => {
-    show();
+    show("/sample?older=1");
     await screen.findByText("t-run");
     const chips = screen.getByRole("group", { name: "Filter by status" });
     expect(
@@ -181,7 +181,7 @@ describe("the home page", () => {
   });
 
   it("searches item IDs from the URL", async () => {
-    show("/sample?q=OLD");
+    show("/sample?q=OLD&older=1");
     await screen.findByText("t-old");
 
     expect(screen.queryByText("t-run")).toBeNull();
@@ -218,7 +218,7 @@ describe("the home page", () => {
   });
 
   it("names both filters when both hide items", async () => {
-    show("/sample?q=t-&status=too_easy");
+    show("/sample?q=t-&status=too_easy&older=1");
     expect(
       await screen.findByText(
         "3 of 4 hidden by the search and the status filter.",
@@ -227,7 +227,7 @@ describe("the home page", () => {
   });
 
   it("shows the record's reason, or why it cannot be read, on focus", async () => {
-    show();
+    show("/sample?older=1");
     const label = (await screen.findByText("Exhausted")).closest("[tabindex]");
     if (!(label instanceof HTMLElement)) throw new Error("no focusable label");
     fireEvent.focus(label);
@@ -298,5 +298,110 @@ describe("the home page", () => {
     } finally {
       ROWS[3] = { ...must(ROWS[3]), values: [] };
     }
+  });
+});
+
+describe("the home page's empty attempts", () => {
+  const empty = { status: null, rounds: [], started_at: null, ended_at: null };
+  const OLDER: AttemptRow[] = [
+    row("t-new/1", { started_at: at(6), ended_at: at(11), status: "too_easy" }),
+    // An item with an attempt that has a status and two older records, one
+    // of them the newest.
+    row("t-mixed/3", { ...empty, modified: at(12) }),
+    row("t-mixed/2", { started_at: at(7), ended_at: at(8) }),
+    unreadable("t-mixed/1"),
+    // Items with older records only.
+    row("t-empty/1", empty),
+    unreadable("t-gone/1"),
+    // An unreadable attempt of an item whose lock is held: it may have just
+    // started.
+    { ...unreadable("t-started/1"), held: true },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(OLDER), { status: 200 })),
+      ),
+    );
+  });
+
+  const ids = () =>
+    [...document.querySelectorAll("tbody td:first-child a")].map(
+      (a) => a.textContent,
+    );
+
+  it("hides them, and says how many", async () => {
+    show();
+    await screen.findByText("t-new");
+
+    expect(ids()).toEqual(["t-new", "t-mixed", "t-started"]);
+    expect(screen.getByText("4 older records hidden")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Show" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("takes an item's newest from the attempts it shows", async () => {
+    show();
+    const item = (await screen.findByText("t-mixed")).closest("tr");
+
+    expect(item).toHaveTextContent("Passed");
+    expect(item).not.toHaveTextContent("No status");
+  });
+
+  it("shows them on Show, kept in the URL, and hides them again", async () => {
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
+
+    expect(screen.getByLabelText("where")).toHaveTextContent("/sample?older=1");
+    expect(screen.getByText("4 older records shown")).toBeVisible();
+    expect(ids()).toEqual(
+      expect.arrayContaining(["t-mixed", "t-empty", "t-gone", "t-started"]),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(screen.getByLabelText("where")).toHaveTextContent(/^\/sample$/);
+    expect(ids()).not.toContain("t-gone");
+  });
+
+  it("counts only what it shows in the chips, a chosen one at 0", async () => {
+    show("/sample?status=~no-status");
+    await screen.findByText("4 older records hidden");
+
+    expect(
+      screen.getByText("Nothing matches the search and the status filter."),
+    ).toBeVisible();
+    const chips = screen
+      .getAllByRole("button", { pressed: true })
+      .map((b) => b.textContent);
+    expect(chips).toEqual(["No status0"]);
+    // The unreadable attempt of the item whose lock is held stays counted.
+    expect(
+      screen.getByRole("button", { name: /^Unreadable/ }),
+    ).toHaveTextContent("Unreadable1");
+  });
+
+  it("says when every attempt is an older record", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify([unreadable("t-gone/1")]), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    show();
+
+    expect(
+      await screen.findByText(
+        "Every attempt of the project is an older record.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("1 older record hidden")).toBeVisible();
   });
 });

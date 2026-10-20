@@ -1,7 +1,8 @@
 // A Claude Code stream-json trace (`claude -p --output-format stream-json`),
 // parsed into what the session view draws. The trace is untrusted: every
 // field is checked for its type, and a line that is not a JSON object is kept
-// as text where it stood.
+// as text: before the first JSON object as the preamble, after it, or in a
+// trace with no JSON object at all, where it stood.
 
 /** One tool call, with its result once one arrived. */
 export interface ToolCall {
@@ -50,6 +51,11 @@ interface Totals {
 
 export interface Session {
   totals: Totals;
+  /**
+   * The lines before the first JSON object that are not one, such as a
+   * notice the command printed before the session began.
+   */
+  preamble: BadLine[];
   entries: (Message | BadLine)[];
   tools: number;
   failed: number;
@@ -105,7 +111,9 @@ function blockOf(raw: unknown, at: number | null): Block | null {
 
 /** Parse a stream-json trace's text. */
 export function parseTrace(text: string): Session {
+  const preamble: BadLine[] = [];
   const entries: (Message | BadLine)[] = [];
+  let begun = false;
   const calls = new Map<string, ToolCall>();
   // The open message of each thread: the top level ("") or a subagent's call.
   const open = new Map<string, { id: string; message: Message }>();
@@ -122,9 +130,14 @@ export function parseTrace(text: string): Session {
       event = undefined;
     }
     if (!isObject(event)) {
-      entries.push({ kind: "bad", line: index + 1, text: line });
+      (begun ? entries : preamble).push({
+        kind: "bad",
+        line: index + 1,
+        text: line,
+      });
       continue;
     }
+    begun = true;
     const time = Date.parse(str(event["timestamp"]) ?? "");
     if (!Number.isNaN(time) && first === null) first = time;
     const at = Number.isNaN(time) || first === null ? null : time - first;
@@ -197,7 +210,8 @@ export function parseTrace(text: string): Session {
       tokensOut: usage === null ? null : num(usage["output_tokens"]),
       model: str(init?.["model"]),
     },
-    entries,
+    preamble: begun ? preamble : [],
+    entries: begun ? entries : preamble,
     tools: all.length,
     failed: all.filter((call) => call.failed).length,
     thinking: countThinking(entries),

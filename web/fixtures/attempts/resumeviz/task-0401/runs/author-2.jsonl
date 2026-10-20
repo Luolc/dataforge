@@ -1,3 +1,0 @@
-{"type": "system", "subtype": "init", "model": "example-model"}
-{"type": "assistant", "message": {"content": [{"type": "text", "text": "Writing the task."}]}}
-{"type": "result", "subtype": "success", "total_cost_usd": 1.84, "num_turns": 9}

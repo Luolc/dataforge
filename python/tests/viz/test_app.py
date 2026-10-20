@@ -140,7 +140,7 @@ def test_projects_leave_out_where_the_files_are(
       {"title": "Cost", "field": ["budget", "cost_usd"], "format": "usd"},
       {"title": "Missing", "field": ["absent", "key"], "format": "text"},
     ],
-    "session": {"thinking": "collapsed"},
+    "session": {"thinking": "hidden"},
     "not_ended": None,
     "deliverables": [],
     "trials": None,
@@ -221,6 +221,7 @@ def test_attempts_are_newest_first_with_their_values(
     "rounds": [],
     "values": [3, None, None],
     "live": "not ended",
+    "held": None,
     "error": None,
   }
   assert rows[1]["error"] == "the record is not JSON"
@@ -236,6 +237,7 @@ def test_attempts_are_newest_first_with_their_values(
     "rounds": [{"round": 1, "state": "write", "outcome": "done"}],
     "values": ["passed", 0.42, None],
     "live": None,
+    "held": None,
     "error": None,
   }
   assert rows[3]["modified"] is None
