@@ -260,10 +260,18 @@ class Call:
   resumed: bool = False
   changed: tuple[str, ...] | None = None
 
-  @property
-  def judged(self) -> bool:
-    """Whether it gave verdicts, each with every field a string."""
-    return _verdicts(self.verdicts) is not None
+  def judged(self, rubric: Rubric) -> bool:
+    """Return whether it gave verdicts for every criterion of a rubric.
+
+    Args:
+      rubric: The review's rubric.
+
+    Returns:
+      Whether its answer has verdicts, each with every field a string, and
+      one for each criterion.
+    """
+    given = {v["id"] for v in _verdicts(self.verdicts) or []}
+    return all(c.id in given for c in rubric.criteria)
 
   def to_json(self) -> Data:
     """Return the call as JSON data.
