@@ -831,8 +831,8 @@ class RubricState(_ActionState):
   call's answer again, at no cost, and no session moves on; but when that
   call did not pass (Call.passed) and a note has a version written since
   it, the call runs, so the reviewer reads what the author answered. Each
-  call gives
-  the review's notes written since the last review, or all for a first call.
+  call gives the review's notes written since the last review, or all for a
+  first call.
   With cross_criteria, the whole prompt of each review also gives the
   criteria of the state's other reviews (others_text); a resume prompt does
   not, since the session has them from its whole prompt, and they are not a

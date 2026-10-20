@@ -280,10 +280,13 @@ class Call:
       rubric: The review's rubric.
 
     Returns:
-      Whether its answer has a verdict "pass" for each criterion of
-      severity "error"; one of severity "warning" may fail.
+      Whether its answer has verdicts and a verdict "pass" for each
+      criterion of severity "error"; one of severity "warning" may fail.
     """
-    given = {v["id"]: v["verdict"] for v in _verdicts(self.verdicts) or []}
+    verdicts = _verdicts(self.verdicts)
+    if verdicts is None:
+      return False
+    given = {v["id"]: v["verdict"] for v in verdicts}
     return all(
       given.get(c.id) == "pass"
       for c in rubric.criteria
