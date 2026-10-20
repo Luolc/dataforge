@@ -12,6 +12,7 @@ from typing import cast
 from dataforge.curation.actions import Actions
 from dataforge.curation.graph import mermaid
 from dataforge.curation.loader import load, SpecError
+from dataforge.queue import command as queue_command
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -24,14 +25,17 @@ def main(argv: Sequence[str] | None = None) -> int:
   "--format mermaid", loads the declaration as check does and prints the
   machine's graph: its JSON, or a Mermaid flowchart. "dataforge viz serve
   --config <site file> --static <dir>" starts the viewer; it needs the extra
-  viz.
+  viz. "dataforge queue submit|list|cancel|serve --config <queue file>"
+  puts a command in a queue, lists the jobs, cancels one, or runs the
+  scheduler; see dataforge.queue.command.
 
   Args:
     argv: The arguments; None for the command line's.
 
   Returns:
     The exit status: 0 when the declaration loads, 1 when it does not, 2 for
-    bad arguments; for viz serve, see dataforge.viz.serve.
+    bad arguments; for viz serve, see dataforge.viz.serve; for queue, see
+    dataforge.queue.command.run.
   """
   parser = argparse.ArgumentParser(prog="dataforge")
   commands = parser.add_subparsers(dest="command", required=True)
@@ -68,8 +72,13 @@ def main(argv: Sequence[str] | None = None) -> int:
   _ = serve.add_argument(
     "--static", type=Path, required=True, help="the built frontend"
   )
+  queue_command.add_arguments(
+    commands.add_parser("queue", help="a queue of jobs on this machine")
+  )
   args = parser.parse_args(argv)
   command = cast(str, args.command)
+  if command == "queue":
+    return queue_command.run(args)
   if command == "viz":
     return _viz(cast(Path, args.config), cast(Path, args.static))
   file = cast(Path, args.file)
