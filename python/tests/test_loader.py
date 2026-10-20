@@ -18,6 +18,7 @@ from dataforge.curation import (
   AgentSpec,
   AgentState,
   AgentTask,
+  Deliverable,
   End,
   Env,
   Goto,
@@ -33,11 +34,13 @@ from dataforge.curation import (
   RubricState,
   ScriptSpec,
   ScriptState,
+  Source,
   SpecError,
   State,
   TrialAgent,
   TrialResult,
   TrialsState,
+  Value,
 )
 
 RUBRIC = """\
@@ -144,6 +147,54 @@ def test_a_declaration_loads_with_its_inputs_and_vars() -> None:
     "pass": End("passed"),
     "fail": Goto("make", mark="kept"),
   }
+
+
+def test_deliverables_load_in_their_order() -> None:
+  doc = base()
+  doc["deliverables"] = {
+    "verdict": {
+      "kind": "report",
+      "title": "Verdict on ${{ inputs.item }}",
+      "source": {"state": "check", "output": "report.md", "visit": "last"},
+      "table": {"state": "check", "output": "rubric.json"},
+    },
+    "made": {
+      "kind": "files",
+      "title": "Made",
+      "source": {"state": "make", "output": "out", "visit": 2},
+    },
+    "runs": {
+      "kind": "trials",
+      "title": "pass@k",
+      "source": {"state": "make"},
+      "value": {"field": ["data", "solved"], "output": "verdict.json"},
+    },
+  }
+  machine = load_doc(doc)
+  assert list(machine.deliverables) == ["verdict", "made", "runs"]
+  assert machine.deliverables == {
+    "verdict": Deliverable(
+      "report",
+      "Verdict on a1",
+      Source("check", "report.md", "last"),
+      table=Source("check", "rubric.json"),
+    ),
+    "made": Deliverable("files", "Made", Source("make", "out", 2)),
+    "runs": Deliverable(
+      "trials",
+      "pass@k",
+      Source("make"),
+      value=Value(("data", "solved"), "verdict.json"),
+    ),
+  }
+  assert load_doc(base()).deliverables == {}
+
+
+def files_deliverable(**source: object) -> Callable[[Doc], None]:
+  return put(
+    "deliverables",
+    {"made": {"kind": "files", "title": "Made", "source": source}},
+  )
 
 
 def put(path: str, value: object) -> Callable[[Doc], None]:
@@ -280,6 +331,46 @@ def drop(path: str) -> Callable[[Doc], None]:
     (
       put("states.check.transitions.pass", {"goto": "lone"}),
       "states.check.transitions.pass.goto: no state named 'lone'",
+    ),
+    (
+      put("deliverables", {"made": {"kind": "files", "title": "Made"}}),
+      "deliverables.made.source: missing",
+    ),
+    (
+      files_deliverable(state="make", output="out", visit="first"),
+      (
+        'deliverables.made.source.visit: expected "kept", "last" or an'
+        " integer, got a string"
+      ),
+    ),
+    (
+      files_deliverable(state="make", output="out", visit=True),
+      (
+        'deliverables.made.source.visit: expected "kept", "last" or an'
+        " integer, got a boolean"
+      ),
+    ),
+    (
+      files_deliverable(state="nowhere", output="out"),
+      "deliverables.made: unknown state nowhere",
+    ),
+    (
+      files_deliverable(state="make"),
+      "deliverables.made: a files deliverable takes an output",
+    ),
+    (
+      put(
+        "deliverables",
+        {
+          "runs": {
+            "kind": "trials",
+            "title": "pass@k",
+            "source": {"state": "make"},
+            "value": {"field": "solved"},
+          }
+        },
+      ),
+      "deliverables.runs.value.field: expected a list, got a string",
     ),
   ],
 )
