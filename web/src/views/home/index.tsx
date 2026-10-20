@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { getJson, urls } from "../../api/client";
-import { type AttemptRow, attemptRows, type Project } from "../../api/types";
+import type { Project } from "../../api/types";
 import { Note } from "../../ui/card";
-import { HomeTable } from "./HomeTable";
-
-export interface Read {
-  rows: AttemptRow[];
-  /** When the listing arrived, as ISO 8601. */
-  at: string;
-}
+import { HomeTable, type Read } from "./HomeTable";
+import { homeRows } from "./items";
 
 /**
  * A project's attempt listing, read once and again on each refresh, never
@@ -22,7 +17,7 @@ function useListing(project: string) {
   const [done, setDone] = useState<{ key: string; error: string | null }>();
   useEffect(() => {
     const controller = new AbortController();
-    getJson(urls.attempts(project), attemptRows, controller.signal).then(
+    getJson(urls.attempts(project), homeRows, controller.signal).then(
       (rows) => {
         setRead({ project, rows, at: new Date().toISOString() });
         setDone({ key, error: null });

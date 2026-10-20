@@ -1,6 +1,7 @@
 import {
   createColumnHelper,
   createSortedRowModel,
+  type Row,
   rowExpandingFeature,
   rowSortingFeature,
   type SortFn,
@@ -27,7 +28,7 @@ import {
 } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import type { AttemptRow, Column, Project } from "../../api/types";
+import type { Column, Project } from "../../api/types";
 import { duration, time, usd } from "../../ui/format";
 import {
   StatusLabel,
@@ -37,8 +38,8 @@ import {
   toneText,
 } from "../../ui/status";
 import { attemptHref } from "../attempt/href";
-import type { Read } from "./index";
 import {
+  type AttemptRow,
   filterItems,
   flagged,
   GROUPS,
@@ -50,6 +51,13 @@ import {
   toItems,
   withHomeStatuses,
 } from "./items";
+
+/** When the listing was read, and what it held. */
+export interface Read {
+  rows: AttemptRow[];
+  /** ISO 8601. */
+  at: string;
+}
 
 /** A row of the table: an item, standing for its newest attempt, or one of its attempts. */
 interface Line {
@@ -75,9 +83,10 @@ const features = tableFeatures({
   sortedRowModel: createSortedRowModel(),
 });
 const helper = createColumnHelper<typeof features, Item>();
+type TableRow = Row<typeof features, Item>;
 
-// Values of one column are all numbers or all strings; undefined is placed
-// by sortUndefined before this is called.
+// The values of one column are all numbers or all strings; sortUndefined
+// places undefined before this is called.
 const compare: SortFn<typeof features, Item> = (a, b, id) => {
   const x = a.getValue<Value>(id);
   const y = b.getValue<Value>(id);
@@ -91,10 +100,10 @@ const itemLine = (item: Item): Line => ({
   sub: false,
 });
 
-const timeValue = (iso: string | null): Value => {
+function timeValue(iso: string | null): Value {
   const t = iso === null ? NaN : Date.parse(iso);
   return Number.isNaN(t) ? undefined : t;
-};
+}
 
 const NUMERIC_FORMATS = new Set(["number", "usd", "duration", "time"]);
 
@@ -104,10 +113,14 @@ function formatValue(value: unknown, format: Column["format"]): string {
   if (typeof value === "number") {
     if (format === "usd") return usd(value);
     if (format === "duration") return duration(value);
+    return String(value);
   }
   if (typeof value === "string") return format === "time" ? time(value) : value;
-  return typeof value === "number" ? String(value) : JSON.stringify(value);
+  return JSON.stringify(value);
 }
+
+const lineSpent = (l: Line) =>
+  l.sub ? l.row.cost_usd : spent(l.item.attempts);
 
 function specs(project: Project): Spec[] {
   const fixed: Spec[] = [
@@ -116,7 +129,13 @@ function specs(project: Project): Spec[] {
       title: project.item.title,
       numeric: false,
       value: (l) => l.item.id,
-      cell: () => null, // drawn by ItemCell, which needs the row's state
+      cell: (l) => (
+        <span className={l.sub ? "block pl-4" : ""}>
+          <AttemptLink href={attemptHref(project.id, l.row.id)}>
+            {l.sub ? l.row.id : l.item.id}
+          </AttemptLink>
+        </span>
+      ),
     },
     {
       id: "status",
@@ -137,15 +156,15 @@ function specs(project: Project): Spec[] {
       title: "Attempts",
       numeric: true,
       value: (l) => l.item.attempts.length,
-      cell: (l) => (l.sub ? "" : l.item.attempts.length),
+      cell: () => null, // drawn by the row, which holds its expansion
     },
     {
       id: "spent",
       title: "Spent",
       numeric: true,
-      value: (l) => (l.sub ? l.row.cost_usd : spent(l.item.attempts)) ?? undefined,
+      value: (l) => lineSpent(l) ?? undefined,
       cell: (l) => {
-        const v = l.sub ? l.row.cost_usd : spent(l.item.attempts);
+        const v = lineSpent(l);
         return v === null ? "—" : usd(v);
       },
     },
@@ -193,6 +212,7 @@ function parseSort(param: string | null, ids: string[]): SortingState {
   return ids.includes(id) ? [{ id, desc }] : [];
 }
 
+/** A status label, with the record's reason, or why it cannot be read, on hover. */
 function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   const label = <StatusLabel project={project} word={rowStatus(row)} />;
   const why = row.error ?? row.reason;
@@ -218,6 +238,7 @@ function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   );
 }
 
+/** One cell per round: its last visit's state and outcome. */
 function RoundsCell({ project, row }: { project: Project; row: AttemptRow }) {
   if (!row.rounds || row.rounds.length === 0) return "—";
   return (
@@ -240,9 +261,21 @@ function RoundsCell({ project, row }: { project: Project; row: AttemptRow }) {
   );
 }
 
-const button =
+function AttemptLink({ href, children }: { href: string; children: string }) {
+  return (
+    <Link
+      to={href}
+      className="target inline-flex items-center font-mono text-xs break-all underline decoration-faint underline-offset-3"
+    >
+      {children}
+    </Link>
+  );
+}
+
+const control =
   "target inline-flex items-center gap-1.5 rounded-row border border-line px-2 text-xs font-medium hover:bg-hover";
 
+/** A project's items in their groups, with search, status chips and refresh. */
 export function HomeTable({
   project: given,
   read,
@@ -261,13 +294,12 @@ export function HomeTable({
   const navigate = useNavigate();
   const base = useId();
   const q = params.get("q") ?? "";
-  const chosen = params.getAll("status");
+  const chosen = params.get("status");
 
   const items = useMemo(() => toItems(read.rows), [read.rows]);
-  const chosenKey = chosen.join("\n");
   const filtered = useMemo(
-    () => filterItems(project, items, q, chosenKey ? chosenKey.split("\n") : []),
-    [project, items, q, chosenKey],
+    () => filterItems(project, items, q, chosen),
+    [project, items, q, chosen],
   );
   const columnSpecs = useMemo(() => specs(project), [project]);
   const columns = useMemo(
@@ -284,9 +316,14 @@ export function HomeTable({
       ),
     [columnSpecs],
   );
-  const sorting = parseSort(
-    params.get("sort"),
-    columnSpecs.map((s) => s.id),
+  const sortParam = params.get("sort");
+  const sorting = useMemo(
+    () =>
+      parseSort(
+        sortParam,
+        columnSpecs.map((s) => s.id),
+      ),
+    [sortParam, columnSpecs],
   );
 
   const update = (change: (next: URLSearchParams) => void) => {
@@ -307,12 +344,10 @@ export function HomeTable({
       else p.delete("sort");
     });
   };
-  const toggleChip = (key: string) => {
+  const choose = (key: string | null) => {
     update((p) => {
-      const rest = p.getAll("status").filter((k) => k !== key);
-      p.delete("status");
-      for (const k of chosen.includes(key) ? rest : [...rest, key])
-        p.append("status", k);
+      if (key === null) p.delete("status");
+      else p.set("status", key);
     });
   };
 
@@ -326,22 +361,123 @@ export function HomeTable({
     onSortingChange,
     enableMultiSort: false,
   });
+  const rows = table.getRowModel().rows;
 
+  // A click on a row opens its attempt, but not one on a control in it.
   const open = (event: MouseEvent, href: string) => {
-    if ((event.target as Element).closest("a, button, input, [tabindex]"))
+    if (
+      event.target instanceof Element &&
+      event.target.closest("a, button, [tabindex]")
+    )
       return;
     void navigate(href);
   };
 
-  const rows = table.getRowModel().rows;
-  const width = columnSpecs.length;
   const cellClass = (s: Spec) =>
     `px-3 py-1.5 align-top ${s.numeric ? "text-right tabular-nums" : ""}`;
 
+  const lineRow = (
+    line: Line,
+    attempts: ReactNode,
+    props: { id?: string; hidden?: boolean; className: string },
+  ) => {
+    const href = attemptHref(project.id, line.row.id);
+    return (
+      <tr
+        key={line.row.id}
+        {...props}
+        onClick={(e) => {
+          open(e, href);
+        }}
+      >
+        {columnSpecs.map((s) => (
+          <td key={s.id} className={cellClass(s)}>
+            {s.id === "attempts" ? attempts : s.cell(line)}
+          </td>
+        ))}
+      </tr>
+    );
+  };
+
+  const itemRows = (row: TableRow, prefix: string) => {
+    const item = row.original;
+    const expanded = row.getIsExpanded();
+    const subIds = item.attempts.map((_, a) => `${prefix}-${a.toString()}`);
+    const count = item.attempts.length;
+    const attempts = row.getCanExpand() ? (
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={subIds.join(" ")}
+        aria-label={`${count.toString()} attempts of ${item.id}`}
+        onClick={() => {
+          row.toggleExpanded();
+        }}
+        className="target inline-flex items-center gap-0.5 rounded-row px-1 hover:bg-active"
+      >
+        {expanded ? (
+          <ChevronDown className="size-3.5 text-icon" aria-hidden />
+        ) : (
+          <ChevronRight className="size-3.5 text-icon" aria-hidden />
+        )}
+        {count}
+      </button>
+    ) : (
+      count
+    );
+    return [
+      lineRow(itemLine(item), attempts, {
+        className: "cursor-pointer border-b border-line-subtle hover:bg-hover",
+      }),
+      ...(row.getCanExpand()
+        ? item.attempts.map((attempt, a) =>
+            lineRow({ item, row: attempt, sub: true }, null, {
+              id: subIds[a],
+              hidden: !expanded,
+              className:
+                "cursor-pointer border-b border-line-subtle bg-app hover:bg-hover",
+            }),
+          )
+        : []),
+    ];
+  };
+
   return (
     <Tooltip.Provider delayDuration={200}>
-      <div className="flex flex-col gap-4 p-7">
+      <div className="flex flex-col gap-3 px-6 py-5">
         <div className="flex flex-wrap items-center gap-2">
+          <div
+            role="group"
+            aria-label="Filter by status"
+            className="flex flex-wrap gap-1.5"
+          >
+            <Chip
+              pressed={chosen === null}
+              onClick={() => {
+                choose(null);
+              }}
+              label="All"
+              count={filtered.searched}
+            />
+            {filtered.chips.map(({ key, count }) => {
+              const { label, tone } = statusOf(project, keyWord(key));
+              const Glyph = toneGlyph[tone];
+              return (
+                <Chip
+                  key={key}
+                  pressed={chosen === key}
+                  onClick={() => {
+                    choose(chosen === key ? null : key);
+                  }}
+                  icon={
+                    <Glyph className={`size-3 ${toneText[tone]}`} aria-hidden />
+                  }
+                  label={label}
+                  count={count}
+                />
+              );
+            })}
+          </div>
           <label className="target inline-flex items-center gap-1.5 rounded-row border border-line px-2 focus-within:border-fg-3">
             <Search className="size-3.5 text-icon" aria-hidden />
             <input
@@ -356,38 +492,15 @@ export function HomeTable({
                   else p.delete("q");
                 });
               }}
-              className="h-6 w-56 bg-transparent text-xs outline-none placeholder:text-fg-3"
+              className="h-6 w-48 bg-transparent text-xs outline-none placeholder:text-fg-3"
             />
           </label>
-          <div
-            role="group"
-            aria-label="Filter by status"
-            className="flex flex-wrap gap-1.5"
-          >
-            {filtered.chips.map(({ key, count }) => {
-              const { label, tone } = statusOf(project, keyWord(key));
-              const Glyph = toneGlyph[tone];
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={chosen.includes(key)}
-                  onClick={() => {
-                    toggleChip(key);
-                  }}
-                  className={`${button} aria-pressed:border-fg-3 aria-pressed:bg-active`}
-                >
-                  <Glyph className={`size-3 ${toneText[tone]}`} aria-hidden />
-                  {label}
-                  <span className="text-fg-3 tabular-nums">{count}</span>
-                </button>
-              );
-            })}
-          </div>
           <div className="ml-auto flex items-center gap-2 text-xs text-fg-3">
             {error !== null && <span className="text-bad">{error}</span>}
-            <span>{reading ? "Reading…" : `Read ${time(read.at)}`}</span>
-            <button type="button" onClick={onRefresh} className={button}>
+            <span aria-live="polite">
+              {reading ? "Reading…" : `Read ${time(read.at)}`}
+            </span>
+            <button type="button" onClick={onRefresh} className={control}>
               <RefreshCw className="size-3.5 text-icon" aria-hidden />
               Refresh
             </button>
@@ -395,12 +508,11 @@ export function HomeTable({
         </div>
         {filtered.hidden > 0 && (
           <p className="flex items-center gap-2 text-xs text-fg-3">
-            {filtered.hidden} of {items.length}{" "}
-            {items.length === 1 ? "item" : "items"} hidden by the search and
-            filters.
+            {filtered.hidden} of {items.length} hidden by the search and the
+            status filter.
             <button
               type="button"
-              className={button}
+              className={control}
               onClick={() => {
                 update((p) => {
                   p.delete("q");
@@ -455,97 +567,30 @@ export function HomeTable({
               project,
               inGroup.map((r) => r.original),
             );
+            const summary =
+              k > 0
+                ? `${n.toString()}, ${k.toString()} of ${n.toString()} bad or warn`
+                : n.toString();
             return (
               <Group
                 key={group}
                 id={`${base}-${group}`}
                 title={title}
-                summary={`${n.toString()} ${n === 1 ? "item" : "items"}${k > 0 ? `, ${k.toString()} of ${n.toString()} bad or warn` : ""}`}
-                width={width}
+                summary={summary}
+                width={columnSpecs.length}
               >
-                {inGroup.map((row, r) => {
-                  const item = row.original;
-                  const expanded = row.getIsExpanded();
-                  const subIds = item.attempts.map(
-                    (_, a) => `${base}-${group}-${r.toString()}-${a.toString()}`,
-                  );
-                  const lineCells = (line: Line, first: ReactNode) =>
-                    columnSpecs.map((s, c) => (
-                      <td key={s.id} className={cellClass(s)}>
-                        {c === 0 ? first : s.cell(line)}
-                      </td>
-                    ));
-                  const newest = attemptHref(project.id, item.newest.id);
-                  return [
-                    <tr
-                      key={item.id}
-                      onClick={(e) => {
-                        open(e, newest);
-                      }}
-                      className="cursor-pointer border-b border-line-subtle hover:bg-hover"
-                    >
-                      {lineCells(
-                        itemLine(item),
-                        <span className="flex items-start gap-1">
-                          {row.getCanExpand() ? (
-                            <button
-                              type="button"
-                              aria-expanded={expanded}
-                              aria-controls={subIds.join(" ")}
-                              aria-label={`${expanded ? "Fold" : "Open"} the attempts of ${item.id}`}
-                              onClick={() => {
-                                row.toggleExpanded();
-                              }}
-                              className="target inline-grid place-items-center rounded-row text-icon hover:bg-active"
-                            >
-                              {expanded ? (
-                                <ChevronDown className="size-3.5" aria-hidden />
-                              ) : (
-                                <ChevronRight
-                                  className="size-3.5"
-                                  aria-hidden
-                                />
-                              )}
-                            </button>
-                          ) : (
-                            <span className="w-target flex-none" />
-                          )}
-                          <AttemptLink href={newest}>{item.id}</AttemptLink>
-                        </span>,
-                      )}
-                    </tr>,
-                    ...item.attempts.map((attempt, a) => {
-                      const href = attemptHref(project.id, attempt.id);
-                      return (
-                        <tr
-                          key={attempt.id}
-                          id={subIds[a]}
-                          hidden={!expanded}
-                          onClick={(e) => {
-                            open(e, href);
-                          }}
-                          className="cursor-pointer border-b border-line-subtle bg-panel text-fg-2 hover:bg-hover"
-                        >
-                          {lineCells(
-                            { item, row: attempt, sub: true },
-                            <span className="block pl-10">
-                              <AttemptLink href={href}>{attempt.id}</AttemptLink>
-                            </span>,
-                          )}
-                        </tr>
-                      );
-                    }),
-                  ];
-                })}
+                {inGroup.map((row, r) =>
+                  itemRows(row, `${base}-${group}-${r.toString()}`),
+                )}
               </Group>
             );
           })}
         </table>
         {rows.length === 0 && (
-          <p className="text-fg-3">
+          <p className="py-6 text-center text-fg-3">
             {items.length === 0
               ? "The project has no attempts."
-              : "No item matches."}
+              : "Nothing matches the search and the status filter."}
           </p>
         )}
       </div>
@@ -553,14 +598,30 @@ export function HomeTable({
   );
 }
 
-function AttemptLink({ href, children }: { href: string; children: string }) {
+function Chip({
+  pressed,
+  onClick,
+  icon,
+  label,
+  count,
+}: {
+  pressed: boolean;
+  onClick: () => void;
+  icon?: ReactNode;
+  label: string;
+  count: number;
+}) {
   return (
-    <Link
-      to={href}
-      className="target inline-flex items-center font-mono text-xs break-all underline decoration-faint underline-offset-3"
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={`${control} aria-pressed:border-fg-3 aria-pressed:bg-active`}
     >
-      {children}
-    </Link>
+      {icon}
+      {label}
+      <span className="font-normal text-fg-3 tabular-nums">{count}</span>
+    </button>
   );
 }
 
@@ -582,8 +643,12 @@ function Group({
   return (
     <>
       <tbody>
-        <tr className="border-b border-line">
-          <th scope="rowgroup" colSpan={width} className="px-1 pt-3 pb-1 text-left">
+        <tr>
+          <th
+            scope="rowgroup"
+            colSpan={width}
+            className="px-1 pt-4 pb-1 text-left"
+          >
             <button
               type="button"
               aria-expanded={!folded}

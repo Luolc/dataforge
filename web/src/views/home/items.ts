@@ -1,7 +1,24 @@
 // The home page's model: attempt rows grouped into data items, the items
 // split into the page's groups, and what search and the status chips keep.
-import type { AttemptRow, Project } from "../../api/types";
+import { z } from "zod";
+
+import { attemptRow, type Project } from "../../api/types";
 import { NOT_ENDED, RAISED, statusOf } from "../../ui/status";
+
+// The listing's live (design-viz.md section 4, "The API"): null once an
+// attempt has ended; a listing without it reads as null.
+export const homeRow = attemptRow.extend({
+  live: z.string().nullable().catch(null),
+});
+export type AttemptRow = z.infer<typeof homeRow>;
+export const homeRows = z.array(homeRow);
+
+/** The words live can take, as status words of the home page. */
+const LIVE: Record<string, string | null> = {
+  running: "~running",
+  "may have stopped": "~may-have-stopped",
+  "not ended": null,
+};
 
 /** A filter key for items whose newest attempt has not ended. */
 export const NOT_ENDED_KEY = "~not-ended";
@@ -26,21 +43,26 @@ export interface Item {
 }
 
 /**
- * An attempt's status word: its record's status, else raised when its last
- * visit raised, else null while it has not ended. UNREADABLE when its record
- * cannot be read.
+ * Whether an attempt has not ended: the listing's live is not null
+ * (design-viz.md section 5, "Home page").
+ */
+export const notEnded = (row: AttemptRow): boolean =>
+  row.error === null && row.live !== null;
+
+/**
+ * An attempt's status word: UNREADABLE when its record cannot be read; while
+ * it has not ended, live's word (null for not ended); else its record's
+ * status, or raised when its last visit raised.
  */
 export function rowStatus(row: AttemptRow): string | null {
   if (row.error !== null) return UNREADABLE;
+  if (row.live !== null) {
+    const word = LIVE[row.live];
+    return word === undefined ? row.live : word;
+  }
   if (row.status !== null) return row.status;
   return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : null;
 }
-
-/**
- * Whether an attempt has not ended: its record says no status and its last
- * visit did not raise (design-viz.md section 5, "Home page").
- */
-export const notEnded = (row: AttemptRow): boolean => rowStatus(row) === null;
 
 /** An attempt's seconds from start to end; null until it ends. */
 export function rowSeconds(row: AttemptRow): number | null {
@@ -82,9 +104,12 @@ export function toItems(rows: AttemptRow[]): Item[] {
     );
     const newest = attempts[0];
     if (newest === undefined) continue;
-    const word = rowStatus(newest);
     const group: Group =
-      word === UNREADABLE ? "unreadable" : word === null ? "open" : "ended";
+      newest.error !== null
+        ? "unreadable"
+        : notEnded(newest)
+          ? "open"
+          : "ended";
     items.push({ id, attempts, newest, group });
   }
   const rank = (g: Group) => GROUPS.findIndex((x) => x.group === g);
@@ -105,14 +130,18 @@ export function filterKey(item: Item): string {
 }
 
 /**
- * The project with the home page's own status word, UNREADABLE, as a bad
- * Unreadable, so the shared status labels draw it like any other.
+ * The project with the home page's own status words, so the shared status
+ * labels draw them like any other.
  */
 export function withHomeStatuses(project: Project): Project {
-  const unreadable = { label: "Unreadable", tone: "bad" as const };
   return {
     ...project,
-    statuses: { ...project.statuses, [UNREADABLE]: unreadable },
+    statuses: {
+      ...project.statuses,
+      "~running": { label: "Running", tone: "neutral" },
+      "~may-have-stopped": { label: "May have stopped", tone: "warn" },
+      [UNREADABLE]: { label: "Unreadable", tone: "bad" },
+    },
   };
 }
 
@@ -126,35 +155,40 @@ export function matches(item: Item, q: string): boolean {
 }
 
 export interface Filtered {
-  /** The items search and the chips keep, in the page's order. */
+  /** The items search and the chosen chip keep, in the page's order. */
   shown: Item[];
   /** Each chip's key and the number of searched items it has. */
   chips: { key: string; count: number }[];
-  /** How many items search and the chips hide. */
+  /** The number of searched items, the All chip's count. */
+  searched: number;
+  /** How many items search and the chip hide. */
   hidden: number;
 }
 
+// The chips of the live words come first, unreadable last.
+const FIRST = ["~running", "~may-have-stopped", NOT_ENDED_KEY];
+
 /**
- * What a search and a set of chosen chips keep; no chip chosen keeps every
+ * What a search and a chosen chip keep; no chip chosen (All) keeps every
  * status. Chips count the items search keeps, so a chip says what choosing
- * it would show; a chosen chip stays when search leaves it none.
+ * it would show; the chosen chip stays when search leaves it none.
  */
 export function filterItems(
   project: Project,
   items: Item[],
   q: string,
-  chosen: string[],
+  chosen: string | null,
 ): Filtered {
   const searched = items.filter((i) => matches(i, q));
-  const counts = new Map<string, number>(chosen.map((k) => [k, 0]));
+  const counts = new Map<string, number>(chosen === null ? [] : [[chosen, 0]]);
   for (const item of searched) {
     const key = filterKey(item);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const declared = Object.keys(project.statuses);
   const order = (key: string) =>
-    key === NOT_ENDED_KEY
-      ? -2
+    FIRST.includes(key)
+      ? FIRST.indexOf(key) - FIRST.length
       : key === UNREADABLE
         ? Infinity
         : declared.includes(key)
@@ -164,10 +198,15 @@ export function filterItems(
     .map(([key, count]) => ({ key, count }))
     .sort((a, b) => order(a.key) - order(b.key) || a.key.localeCompare(b.key));
   const shown =
-    chosen.length === 0
+    chosen === null
       ? searched
-      : searched.filter((i) => chosen.includes(filterKey(i)));
-  return { shown, chips, hidden: items.length - shown.length };
+      : searched.filter((i) => filterKey(i) === chosen);
+  return {
+    shown,
+    chips,
+    searched: searched.length,
+    hidden: items.length - shown.length,
+  };
 }
 
 /**
