@@ -62,7 +62,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     default="json",
     help="the graph's JSON (the default) or a Mermaid flowchart",
   )
-  viz = commands.add_parser("viz", help="the read-only viewer of attempts")
+  viz = commands.add_parser(
+    "viz", help="the viewer of attempts and the job queue"
+  )
   serve = viz.add_subparsers(dest="viz", required=True).add_parser(
     "serve", help="serve the viewer at the site file's address"
   )

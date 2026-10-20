@@ -23,8 +23,9 @@ keeps its trace on disk, `read_trace` reads how a session ended, and `Runner` dr
 the `AgentRunner` of `Actions`, on the host or in a `Docker` container. It runs the command and
 environment the dataset gives and knows no gateway or credential.
 
-`dataforge.viz` is the read-only web viewer of attempts, with its frontend in `../web/`
-(design: [`docs/design-viz.md`](../docs/design-viz.md)). It needs the extra `viz`, which brings
+`dataforge.viz` is the web viewer of attempts and of the job queue, with its frontend in `../web/`
+(design: [`docs/design-viz.md`](../docs/design-viz.md)); it writes only to the queue, to put a data
+item's actions in it and to cancel a job. It needs the extra `viz`, which brings
 FastAPI and uvicorn; `dataforge viz serve --config <site file> --static <built web/dist>` starts it.
 
 `dataforge.queue` is a queue of jobs on one machine: a job is a command, a queue name and the

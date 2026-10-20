@@ -404,3 +404,23 @@ def snapshot(root: Path) -> dict[str, tuple[int, int, int]]:
       status = path.lstat()
       found[str(path)] = (status.st_mode, status.st_size, status.st_mtime_ns)
   return found
+
+
+def test_a_write_s_preflight_is_never_allowed(
+  made: QueueTree, static: Path
+) -> None:
+  # A page of another origin must ask before it sends X-Viz-Write; the
+  # viewer answers no such question.
+  web = client(made, static)
+
+  for url in (f"{ACTIONS}/again?item=batch-1", "/api/queue/jobs/1/cancel"):
+    response = web.options(
+      url,
+      headers={
+        "Origin": "http://evil.example",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "x-viz-write",
+      },
+    )
+    assert response.status_code == 405, url
+    assert not [h for h in response.headers if h.startswith("access-control")]
