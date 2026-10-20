@@ -5,7 +5,7 @@
 
 import type { AttemptRecord, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
-import { stateTitle, statusOf } from "../../../ui/status";
+import { NOT_RUN, stateTitle, statusOf } from "../../../ui/status";
 
 export const END = "\0end";
 
@@ -160,7 +160,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
       return {
         ...box,
         title: "End",
-        sub: ended ? status.label : "not reached",
+        sub: ended ? status.label : NOT_RUN,
         tone: ended ? status.tone : null,
         idle: !ended,
         lastVisit: null,
@@ -174,7 +174,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
       title: stateTitle(project, key),
       sub:
         mine.length === 0
-          ? "not run"
+          ? NOT_RUN
           : `${mine.length} run${mine.length > 1 ? "s" : ""} · ${duration(seconds)}`,
       tone: last ? statusOf(project, last.outcome).tone : null,
       idle: mine.length === 0,

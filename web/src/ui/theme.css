@@ -2,6 +2,15 @@
    tokens, so a utility such as bg-panel or text-fg-2 names one of them. */
 @import "tailwindcss";
 
+/* Hover styles only where a fine pointer can hover (R248). */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
 @theme {
   --font-sans:
     "Geist Variable", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
@@ -14,6 +23,9 @@
   --text-md: 14px;
   --text-lg: 15px;
   --text-xl: 18px;
+  --text-code: 12.5px;
+  --text-code--line-height: 1.65;
+  --text-graph: 10.5px;
 
   --font-weight-normal: 450;
   --font-weight-medium: 520;
@@ -24,9 +36,20 @@
   --spacing-header: 44px;
   --spacing-row: 28px;
   --spacing-inset: 8px;
+  --spacing-runs: 208px;
+  /* The smallest side of a control, for a fine and a coarse pointer. */
+  --spacing-target: 24px;
+  --spacing-target-coarse: 44px;
 
   --radius-row: 6px;
   --radius-panel: 8px;
+  --radius-code: 4px;
+
+  --shadow-current: inset 2px 0 0 var(--color-fg-2);
+
+  --opacity-idle: 0.45;
+  --stroke-taken: 1.5px;
+  --dash-not-taken: 3 3;
 
   --color-app: #09090a;
   --color-panel: #121213;
@@ -80,6 +103,17 @@
   }
 }
 
+/* Every link and button: at least 24px a side, 44px for a coarse pointer
+   (R246). */
+@utility target {
+  min-height: var(--spacing-target);
+  min-width: var(--spacing-target);
+  @media (pointer: coarse) {
+    min-height: var(--spacing-target-coarse);
+    min-width: var(--spacing-target-coarse);
+  }
+}
+
 /* Markdown from an attempt, rendered by ui/markdown.tsx. */
 @layer components {
   .md {
@@ -111,15 +145,18 @@
     list-style: decimal;
   }
   .md a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--spacing-target);
     text-decoration: underline;
     text-decoration-color: var(--color-faint);
-    text-underline-offset: 3px;
+    text-underline-offset: calc(var(--spacing) * 0.75);
   }
   .md code {
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    padding: 1px 5px;
-    border-radius: 4px;
+    padding: 1px calc(var(--spacing) * 1.25);
+    border-radius: var(--radius-code);
     background: var(--color-code);
     border: 1px solid var(--color-line-subtle);
   }
@@ -145,7 +182,7 @@
     font-variant-numeric: tabular-nums;
   }
   .md :where(th, td) {
-    padding: 6px 14px;
+    padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 3.5);
     border: 1px solid var(--color-line);
     text-align: left;
   }

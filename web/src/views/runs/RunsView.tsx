@@ -10,7 +10,7 @@ import { RunPage } from "./run/RunPage";
 import { Summary } from "./summary/Summary";
 
 const item =
-  "flex items-center gap-2 rounded-row px-2 py-1.5 font-medium text-fg-2 hover:bg-hover hover:text-fg aria-[current=page]:bg-active aria-[current=page]:text-fg aria-[current=page]:shadow-[inset_2px_0_0_var(--color-fg-2)]";
+  "target flex items-center gap-2 rounded-row px-2 py-1.5 font-medium text-fg-2 hover:bg-hover hover:text-fg aria-[current=page]:bg-active aria-[current=page]:text-fg aria-[current=page]:shadow-current";
 
 export function RunsView({
   project,
@@ -26,7 +26,7 @@ export function RunsView({
   const href = (at: { run?: number }) =>
     attemptHref(project.id, attempt, { tab: "runs", ...at });
   return (
-    <div className="grid grid-cols-[208px_minmax(0,1fr)] gap-6 px-7 pt-5 pb-12">
+    <div className="grid grid-cols-[var(--spacing-runs)_minmax(0,1fr)] gap-6 px-7 pt-5 pb-12">
       <nav aria-label="Runs" className="flex flex-col gap-0.5">
         <Link
           to={href({})}
@@ -50,10 +50,10 @@ export function RunsView({
             >
               <StatusIcon project={project} word={visit.outcome} />
               <span className="min-w-0 flex-auto">
-                <span className="block truncate">
+                <span className="block break-words">
                   {stateTitle(project, visit.state)}
                 </span>
-                <span className="block truncate text-2xs font-normal text-fg-3">
+                <span className="block text-2xs font-normal text-fg-3">
                   {statusOf(project, visit.outcome).label}
                   {seconds !== null && ` · ${duration(seconds)}`}
                   {` · ${usd(visitCost(visit))}`}

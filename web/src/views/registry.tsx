@@ -1,5 +1,6 @@
 // The only place a deliverable's kind picks what shows it: a view for its tab,
 // a count for the tab and one line for its card on the Summary.
+import { CircleAlert } from "lucide-react";
 import type { ComponentType } from "react";
 
 import { useFileCount } from "../api/client";
@@ -24,10 +25,19 @@ interface Kind {
   Line: ComponentType<ItemProps>;
 }
 
+/** How many files are under a deliverable's path; nothing while loading. */
 function FileCount({ project, attempt, item }: ItemProps) {
   const count = useFileCount(project, attempt, item.path);
-  if (count.state === "loading") return <>…</>;
-  if (count.state === "error") return <>?</>;
+  if (count.state === "loading") return null;
+  if (count.state === "error") {
+    return (
+      <CircleAlert
+        role="img"
+        aria-label={`Could not count the files: ${count.message}`}
+        className="inline size-3 text-bad"
+      />
+    );
+  }
   return <>{`${count.data.files}${count.data.complete ? "" : "+"}`}</>;
 }
 

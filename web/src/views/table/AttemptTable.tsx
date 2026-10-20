@@ -34,7 +34,10 @@ export function AttemptTable() {
           <tr className="h-9 text-left text-xs text-fg-3">
             <th className="px-5 font-normal">ID</th>
             {project.data.columns.map((c) => (
-              <th key={c.title} className="px-5 font-normal">
+              <th
+                key={c.title}
+                className={`px-5 font-normal ${numeric(c) ? "text-right" : ""}`}
+              >
                 {c.title}
               </th>
             ))}
@@ -49,7 +52,7 @@ export function AttemptTable() {
               <td className="px-5">
                 <Link
                   to={attemptHref(project.data.id, row.id)}
-                  className="font-mono text-xs underline decoration-faint underline-offset-3"
+                  className="target inline-flex items-center font-mono text-xs underline decoration-faint underline-offset-3"
                 >
                   {row.id}
                 </Link>
@@ -58,7 +61,10 @@ export function AttemptTable() {
                 )}
               </td>
               {project.data.columns.map((c, i) => (
-                <td key={c.title} className="px-5 text-fg-2 tabular-nums">
+                <td
+                  key={c.title}
+                  className={`px-5 text-fg-2 tabular-nums ${numeric(c) ? "text-right" : ""}`}
+                >
                   <Value
                     project={project.data}
                     column={c}
@@ -72,6 +78,11 @@ export function AttemptTable() {
       </table>
     );
   return <Frame crumbs={crumbs}>{body}</Frame>;
+}
+
+/** Whether a column holds numbers, set right-aligned (L41). */
+function numeric(column: Column): boolean {
+  return ["number", "usd", "duration"].includes(column.format);
 }
 
 function Value({

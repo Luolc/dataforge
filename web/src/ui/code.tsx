@@ -81,7 +81,7 @@ export function CodeView({ name, text }: { name: string; text: string }) {
   const lines = text.endsWith("\n") ? text.slice(0, -1) : text;
   const count = lines.split("\n").length;
   return (
-    <div className="flex overflow-auto py-2.5 font-mono text-[12.5px] leading-[1.65] tracking-normal">
+    <div className="flex overflow-auto py-2.5 font-mono text-code tracking-normal">
       <pre
         aria-hidden
         className="flex-none select-none pr-4 pl-5 text-right text-faint"

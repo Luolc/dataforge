@@ -13,7 +13,7 @@ import {
   visitStart,
 } from "../../../ui/format";
 import { Markdown } from "../../../ui/markdown";
-import { stateTitle, statusOf, toneText } from "../../../ui/status";
+import { NOT_RUN, stateTitle, statusOf, toneText } from "../../../ui/status";
 import { attemptHref } from "../../attempt/href";
 import { kindOf } from "../../registry";
 import { Graph } from "./Graph";
@@ -129,7 +129,10 @@ function Summaries({
         {written.map(({ visit, index, key, text }) => (
           <article key={key}>
             <h3 className="mb-2 text-xs text-fg-3">
-              <Link to={runHref(index)} className="hover:text-fg">
+              <Link
+                to={runHref(index)}
+                className="target inline-flex items-center hover:text-fg"
+              >
                 {stateTitle(project, visit.state)} · run {index + 1}
               </Link>
             </h3>
@@ -165,7 +168,7 @@ function Deliverables({ project, attempt, record }: Props) {
                 <td className="px-5">
                   <Link
                     to={attemptHref(project.id, attempt, { tab: item.kind })}
-                    className="underline decoration-faint underline-offset-3"
+                    className="target inline-flex items-center underline decoration-faint underline-offset-3"
                   >
                     {item.title}
                   </Link>
@@ -173,7 +176,7 @@ function Deliverables({ project, attempt, record }: Props) {
                 <td className="px-5 text-fg-2">{from}</td>
                 <td className="px-5 text-fg-2">
                   {item.path === null ? (
-                    `Not reached${item.reason ? `: ${item.reason}` : ""}`
+                    `${NOT_RUN}${item.reason ? `: ${item.reason}` : ""}`
                   ) : (
                     <Line project={project.id} attempt={attempt} item={item} />
                   )}

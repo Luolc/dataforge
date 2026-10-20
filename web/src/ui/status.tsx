@@ -3,12 +3,19 @@ import { Check, Minus, TriangleAlert, X } from "lucide-react";
 
 import type { Project, Tone } from "../api/types";
 
+// The words the viewer itself gives a status; every other word comes from the
+// project file.
+/** An attempt or a visit with no status or outcome yet. */
+export const RUNNING = "Running";
+/** A state, a deliverable or the end that the attempt never reached. */
+export const NOT_RUN = "Not run";
+
 /** A word's label and tone; a word with no entry is itself, neutral. */
 export function statusOf(
   project: Project,
   word: string | null,
 ): { label: string; tone: Tone } {
-  if (word === null) return { label: "Running", tone: "neutral" };
+  if (word === null) return { label: RUNNING, tone: "neutral" };
   return project.statuses[word] ?? { label: word, tone: "neutral" };
 }
 
@@ -38,7 +45,13 @@ const toneIcon: Record<Tone, string> = {
   neutral: "bg-neutral",
 };
 
-const glyph = { good: Check, bad: X, warn: TriangleAlert, neutral: Minus };
+/** Each tone's icon: no two tones share a shape (L39). */
+export const toneGlyph = {
+  good: Check,
+  bad: X,
+  warn: TriangleAlert,
+  neutral: Minus,
+};
 
 /** A word as a tone-coloured label. */
 export function StatusLabel({
@@ -67,7 +80,7 @@ export function StatusIcon({
   word: string | null;
 }) {
   const { label, tone } = statusOf(project, word);
-  const Glyph = glyph[tone];
+  const Glyph = toneGlyph[tone];
   return (
     <span
       role="img"

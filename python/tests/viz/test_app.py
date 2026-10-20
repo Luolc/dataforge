@@ -61,10 +61,11 @@ def test_every_route_is_a_get_and_writes_nothing(
   }
   for url in urls:
     assert web.get(url).status_code == 200, url
+    assert web.head(url).status_code == 200, url
     for method in ("POST", "PUT", "PATCH", "DELETE"):
       assert web.request(method, url).status_code == 405, (method, url)
 
-  assert methods == {"GET"}
+  assert methods == {"GET", "HEAD"}
   assert snapshot(tree.root.parent.parent) == before
 
 

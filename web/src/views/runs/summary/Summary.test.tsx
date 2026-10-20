@@ -50,8 +50,6 @@ describe("Summary", () => {
       "href",
       "/sample/attempt?id=batch-1%2Ftask-0002&tab=trials",
     );
-    expect(
-      screen.getByText("Not reached: solve was never visited"),
-    ).toBeVisible();
+    expect(screen.getByText("Not run: solve was never visited")).toBeVisible();
   });
 });

@@ -26,7 +26,7 @@ from dataforge.viz.paths import (
 
 CSP = (
   "default-src 'self'; script-src 'self'; connect-src 'self';"
-  " img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline';"
+  " img-src 'self' data:; font-src 'self'; style-src 'self';"
   " object-src 'none'; base-uri 'none'; frame-ancestors 'none';"
   " form-action 'none'"
 )
@@ -43,7 +43,7 @@ def create_app(site: Site, static: Path) -> FastAPI:
     static: The built frontend, the output of npm run build.
 
   Returns:
-    The app; every route is a GET.
+    The app; every route is a GET or a HEAD.
   """
   app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
   api = _Api(site, static)
@@ -59,7 +59,7 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/{rest:path}", api.static),
   ]
   for path, endpoint in routes:
-    app.add_api_route(path, endpoint, methods=["GET"])
+    app.add_api_route(path, endpoint, methods=["GET", "HEAD"])
   return app
 
 

@@ -2,6 +2,7 @@ import { Fragment, useId } from "react";
 import { Link } from "react-router";
 
 import type { Tone } from "../../../api/types";
+import { toneGlyph } from "../../../ui/status";
 import type { Layout } from "./graph";
 
 const dot: Record<Tone, string> = {
@@ -57,15 +58,15 @@ export function Graph({
             markerEnd={head(edge.taken)}
             className={
               edge.taken
-                ? "fill-none stroke-fg-2 stroke-[1.5]"
-                : "fill-none stroke-faint stroke-1 [stroke-dasharray:3_3]"
+                ? "fill-none stroke-fg-2 stroke-[length:var(--stroke-taken)]"
+                : "fill-none stroke-faint stroke-1 [stroke-dasharray:var(--dash-not-taken)]"
             }
           />
           <text
             x={edge.label.x}
             y={edge.label.y}
             textAnchor="middle"
-            className="fill-faint text-[10.5px]"
+            className="fill-faint text-graph"
           >
             {edge.label.parts.map((part, i) => (
               <Fragment key={part.outcome}>
@@ -86,24 +87,18 @@ export function Graph({
         const box = (
           <g
             transform={`translate(${node.x} ${node.y})`}
-            className={node.idle ? "opacity-45" : ""}
+            className={node.idle ? "opacity-[var(--opacity-idle)]" : ""}
           >
             <rect
               width={node.width}
               height={node.height}
-              rx="8"
-              className="fill-panel stroke-line"
+              className="fill-panel stroke-line [rx:var(--radius-panel)]"
             />
-            <circle
-              cx="16"
-              cy="19"
-              r="5"
-              className={node.tone ? dot[node.tone] : "fill-neutral"}
-            />
-            <text x="28" y="23" className="fill-fg text-[13px] font-semibold">
+            {node.tone && <ToneMark tone={node.tone} />}
+            <text x="28" y="23" className="fill-fg text-sm font-semibold">
               {node.title}
             </text>
-            <text x="16" y="40" className="fill-fg-3 text-[11px]">
+            <text x="16" y="40" className="fill-fg-3 text-2xs">
               {node.sub}
             </text>
           </g>
@@ -121,5 +116,24 @@ export function Graph({
         );
       })}
     </svg>
+  );
+}
+
+/** A node's tone as a filled circle with the tone's glyph (L39). */
+function ToneMark({ tone }: { tone: Tone }) {
+  const Glyph = toneGlyph[tone];
+  return (
+    <>
+      <circle cx="16" cy="19" r="7" className={dot[tone]} />
+      <Glyph
+        x="11.5"
+        y="14.5"
+        width="9"
+        height="9"
+        strokeWidth={3.5}
+        className="text-panel"
+        aria-hidden
+      />
+    </>
   );
 }

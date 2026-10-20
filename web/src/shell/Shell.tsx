@@ -10,7 +10,7 @@ import { projects as projectsSchema } from "../api/types";
 import { ProjectsContext } from "./projects";
 
 const navItem =
-  "flex h-row w-full items-center gap-2 rounded-row px-1.5 font-medium whitespace-nowrap hover:bg-hover aria-[current=page]:bg-active";
+  "target flex min-h-row w-full items-center gap-2 rounded-row px-1.5 font-medium hover:bg-hover aria-[current=page]:bg-active";
 
 export function Shell() {
   const projects = useJson(urls.projects(), projectsSchema);
@@ -25,10 +25,11 @@ export function Shell() {
           Monitor
         </NavLink>
         <Collapsible.Root defaultOpen className="mt-3">
-          <Collapsible.Trigger className="group flex h-row items-center gap-1 rounded-row px-1.5 text-xs font-medium text-fg-3 hover:bg-hover hover:text-fg-2">
+          <Collapsible.Trigger className="target group flex h-row items-center gap-1 rounded-row px-1.5 text-xs font-medium text-fg-3 hover:bg-hover hover:text-fg-2">
             Projects
+            {projects.state === "ok" && ` · ${projects.data.length}`}
             <ChevronDown
-              className="size-2.5 transition-transform group-data-[state=closed]:-rotate-90"
+              className="size-2.5 transition-transform motion-reduce:transition-none group-data-[state=closed]:-rotate-90"
               strokeWidth={2}
               aria-hidden
             />
@@ -47,7 +48,7 @@ export function Shell() {
                         style={{ color: p.color }}
                         aria-hidden
                       />
-                      <span className="truncate">{p.name}</span>
+                      <span className="min-w-0 break-words">{p.name}</span>
                     </NavLink>
                   </li>
                 ))}
@@ -82,7 +83,7 @@ export function Frame({
         aria-label="Breadcrumb"
         className="flex h-header flex-none items-center border-b border-line pr-4 pl-3"
       >
-        <ol className="flex min-w-0 items-center gap-0.5 font-medium">
+        <ol className="flex min-w-0 items-center gap-0.5 overflow-x-auto font-medium">
           {crumbs.map((crumb, i) => (
             <li key={i} className="flex min-w-0 items-center gap-0.5">
               {i > 0 && (
@@ -95,14 +96,14 @@ export function Frame({
               {crumb.to !== undefined && i < crumbs.length - 1 ? (
                 <Link
                   to={crumb.to}
-                  className="flex h-6 items-center rounded-row px-1.5 whitespace-nowrap text-fg-2 hover:bg-hover hover:text-fg"
+                  className="target flex items-center rounded-row px-1.5 whitespace-nowrap text-fg-2 hover:bg-hover hover:text-fg"
                 >
                   {crumb.label}
                 </Link>
               ) : (
                 <span
                   aria-current={i === crumbs.length - 1 ? "page" : undefined}
-                  className="truncate px-1.5"
+                  className="px-1.5 whitespace-nowrap"
                 >
                   {crumb.label}
                 </span>

@@ -39,7 +39,7 @@ describe("the graph", () => {
 
     expect(node("solve")).toMatchObject({
       title: "Pass@k",
-      sub: "not run",
+      sub: "Not run",
       idle: true,
       lastVisit: null,
     });
@@ -54,7 +54,7 @@ describe("the graph", () => {
 
     expect(drawn.nodes.at(-1)).toMatchObject({
       idle: true,
-      sub: "not reached",
+      sub: "Not run",
     });
   });
 });
