@@ -237,7 +237,7 @@ def window(
     start = started if t0 is None else t0
     end = t1 if t1 is not None else ended if ended is not None else started
     # A run with one sample, or none yet, still has a window to draw.
-    if t1 is None and end <= start:
+    if t0 is None and t1 is None and end <= start:
       end = start + 1
     if not end > start:
       raise RefusedError(400, "the window ends before it starts")

@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import {
   afterEach,
@@ -102,12 +108,23 @@ const WINDOW = {
   bars_until: null,
 };
 
-// jsdom has no ResizeObserver; the page measures nothing in these tests.
+// jsdom has no ResizeObserver and lays nothing out: an element reports its
+// size once observed, and every element is 1,000px wide.
 globalThis.ResizeObserver = class {
-  observe = vi.fn();
+  readonly report: ResizeObserverCallback;
+  constructor(report: ResizeObserverCallback) {
+    this.report = report;
+  }
+  observe = vi.fn(() => {
+    this.report([], this);
+  });
   unobserve = vi.fn();
   disconnect = vi.fn();
 };
+Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+  configurable: true,
+  get: () => 1000,
+});
 
 let fetchMock: Mock<(url: string) => Promise<Response>>;
 
@@ -218,6 +235,22 @@ describe("the Monitor page", () => {
         (u) => u.includes("/monitor/curve?") && u.includes("container=c-2"),
       ),
     ).toBe(true);
+  });
+
+  it("chooses the bar a tap lands on, with no pointer moving before it", async () => {
+    const { container } = show();
+    await screen.findByText("batch-1/task-0001");
+    const lanes = container.querySelector("[data-lanes]");
+    if (lanes === null) throw new Error("no lanes");
+
+    // jsdom has no tokens: a lane is 1px; c-2 is in the second lane, from
+    // 10 to 100 seconds of the 600-second window.
+    await waitFor(() => {
+      expect(lanes.querySelector("svg")).not.toBeNull();
+    });
+    fireEvent.click(lanes, { clientX: 50, clientY: 1.5 });
+
+    expect(screen.getByLabelText("where")).toHaveTextContent("container=c-2");
   });
 
   it("reads again only on refresh", async () => {

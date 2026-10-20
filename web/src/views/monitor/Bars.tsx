@@ -196,8 +196,10 @@ function Lanes({
   const assigned = lanes(bars);
   const count = Math.max(1, ...assigned.map((l) => l + 1));
   const x = (t: number) => ((t - from) / (to - from)) * width;
-  // A bar narrower than a pixel or two is still drawn, and found.
-  const least = 2;
+  // A bar narrower than a pixel or two is still drawn, and found within a
+  // few pixels of the pointer.
+  const least = px("--spacing-bar-least");
+  const reach = px("--spacing-bar-reach");
   const at = (left: number, py: number) => {
     const row = Math.floor(py / lane);
     let best: Bar | undefined;
@@ -207,7 +209,7 @@ function Lanes({
       const x0 = x(bar.start_t);
       const x1 = Math.max(x(bar.last_t), x0 + least);
       const d = left < x0 ? x0 - left : left > x1 ? left - x1 : 0;
-      if (d < gap && d <= 3) {
+      if (d < gap && d <= reach) {
         gap = d;
         best = bar;
       }
@@ -221,6 +223,7 @@ function Lanes({
       {/* eslint-disable-next-line jsx-a11y-x/click-events-have-key-events, jsx-a11y-x/no-static-element-interactions */}
       <div
         ref={boxRef}
+        data-lanes
         className="relative min-h-target cursor-pointer rounded-row bg-head"
         style={{ height: count * lane }}
         onPointerMove={(e) => {
@@ -231,9 +234,11 @@ function Lanes({
         onPointerLeave={() => {
           setHover(undefined);
         }}
-        onClick={() => {
-          if (hover)
-            onSelect({ kind: "container", id: hover.bar.container_id });
+        onClick={(e) => {
+          // A tap has no pointer moving before it: find the bar where it is.
+          const r = e.currentTarget.getBoundingClientRect();
+          const bar = at(e.clientX - r.left, e.clientY - r.top);
+          if (bar) onSelect({ kind: "container", id: bar.container_id });
         }}
       >
         {width > 0 && (
@@ -287,7 +292,10 @@ function Tip({
     <div
       role="tooltip"
       className="pointer-events-none absolute z-10 w-max max-w-md rounded-row border border-line bg-card px-3 py-2 text-xs shadow-sm"
-      style={{ left: x + 12, top: y + 12 }}
+      style={{
+        left: x + px("--spacing-tip-offset"),
+        top: y + px("--spacing-tip-offset"),
+      }}
     >
       <p className="font-medium text-fg">{barLabel(project, bar)}</p>
       <p className="text-fg-3">{bar.image}</p>

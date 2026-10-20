@@ -8,6 +8,7 @@ import pytest
 from dataforge.viz import monitor
 from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
+from dataforge.viz.paths import RefusedError
 from tests.viz.monitor_db import make_db, START
 from tests.viz.sites import make_tree, PROJECT, Tree
 
@@ -140,6 +141,7 @@ def test_a_curve_is_one_attempt_s_or_one_container_s(
     (f"{API}/window?run=9", 404, "no monitor run 9"),
     (f"{API}/window?run=2&t0=nan", 400, "t0"),
     (f"{API}/window?run=2&t0=5&t1=4", 400, "ends before it starts"),
+    (f"{API}/window?run=2&t0=1999999999", 400, "ends before it starts"),
     (f"{API}/curve?run=2&t0=1&t1=2", 400, "one of attempt and container"),
     ("/api/projects/other/monitor/runs", 404, "no project"),
   ],
@@ -152,6 +154,15 @@ def test_a_bad_request_is_refused_with_a_reason(
 
   assert response.status_code == status
   assert reason in cast(dict[str, str], response.json())["reason"]
+
+
+def test_the_database_is_opened_read_only(db: Path) -> None:
+  with pytest.raises(RefusedError) as refused, monitor.connect(db) as c:
+    _ = c.execute("CREATE TABLE written (a)")
+
+  assert refused.value.status == 503
+  assert "readonly" in refused.value.reason
+  assert "written" not in db.read_bytes().decode("latin-1")
 
 
 def test_a_project_with_no_monitor_says_so(tree: Tree, tmp_path: Path) -> None:
