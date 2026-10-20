@@ -1,6 +1,6 @@
 # PR gate: secret scan, pre-commit on all files, the script tests, the Python
 # checks, the web checks, then the data machine setup test (see AGENTS.md,
-# L22, L26 and L31).
+# L22, L26 and L49).
 # pre-commit includes the statute compile check, whose hook installs statute
 # itself. It is one job, `check`, so it reports on every pull request; the
 # setup steps that a change does not touch are skipped inside it, as decided
@@ -99,7 +99,7 @@ jobs:
       - name: Design length (docs/design.md and docs/design-viz.md, at most 200 lines each)
         run: .github/scripts/design-length.sh
 
-      # The uv project's checks, as AGENTS.md lists them (L31), at the
+      # The uv project's checks, as AGENTS.md lists them (L49), at the
       # versions python/pyproject.toml pins; uv installs the Python that
       # python/.python-version names. They run on every change, not only on
       # one that touches python/ (R343). The uv version is the rev of the
