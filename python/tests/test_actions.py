@@ -1255,6 +1255,11 @@ def test_an_adopted_container_is_started_without_a_create(
     ("HostConfig", "Memory", 0, "memory_gb"),
     ("HostConfig", "MemorySwap", -1, "memory_swap_gb"),
     ("HostConfig", "PidsLimit", None, "pids"),
+    ("HostConfig", "Privileged", True, "privileged"),
+    ("HostConfig", "CapAdd", ["SYS_ADMIN"], "cap_add"),
+    ("HostConfig", "Devices", [{"PathOnHost": "/dev/fuse"}], "devices"),
+    ("HostConfig", "PidMode", "host", "pid_mode"),
+    ("HostConfig", "IpcMode", "host", "ipc_mode"),
   ],
 )
 def test_a_container_unlike_the_env_is_not_adopted(
@@ -1278,10 +1283,24 @@ def test_a_container_is_checked_only_for_what_the_env_sets(
   env = Docker("solver:1", network=True, cli=InspectDocker(tmp_path, found))
   env.adopt("c1")
   assert env.container == "c1"
-  found["HostConfig"] = {"NetworkMode": "none"}
-  env = Docker("solver:1", network=True, cli=InspectDocker(tmp_path, found))
-  with pytest.raises(ValueError, match=r"c1 differs in network$"):
+  for mode in ["none", "host"]:
+    found["HostConfig"] = {"NetworkMode": mode}
+    env = Docker("solver:1", network=True, cli=InspectDocker(tmp_path, found))
+    with pytest.raises(ValueError, match=r"c1 differs in network$"):
+      env.adopt("c1")
+
+
+def test_a_privileged_container_with_an_added_capability_is_not_adopted(
+  tmp_path: Path,
+) -> None:
+  # Like the env in every item it sets, but run with --privileged
+  # --cap-add SYS_ADMIN.
+  found = inspected(tmp_path)
+  found["HostConfig"] |= {"Privileged": True, "CapAdd": ["CAP_SYS_ADMIN"]}
+  env = isolated(tmp_path, InspectDocker(tmp_path, found))
+  with pytest.raises(ValueError, match=r"c1 differs in privileged, cap_add$"):
     env.adopt("c1")
+  assert env.container is None
 
 
 def test_an_env_with_a_container_adopts_no_other(tmp_path: Path) -> None:

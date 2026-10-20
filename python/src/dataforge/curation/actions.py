@@ -514,11 +514,14 @@ class Docker:
     Such as the container of an attempt that a resume goes on with. It
     checks what `docker inspect` gives against what create_args would set:
     the image, each of labels (the container may have more, from its image),
-    the network (none without network, any other with it), and the user, the
-    working directory, the bind mounts, and each of cap_drop, security, cpus,
-    cpu_shares, memory_gb, memory_swap_gb and pids that this env sets. What
-    the env leaves to docker's defaults is not checked, nor is env or
-    pass_env, whose values inspect would show.
+    the network (none without network, any but the host's with it), and the
+    user, the working directory, the bind mounts, and each of cap_drop and
+    security (the container may have more), cpus, cpu_shares, memory_gb,
+    memory_swap_gb and pids that this env sets. It also refuses a container
+    isolated less than create_args leaves one: privileged, with a capability
+    added, a device or the host's PID or IPC namespace. The rest of what the
+    env leaves to docker's defaults is not checked, nor is env or pass_env,
+    whose values inspect would show.
 
     Args:
       container: The container's ID or name.
@@ -558,11 +561,14 @@ class Docker:
       for m in mounts
     ]
     caps = _capabilities(_strings(host.get("CapDrop")))
+    mode = host.get("NetworkMode")
     # Each item the env sets: whether the container has it.
     checks: dict[str, bool | None] = {
       "image": config.get("Image") == self.image,
       **{f"label {k}": labels.get(k) == v for k, v in self.labels.items()},
-      "network": (host.get("NetworkMode") == "none") != self.network,
+      "network": mode not in ("none", "host")
+      if self.network
+      else mode == "none",
       "mounts": _strings(host.get("Binds")) == sorted(binds),
       "user": _same(config.get("User"), self.user),
       "workdir": _same(config.get("WorkingDir"), self.workdir),
@@ -578,6 +584,12 @@ class Docker:
         host.get("MemorySwap"), _bytes(self.memory_swap_gb)
       ),
       "pids": _same(host.get("PidsLimit"), self.pids),
+      # What create_args never asks for, whatever the env.
+      "privileged": host.get("Privileged") is not True,
+      "cap_add": not host.get("CapAdd"),
+      "devices": not host.get("Devices"),
+      "pid_mode": host.get("PidMode") != "host",
+      "ipc_mode": host.get("IpcMode") != "host",
     }
     return [name for name, same in checks.items() if same is False]
 
