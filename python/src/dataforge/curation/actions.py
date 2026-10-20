@@ -11,6 +11,7 @@ them.
 import codecs
 from collections.abc import Callable, Generator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+import contextlib
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 import dataclasses
 from dataclasses import dataclass, field
@@ -420,7 +421,7 @@ def run_docker(args: Sequence[str]) -> CommandResult:
 
 @dataclass(eq=False)
 class Docker:
-  """A container, kept across visits, that each action starts and stops.
+  """A container, kept across visits unless fresh, that actions start and stop.
 
   `docker create` makes it on first use, `docker start` and `docker stop`
   bracket each action in it, and leaving its `with` removes it. With fresh, it
@@ -676,7 +677,7 @@ class Docker:
     Raises:
       BaseException: Whatever creating, starting or post_start raised; the
         memory is given back, and after a failed post_start the container is
-        stopped.
+        stopped. A fresh env also removes its container.
     """
     with self._lock:
       if self._users == 0:
@@ -697,6 +698,10 @@ class Docker:
               raise
         except BaseException:
           self._release()
+          if self.fresh:
+            # The failure that got here is the one to raise.
+            with contextlib.suppress(Exception):
+              self._remove()
           raise
       self._users += 1
 

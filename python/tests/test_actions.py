@@ -567,6 +567,26 @@ def test_a_fresh_docker_keeps_its_container_while_another_action_runs(
   assert docker.created == ["image-1"]
 
 
+def test_a_fresh_docker_whose_start_failed_is_created_again(
+  tmp_path: Path,
+) -> None:
+  docker = MovingTagDocker(tmp_path / "container")
+  starts: list[str] = []
+
+  def post_start(env: Docker) -> None:
+    starts.append(env.container or "")
+    if len(starts) == 1:
+      raise RuntimeError("no forwarder")
+
+  env = Docker("solver:1", fresh=True, post_start=post_start, cli=docker)
+  with pytest.raises(RuntimeError, match="no forwarder"):
+    env.start(None)
+  assert env.container is None
+  docker.tag = "image-2"
+  env.start(None)
+  assert docker.created == ["image-1", "image-2"]
+
+
 def test_a_failed_post_start_stops_the_container_and_returns_its_memory(
   tmp_path: Path,
 ) -> None:
