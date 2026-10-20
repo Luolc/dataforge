@@ -4,8 +4,10 @@ import { attemptRow } from "../../api/types";
 import {
   filterItems,
   flagged,
+  NO_STATUS,
   NOT_ENDED_KEY,
   notEnded,
+  rowStatus,
   toItems,
   UNREADABLE,
   withHomeStatuses,
@@ -31,6 +33,19 @@ describe("whether an attempt has not ended", () => {
     delete old.live;
     expect(attemptRow.parse(old)).not.toHaveProperty("live");
     expect(notEnded(attemptRow.parse(old))).toBe(false);
+  });
+});
+
+describe("rowStatus", () => {
+  it("is No status for an ended attempt with no status word", () => {
+    expect(rowStatus(row("a/1", { status: null, live: null }))).toBe(NO_STATUS);
+    expect(rowStatus(row("a/1", { status: null, live: "not ended" }))).toBe(
+      null,
+    );
+    const raised = [{ round: 1, state: "solve", outcome: "raised" }];
+    expect(rowStatus(row("a/1", { status: null, rounds: raised }))).toBe(
+      "raised",
+    );
   });
 });
 
@@ -131,5 +146,20 @@ describe("filterItems", () => {
 
   it("counts the items of tone bad or warn", () => {
     expect(flagged(full, items)).toBe(3); // too_easy, raised, unreadable
+  });
+
+  it("gives No status a chip of its own, apart from Not ended", () => {
+    const more = toItems([
+      row("a/1", { live: "not ended", status: null }),
+      row("b/1", { status: null }),
+    ]);
+    expect(filterItems(full, more, "", null).chips).toEqual([
+      { key: NOT_ENDED_KEY, count: 1 },
+      { key: NO_STATUS, count: 1 },
+    ]);
+    expect(full.statuses[NO_STATUS]).toEqual({
+      label: "No status",
+      tone: "neutral",
+    });
   });
 });

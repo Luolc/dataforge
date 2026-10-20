@@ -514,8 +514,13 @@ export function HomeTable({
         </div>
         {filtered.hidden > 0 && (
           <p className="flex items-center gap-2 text-xs text-fg-3">
-            {filtered.hidden} of {items.length} hidden by the search and the
-            status filter.
+            {filtered.hidden} of {items.length} hidden by{" "}
+            {q.trim() && chosen !== null
+              ? "the search and the status filter"
+              : q.trim()
+                ? "the search"
+                : "the status filter"}
+            .
             <button
               type="button"
               className={control}

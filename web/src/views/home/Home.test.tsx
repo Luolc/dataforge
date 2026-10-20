@@ -1,10 +1,15 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AttemptRow } from "../../api/types";
+import type { AttemptRow, Project } from "../../api/types";
 import Home from "./index";
 import { project, row, unreadable } from "./rows.test-data";
+
+function must<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("missing");
+  return value;
+}
 
 const at = (hour: number) =>
   `2026-03-02T${hour.toString().padStart(2, "0")}:00:00+00:00`;
@@ -48,7 +53,7 @@ function Where() {
   );
 }
 
-function show(url = "/sample") {
+function show(url = "/sample", shown: Project = project) {
   return render(
     <MemoryRouter initialEntries={[url]}>
       <Routes>
@@ -56,7 +61,7 @@ function show(url = "/sample") {
           path=":project"
           element={
             <>
-              <Home project={project} />
+              <Home project={shown} />
               <Where />
             </>
           }
@@ -171,7 +176,7 @@ describe("the home page", () => {
     expect(itemsOf("Ended")).toEqual(["t-new"]);
     expect(screen.queryByRole("button", { name: /^Not ended/ })).toBeNull();
     expect(
-      screen.getByText(/3 of 4 hidden by the search and the status filter/),
+      screen.getByText("3 of 4 hidden by the status filter."),
     ).toBeVisible();
   });
 
@@ -180,7 +185,7 @@ describe("the home page", () => {
     await screen.findByText("t-old");
 
     expect(screen.queryByText("t-run")).toBeNull();
-    expect(screen.getByText(/3 of 4 hidden/)).toBeVisible();
+    expect(screen.getByText("3 of 4 hidden by the search.")).toBeVisible();
   });
 
   it("reads the listing again only on refresh", async () => {
@@ -210,5 +215,68 @@ describe("the home page", () => {
     expect(screen.getByLabelText("where")).toHaveTextContent(
       "/sample/attempt?id=t-new%2F1",
     );
+  });
+
+  it("names both filters when both hide items", async () => {
+    show("/sample?q=t-&status=too_easy");
+    expect(
+      await screen.findByText(
+        "3 of 4 hidden by the search and the status filter.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("shows the record's reason, or why it cannot be read, on focus", async () => {
+    show();
+    const label = (await screen.findByText("Exhausted")).closest("[tabindex]");
+    if (!(label instanceof HTMLElement)) throw new Error("no focusable label");
+    fireEvent.focus(label);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "the budget ran out",
+    );
+    fireEvent.blur(label);
+
+    const unreadable = screen
+      .getByText("t-bad")
+      .closest("tr")
+      ?.querySelector("[tabindex]");
+    if (!(unreadable instanceof HTMLElement)) throw new Error("no label");
+    fireEvent.focus(unreadable);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "the record: not found",
+    );
+  });
+
+  it("titles each round by its state and shows its outcome", async () => {
+    show();
+    const cells = (await screen.findByText("t-new")).closest("tr");
+    const round = cells?.querySelector("ol li");
+    expect(round).toHaveTextContent("Pass@kPass");
+  });
+
+  it("draws the project's columns in their formats", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        { title: "Cap", field: ["budget", "max_usd"], format: "usd" },
+        { title: "Seen", field: ["seen"], format: "time" },
+        { title: "Note", field: ["note"], format: "text" },
+      ],
+    };
+    ROWS[3] = { ...must(ROWS[3]), values: [15, at(7), null] };
+    try {
+      show("/sample", withColumns);
+      const item = (await screen.findByText("t-new")).closest("tr");
+      const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-3);
+      expect(cells.map((c) => c.textContent)).toEqual([
+        "$15.00",
+        "2026-03-02 07:00 UTC",
+        "—",
+      ]);
+      expect(cells[0]).toHaveClass("text-right");
+      expect(cells[2]).not.toHaveClass("text-right");
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [] };
+    }
   });
 });

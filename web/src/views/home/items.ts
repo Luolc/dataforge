@@ -17,6 +17,8 @@ const LIVE_WORD: Record<Live, string | null> = {
 export const NOT_ENDED_KEY = "~not-ended";
 /** A filter key, and a status word, for items whose record cannot be read. */
 export const UNREADABLE = "~unreadable";
+/** A status word for an attempt that has ended with no status word. */
+export const NO_STATUS = "~no-status";
 
 export type Group = "open" | "ended" | "unreadable";
 
@@ -45,13 +47,13 @@ export const notEnded = (row: AttemptRow): boolean =>
 /**
  * An attempt's status word: UNREADABLE when its record cannot be read; while
  * it has not ended, live's word (null for not ended); else its record's
- * status, or raised when its last visit raised.
+ * status, raised when its last visit raised, or NO_STATUS.
  */
 export function rowStatus(row: AttemptRow): string | null {
   if (row.error !== null) return UNREADABLE;
   if (row.live !== null && row.live !== undefined) return LIVE_WORD[row.live];
   if (row.status !== null) return row.status;
-  return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : null;
+  return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : NO_STATUS;
 }
 
 /** An attempt's seconds from start to end; null until it ends. */
@@ -139,6 +141,7 @@ export function withHomeStatuses(project: Project): Project {
       ...project.statuses,
       "~running": liveStatus.running,
       "~may-have-stopped": liveStatus["may have stopped"],
+      [NO_STATUS]: { label: "No status", tone: "neutral" },
       [UNREADABLE]: { label: "Unreadable", tone: "bad" },
     },
   };
