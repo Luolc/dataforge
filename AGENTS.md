@@ -376,7 +376,7 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - L36 Keep out of this repository's frontend code every status word, label and route that only one dataset has, and take each as configuration from the project that uses the frontend.
 - L37 Define the status words of each kind of object in one place, and take every status word a page shows from there.
 - L38 Color every status on a page with the tokens of one of four tones, `good`, `bad`, `warn` and `neutral`, and with no other color.
-- L39 Show every status on a page with its word or with an icon whose shape no status of another tone (L38) has on that page, never by color alone or by a single letter.
+- L39 Show every status on a page with its word or with an icon whose shape no status of another tone (L38) has on that page, never by color alone or by a single letter, except in a cell of a matrix whose legend on the same page says what each of its colors means, which may show a status by color alone.
 - L40 Show a state or a deliverable that an attempt never reached as not run, never as failed or passed.
 - L41 Right-align every column of numbers in a table on a page.
 - L42 Set every column of numbers in a table on a page with tabular figures (`font-variant-numeric: tabular-nums`).

@@ -16,16 +16,16 @@ uses = ["instructions", "review"]
 en = "Show a status by its word or its tone's own icon, not by color alone"
 
 [text.statement]
-en = "Show every status on a page with its word or with an icon whose shape no status of another tone ({@rule:38}) has on that page, never by color alone or by a single letter."
+en = "Show every status on a page with its word or with an icon whose shape no status of another tone ({@rule:38}) has on that page, never by color alone or by a single letter, except in a cell of a matrix whose legend on the same page says what each of its colors means, which may show a status by color alone."
 
 [text.reason]
 en = '''
-A reader who does not tell the colors apart, or who reads a screenshot in grey, still reads the word or the shape; a letter such as C or I has to be learned before it says anything.
+A reader who does not tell the colors apart, or who reads a screenshot in grey, still reads the word or the shape; a letter such as C or I has to be learned before it says anything. In a matrix of many small cells, a legend beside it names each color once, where a word or icon in every cell would crowd the grid.
 '''
 
 [text.verification]
 en = '''
-A word shown only in a tooltip does not count. A dot has the same shape in every tone, so a dot alone is color alone.
+A word shown only in a tooltip does not count. A dot has the same shape in every tone, so a dot alone is color alone. The exception covers only cells of a matrix (a grid of rows by columns, such as tests by trials) with a legend on the same page that names each color its cells use; it covers no other list, row or label.
 
-Violated when a page shows a status by color alone, by an icon, with no word beside it, whose shape a status of another tone also has on that page, or by a single letter.
+Violated when a page shows a status by color alone outside such a matrix cell, by an icon, with no word beside it, whose shape a status of another tone also has on that page, or by a single letter, or when such a cell has a color its legend does not name.
 '''
