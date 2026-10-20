@@ -16,7 +16,7 @@ uses = ["instructions", "review"]
 en = "Keep the design in docs/design.md and docs/design-viz.md, at most 200 lines each"
 
 [text.statement]
-en = "Keep the whole design in two files, each at most 200 lines long: the design of the viz, the web viewer of attempts and its server, in `docs/design-viz.md`, and the rest in `docs/design.md`."
+en = "Keep the whole design in `docs/design.md`, except the design of the viz, the web viewer of attempts and its server, which goes in `docs/design-viz.md`; keep each file at most 200 lines long."
 
 [text.reason]
 en = '''
@@ -27,5 +27,5 @@ One short file is read whole before a change; the cap keeps it to what a reader 
 en = '''
 `.github/scripts/design-length.sh` checks the cap of both files, and CI's `check` job runs it.
 
-Violated when a change adds a third design file, puts into `docs/design-viz.md` a part of the design other than the viz, or leaves either file longer than 200 lines.
+Violated when a change adds a design file other than these two, puts into `docs/design-viz.md` a part of the design other than the viz, or leaves either file longer than 200 lines.
 '''
