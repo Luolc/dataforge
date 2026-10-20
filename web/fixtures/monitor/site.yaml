@@ -5,4 +5,4 @@
 # then `dataforge viz serve --config web/fixtures/monitor/site.yaml --static
 # web/dist`.
 listen: { host: 127.0.0.1, port: 8800 }
-projects: [project.yaml, project-large.yaml]
+projects: [project.yaml, project-large.yaml, project-unwritten.yaml]

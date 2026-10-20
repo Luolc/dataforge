@@ -24,6 +24,12 @@ export const monitorUrls = {
     })}`,
 };
 
+/** A route's answer when the database does not exist yet. */
+export const noDatabase = z.looseObject({
+  error: z.literal("no database"),
+  db: z.string(),
+});
+
 /** What the page draws a curve of besides the machine and the batch. */
 export interface Selected {
   kind: "attempt" | "container";
