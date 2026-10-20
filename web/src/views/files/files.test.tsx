@@ -157,6 +157,7 @@ describe("the files view", () => {
     ["Change.Diff", "--- a/x\n+++ b/x\n", "diff", ["diff"]],
     ["Main.PY", "import os\n", "python", ["highlighted"]],
     ["DOCKERFILE", "FROM scratch\n", "docker", []],
+    [".md", "# A heading\n", "other", []],
   ])(
     "shows %s with the icon and the preview of one kind",
     async (name, text, kind, shown) => {
