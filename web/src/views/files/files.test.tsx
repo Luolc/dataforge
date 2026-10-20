@@ -34,10 +34,10 @@ function show(
   file?: string,
   path: string | null = root,
 ) {
-  fakeFiles(files);
+  const fetch = fakeFiles(files);
   const query = new URLSearchParams({ id: "a/b", tab: "files" });
   if (file !== undefined) query.set("file", file);
-  return render(
+  const shown = render(
     <MemoryRouter initialEntries={[`/sample/attempt?${query.toString()}`]}>
       <FilesView
         project={sampleProject}
@@ -47,6 +47,7 @@ function show(
       />
     </MemoryRouter>,
   );
+  return { ...shown, fetch };
 }
 
 const preview = () => screen.findByRole("heading", { level: 3 });
@@ -146,6 +147,32 @@ describe("the files view", () => {
     expect(kinds).toEqual(["head", "head", "hunk", "context", "remove", "add"]);
   });
 
+  it("tells a removed -- line or an added ++ line in a hunk from a header", async () => {
+    const { container } = show(
+      {
+        [`${root}/notes.diff`]:
+          "--- a/notes.md\n+++ b/notes.md\n@@ -1,3 +1,3 @@\n--- a rule\n+++ a heading\n-x\n+y\n same\n\\ No newline at end of file\n",
+      },
+      `${root}/notes.diff`,
+    );
+
+    await screen.findByText(/^9 lines/);
+    const kinds = [...container.querySelectorAll("[data-line]")].map((line) =>
+      line.getAttribute("data-line"),
+    );
+    expect(kinds).toEqual([
+      "head",
+      "head",
+      "hunk",
+      "remove",
+      "add",
+      "remove",
+      "add",
+      "context",
+      "context",
+    ]);
+  });
+
   it("shows only the size of a file that is not UTF-8", async () => {
     show(task, `${root}/data.bin`);
 
@@ -163,8 +190,7 @@ describe("the files view", () => {
   });
 
   it("lists a symlink without opening it", async () => {
-    const fetch = fakeFiles(task);
-    show(task);
+    const { fetch } = show(task);
 
     await preview();
     expect(await screen.findByText("symlink")).toBeVisible();
@@ -174,8 +200,7 @@ describe("the files view", () => {
   });
 
   it("shows the reason of a deliverable that was not reached", () => {
-    const fetch = fakeFiles(task);
-    show(task, undefined, null);
+    const { fetch } = show(task, undefined, null);
 
     expect(screen.getByText("Not run: author was never visited")).toBeVisible();
     expect(fetch).not.toHaveBeenCalled();
