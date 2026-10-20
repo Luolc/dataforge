@@ -1,10 +1,11 @@
 """What a session's model calls cost: prices, a reply's reading, the ledger.
 
 The proxy reads the model and usage of each 200 reply to a model call as it
-passes it on (`Meter`): of an event stream, from `message_start` and the last
-`message_delta` (`CLAUDE`) or from the `response` of `response.completed`,
-`response.done`, `response.incomplete` or `response.failed` (`CODEX`); of a
-JSON reply, from its top-level `model` and `usage`. `Spend` prices it, and
+passes it on (`Meter`), whatever its `Content-Type`: of a reply with `data:`
+events, from `message_start` and the last `message_delta` (`CLAUDE`) or from
+the `response` of `response.completed`, `response.done`,
+`response.incomplete` or `response.failed` (`CODEX`); of a reply without any,
+read as JSON, from its top-level `model` and `usage`. `Spend` prices it, and
 the ledger gets one line per reply (`record`), each written whole and synced
 before the proxy goes on; `read_ledger` reads it back.
 """
@@ -182,26 +183,25 @@ class Meter:
   def __init__(
     self,
     channel: Channel,
-    content_type: str,
+    content_type: str | None,
     content_encoding: str = "identity",
   ):
     """Read a reply of a channel.
 
     Args:
       channel: The channel, which says where the usage is.
-      content_type: The reply's `Content-Type`: `text/event-stream` for a
-        stream, any other for JSON; with none, every line is looked at for a
-        `data:` event, and a reply with none is read whole as JSON.
+      content_type: The reply's `Content-Type`, None for none, which only
+        the diagnosis of a reply without usage reports: whatever it says,
+        every line is looked at for a `data:` event, and a reply with none is
+        read whole as JSON.
       content_encoding: The reply's `Content-Encoding`; a reply compressed is
         not read, and `unreadable` says so.
     """
     self.channel: Channel = channel
-    self._declared: bool | None = (
-      content_type.startswith("text/event-stream") if content_type else None
-    )
+    self.content_type: str | None = content_type
     self._buffer: bytes = b""
     # The whole reply, kept while it may yet be JSON.
-    self._body: bytearray | None = None if self._declared else bytearray()
+    self._body: bytearray | None = bytearray()
     self.model: str | None = None
     self.usage: dict[str, object] = {}
     self.unreadable: str | None = None
@@ -233,8 +233,6 @@ class Meter:
     self._head += chunk[: _HEAD - len(self._head)]
     if self._body is not None:
       self._body += chunk
-    if self._declared is False:
-      return
     self._buffer += chunk
     if self._lead:
       # A reply may open with a byte order mark, which a split chunk can leave
@@ -252,11 +250,7 @@ class Meter:
     if self.unreadable is not None:
       return
     self._ended = True
-    if self._declared is False:
-      body = bytes(self._body or b"").removeprefix(_BOM)
-      self._first(next((x for x in body.split(b"\n") if x.strip()), b""))
-    else:
-      self._line(self._buffer)
+    self._line(self._buffer)
     if self._body is not None and not self.data_lines:
       self._message(_json(bytes(self._body)))
     self._buffer = b""
@@ -265,9 +259,9 @@ class Meter:
   @property
   def mode(self) -> str:
     """How the reply was read: `stream`, `json` or `undecided`."""
-    if self._declared or self.data_lines:
+    if self.data_lines:
       return "stream"
-    return "json" if self._declared is False or self._ended else "undecided"
+    return "json" if self._ended else "undecided"
 
   @property
   def field(self) -> str:

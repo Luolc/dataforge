@@ -283,11 +283,16 @@ def test_the_cap_refuses_every_request_once_reached_and_ends_the_session(
   assert "spent" in str(capped["capped"])
 
 
-def bare(*parts: bytes) -> Callable[[BaseHTTPRequestHandler, int], None]:
-  # A stream the gateway sends without a Content-Type, as the Codex channel's.
+def bare(
+  *parts: bytes, content_type: str | None = None
+) -> Callable[[BaseHTTPRequestHandler, int], None]:
+  # A stream the gateway sends without a Content-Type, as the Codex channel's,
+  # or with the one given.
   def respond(handler: BaseHTTPRequestHandler, n: int) -> None:
     del n
     handler.send_response(200)
+    if content_type is not None:
+      handler.send_header("Content-Type", content_type)
     handler.end_headers()
     for part in parts:
       _ = handler.wfile.write(part)
@@ -322,8 +327,13 @@ def split(body: bytes, sizes: tuple[int, ...]) -> list[bytes]:
   return [*chunks, body]
 
 
-def read_bare(channel: Channel, body: bytes, sizes: tuple[int, ...]) -> Meter:
-  meter = Meter(channel, "")
+def read_bare(
+  channel: Channel,
+  body: bytes,
+  sizes: tuple[int, ...],
+  content_type: str | None = None,
+) -> Meter:
+  meter = Meter(channel, content_type)
   for chunk in split(body, sizes):
     meter.feed(chunk)
   meter.end()
@@ -349,6 +359,23 @@ def test_a_stream_without_a_content_type_is_read_whatever_it_opens_with(
   meter = read_bare(channel, body, sizes)
   assert meter.model == MODEL[channel]
   assert meter.mode == "stream"
+  assert meter.usage != {}
+  assert meter.usage == read_bare(channel, body, ()).usage
+
+
+@pytest.mark.parametrize("sizes", SPLITS)
+@pytest.mark.parametrize(
+  "content_type",
+  ["application/json", "text/plain", "Text/Event-Stream", "text/event-stream"],
+)
+@pytest.mark.parametrize("channel", list(Channel))
+def test_a_stream_is_read_by_its_events_whatever_its_content_type(
+  channel: Channel, content_type: str, sizes: tuple[int, ...]
+):
+  body = b": hi\r\n" + b"".join(events(channel)).replace(b"\n", b"\r\n")
+  meter = read_bare(channel, body, sizes, content_type)
+  assert meter.mode == "stream"
+  assert meter.model == MODEL[channel]
   assert meter.usage != {}
   assert meter.usage == read_bare(channel, body, ()).usage
 
@@ -438,6 +465,43 @@ def test_the_diagnosis_of_a_reply_without_usage_counts_data_lines_names_keys(
   [line] = [x for x in err.splitlines() if "without usage:" in x]
   assert "events y, data lines 1, " in line
   assert f"first line {len(opening) - 1} bytes, keys type,?,id, " in line
+  assert "SECRET" not in err
+
+
+@pytest.mark.parametrize(
+  ("content_type", "shown"),
+  [
+    ("application/json; charset=utf-8", "'application/json; charset=utf-8'"),
+    (None, "none"),
+  ],
+)
+def test_the_diagnosis_of_a_reply_without_usage_gives_its_content_type(
+  socket_dir: Path,
+  capfd: pytest.CaptureFixture[str],
+  content_type: str | None,
+  shown: str,
+):
+  path = socket_dir / "model.sock"
+  respond = bare(
+    data({"type": "y", "delta": "SECRET"}), content_type=content_type
+  )
+  with (
+    upstream(respond) as (base, _),
+    proxy.make_server(
+      Channel.CODEX,
+      path,
+      base,
+      "t",
+      spend=Spend(prices=PRICES, max_usd=10.0),
+    ) as server,
+  ):
+    _ = serving(server)
+    _ = call(path, ROUTE[Channel.CODEX])
+    assert wait_for(lambda: server.capped is not None)
+    server.shutdown()
+  err = capfd.readouterr().err
+  [line] = [x for x in err.splitlines() if "without usage:" in x]
+  assert f" bytes, Content-Type {shown}, events y, " in line
   assert "SECRET" not in err
 
 

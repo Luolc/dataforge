@@ -294,7 +294,7 @@ class _Server(socketserver.ThreadingUnixStreamServer):
       return None
     return Meter(
       self.channel,
-      response.getheader("Content-Type", ""),
+      response.getheader("Content-Type"),
       response.getheader("Content-Encoding", "identity"),
     )
 
@@ -309,13 +309,15 @@ class _Server(socketserver.ThreadingUnixStreamServer):
     except Exception as e:  # noqa: BLE001
       usd, reason = None, f"the reply could not be read: {e!r}"
     if reason == NO_USAGE:
-      # Only the shape of the reply: event types, counts, the length and
-      # top-level keys of its first line, how it was read and the protocol
-      # field that line opens with.
+      # Only the shape of the reply: its Content-Type, event types, counts,
+      # the length and top-level keys of its first line, how it was read and
+      # the protocol field that line opens with.
       kinds = ",".join(meter.kinds) or "none"
       keys = ",".join(meter.first_keys) if meter.first_keys else "none"
+      ctype = "none" if meter.content_type is None else repr(meter.content_type)
       _ = sys.stderr.write(
-        f"gateway: {NO_USAGE}: {meter.size} bytes, events {kinds}, "
+        f"gateway: {NO_USAGE}: {meter.size} bytes, Content-Type {ctype}, "
+        + f"events {kinds}, "
         + f"data lines {meter.data_lines}, first line {meter.first_len} "
         + f"bytes, keys {keys}, "
         + f"read as {meter.mode}, first field {meter.field!r}\n"
