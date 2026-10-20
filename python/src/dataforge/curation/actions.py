@@ -1432,6 +1432,32 @@ def drop_escaping_links(root: Path, what: str) -> list[str]:
   ]
 
 
+def drop_special_files(root: Path, what: str) -> list[str]:
+  """Remove each entry under root that is no file, directory or symlink.
+
+  A FIFO, a socket or a device would hang or mislead a reader that opens it
+  as a file.
+
+  Args:
+    root: The tree.
+    what: What the tree is, for the notes.
+
+  Returns:
+    A line for each entry removed.
+  """
+  notes: list[str] = []
+  for top, dirs, files in os.walk(root, onerror=_fail):
+    for name in [*dirs, *files]:
+      path = Path(top, name)
+      mode = path.lstat().st_mode
+      if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
+        path.unlink()
+        notes.append(
+          f"{what}: removed {path.relative_to(root)}: not a regular file"
+        )
+  return notes
+
+
 def _let_owner_in(path: Path) -> None:
   path.chmod(stat.S_IMODE(path.lstat().st_mode) | stat.S_IRWXU)
   with os.scandir(path) as entries:
@@ -1441,7 +1467,7 @@ def _let_owner_in(path: Path) -> None:
 
 
 def _fail(error: OSError) -> None:
-  # A directory the walk cannot read could hide a link from the check.
+  # A directory the walk cannot read could hide an entry from the check.
   raise error
 
 

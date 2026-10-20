@@ -98,10 +98,12 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 # The fake docker appends its argv to calls.jsonl next to it. `<kind> ls` with a
 # label filter prints the ids in <kind>.ids; `rm` and `rmi` remove them unless a
 # file "stuck" is there. mounts.json maps the ids of containers without the
-# label to their mounts' sources: `container ls` without a filter prints those
-# ids, `container inspect` gives their mounts, and `container rm` removes them
-# unless "stuck" is there. `compose` goes to the real docker on PATH, which only
-# reads compose files here.
+# label to their mounts' sources, or to null for one gone before it is
+# inspected: `container ls` without a filter prints those ids, `container
+# inspect` gives their mounts, says "No such container" for each gone one and
+# the line in a file "inspect-error" when there is one, exiting 1 when it said
+# anything, and `container rm` removes them unless "stuck" is there. `compose`
+# goes to the real docker on PATH, which only reads compose files here.
 FAKE_DOCKER = """\
 import json, os, pathlib, sys
 here = pathlib.Path(__file__).parent
@@ -119,9 +121,15 @@ if argv[0] == "container" and "--filter" not in argv:
     if argv[1] == "inspect":
         print(json.dumps([
             {"Id": i, "Mounts": [{"Source": s} for s in mounts[i]]}
-            for i in argv[2:] if i in mounts
+            for i in argv[2:] if mounts.get(i) is not None
         ]))
-        sys.exit(0)
+        gone = [i for i in argv[2:] if i in mounts and mounts[i] is None]
+        errors = [f"Error response from daemon: No such container: {i}"
+                  for i in gone]
+        if (here / "inspect-error").exists():
+            errors.append((here / "inspect-error").read_text())
+        print("\\n".join(errors), file=sys.stderr)
+        sys.exit(1 if errors else 0)
     if argv[1] == "rm" and not (here / "stuck").exists():
         for i in argv[3:]:
             mounts.pop(i, None)
@@ -782,6 +790,28 @@ def test_a_container_that_still_mounts_the_trial_is_an_error(
   _ = (fakes[1].parent / "stuck").write_text("")
   with pytest.raises(RuntimeError, match="containers still mount"):
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+
+
+def test_a_container_gone_before_it_is_inspected_is_passed_over(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  source = str(out.resolve() / "job" / "task__abc" / "verifier")
+  mounts = {"gone": None, "verifier": [source]}
+  _ = (fakes[1].parent / "mounts.json").write_text(json.dumps(mounts))
+  result = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  assert result.exception is None
+  assert ["container", "rm", "-f", "verifier"] in docker_calls(fakes)
+
+
+def test_any_other_error_of_docker_inspect_is_an_error(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  mounts = {"gone": None, "other": [str(tmp_path)]}
+  _ = (fakes[1].parent / "mounts.json").write_text(json.dumps(mounts))
+  _ = (fakes[1].parent / "inspect-error").write_text("permission denied")
+  with pytest.raises(RuntimeError, match="docker container inspect failed"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
 
 
 def test_an_entry_of_a_trial_that_is_no_file_directory_or_link_is_removed(

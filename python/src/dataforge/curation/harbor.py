@@ -53,7 +53,6 @@ import json
 import os
 from pathlib import Path
 import signal
-import stat
 import subprocess
 import time
 import tomllib
@@ -62,6 +61,7 @@ import uuid
 
 from dataforge.curation.actions import (
   drop_escaping_links,
+  drop_special_files,
   Limits,
   Mount,
   TrialAgent,
@@ -178,7 +178,9 @@ class HarborRunner:
       the trial, and exits it after the cleanup, also when Harbor or the
       cleanup failed. A dataset serves a model gateway on a socket there, say,
       and yields the socket's mount. It runs inside the trial's reservation
-      from the pool, as run does.
+      from the pool, as run does. A container of its own that mounts from
+      under the output directory is removed with the trial's, before the
+      context exits.
     docker: The docker command that reads the task's compose file and that the
       cleanup runs; when docker fails during the cleanup, run raises, since it
       cannot tell what is left.
@@ -282,15 +284,11 @@ class HarborRunner:
       raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
     # No container can reach the trial now, so nothing in it changes after it
     # was checked.
-    notes = [
-      note
-      for trial in sorted((outdir / "job").glob("*/"))
-      if not trial.is_symlink()
-      for note in (
-        *drop_escaping_links(trial, f"trial {trial.name}"),
-        *_drop_special_files(trial, f"trial {trial.name}"),
-      )
-    ]
+    notes: list[str] = []
+    for trial in sorted((outdir / "job").glob("*/")):
+      if not trial.is_symlink():
+        notes += drop_escaping_links(trial, f"trial {trial.name}")
+        notes += drop_special_files(trial, f"trial {trial.name}")
     if notes:
       with log.open("a") as out:
         _ = out.write("".join(f"{note}\n" for note in notes))
@@ -521,37 +519,6 @@ def _mounting(path: Path, docker: str) -> list[str]:
       )
     )
   )
-
-
-def _drop_special_files(root: Path, what: str) -> list[str]:
-  """Remove each entry under root that is no file, directory or symlink.
-
-  A FIFO, a socket or a device would hang or mislead a reader that opens it
-  as a file.
-
-  Args:
-    root: The tree.
-    what: What the tree is, for the notes.
-
-  Returns:
-    A line for each entry removed.
-  """
-  notes: list[str] = []
-  for top, dirs, files in os.walk(root, onerror=_fail):
-    for name in [*dirs, *files]:
-      path = Path(top, name)
-      mode = path.lstat().st_mode
-      if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
-        path.unlink()
-        notes.append(
-          f"{what}: removed {path.relative_to(root)}: not a regular file"
-        )
-  return notes
-
-
-def _fail(error: OSError) -> None:
-  # A directory the walk cannot read could hide an entry from the check.
-  raise error
 
 
 def _passed() -> dict[str, str]:
