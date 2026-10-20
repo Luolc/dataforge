@@ -1,0 +1,4 @@
+[
+  { "criterion": "tests", "verdict": "pass" },
+  { "criterion": "instruction", "verdict": "pass" }
+]

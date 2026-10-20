@@ -1,0 +1,420 @@
+{
+  "status": null,
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 10.0,
+    "cost_usd": 0.5,
+    "stopped": null
+  },
+  "final": {
+    "build": {
+      "state": "build",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/build/1/task"
+          },
+          "started_at": "2026-03-04T10:15:00+00:00",
+          "ended_at": "2026-03-04T10:18:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ]
+    },
+    "review": {
+      "state": "review",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "report.md": "artifacts/review/1/report.md",
+            "rubric.json": "artifacts/review/1/rubric.json"
+          },
+          "started_at": "2026-03-04T10:21:00+00:00",
+          "ended_at": "2026-03-04T10:24:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ]
+    },
+    "solve": {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": null,
+      "data": {},
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-0": "artifacts/solve/1/trial-0"
+          },
+          "started_at": "2026-03-04T10:27:00+00:00",
+          "ended_at": "2026-03-04T10:30:00+00:00",
+          "cost_usd": 0.2,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__l0",
+            "path": "artifacts/solve/1/trial-0/tinyparse-fold__l0",
+            "trace": {
+              "path": "artifacts/solve/1/trial-0/tinyparse-fold__l0/agent/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-04T10:33:00+00:00",
+          "ended_at": "2026-03-04T10:36:00+00:00",
+          "cost_usd": 0.30000000000000004,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__l1",
+            "path": "artifacts/solve/1/trial-1/tinyparse-fold__l1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-1/tinyparse-fold__l1/agent/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "build",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/build/1/task"
+          },
+          "started_at": "2026-03-04T10:15:00+00:00",
+          "ended_at": "2026-03-04T10:18:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "report.md": "artifacts/review/1/report.md",
+            "rubric.json": "artifacts/review/1/rubric.json"
+          },
+          "started_at": "2026-03-04T10:21:00+00:00",
+          "ended_at": "2026-03-04T10:24:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ]
+    },
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": null,
+      "data": {},
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-0": "artifacts/solve/1/trial-0"
+          },
+          "started_at": "2026-03-04T10:27:00+00:00",
+          "ended_at": "2026-03-04T10:30:00+00:00",
+          "cost_usd": 0.2,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__l0",
+            "path": "artifacts/solve/1/trial-0/tinyparse-fold__l0",
+            "trace": {
+              "path": "artifacts/solve/1/trial-0/tinyparse-fold__l0/agent/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-04T10:33:00+00:00",
+          "ended_at": "2026-03-04T10:36:00+00:00",
+          "cost_usd": 0.30000000000000004,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__l1",
+            "path": "artifacts/solve/1/trial-1/tinyparse-fold__l1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-1/tinyparse-fold__l1/agent/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        }
+      ]
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "task",
+      "kind": "files",
+      "title": "Task",
+      "state": "build",
+      "output": "task",
+      "visit": 1,
+      "visit_index": 0,
+      "path": "artifacts/build/1/task",
+      "reason": null
+    },
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "pass@4",
+      "state": "solve",
+      "output": null,
+      "visit": 1,
+      "visit_index": 2,
+      "path": "artifacts/solve/1",
+      "reason": null,
+      "k": 4,
+      "value": {
+        "output": null,
+        "field": ["solved"],
+        "value": null,
+        "reason": "the outcome data has no key solved"
+      },
+      "trials": [
+        {
+          "id": "tinyparse-fold__l0",
+          "output": "trial-0",
+          "path": "artifacts/solve/1/trial-0/tinyparse-fold__l0",
+          "trace": {
+            "path": "artifacts/solve/1/trial-0/tinyparse-fold__l0/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__l1",
+          "output": "trial-1",
+          "path": "artifacts/solve/1/trial-1/tinyparse-fold__l1",
+          "trace": {
+            "path": "artifacts/solve/1/trial-1/tinyparse-fold__l1/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": null,
+          "output": "trial-2",
+          "path": "artifacts/solve/1/trial-2",
+          "trace": null,
+          "result": null
+        },
+        {
+          "id": null,
+          "output": "trial-3",
+          "path": "artifacts/solve/1/trial-3",
+          "trace": null,
+          "result": null
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "kind": "report",
+      "title": "Reviews",
+      "state": "review",
+      "output": "report.md",
+      "visit": 1,
+      "visit_index": 1,
+      "path": "artifacts/review/1/report.md",
+      "reason": null,
+      "table": {
+        "state": "review",
+        "output": "rubric.json",
+        "visit": 1,
+        "visit_index": 1,
+        "path": "artifacts/review/1/rubric.json",
+        "reason": null
+      }
+    }
+  ],
+  "graph": {
+    "start": "build",
+    "states": [
+      {
+        "name": "build",
+        "kind": "Fn",
+        "max_visits": 1,
+        "on_exhausted": "failed",
+        "max_cost_usd": 0.0
+      },
+      {
+        "name": "review",
+        "kind": "Fn",
+        "max_visits": 1,
+        "on_exhausted": "failed",
+        "max_cost_usd": 0.0
+      },
+      {
+        "name": "solve",
+        "kind": "PassAtKState",
+        "max_visits": 1,
+        "on_exhausted": "failed",
+        "max_cost_usd": 0.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "build",
+        "outcome": "pass",
+        "to": "review",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "pass",
+        "to": "solve",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "all_solved",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "none_solved",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "in_range",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "error",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  },
+  "resumptions": []
+}

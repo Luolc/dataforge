@@ -178,18 +178,22 @@ const source = {
   reason: z.string().nullable(),
 };
 
+// A trial that has started and not been recorded yet has no id, trace or
+// result (design.md section 5, "The record").
 const trial = z.looseObject({
-  id: z.string(),
+  id: z.string().nullable(),
   output: z.string(),
   path: z.string(),
   trace: z
     .looseObject({ path: z.string(), format: z.string().nullable() })
     .nullable(),
-  result: z.looseObject({
-    reward: z.number().nullable(),
-    rewards: z.record(z.string(), z.number()),
-    exception: z.string().nullable(),
-  }),
+  result: z
+    .looseObject({
+      reward: z.number().nullable(),
+      rewards: z.record(z.string(), z.number()),
+      exception: z.string().nullable(),
+    })
+    .nullable(),
 });
 export type Trial = z.infer<typeof trial>;
 

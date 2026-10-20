@@ -1,0 +1,4 @@
+# For the deliverables of a running attempt: `dataforge viz serve --config
+# web/fixtures/live-deliverables/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8831 }
+projects: [project.yaml]

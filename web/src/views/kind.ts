@@ -1,4 +1,9 @@
-import type { AttemptRecord, Deliverable, Project } from "../api/types";
+import type {
+  AttemptRecord,
+  Deliverable,
+  LiveInfo,
+  Project,
+} from "../api/types";
 
 /** What a deliverable kind's view gets: one deliverable and its record. */
 export interface DeliverableProps {
@@ -6,4 +11,6 @@ export interface DeliverableProps {
   attempt: string;
   record: AttemptRecord;
   deliverable: Deliverable;
+  /** Whether the attempt runs now; null or absent while it is not known. */
+  live?: LiveInfo | null;
 }

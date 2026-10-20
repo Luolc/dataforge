@@ -4,11 +4,12 @@
 import { Tabs } from "radix-ui";
 import { type ReactNode, useState } from "react";
 
-import type { Action, Tone, Trial } from "../../api/types";
+import type { Action, LiveInfo, Tone, Trial } from "../../api/types";
 import { SessionView } from "../../session";
 import { Note } from "../../ui/card";
 import { DiffView } from "../../ui/diff";
 import { duration, span, usd } from "../../ui/format";
+import { RunningIcon } from "../../ui/running";
 import { attemptStatus, toneGlyph, toneText } from "../../ui/status";
 import { StatusLabel } from "../../ui/status-mark";
 import { DeliverableCard } from "../DeliverableCard";
@@ -20,12 +21,23 @@ const SOLVED = "solved";
 const NOT_SOLVED = "not solved";
 const EXCEPTION = "exception";
 const NO_REWARD = "no reward";
+const RUNNING = "running";
+const NOT_FINISHED = "not finished";
 
 /**
  * A trial's status: solved when its reward is at least 1.0, as the default
- * `solved` accepts; an exception before anything else.
+ * `solved` accepts; an exception before anything else. One with no result
+ * yet runs while the attempt runs, and else never finished.
  */
-function trialStatus(trial: Trial): { word: string; tone: Tone } {
+function trialStatus(
+  trial: Trial,
+  live: LiveInfo | null | undefined,
+): { word: string; tone: Tone } {
+  if (trial.result === null) {
+    return isRunning(live)
+      ? { word: RUNNING, tone: "neutral" }
+      : { word: NOT_FINISHED, tone: "neutral" };
+  }
   const { reward, exception } = trial.result;
   if (exception !== null) return { word: EXCEPTION, tone: "warn" };
   if (reward === null) return { word: NO_REWARD, tone: "neutral" };
@@ -34,24 +46,33 @@ function trialStatus(trial: Trial): { word: string; tone: Tone } {
     : { word: NOT_SOLVED, tone: "bad" };
 }
 
+function isRunning(live: LiveInfo | null | undefined): boolean {
+  return live?.live === "running";
+}
+
 function TrialStatus({
   trial,
+  live,
   reward = false,
 }: {
   trial: Trial;
+  live: LiveInfo | null | undefined;
   reward?: boolean;
 }) {
-  const { word, tone } = trialStatus(trial);
+  const { word, tone } = trialStatus(trial, live);
   const Glyph = toneGlyph[tone];
+  const value = trial.result?.reward ?? null;
   return (
     <span
       className={`inline-flex flex-none items-center gap-1 text-xs ${toneText[tone]}`}
     >
-      <Glyph className="size-3" aria-hidden />
+      {word === RUNNING ? (
+        <RunningIcon />
+      ) : (
+        <Glyph className="size-3" aria-hidden />
+      )}
       {word}
-      {reward &&
-        trial.result.reward !== null &&
-        ` · reward ${String(trial.result.reward)}`}
+      {reward && value !== null && ` · reward ${String(value)}`}
     </span>
   );
 }
@@ -69,9 +90,10 @@ export default function TrialsView({
   attempt,
   record,
   deliverable,
+  live,
 }: DeliverableProps) {
   const trials = deliverable.trials ?? [];
-  const [chosen, setChosen] = useState(trials[0]?.id);
+  const [chosen, setChosen] = useState(trials[0]?.output);
   const [pane, setPane] = useState<Pane>("trace");
   if (deliverable.path === null) return <DeliverableCard item={deliverable} />;
   if (trials.length === 0)
@@ -80,7 +102,7 @@ export default function TrialsView({
     deliverable.visit_index === null
       ? undefined
       : record.visits[deliverable.visit_index];
-  const trial = trials.find((t) => t.id === chosen) ?? trials[0];
+  const trial = trials.find((t) => t.output === chosen) ?? trials[0];
   const value = deliverable.value;
   const shown =
     typeof value?.value === "number" || typeof value?.value === "string"
@@ -93,7 +115,8 @@ export default function TrialsView({
           <p className="text-xl font-semibold tabular-nums">
             {shown} / {deliverable.k ?? trials.length} solved
           </p>
-          {value?.reason != null && (
+          {/* A visit that has not ended has no value to read yet. */}
+          {value?.reason != null && visit?.outcome !== null && (
             <p className="text-xs text-fg-3">{value.reason}</p>
           )}
           {visit !== undefined && (
@@ -109,19 +132,19 @@ export default function TrialsView({
         </div>
         <ul className="flex flex-col gap-0.5">
           {trials.map((t) => (
-            <li key={t.id}>
+            <li key={t.output}>
               <button
                 type="button"
-                aria-pressed={t.id === trial?.id}
+                aria-pressed={t.output === trial?.output}
                 onClick={() => {
-                  setChosen(t.id);
+                  setChosen(t.output);
                 }}
                 className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
               >
                 <span className="min-w-0 font-mono text-xs break-all">
-                  {t.id}
+                  {t.id ?? t.output}
                 </span>
-                <TrialStatus trial={t} />
+                <TrialStatus trial={t} live={live} />
               </button>
             </li>
           ))}
@@ -129,8 +152,9 @@ export default function TrialsView({
       </nav>
       {trial !== undefined && (
         <TrialPane
-          key={trial.id}
+          key={trial.output}
           trial={trial}
+          live={live}
           action={
             visit === undefined ? undefined : actionOf(visit.actions, trial)
           }
@@ -152,6 +176,7 @@ const PANES: { key: Pane; title: string }[] = [
 
 function TrialPane({
   trial,
+  live,
   action,
   project,
   attempt,
@@ -159,6 +184,7 @@ function TrialPane({
   onPane,
 }: {
   trial: Trial;
+  live: LiveInfo | null | undefined;
   action: Action | undefined;
   project: DeliverableProps["project"];
   attempt: string;
@@ -171,9 +197,11 @@ function TrialPane({
     <div className="flex min-w-0 flex-col gap-4">
       <dl className="flex flex-wrap gap-x-6 gap-y-2 rounded-panel border border-line bg-panel px-5 py-3">
         <Field label="Reward">
-          {trial.result.reward === null ? "—" : String(trial.result.reward)}
+          {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
-        <Field label="Exception">{trial.result.exception ?? "None"}</Field>
+        <Field label="Exception">
+          {trial.result === null ? "—" : (trial.result.exception ?? "None")}
+        </Field>
         <Field label="Duration">
           {seconds === null ? "—" : duration(seconds)}
         </Field>
@@ -209,7 +237,9 @@ function TrialPane({
         </Tabs.List>
         {/* Kept mounted, so going back to Trace keeps what was opened in it. */}
         <Tabs.Content value="trace" forceMount hidden={pane !== "trace"}>
-          {trial.trace === null ? (
+          {trial.result === null ? (
+            <Unfinished live={live} />
+          ) : trial.trace === null ? (
             <Note>This trial recorded no trace.</Note>
           ) : (
             <SessionView
@@ -219,18 +249,38 @@ function TrialPane({
               format={trial.trace.format}
               badge={
                 <span className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-fg">{trial.id}</span>
-                  <TrialStatus trial={trial} reward />
+                  <span className="font-mono text-sm text-fg">
+                    {trial.id ?? trial.output}
+                  </span>
+                  <TrialStatus trial={trial} live={live} reward />
                 </span>
               }
             />
           )}
         </Tabs.Content>
         <Tabs.Content value="diff">
-          <TrialDiff project={project} attempt={attempt} trial={trial} />
+          {trial.result === null ? (
+            <Unfinished live={live} />
+          ) : (
+            <TrialDiff project={project} attempt={attempt} trial={trial} />
+          )}
         </Tabs.Content>
       </Tabs.Root>
     </div>
+  );
+}
+
+/** What a trial with no result shows in place of its trace and its diff. */
+function Unfinished({ live }: { live: LiveInfo | null | undefined }) {
+  return isRunning(live) ? (
+    <Note>
+      <span className="flex items-center gap-2">
+        <RunningIcon />
+        This trial is still running.
+      </span>
+    </Note>
+  ) : (
+    <Note>This trial did not finish.</Note>
   );
 }
 
