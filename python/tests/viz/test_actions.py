@@ -394,7 +394,8 @@ def test_the_queue_s_reads_write_nothing(made: QueueTree, static: Path) -> None:
 
 def snapshot(root: Path) -> dict[str, tuple[int, int, int]]:
   # SQLite's own -wal and -shm, which a reader of a WAL database may make and
-  # write (invariant 1), are left out.
+  # write (invariant 1), are left out, and so is a directory's mtime, which
+  # making them changes.
   found: dict[str, tuple[int, int, int]] = {}
   for top, dirs, files in os.walk(root):
     for name in dirs + files:
@@ -402,7 +403,11 @@ def snapshot(root: Path) -> dict[str, tuple[int, int, int]]:
         continue
       path = Path(top) / name
       status = path.lstat()
-      found[str(path)] = (status.st_mode, status.st_size, status.st_mtime_ns)
+      found[str(path)] = (
+        (status.st_mode, 0, 0)
+        if name in dirs
+        else (status.st_mode, status.st_size, status.st_mtime_ns)
+      )
   return found
 
 
@@ -423,4 +428,5 @@ def test_a_write_s_preflight_is_never_allowed(
       },
     )
     assert response.status_code == 405, url
-    assert not [h for h in response.headers if h.startswith("access-control")]
+    names: list[str] = list(response.headers.keys())
+    assert not [h for h in names if h.startswith("access-control")]
