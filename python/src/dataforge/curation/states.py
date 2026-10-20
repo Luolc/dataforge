@@ -873,11 +873,11 @@ class RubricState(_ActionState):
     ]
     _write_rubric(ctx, judged)
     data = {judgment.name: judgment.data for judgment in judged}
-    failed = [judgment for judgment in judged if not judgment.passed]
+    failed = [j for j in judged if j.errored or not j.passed]
     if not failed:
       return self.renamed(Outcome("pass", data))
     details = "\n\n".join(f"### {j.name}\n\n{j.findings}" for j in failed)
-    name = "error" if any(j.errored for j in judged) else "fail"
+    name = "error" if any(j.errored for j in failed) else "fail"
     return self.renamed(Outcome(name, data, feedback={"details": details}))
 
 

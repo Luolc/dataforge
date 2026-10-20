@@ -4,18 +4,21 @@
 import json
 from pathlib import Path
 import threading
-from typing import cast
+from typing import cast, override
 
 import pytest
 
 from dataforge.curation import (
+  ActionResult,
   Actions,
   AgentRun,
   AgentSpec,
   AgentTask,
+  Context,
   End,
   Env,
   Goto,
+  HOST,
   Machine,
   Outcome,
   Review,
@@ -264,6 +267,27 @@ def test_a_review_whose_run_failed_is_an_error(
     {"tests": ("ok", verdicts(sound=PASS)), "docs": ("failed", "no result")}
   )
   status, _ = run(rubric_state(tmp_path, reviewers, task), tmp_path / "a")
+  assert status == "errored"
+
+
+class FailedWithVerdicts(Actions):
+  """Actions whose agent run fails and still gives passing verdicts."""
+
+  @override
+  def agent(
+    self, ctx: Context, spec: AgentSpec, env: Env = HOST
+  ) -> ActionResult:
+    run = AgentRun(None, "failed", 0.25, None, "", "error_during_execution")
+    value = cast(object, json.loads(verdicts(sound=PASS, tidy=PASS)))
+    return ActionResult("failed", {}, "", value, 0.25, run)
+
+
+def test_a_failed_run_is_an_error_even_with_passing_verdicts(
+  tmp_path: Path, task: Path
+) -> None:
+  state = rubric_state(tmp_path, Reviewers({}), task)
+  state.actions = FailedWithVerdicts()
+  status, _ = run(state, tmp_path / "a")
   assert status == "errored"
 
 
