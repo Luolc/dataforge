@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 import { records, sampleProject } from "../../../../fixtures/sample";
 import { Summary } from "./Summary";
 
-function show(name: keyof typeof records) {
+function show(name: keyof typeof records, project = sampleProject) {
   return render(
     <MemoryRouter>
       <Summary
-        project={sampleProject}
+        project={project}
         attempt="batch-1/task-0002"
         record={records[name]}
       />
@@ -61,6 +61,12 @@ describe("an attempt's status", () => {
     unmount();
 
     show("running");
+    expect(screen.getByText("Not ended")).toBeVisible();
+  });
+
+  it("is Not ended while its status is one the project names as not ended", () => {
+    show("passed", { ...sampleProject, not_ended: ["passed"] });
+
     expect(screen.getByText("Not ended")).toBeVisible();
   });
 });

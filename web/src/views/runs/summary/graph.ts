@@ -5,7 +5,7 @@
 
 import type { AttemptRecord, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
-import { NOT_RUN, stateTitle, statusOf } from "../../../ui/status";
+import { endStatus, NOT_RUN, stateTitle, statusOf } from "../../../ui/status";
 
 export const END = "\0end";
 
@@ -51,9 +51,14 @@ export interface Layout {
 /**
  * How many times the attempt took each transition, by "from\0outcome": a
  * visit took it when the next visit is of the state it goes to, or, for the
- * last visit, when it goes to the end and the attempt has a status.
+ * last visit, when it goes to the end and the attempt has ended with a
+ * status.
  */
-export function takenCounts(record: AttemptRecord): Map<string, number> {
+export function takenCounts(
+  record: AttemptRecord,
+  project: Project,
+): Map<string, number> {
+  const ended = endStatus(project, record) !== null;
   const counts = new Map<string, number>();
   const edges = record.graph?.edges ?? [];
   record.visits.forEach((visit, i) => {
@@ -62,9 +67,7 @@ export function takenCounts(record: AttemptRecord): Map<string, number> {
       (e) => e.from === visit.state && e.outcome === visit.outcome,
     );
     if (edge === undefined) return;
-    const took = next
-      ? edge.to === next.state
-      : edge.to === null && record.status !== null;
+    const took = next ? edge.to === next.state : edge.to === null && ended;
     if (!took) return;
     const key = `${edge.from}\0${edge.outcome}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -80,7 +83,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
   const at = (key: string) => order.indexOf(key);
   const x = (key: string) => X0 + at(key) * (W + GAP);
   const cx = (key: string) => x(key) + W / 2;
-  const taken = takenCounts(record);
+  const taken = takenCounts(record, project);
 
   // Transitions between the same two nodes share one arrow.
   const groups = new Map<
@@ -153,8 +156,9 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
   const nodes = order.map((key): Node => {
     const box = { key, x: x(key), y: row - H / 2, width: W, height: H };
     if (key === END) {
-      const ended = record.status !== null;
-      const status = statusOf(project, record.status);
+      const end = endStatus(project, record);
+      const ended = end !== null;
+      const status = statusOf(project, end);
       return {
         ...box,
         title: "End",

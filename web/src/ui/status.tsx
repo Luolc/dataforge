@@ -12,6 +12,11 @@ import type { AttemptRecord, Live, Project, Tone } from "../api/types";
 export const NOT_ENDED = "Not ended";
 /** A state, a deliverable or the end that the attempt never reached. */
 export const NOT_RUN = "Not run";
+/**
+ * An attempt that ended with no status word: its status is null and the
+ * project names its own words for not ended (design-viz.md section 4).
+ */
+export const NO_STATUS = "No status";
 /** The engine's outcome of a visit whose state raised (design.md). */
 export const RAISED = "raised";
 
@@ -30,9 +35,33 @@ export function statusOf(
   return { label: word, tone: word === RAISED ? "bad" : "neutral" };
 }
 
-/** An attempt's status word: null until it ends, raised when a state did. */
-export function attemptStatus(record: AttemptRecord): string | null {
-  if (record.status !== null) return record.status;
+/**
+ * The status an attempt ended with: its record's status, but null while that
+ * is one of the project's not_ended words (design-viz.md section 4).
+ */
+export function endStatus(
+  project: Project,
+  record: AttemptRecord,
+): string | null {
+  const status = record.status;
+  return status !== null && !project.not_ended?.includes(status)
+    ? status
+    : null;
+}
+
+/**
+ * An attempt's status word: null until it ends, raised when a state did.
+ * With the project's not_ended, as the listing's live says, a status among
+ * them is null and a null status No status.
+ */
+export function attemptStatus(
+  project: Project,
+  record: AttemptRecord,
+): string | null {
+  const ended = endStatus(project, record);
+  if (ended !== null) return ended;
+  if (project.not_ended != null)
+    return record.status === null ? NO_STATUS : null;
   return record.visits.at(-1)?.outcome === RAISED ? RAISED : null;
 }
 

@@ -93,7 +93,7 @@ function Attempt({
   return (
     <>
       <div className="flex items-center gap-2 px-7 pt-5">
-        <StatusIcon project={project} word={attemptStatus(record)} />
+        <StatusIcon project={project} word={attemptStatus(project, record)} />
         <h1 className="text-xl font-semibold tracking-tight">
           Attempt{" "}
           <span className="font-mono text-lg font-normal tracking-normal text-fg-3">

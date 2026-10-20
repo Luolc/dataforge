@@ -70,7 +70,7 @@ function TopRow({
   const ended = last ? visitEnd(last) : undefined;
   const seconds =
     started !== undefined && ended !== undefined ? span(started, ended) : null;
-  const status = statusOf(project, attemptStatus(record));
+  const status = statusOf(project, attemptStatus(project, record));
   const { max_usd: cap, cost_usd: cost } = record.budget;
   const items = [
     { key: "Started", value: started === undefined ? "—" : time(started) },

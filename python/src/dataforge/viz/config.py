@@ -113,8 +113,8 @@ class Project:
     """Return what the frontend reads: all but where the files are.
 
     Returns:
-      The project as JSON data, without attempts_dir, attempts, record,
-      not_ended and lock.
+      The project as JSON data, without attempts_dir, attempts, record and
+      lock.
     """
     return {
       "id": self.id,
@@ -128,6 +128,7 @@ class Project:
         for c in self.columns
       ],
       "session": {"thinking": self.thinking},
+      "not_ended": None if self.not_ended is None else list(self.not_ended),
     }
 
 

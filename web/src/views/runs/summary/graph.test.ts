@@ -5,7 +5,9 @@ import { END, layout, takenCounts } from "./graph";
 
 describe("the graph", () => {
   it("counts the transitions the visits took", () => {
-    expect(Object.fromEntries(takenCounts(records.passed))).toEqual({
+    expect(
+      Object.fromEntries(takenCounts(records.passed, sampleProject)),
+    ).toEqual({
       "author\0done": 2,
       "check\0fail": 1,
       "check\0pass": 1,
@@ -47,7 +49,20 @@ describe("the graph", () => {
     expect(node("check")).toMatchObject({ tone: "bad", lastVisit: 5 });
     expect(node(END)).toMatchObject({ sub: "Exhausted", tone: "bad" });
     // The last visit went back to author, but the attempt ended there.
-    expect(takenCounts(records.exhausted).get("check\0fail")).toBe(2);
+    expect(
+      takenCounts(records.exhausted, sampleProject).get("check\0fail"),
+    ).toBe(2);
+  });
+
+  it("leaves the end unreached while the status is a not_ended word", () => {
+    const rec = { ...records.passed, status: "running" };
+    const project = { ...sampleProject, not_ended: ["running"] };
+    const drawn = must(layout(rec, project));
+
+    expect(drawn.nodes.at(-1)).toMatchObject({ idle: true, sub: "Not run" });
+    expect(takenCounts(rec, project).size).toBe(
+      takenCounts(records.passed, sampleProject).size - 1,
+    );
   });
 
   it("leaves the end unreached while the attempt runs", () => {

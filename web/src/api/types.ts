@@ -26,6 +26,7 @@ export const project = z.looseObject({
   session: z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
   }),
+  not_ended: z.array(z.string()).nullable().optional(),
 });
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];

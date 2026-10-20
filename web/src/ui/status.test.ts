@@ -32,9 +32,23 @@ describe("status words", () => {
       label: "Not ended",
       tone: "neutral",
     });
-    expect(attemptStatus(records.running)).toBeNull();
-    expect(attemptStatus(records.raised)).toBe("raised");
-    expect(attemptStatus(records.passed)).toBe("passed");
+    expect(attemptStatus(sampleProject, records.running)).toBeNull();
+    expect(attemptStatus(sampleProject, records.raised)).toBe("raised");
+    expect(attemptStatus(sampleProject, records.passed)).toBe("passed");
+  });
+
+  it("a status the project names as not ended has not ended", () => {
+    const running = { ...records.passed, status: "running" };
+    const project = { ...sampleProject, not_ended: ["running"] };
+
+    expect(attemptStatus(project, running)).toBeNull();
+    expect(attemptStatus(sampleProject, running)).toBe("running");
+    expect(attemptStatus(project, records.passed)).toBe("passed");
+    expect(attemptStatus(project, records.running)).toBe("No status");
+    expect(statusOf(project, "No status")).toEqual({
+      label: "No status",
+      tone: "neutral",
+    });
   });
 
   it("live words have the viewer's own labels and tones", () => {
