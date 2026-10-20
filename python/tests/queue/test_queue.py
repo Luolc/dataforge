@@ -10,7 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from typing import cast
+from typing import cast, Literal
 
 import pytest
 
@@ -19,6 +19,7 @@ from dataforge.queue import (
   cancel,
   Config,
   ConfigError,
+  count,
   DuplicateError,
   Job,
   jobs,
@@ -434,3 +435,32 @@ def test_a_queue_file_that_fails_a_check_is_refused(tmp_path: Path, line: str):
   _ = path.write_text("\n".join([*kept, line]) + "\n")
   with pytest.raises(ConfigError, match=key):
     _ = load_config(path)
+
+
+def test_jobs_by_when_they_ended_and_their_count(config: Config):
+  first, second, third = (put(config, "alpha", "true") for _ in range(3))
+  open_job = put(config, "beta", "true")
+  # They end in another order than they were queued in.
+  for job in (third, first, second):
+    _ = cancel(config, job.id)
+    time.sleep(0.01)
+
+  ended = jobs(config, states={"canceled"}, by="ended_at")
+  last = jobs(config, by="ended_at", limit=2)
+  every = jobs(config, by="ended_at")
+
+  assert [j.id for j in ended] == [second.id, first.id, third.id]
+  assert [j.id for j in last] == [second.id, first.id]
+  # A job that has not ended comes last.
+  assert every[-1].id == open_job.id
+  assert count(config) == 4
+  assert count(config, states={"canceled"}) == 3
+  assert count(config, queue="beta", states={"queued"}) == 1
+  with pytest.raises(ValueError, match="unknown order"):
+    _ = jobs(config, by=cast(Literal["id"], cast(object, "queued_at")))
+
+
+def test_count_reads_without_making_the_database(config: Config):
+  with pytest.raises(FileNotFoundError):
+    _ = count(config)
+  assert not config.database.exists()

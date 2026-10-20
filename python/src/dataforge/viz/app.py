@@ -226,15 +226,17 @@ class _Api:
     config = self._config()
     try:
       open_jobs = queue.jobs(config, states=actions.OPEN)
-      ended = queue.jobs(config, states=actions.ENDED)
+      # The jobs that ended last, not those queued last: a long job queued
+      # early may end after many short ones.
+      ended = queue.jobs(
+        config, states=actions.ENDED, by="ended_at", limit=ENDED_LIMIT
+      )
+      ended_count = queue.count(config, states=actions.ENDED)
     except FileNotFoundError:
       # No job was ever submitted: submitting one makes the database.
-      open_jobs, ended = [], []
+      open_jobs, ended, ended_count = [], [], 0
     except (sqlite3.Error, OSError) as error:
       raise RefusedError(503, _queue_failure(error)) from None
-    # The jobs that ended last, not those queued last: a long job queued
-    # early may end after many short ones.
-    ended.sort(key=lambda j: (j.ended_at or 0.0, j.id), reverse=True)
     return JSONResponse(
       {
         "queues": [
@@ -252,8 +254,8 @@ class _Api:
         ],
         "max_running": config.max_running,
         "ended_limit": ENDED_LIMIT,
-        "ended": len(ended),
-        "jobs": [actions.public(j) for j in open_jobs + ended[:ENDED_LIMIT]],
+        "ended": ended_count,
+        "jobs": [actions.public(j) for j in open_jobs + ended],
       }
     )
 

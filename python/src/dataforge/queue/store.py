@@ -14,7 +14,7 @@ from pathlib import Path
 import signal
 import sqlite3
 import time
-from typing import cast
+from typing import cast, Literal
 
 from dataforge.queue.config import Config
 from dataforge.queue.proc import Leader, signal_group
@@ -303,6 +303,7 @@ def jobs(
   queue: str | None = None,
   states: Collection[str] | None = None,
   limit: int | None = None,
+  by: Literal["id", "ended_at"] = "id",
 ) -> list[Job]:
   """List jobs, the newest first.
 
@@ -313,14 +314,61 @@ def jobs(
     queue: Only this queue's jobs; None for every queue.
     states: Only jobs in these of STATES; None for any.
     limit: At most this many, the newest; None for all.
+    by: What newest is by: "id", the order they were queued in, or
+      "ended_at", when they ended, then by ID, a job that has not ended
+      last.
 
   Returns:
     The jobs.
 
   Raises:
+    ValueError: When a state is not one of STATES, or by is neither.
+    FileNotFoundError: When the database does not exist yet.
+  """  # noqa: DOC503
+  orders = {
+    "id": "id DESC",
+    "ended_at": "ended_at IS NULL, ended_at DESC, id DESC",
+  }
+  if by not in orders:
+    raise ValueError(f"unknown order {by}")
+  where, params = _where(queue, states)
+  sql = f"SELECT * FROM jobs WHERE {where} ORDER BY {orders[by]}"
+  if limit is not None:
+    sql += " LIMIT ?"
+    params.append(limit)
+  return [_job(found) for found in _read(config, sql, params)]
+
+
+def count(
+  config: Config,
+  *,
+  queue: str | None = None,
+  states: Collection[str] | None = None,
+) -> int:
+  """Count jobs, as jobs would list them with no limit.
+
+  It opens the database read-only and writes nothing.
+
+  Args:
+    config: The queue file.
+    queue: Only this queue's jobs; None for every queue.
+    states: Only jobs in these of STATES; None for any.
+
+  Returns:
+    How many there are.
+
+  Raises:
     ValueError: When a state is not one of STATES.
     FileNotFoundError: When the database does not exist yet.
-  """
+  """  # noqa: DOC502
+  where, params = _where(queue, states)
+  [found] = _read(config, f"SELECT COUNT(*) FROM jobs WHERE {where}", params)
+  return cast(int, found[0])
+
+
+def _where(
+  queue: str | None, states: Collection[str] | None
+) -> tuple[str, list[object]]:
   where, params = ["1"], list[object]()
   if queue is not None:
     where.append("queue = ?")
@@ -330,17 +378,19 @@ def jobs(
       raise ValueError(f"unknown state {unknown[0]}")
     where.append(f"state IN ({', '.join('?' * len(states))})")
     params.extend(states)
-  sql = f"SELECT * FROM jobs WHERE {' AND '.join(where)} ORDER BY id DESC"
-  if limit is not None:
-    sql += " LIMIT ?"
-    params.append(limit)
+  return " AND ".join(where), params
+
+
+def _read(
+  config: Config, sql: str, params: Sequence[object]
+) -> list[sqlite3.Row]:
+  # Read-only: no table is made and nothing is written.
   if not config.database.exists():
     raise FileNotFoundError(f"{config.database}: no such database")
   uri = f"{config.database.resolve().as_uri()}?mode=ro"
   with closing(sqlite3.connect(uri, uri=True, timeout=_BUSY_MS / 1000)) as conn:
     conn.row_factory = sqlite3.Row
-    rows = cast(list[sqlite3.Row], conn.execute(sql, params).fetchall())
-  return [_job(found) for found in rows]
+    return cast(list[sqlite3.Row], conn.execute(sql, params).fetchall())
 
 
 def cancel(config: Config, job_id: int) -> Job:

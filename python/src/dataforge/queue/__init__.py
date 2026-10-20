@@ -3,7 +3,7 @@
 A dataset project names the queues and their caps in a queue file (config);
 jobs are rows of a SQLite table (store); the scheduler, `dataforge queue
 serve`, starts them (scheduler), each under a wrapper that writes its end
-(wrapper). submit, jobs and cancel are what other processes call.
+(wrapper). submit, jobs, count and cancel are what other processes call.
 
 A job's command runs with the scheduler's environment, not the submitter's:
 the table keeps no environment, so that no credential lands in it. A command
@@ -14,6 +14,7 @@ example through a script of the dataset project.
 from dataforge.queue.config import Config, ConfigError, load_config
 from dataforge.queue.store import (
   cancel,
+  count,
   DuplicateError,
   Job,
   jobs,
@@ -30,6 +31,7 @@ __all__ = [
   "Job",
   "NoSuchJobError",
   "cancel",
+  "count",
   "jobs",
   "load_config",
   "submit",
