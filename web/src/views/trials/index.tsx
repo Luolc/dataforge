@@ -207,7 +207,8 @@ function TrialPane({
             </Tabs.Trigger>
           ))}
         </Tabs.List>
-        <Tabs.Content value="trace">
+        {/* Kept mounted, so going back to Trace keeps what was opened in it. */}
+        <Tabs.Content value="trace" forceMount hidden={pane !== "trace"}>
           {trial.trace === null ? (
             <Note>This trial recorded no trace.</Note>
           ) : (

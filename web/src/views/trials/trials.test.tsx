@@ -172,13 +172,18 @@ describe("the trials view's Diff tab", () => {
 
   // The files route as the backend answers it: a file's bytes, a directory's
   // listing as JSON, a 413 over the limit and a 404 for anything else.
-  function serve(files: Record<string, string | { status: number }>) {
+  function serve(
+    files: Record<
+      string,
+      string | Uint8Array<ArrayBuffer> | { status: number }
+    >,
+  ) {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
         const path = new URL(url, "http://x").searchParams.get("path") ?? "";
         const found = files[path] ?? traces[path];
-        if (typeof found === "string")
+        if (typeof found === "string" || found instanceof Uint8Array)
           return Promise.resolve(new Response(found));
         if (found?.status === 200)
           return Promise.resolve(Response.json({ entries: [] }));
@@ -289,5 +294,37 @@ describe("the trials view's Diff tab", () => {
       "true",
     );
     expect(await screen.findByText(at(2))).toBeVisible();
+  });
+
+  it("says when the diff is empty", async () => {
+    serve({ [at(1)]: "" });
+    showDiff();
+
+    expect(
+      await screen.findByText("The diff is empty: the trial changed nothing."),
+    ).toBeVisible();
+  });
+
+  it("shows only the size of a diff that is not UTF-8", async () => {
+    serve({ [at(1)]: new Uint8Array([0xff, 0xfe]) });
+    showDiff();
+
+    expect(
+      await screen.findByText("Not shown: not UTF-8 text, 2 B."),
+    ).toBeVisible();
+  });
+
+  it("keeps the trace loaded when going back from Diff", async () => {
+    serve({ [at(1)]: diff });
+    showDiff();
+    await screen.findByText(at(1));
+    expect(await screen.findByText("Hide thinking")).not.toBeVisible();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Trace" }));
+
+    expect(await screen.findByText("Hide thinking")).toBeVisible();
+    const reads = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => String(url).includes("trace.jsonl"));
+    expect(reads).toHaveLength(1);
   });
 });
