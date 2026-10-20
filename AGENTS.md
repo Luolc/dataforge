@@ -417,11 +417,12 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - L11 In each clone of this repository, run `uvx pre-commit install` once, before the first commit.
 - L22 When a block of `check` comes to depend on a new path, add that path to the block's group in the `changes` step of `.github/workflows/ci.yml`.
 - L26 Keep every CI check of a pull request a step of the one job `check` in `.github/workflows/ci.yml`, the setup test among them, never a job of its own.
-- L31 The checks a change here touches, besides the commit hooks (`uvx pre-commit run --all-files`), are:
+- L49 The checks a change here touches, besides the commit hooks (`uvx pre-commit run --all-files`), are:
 
   - for `python/`: in that directory `uv run --locked ruff check`, `uv run --locked ruff format --check`, `uv run --locked basedpyright`, `uv run --locked pydoclint --config pyproject.toml --quiet src tests` and `uv run --locked pytest`;
   - for `machine/`: the setup test, `machine/tests/run.sh` from the top of the repository;
-  - for a script in `.github/scripts/`: its `.test.sh`; for `docs/design.md`: `.github/scripts/design-length.sh`.
+  - for `web/`: in that directory `npm ci`, then `npm run lint`, `npm run typecheck`, `npm test` and `npm run build`;
+  - for a script in `.github/scripts/`: its `.test.sh`; for `docs/design.md` and `docs/design-viz.md`: `.github/scripts/design-length.sh`.
 
 ### Testing
 

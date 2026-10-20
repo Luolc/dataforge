@@ -31,6 +31,10 @@ export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];
 export const projects = z.array(project);
 
+/** How an attempt that has not ended stands; null once it has ended. */
+export const LIVE = ["running", "may have stopped", "not ended"] as const;
+export type Live = (typeof LIVE)[number];
+
 export const attemptRow = z.looseObject({
   id: z.string(),
   item: z.string(),
@@ -50,6 +54,7 @@ export const attemptRow = z.looseObject({
     )
     .nullable(),
   values: z.array(z.unknown()).nullable(),
+  live: z.enum(LIVE).nullable().optional(),
   error: z.string().nullable(),
 });
 export type AttemptRow = z.infer<typeof attemptRow>;

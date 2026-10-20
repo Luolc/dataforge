@@ -1,8 +1,9 @@
 id = 31
 slug = "checks-by-path-pydoclint"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 49
 lang = "en"
 parent = "R276"
 default = "on"

@@ -169,6 +169,31 @@ def read_record(project: Project, attempt: int) -> Read:
     return read_regular(fd, RECORD_LIMIT)
 
 
+def stat_lock(project: Project, item: str) -> os.stat_result | None:
+  """Stat an item's lock file without following a symlink.
+
+  Args:
+    project: The project, which names the lock file.
+    item: The item, an attempt ID's first item.depth components.
+
+  Returns:
+    The lock file's status; None when the project names no lock file, or
+    it or a directory on its way is missing or a symlink.
+  """
+  parts = split_relative(item)
+  if project.lock is None or not parts:
+    return None
+  *dirs, name = (*parts, *project.lock)
+  try:
+    with (
+      _open_attempts_dir(project) as top,
+      _open_at(top, tuple(dirs), _DIR) as fd,
+    ):
+      return os.stat(name, dir_fd=fd, follow_symlinks=False)
+  except RefusedError, OSError:
+    return None
+
+
 def read_regular(fd: int, limit: int) -> Read:
   """Read a regular file of at most limit bytes.
 
