@@ -5,7 +5,7 @@ import { Link } from "react-router";
 
 import { urls, useJson } from "../../api/client";
 import { type AttemptRecord, type Project, record } from "../../api/types";
-import { Frame } from "../../shell/Shell";
+import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
 import { attemptStatus } from "../../ui/status";
@@ -23,13 +23,21 @@ export function AttemptPage() {
     id !== undefined && attempt !== null ? urls.record(id, attempt) : null,
     record,
   );
-  const crumbs = [
+  const tab = query.get("tab") ?? "runs";
+  const run = runOf(query.get("run"));
+  const summary = tab === "runs" && run === null;
+  const crumbs: Crumb[] = [
     { label: "Projects", to: "/" },
     {
       label: project.state === "ok" ? project.data.name : (id ?? ""),
       to: `/${encodeURIComponent(id ?? "")}`,
     },
-    { label: attempt ?? "" },
+    {
+      label: attempt ?? "",
+      ...(id !== undefined && attempt !== null && !summary
+        ? { to: attemptHref(id, attempt) }
+        : {}),
+    },
   ];
   let body;
   if (attempt === null) body = <Note>No attempt is named.</Note>;
@@ -43,8 +51,8 @@ export function AttemptPage() {
         project={project.data}
         attempt={attempt}
         record={loaded.data}
-        tab={query.get("tab") ?? "runs"}
-        run={runOf(query.get("run"))}
+        tab={tab}
+        run={run}
       />
     );
   return <Frame crumbs={crumbs}>{body}</Frame>;

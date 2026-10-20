@@ -93,7 +93,7 @@ export function Frame({
                   aria-hidden
                 />
               )}
-              {crumb.to !== undefined && i < crumbs.length - 1 ? (
+              {crumb.to !== undefined ? (
                 <Link
                   to={crumb.to}
                   className="flex target items-center rounded-row px-1.5 whitespace-nowrap link hover:underline"
