@@ -78,7 +78,7 @@ export function takenCounts(
 /** Lay out the record's graph; null when the record has none. */
 export function layout(record: AttemptRecord, project: Project): Layout | null {
   const graph = record.graph;
-  if (graph === null) return null;
+  if (!graph) return null;
   const order = [...graph.states.map((s) => s.name), END];
   const at = (key: string) => order.indexOf(key);
   const x = (key: string) => X0 + at(key) * (W + GAP);

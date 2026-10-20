@@ -75,7 +75,8 @@ export default function RunPage({
         </h2>
         <p className="mt-1 text-xs text-fg-3 tabular-nums">
           Run {index + 1} of {record.visits.length} · visit {visit.visit} of{" "}
-          {title} · round {visit.round}
+          {title}
+          {visit.round !== undefined && ` · round ${visit.round.toString()}`}
           {seconds !== null && ` · ${duration(seconds)}`}
           {` · ${usd(visitCost(visit))}`}
         </p>
@@ -174,7 +175,7 @@ function InputStep({
       )}
       {input.kind === "unknown" && (
         <p className="text-fg-3">
-          The record has no graph, so whether the visit was handed a report is
+          This record has no graph, so whether the visit was handed a report is
           not known.
         </p>
       )}
@@ -250,7 +251,7 @@ function ActionStep({
           <Outputs outputs={action.outputs} />
         </Field>
       </dl>
-      {action.summary !== null && (
+      {typeof action.summary === "string" && (
         <div className="mt-3">
           <Markdown text={action.summary} />
         </div>
