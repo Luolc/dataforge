@@ -79,6 +79,29 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (("name: Example", "name: Example\nlock: ../.lock"), "lock"),
     (("name: Example", "name: Example\nnot_ended: running"), "not_ended"),
     (("name: Example", "name: Example\nnot_ended: []"), "not_ended"),
+    (("name: Example", "name: Example\ndeliverables: task"), "deliverables"),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: task, kind: files}]",
+      ),
+      r"deliverables\[0\]\.title: missing",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, path: x}]",
+      ),
+      r"deliverables\[0\]\.path: unknown key",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T}, "
+        + "{name: t, kind: k, title: U}]",
+      ),
+      r"deliverables\[1\]\.name: 't' repeated",
+    ),
     (
       ("name: Example", "name: Example\ntrials: {diff: ../x.diff}"),
       r"trials\.diff: '\.\./x\.diff' is not",
