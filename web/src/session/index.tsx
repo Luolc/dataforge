@@ -50,7 +50,11 @@ export function SessionView({
     [text, format],
   );
   if (loaded.state === "loading")
-    return <p className="p-5 text-fg-3">Loading the trace…</p>;
+    return (
+      <p className="p-5 text-fg-3">
+        Loading the trace <code className="font-mono text-xs">{path}</code>…
+      </p>
+    );
   if (loaded.state === "error") {
     return (
       <p className="rounded-panel border border-line p-5 text-fg-2">
