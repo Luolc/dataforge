@@ -5,7 +5,7 @@
 
 import type { AttemptRecord, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
-import { endStatus, NOT_RUN, stateTitle, statusOf } from "../../../ui/status";
+import { endWord, NOT_RUN, stateTitle, statusOf } from "../../../ui/status";
 
 export const END = "\0end";
 
@@ -58,7 +58,7 @@ export function takenCounts(
   record: AttemptRecord,
   project: Project,
 ): Map<string, number> {
-  const ended = endStatus(project, record) !== null;
+  const ended = endWord(project, record) !== null;
   const counts = new Map<string, number>();
   const edges = record.graph?.edges ?? [];
   record.visits.forEach((visit, i) => {
@@ -156,7 +156,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
   const nodes = order.map((key): Node => {
     const box = { key, x: x(key), y: row - H / 2, width: W, height: H };
     if (key === END) {
-      const end = endStatus(project, record);
+      const end = endWord(project, record);
       const ended = end !== null;
       const status = statusOf(project, end);
       return {

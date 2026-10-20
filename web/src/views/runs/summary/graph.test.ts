@@ -65,6 +65,21 @@ describe("the graph", () => {
     );
   });
 
+  it("reaches the end as No status when not_ended leaves a null status", () => {
+    const rec = { ...records.passed, status: null };
+    const project = { ...sampleProject, not_ended: ["running"] };
+    const drawn = must(layout(rec, project));
+
+    expect(drawn.nodes.at(-1)).toMatchObject({
+      idle: false,
+      sub: "No status",
+      tone: "neutral",
+    });
+    expect(takenCounts(rec, project)).toEqual(
+      takenCounts(records.passed, sampleProject),
+    );
+  });
+
   it("leaves the end unreached while the attempt runs", () => {
     const drawn = must(layout(records.running, sampleProject));
 

@@ -35,14 +35,9 @@ export function statusOf(
   return { label: word, tone: word === RAISED ? "bad" : "neutral" };
 }
 
-/**
- * The status an attempt ended with: its record's status, but null while that
- * is one of the project's not_ended words (design-viz.md section 4).
- */
-export function endStatus(
-  project: Project,
-  record: AttemptRecord,
-): string | null {
+// The record's status, but null while it is one of the project's not_ended
+// words (design-viz.md section 4).
+function endStatus(project: Project, record: AttemptRecord): string | null {
   const status = record.status;
   return status !== null && !project.not_ended?.includes(status)
     ? status
@@ -63,6 +58,18 @@ export function attemptStatus(
   if (project.not_ended != null)
     return record.status === null ? NO_STATUS : null;
   return record.visits.at(-1)?.outcome === RAISED ? RAISED : null;
+}
+
+/**
+ * The word at the machine's end: the attempt's status word, null while it has
+ * not ended or when a state raised, which reaches no end.
+ */
+export function endWord(
+  project: Project,
+  record: AttemptRecord,
+): string | null {
+  const word = attemptStatus(project, record);
+  return word === RAISED ? null : word;
 }
 
 /** The label and tone of the listing's live (design-viz.md section 4). */
