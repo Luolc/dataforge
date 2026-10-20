@@ -79,7 +79,7 @@ columns:               # extra columns of the home page, after the fixed ones
 session: {thinking: collapsed}   # collapsed (default), expanded or hidden
 ```
 
-In `attempts`, a `*` matches one name that does not start with `.`. A tone is `good`, `bad`, `warn` or `neutral`; a word with no entry shows as itself, `neutral`. A column's `field` is a list of keys into the record, as a deliverable's `Value` is (design.md, "The record"), and `format` is `text` (default), `number`, `usd`, `duration` or `time`. `session.thinking` is how a session view first shows thinking blocks; a person can still open, collapse or hide them on the page.
+In `attempts`, a `*` matches one name that does not start with `.`. A tone is `good`, `bad`, `warn` or `neutral`; a word with no entry shows as itself, `neutral`, except `raised`, the engine's own word for an exception, which shows as itself, `bad`; an attempt with no status shows as `Not ended`, `neutral`. A column's `field` is a list of keys into the record, as a deliverable's `Value` is (design.md, "The record"), and `format` is `text` (default), `number`, `usd`, `duration` or `time`. `session.thinking` is how a session view first shows thinking blocks; a person can still open, collapse or hide them on the page.
 
 ### The API
 
@@ -115,7 +115,7 @@ Everything else under `/api/` is 404; any other path serves a file of the static
 
 ## 6. Phases and where each part lives
 
-Each phase owns the directories named for it and touches no other's, so P-home, P2, P3 and P4 run at once once P1 is merged. P1 writes a placeholder in each later phase's entry module, `index.tsx` in its directory (for a view, its default export takes the deliverable or the visit and the record, for P-home the project; for P3, `web/src/session/index.tsx` exports `SessionView`), showing the deliverable's or visit's name, path and reason (on the home page, the attempt IDs), which that phase replaces. All of them develop and take screenshots against synthetic attempts in `web/fixtures/` and `python/tests/viz/fixtures/`, made by P1, which each phase may add to under a directory of its own name.
+Each phase owns the directories named for it and touches no other's, so P-home, P2, P3 and P4 run at once, P1 having merged. P1 wrote a placeholder in each later phase's entry module, `index.tsx` in its directory (for a view, its default export takes the deliverable or the visit and the record, for P-home the project; for P3, `web/src/session/index.tsx` exports `SessionView`), showing the deliverable's or visit's name, path and reason (on the home page, the attempt IDs), which that phase replaces. All of them develop and take screenshots against synthetic attempts in `web/fixtures/` and `python/tests/viz/fixtures/`, made by P1 (merged), which each phase may add to under a directory of its own name.
 
 | Phase | Builds | Owns |
 | -- | -- | -- |
@@ -125,7 +125,7 @@ Each phase owns the directories named for it and touches no other's, so P-home, 
 | P4 | the run page | `web/src/views/runs/run/` |
 | P-home | the home page, adding TanStack Table to the dependencies | `web/src/views/home/` |
 
-P1's backend modules: `config.py` (site and project files, their checks), `paths.py` (opening an attempt and a path in it, invariant 2), `app.py` (the FastAPI app and its routes) and `serve.py` (the `dataforge viz serve` command). The frontend: `web/src/api/` (the client and the record's TypeScript types), `web/src/shell/`, `web/src/ui/`, `web/src/views/registry.tsx` (kind to view). P4 renders an agent's session with P3's `SessionView` from `web/src/session/`; until P3 merges, the placeholder shows the trace's path. A change one phase needs in another's directory goes to that phase's owner, or after its merge, in a PR of its own. P1 creates `web/package.json` and `web/package-lock.json`; a later phase's PR that needs a new library may change them, but only one open PR changes them at a time, and once that one merges, the next merges main into its branch and regenerates the lock file.
+P1's backend modules: `config.py` (site and project files, their checks), `paths.py` (opening an attempt and a path in it, invariant 2), `app.py` (the FastAPI app and its routes) and `serve.py` (the `dataforge viz serve` command). The frontend: `web/src/api/` (the client and the record's TypeScript types), `web/src/shell/`, `web/src/ui/`, `web/src/views/registry.tsx` (kind to view). P4 renders an agent's session with P3's `SessionView` from `web/src/session/`; until P3 merges, the placeholder shows the trace's path. A change one phase needs in another's directory goes to that phase's owner, or after its merge, in a PR of its own. P1 created `web/package.json` and `web/package-lock.json`; a later phase's PR that needs a new library may change them, but only one open PR changes them at a time, and once that one merges, the next merges main into its branch and regenerates the lock file.
 
 The checks, besides the repo's Python checks with the `viz` extra installed: in `web/`, `npm ci`, then `npm run lint` (ESLint and Prettier), `npm run typecheck`, `npm test` (Vitest) and `npm run build`. The backend's dependencies, FastAPI and uvicorn, are the package's optional extra `viz`, so a dataset repo that only runs attempts does not install them.
 
