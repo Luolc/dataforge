@@ -911,6 +911,40 @@ def test_deliverables_take_the_kept_last_or_nth_visit(tmp_path: Path) -> None:
   assert attempt.to_json()["graph"] == machine.graph()
 
 
+def test_an_end_resolves_deliverables_before_the_last_on_step(
+  tmp_path: Path,
+) -> None:
+  def build(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", 'echo done > "$DATAFORGE_OUTPUTS/task"']
+    assert Actions().script(ctx, ScriptSpec(argv, outputs=["task"])).ok
+    return Outcome("done")
+
+  seen: list[object] = []
+  attempt = Machine(
+    [Step("build", build, {"done": End("passed")})],
+    on_step=lambda attempt: seen.append(attempt.to_json()["deliverables"]),
+    deliverables={
+      "task": Deliverable("files", "Task", Source("build", "task"))
+    },
+  ).run(tmp_path)
+  assert attempt.status == "passed"
+  assert seen == [
+    [
+      {
+        "name": "task",
+        "kind": "files",
+        "title": "Task",
+        "state": "build",
+        "output": "task",
+        "visit": 1,
+        "visit_index": 0,
+        "path": "artifacts/build/1/task",
+        "reason": None,
+      }
+    ]
+  ]
+
+
 @pytest.mark.parametrize(
   ("deliverable", "error"),
   [
