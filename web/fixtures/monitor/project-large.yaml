@@ -1,0 +1,16 @@
+# A synthetic dataset with a resource monitor, for the Monitor page's
+# screenshots: its database is made by python/tests/viz/monitor_db.py (see
+# site.yaml) and ran nowhere. The attempts are the sample dataset's.
+id: monitored-large
+name: Monitored, 40 attempts
+color: "#7fb069"
+attempts_dir: ../attempts
+attempts: "*/*"
+record: record.json
+item: { depth: 1, title: Batch }
+states:
+  author: { title: Author }
+  check: { title: Check }
+  review: { title: Review }
+  solve: { title: Pass@k }
+monitor: { db: ../monitor/monitor-large.sqlite }

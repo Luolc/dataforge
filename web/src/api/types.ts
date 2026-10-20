@@ -34,6 +34,8 @@ const project = z.looseObject({
     .optional(),
   // A trial's diff, relative to its directory.
   trials: z.looseObject({ diff: z.string() }).nullable().optional(),
+  // Whether the project names a resource monitor database.
+  monitor: z.boolean().optional(),
 });
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];

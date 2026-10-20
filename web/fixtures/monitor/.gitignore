@@ -1,0 +1,3 @@
+# Made by python/tests/viz/monitor_db.py; see site.yaml.
+*.sqlite
+*.sqlite-*

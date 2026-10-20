@@ -111,6 +111,8 @@ class Project:
     deliverables: The deliverables an attempt has once it ends, in order.
     trial_diff: The path of a trial's diff in its directory; None when the
       dataset names none.
+    monitor: The resource monitor's SQLite database; None when the dataset
+      names none.
   """
 
   id: str
@@ -128,13 +130,14 @@ class Project:
   lock: tuple[str, ...] | None = None
   deliverables: tuple[Deliverable, ...] = ()
   trial_diff: tuple[str, ...] | None = None
+  monitor: Path | None = None
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
 
     Returns:
-      The project as JSON data, without attempts_dir, attempts, record and
-      lock.
+      The project as JSON data, without attempts_dir, attempts, record,
+      lock and the monitor's path.
     """
     return {
       "id": self.id,
@@ -156,6 +159,7 @@ class Project:
       "trials": None
       if self.trial_diff is None
       else {"diff": "/".join(self.trial_diff)},
+      "monitor": self.monitor is not None,
     }
 
 
@@ -253,6 +257,7 @@ def load_project(path: Path) -> Project:
       "lock",
       "deliverables",
       "trials",
+      "monitor",
     },
   )
   id_ = _str(path, "id", data["id"])
@@ -263,11 +268,12 @@ def load_project(path: Path) -> Project:
     raise ConfigError(f"{path}: color: {color!r} is not #rrggbb")
   attempts = _attempts(path, _str(path, "attempts", data["attempts"]))
   dir_ = _str(path, "attempts_dir", data["attempts_dir"])
+  attempts_dir = _attempts_dir(path, dir_)
   return Project(
     id=id_,
     name=_str(path, "name", data["name"]),
     color=color,
-    attempts_dir=_attempts_dir(path, dir_),
+    attempts_dir=attempts_dir,
     attempts=attempts,
     record=_relative(path, "record", _str(path, "record", data["record"])),
     states=_entries(path, "states", data.get("states"), {"title"}),
@@ -281,6 +287,7 @@ def load_project(path: Path) -> Project:
     else _relative(path, "lock", _str(path, "lock", data["lock"])),
     deliverables=_deliverables(path, data.get("deliverables")),
     trial_diff=_trial_diff(path, data.get("trials")),
+    monitor=_monitor(path, data.get("monitor"), attempts_dir),
   )
 
 
@@ -474,6 +481,21 @@ def _trial_diff(path: Path, value: object) -> tuple[str, ...] | None:
   )
 
 
+def _monitor(path: Path, value: object, attempts_dir: Path) -> Path | None:
+  # Like attempts_dir, configuration opened as given; relative to
+  # attempts_dir, so a copy of the file for another machine changes one key.
+  # It is not checked here: a database the sampler has not written yet does
+  # not stop the start, and the Monitor page says why it cannot be read.
+  if value is None:
+    return None
+  mapping = _mapping(path, "monitor", value)
+  _keys(path, "monitor", mapping, required={"db"}, optional=set())
+  db = _str(path, "monitor.db", mapping["db"])
+  if "\0" in db:
+    raise ConfigError(f"{path}: monitor.db: holds a NUL")
+  return Path(os.path.abspath(attempts_dir / db))
+
+
 def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:
   if value is None:
     return None
@@ -483,9 +505,7 @@ def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:
 
 
 def _thinking(path: Path, value: object) -> str:
-  if value is None:
-    return "hidden"
-  session = _mapping(path, "session", value)
+  session = {} if value is None else _mapping(path, "session", value)
   _keys(path, "session", session, required=set(), optional={"thinking"})
   thinking = _str(path, "session.thinking", session.get("thinking", "hidden"))
   _one_of(path, "session.thinking", thinking, THINKING)

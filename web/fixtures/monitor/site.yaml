@@ -1,0 +1,8 @@
+# The Monitor page's screenshots. Make the databases first, from python/:
+#   uv run python -m tests.viz.monitor_db ../web/fixtures/monitor/monitor.sqlite
+#   uv run python -m tests.viz.monitor_db --attempts 40 \
+#     ../web/fixtures/monitor/monitor-large.sqlite
+# then `dataforge viz serve --config web/fixtures/monitor/site.yaml --static
+# web/dist`.
+listen: { host: 127.0.0.1, port: 8800 }
+projects: [project.yaml, project-large.yaml]
