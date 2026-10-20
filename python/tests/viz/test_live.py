@@ -98,6 +98,38 @@ def test_an_unreadable_record_is_no_items_newest(
   assert found["batch-1/task-2"] == "running"
 
 
+def held(tree: Tree, static: Path) -> dict[str, object]:
+  web = TestClient(create_app(load_site(tree.site), static))
+  rows = cast(list[dict[str, object]], web.get(ATTEMPTS).json())
+  return {str(r["id"]): r["held"] for r in rows}
+
+
+def test_every_row_says_whether_its_items_lock_is_held(
+  tree: Tree, static: Path
+) -> None:
+  unreadable = tree.root / "batch-1" / "task-3"
+  unreadable.mkdir()
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = held(tree, static)
+  free = held(tree, static)
+
+  assert found == dict.fromkeys(
+    ("batch-1/task-0", "batch-1/task-1", "batch-1/task-2", "batch-1/task-3"),
+    True,
+  )
+  assert set(free.values()) == {False}
+
+
+def test_without_a_lock_held_is_null(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(PROJECT)
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = held(tree, static)
+
+  assert set(found.values()) == {None}
+
+
 def test_a_free_lock_is_not(tree: Tree, static: Path) -> None:
   # Another file held, so that /proc/locks is not empty.
   with holding(tree.root / "batch-1" / "other.lock"):

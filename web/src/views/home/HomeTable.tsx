@@ -43,6 +43,7 @@ import {
   filterItems,
   flagged,
   GROUPS,
+  isOlder,
   keyWord,
   notEnded,
   rowSeconds,
@@ -304,7 +305,12 @@ export function HomeTable({
   const q = params.get("q") ?? "";
   const chosen = params.get("status");
 
-  const items = useMemo(() => toItems(read.rows), [read.rows]);
+  const showOlder = params.get("older") === "1";
+  const older = useMemo(() => read.rows.filter(isOlder).length, [read.rows]);
+  const items = useMemo(
+    () => toItems(showOlder ? read.rows : read.rows.filter((r) => !isOlder(r))),
+    [read.rows, showOlder],
+  );
   const filtered = useMemo(
     () => filterItems(project, items, q, chosen),
     [project, items, q, chosen],
@@ -602,9 +608,30 @@ export function HomeTable({
         </table>
         {rows.length === 0 && (
           <p className="py-6 text-center text-fg-3">
-            {items.length === 0
+            {read.rows.length === 0
               ? "The project has no attempts."
-              : "Nothing matches the search and the status filter."}
+              : items.length === 0
+                ? "Every attempt of the project is an older record."
+                : "Nothing matches the search and the status filter."}
+          </p>
+        )}
+        {older > 0 && (
+          <p className="flex items-center gap-2 text-xs text-fg-3">
+            {`${older.toString()} older ${older === 1 ? "record" : "records"} ${showOlder ? "shown" : "hidden"}`}
+            <span aria-hidden>·</span>
+            <button
+              type="button"
+              className={control}
+              aria-pressed={showOlder}
+              onClick={() => {
+                update((p) => {
+                  if (showOlder) p.delete("older");
+                  else p.set("older", "1");
+                });
+              }}
+            >
+              {showOlder ? "Hide" : "Show"}
+            </button>
           </p>
         )}
       </div>
