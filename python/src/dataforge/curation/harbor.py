@@ -23,7 +23,12 @@ the sidecar after ours, and that file sets none of these. A task directory's own
 compose file, which Harbor reads before ours, can take the same limits from
 DATAFORGE_SIDECAR_CPUS and DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment.
 After the run, whatever happened, the trial's files are given back to this user
-and everything with the label is removed.
+and everything with the label is removed, and so is every container, labelled
+or not, that mounts from under the trial's output directory. Then, as the
+containers wrote into the trial's directory, each symlink there that resolves,
+or may, outside it, and each entry that is no regular file, directory or
+symlink, is removed and named in `harbor.log`, before run gives the trial to any
+reader; when the cleanup fails, run raises and gives no trial.
 
 A trial reserves from the pool the task's memory plus the sidecar's limit
 (`memory_gb`), whether or not the task has a sidecar; image builds and the
@@ -54,7 +59,14 @@ import tomllib
 from typing import cast
 import uuid
 
-from dataforge.curation.actions import Limits, Mount, TrialAgent, TrialResult
+from dataforge.curation.actions import (
+  drop_escaping_links,
+  drop_special_files,
+  Limits,
+  Mount,
+  TrialAgent,
+  TrialResult,
+)
 from dataforge.runtime import claude
 
 LABEL = "dataforge.trial"
@@ -166,7 +178,9 @@ class HarborRunner:
       the trial, and exits it after the cleanup, also when Harbor or the
       cleanup failed. A dataset serves a model gateway on a socket there, say,
       and yields the socket's mount. It runs inside the trial's reservation
-      from the pool, as run does.
+      from the pool, as run does. A container of its own that mounts from
+      under the output directory is removed with the trial's, before the
+      context exits.
     docker: The docker command that reads the task's compose file and that the
       cleanup runs; when docker fails during the cleanup, run raises, since it
       cannot tell what is left.
@@ -258,11 +272,26 @@ class HarborRunner:
       error = self._harbor(args, log)
     finally:
       try:
-        self._chown(outdir, label)
+        held = release(outdir, self.docker)
       finally:
-        left = cleanup(f"{LABEL}={label}", self.docker)
+        try:
+          self._chown(outdir, label)
+        finally:
+          left = cleanup(f"{LABEL}={label}", self.docker)
+    if held:
+      raise RuntimeError(f"containers still mount {outdir}: {held}")
     if any(left.values()):
       raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
+    # No container can reach the trial now, so nothing in it changes after it
+    # was checked.
+    notes: list[str] = []
+    for trial in sorted((outdir / "job").glob("*/")):
+      if not trial.is_symlink():
+        notes += drop_escaping_links(trial, f"trial {trial.name}")
+        notes += drop_special_files(trial, f"trial {trial.name}")
+    if notes:
+      with log.open("a") as out:
+        _ = out.write("".join(f"{note}\n" for note in notes))
     return _read(outdir, log, error, time.monotonic() - started)
 
   def overlay(
@@ -425,6 +454,73 @@ def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
   }
 
 
+def release(path: Path, docker: str = "docker") -> list[str]:
+  """Remove every container, whatever its labels, that mounts from under path.
+
+  Harbor starts some containers, such as a separate verifier's, without the
+  trial's label, and may leave one when it is stopped or its own cleanup
+  fails.
+
+  Args:
+    path: A directory on the host.
+    docker: The docker command.
+
+  Returns:
+    The containers that still mount from under path.
+  """
+  if found := _mounting(path, docker):
+    _ = subprocess.run(
+      [docker, "container", "rm", "-f", *found],
+      env=_passed(),
+      capture_output=True,
+      timeout=120,
+      check=False,
+    )
+  return _mounting(path, docker)
+
+
+def _mounting(path: Path, docker: str) -> list[str]:
+  def run(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+      [docker, "container", *args],
+      env=_passed(),
+      capture_output=True,
+      text=True,
+      timeout=120,
+      check=False,
+    )
+
+  listed = run("ls", "-a", "-q", "--no-trunc")
+  if listed.returncode != 0:
+    raise RuntimeError(f"docker container ls failed: {listed.stderr.strip()}")
+  if not (ids := listed.stdout.split()):
+    return []
+  inspected = run("inspect", *ids)
+  # Another job's container may go between the two commands; any other error
+  # could hide a container.
+  errors = [
+    line
+    for line in inspected.stderr.splitlines()
+    if line.strip() and "No such container" not in line
+  ]
+  if errors or (inspected.returncode != 0 and not inspected.stderr.strip()):
+    raise RuntimeError(f"docker container inspect failed: {errors}")
+  root = path.resolve()
+  containers = cast(
+    list[Mapping[str, object]], json.loads(inspected.stdout or "[]")
+  )
+  return sorted(
+    str(container["Id"])
+    for container in containers
+    if any(
+      Path(str(mount.get("Source", ""))).is_relative_to(root)
+      for mount in cast(
+        list[Mapping[str, object]], container.get("Mounts") or []
+      )
+    )
+  )
+
+
 def _passed() -> dict[str, str]:
   return {key: os.environ[key] for key in PASSED if key in os.environ}
 
@@ -537,7 +633,7 @@ def _read(
     seconds = delta.total_seconds()
   artifacts = {"log": log, "trial": trial}
   for name in ("agent", "verifier"):
-    if (trial / name).is_dir():
+    if (trial / name).is_dir(follow_symlinks=False):
       artifacts[name] = trial / name
   # The agent's container writes agent/, and a symlink there could point
   # the record or the cost at a file of the host.
