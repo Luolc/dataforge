@@ -92,9 +92,11 @@ function TopRow({
   const seconds =
     started !== undefined && ended !== undefined ? span(started, ended) : null;
   // While it runs, the total goes on from its start; once it has stopped,
-  // or may have, it is the record's.
-  const running = live?.live === "running";
-  const word = live?.live ?? null;
+  // or may have, it is the record's. A record read after the attempt ended
+  // is the record's, whatever /live read before.
+  const over = attemptStatus(project, record) !== null;
+  const word = over ? null : (live?.live ?? null);
+  const running = word === "running";
   const status =
     word !== null
       ? liveStatus[word]

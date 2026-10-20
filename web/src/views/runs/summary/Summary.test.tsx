@@ -156,6 +156,28 @@ describe("the Summary of a running attempt", () => {
     expect(review).toHaveTextContent("1m 25s");
   });
 
+  it("takes a record that has ended over a /live read before it ended", () => {
+    render(
+      <MemoryRouter>
+        <Summary
+          project={sampleProject}
+          attempt="batch-1/task-0001"
+          record={records.passed}
+          live={runningIn({ index: records.passed.visits.length })}
+        />
+      </MemoryRouter>,
+    );
+    const item = (key: string) =>
+      must(screen.getByText(key).nextElementSibling);
+
+    expect(item("Status")).toHaveTextContent("Passed");
+    expect(item("Total duration")).toHaveTextContent("1h 10m");
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(item("Total duration")).toHaveTextContent("1h 10m");
+  });
+
   it("stops the total at the record's when it may have stopped", () => {
     const { item, graph } = showLive(mayHaveStopped);
 

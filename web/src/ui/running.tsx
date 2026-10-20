@@ -4,9 +4,9 @@ import { LoaderCircle } from "lucide-react";
 
 import { duration } from "./format";
 import { useNow } from "./now";
-import { liveStatus } from "./status";
+import { liveStatus, toneText } from "./status";
 
-const RUNNING = liveStatus.running.label;
+const RUNNING = liveStatus.running;
 
 /**
  * Running as an icon that turns, and stands still when the reader asks for
@@ -16,9 +16,9 @@ export function RunningIcon() {
   return (
     <span
       role="img"
-      aria-label={RUNNING}
-      title={RUNNING}
-      className="inline-grid size-icon-md flex-none place-items-center text-icon"
+      aria-label={RUNNING.label}
+      title={RUNNING.label}
+      className={`inline-grid size-icon-md flex-none place-items-center ${toneText[RUNNING.tone]}`}
     >
       <LoaderCircle
         className="size-icon-md animate-spin motion-reduce:animate-none"

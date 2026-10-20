@@ -55,4 +55,12 @@ describe("RunningIcon", () => {
       "motion-reduce:animate-none",
     );
   });
+
+  it("takes the colour of Running's tone, neutral (L38)", () => {
+    render(<RunningIcon />);
+
+    expect(screen.getByRole("img", { name: "Running" })).toHaveClass(
+      "text-neutral",
+    );
+  });
 });

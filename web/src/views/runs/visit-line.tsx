@@ -22,17 +22,11 @@ export function VisitLine({
 }) {
   if (since !== undefined)
     return (
-      <Line
-        icon={<RunningIcon />}
-        title={stateTitle(project, visit.state)}
-        sub={
-          <>
-            {liveStatus.running.label}
-            {" · "}
-            {since === null ? "—" : <Elapsed since={since} />}
-            {` · ${usd(visitCost(visit))}`}
-          </>
-        }
+      <RunningLine
+        project={project}
+        state={visit.state}
+        since={since}
+        cost={visitCost(visit)}
       />
     );
   const seconds = visitSeconds(visit);
@@ -52,17 +46,20 @@ export function VisitLine({
 }
 
 /**
- * The visit a running attempt is in that its record does not hold yet: its
- * state, Running and its time going on from since; it has no cost yet.
+ * The visit a running attempt is in: its state, Running, its time going on
+ * from since, or "—" when since is null, and the cost of its actions so far
+ * when the record holds it.
  */
 export function RunningLine({
   project,
   state,
   since,
+  cost,
 }: {
   project: Project;
   state: string;
   since: string | null;
+  cost?: number;
 }) {
   return (
     <Line
@@ -73,6 +70,7 @@ export function RunningLine({
           {liveStatus.running.label}
           {" · "}
           {since === null ? "—" : <Elapsed since={since} />}
+          {cost !== undefined && ` · ${usd(cost)}`}
         </>
       }
     />
