@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
 import { must, records, sampleProject } from "../../../../fixtures/sample";
-import { END, layout, takenCounts } from "./graph";
+import { record } from "../../../api/types";
+import { END, lanes, layout, takenCounts } from "./graph";
 
 describe("the graph", () => {
   it("counts the transitions the visits took", () => {
@@ -46,8 +48,14 @@ describe("the graph", () => {
       idle: true,
       lastVisit: null,
     });
-    expect(node("check")).toMatchObject({ tone: "bad", lastVisit: 5 });
-    expect(node(END)).toMatchObject({ sub: "Exhausted", tone: "bad" });
+    expect(node("check")).toMatchObject({
+      status: { tone: "bad" },
+      lastVisit: 5,
+    });
+    expect(node(END)).toMatchObject({
+      sub: "Exhausted",
+      status: { tone: "bad" },
+    });
     // The last visit went back to author, but the attempt ended there.
     expect(
       takenCounts(records.exhausted, sampleProject).get("check\0fail"),
@@ -73,7 +81,7 @@ describe("the graph", () => {
     expect(drawn.nodes.at(-1)).toMatchObject({
       idle: false,
       sub: "No status",
-      tone: "neutral",
+      status: { tone: "neutral" },
     });
     expect(takenCounts(rec, project)).toEqual(
       takenCounts(records.passed, sampleProject),
@@ -87,5 +95,33 @@ describe("the graph", () => {
       idle: true,
       sub: "Not run",
     });
+  });
+
+  it("puts the edges back to one state in one lane", () => {
+    const drawn = must(layout(record.parse(busy), sampleProject));
+    const laneOf = (to: string) =>
+      new Set(
+        drawn.edges.filter((e) => e.back && e.to === to).map((e) => e.label.y),
+      );
+
+    expect(drawn.edges.filter((e) => e.back && e.to === "draft").length).toBe(
+      7,
+    );
+    expect(laneOf("draft").size).toBe(1);
+    expect(laneOf("build").size).toBe(1);
+    expect(laneOf("draft")).not.toEqual(laneOf("build"));
+  });
+});
+
+describe("lanes", () => {
+  it("puts a shorter span inside a longer one, and disjoint ones together", () => {
+    expect(
+      lanes([
+        [0, 9],
+        [1, 3],
+        [4, 6],
+        [2, 5],
+      ]),
+    ).toEqual([2, 0, 0, 1]);
   });
 });
