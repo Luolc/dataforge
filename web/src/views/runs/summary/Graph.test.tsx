@@ -253,6 +253,14 @@ const colors = (el: Element, kind: "fill" | "stroke") =>
     .filter((c) => !/^(none|\d|\[)/.test(c));
 
 describe("what was not run or not taken, at rest", () => {
+  it("marks a state not run with Lucide's dashed circle, drawn by no hand", () => {
+    const { node } = show(early);
+    const icon = node("check").querySelector("svg.lucide-circle-dashed");
+
+    expect(icon).not.toBeNull();
+    expect(icon?.getAttribute("class")).toContain("text-icon");
+  });
+
   it("has text at least 4.5:1 and lines at least 3:1 on the graph", () => {
     const { graph, node } = show(early);
     const text = [...node("check").querySelectorAll("text")].flatMap((t) =>
