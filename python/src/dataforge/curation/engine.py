@@ -15,7 +15,8 @@ from pathlib import Path
 import string
 import threading
 
-from dataforge.curation.deliverables import check, Deliverable, Source
+from dataforge.curation.deliverables import check as check_deliverables
+from dataforge.curation.deliverables import Deliverable, Source
 from dataforge.curation.graph import Graph, GraphEdge, GraphState
 
 type Data = Mapping[str, object]
@@ -564,7 +565,7 @@ class Machine:
     self.states: list[State] = list(states)
     self._by_name: dict[str, State] = _check_states(self.states)
     self.deliverables: dict[str, Deliverable] = dict(deliverables or {})
-    check(self.deliverables, set(self._by_name))
+    check_deliverables(self.deliverables, set(self._by_name))
     self._guard: Guard | None = guard
     self._on_step: Callable[[Attempt], None] | None = on_step
     self.max_cost_usd: float | None = max_cost_usd

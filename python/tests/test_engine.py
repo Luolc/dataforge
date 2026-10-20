@@ -845,6 +845,7 @@ def test_deliverables_take_the_kept_last_or_nth_visit(tmp_path: Path) -> None:
       "second": files("task", 2),
       "fifth": files("task", 5),
       "missing": files("absent", "kept"),
+      "marked": Deliverable("files", "verdict", Source("judge", "verdict")),
       "report": Deliverable(
         "report",
         "Report",
@@ -892,6 +893,12 @@ def test_deliverables_take_the_kept_last_or_nth_visit(tmp_path: Path) -> None:
       **unreached("missing", "absent", "build visit 1 has no output absent"),
       "visit": 1,
       "visit_index": 0,
+    },
+    {
+      **unreached("marked", "verdict", "judge visit 1 has no output verdict"),
+      "state": "judge",
+      "visit": 1,
+      "visit_index": attempt.kept_visit,
     },
     {
       **found("report", "report", 1, 0),
