@@ -60,9 +60,15 @@ export function Graph({
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
   const active = hovered ?? focused;
+  // The state the attempt ran in when the graph was first shown: the page
+  // reading the attempt again does not move the view to where it runs now.
+  const [centred] = useState(
+    () => layout.nodes.find((n) => n.running !== null)?.key ?? null,
+  );
 
   // The view that shows the whole graph, or a part of it at START: the
-  // state the attempt runs now in the middle, else the left part.
+  // state the attempt ran in when first shown in the middle, else the left
+  // part.
   const fit = useCallback(
     (w: number, h: number, whole: boolean): View => {
       const across = w / layout.width;
@@ -70,12 +76,12 @@ export function Graph({
         ? clamp(Math.min(across, h / layout.height), START, 1.5)
         : START;
       const gw = layout.width * k;
-      const running = layout.nodes.find((n) => n.running !== null);
+      const middle = layout.nodes.find((n) => n.key === centred);
       const x =
         gw <= w
           ? (w - gw) / 2
-          : running && !whole
-            ? clamp(w / 2 - (running.x + running.width / 2) * k, w - gw, 0)
+          : middle && !whole
+            ? clamp(w / 2 - (middle.x + middle.width / 2) * k, w - gw, 0)
             : 0;
       return {
         k,
@@ -83,7 +89,7 @@ export function Graph({
         y: whole ? Math.max(0, (h - layout.height * k) / 2) : 0,
       };
     },
-    [layout],
+    [layout, centred],
   );
 
   // Keep at least part of the graph in the frame.

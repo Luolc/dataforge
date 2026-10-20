@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import older from "../../../fixtures/oldrec/attempts/older/task-0301/record.json";
 import other from "../../../fixtures/oldrec/attempts/older/task-0302/record.json";
@@ -13,7 +20,8 @@ import {
   runningIn,
   sampleProject,
 } from "../../../fixtures/sample";
-import type { Project } from "../../api/types";
+import { POLL_MS } from "../../api/poll";
+import type { LiveInfo, Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
 import { AttemptPage } from "./AttemptPage";
 
@@ -224,5 +232,122 @@ describe("an attempt that runs", () => {
       within(header).getByRole("img", { name: "Not ended" }),
     ).toBeVisible();
     expect(tabs()[0]).toHaveTextContent("Runs4");
+  });
+});
+
+describe("an attempt read again while it runs", () => {
+  // Each read of the record and of /live answers with the next of reads, the
+  // last one again once they run out.
+  function showReads(reads: { record: unknown; live: LiveInfo }[], at = "") {
+    let n = 0;
+    const fetch = vi.fn((url: string) => {
+      const read = must(reads[Math.min(n, reads.length - 1)]);
+      if (url.includes("/live?")) n++;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(url.includes("/live?") ? read.live : read.record),
+          { status: 200 },
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <ProjectsContext value={{ state: "ok", data: [project] }}>
+        <MemoryRouter initialEntries={[`/${project.id}/attempt?id=b/t${at}`]}>
+          <Routes>
+            <Route path=":project/attempt" element={<AttemptPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ProjectsContext>,
+    );
+    return fetch;
+  }
+
+  // The record once its review has ended, in its solve, which it has not
+  // recorded yet.
+  const reviewed = {
+    record: { ...inReview, visits: records.passed.visits.slice(0, 5) },
+    live: runningIn({ state: "solve", index: 5, since: null }),
+  };
+
+  const tick = async () => {
+    act(() => {
+      vi.advanceTimersByTime(POLL_MS);
+    });
+    // Let the reads it starts land.
+    await act(() => Promise.resolve());
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the run it goes on to, with no reload", async () => {
+    const fetch = showReads([
+      { record: inReview, live: runningIn() },
+      reviewed,
+    ]);
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs5");
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    await tick();
+
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs6");
+    });
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("stops reading once the record has ended", async () => {
+    const fetch = showReads([
+      { record: inReview, live: runningIn() },
+      { record: records.passed, live: runningIn() },
+    ]);
+    const header = must(
+      (await screen.findByRole("heading", { name: /Attempt/ })).parentElement,
+    );
+    expect(within(header).getByRole("img", { name: "Running" })).toBeVisible();
+
+    await tick();
+    await waitFor(() => {
+      expect(within(header).getByRole("img", { name: "Passed" })).toBeVisible();
+    });
+    const reads = fetch.mock.calls.length;
+    await tick();
+    await tick();
+    expect(fetch).toHaveBeenCalledTimes(reads);
+  });
+
+  it("does not read again one that may have stopped", async () => {
+    const fetch = showReads([{ record: inReview, live: mayHaveStopped }]);
+    await screen.findByRole("img", { name: "May have stopped" });
+
+    await tick();
+    await tick();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the run chosen and the steps opened on it", async () => {
+    showReads([{ record: inReview, live: runningIn() }, reviewed], "&run=3");
+    const run = await screen.findByRole("region", { name: /run 4/ });
+    const step = must(
+      within(run).getAllByRole("button", { expanded: false })[0],
+    );
+    fireEvent.click(step);
+    expect(step).toHaveAttribute("aria-expanded", "true");
+
+    await tick();
+
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs6");
+    });
+    expect(screen.getByRole("region", { name: /run 4/ })).toBe(run);
+    expect(step).toHaveAttribute("aria-expanded", "true");
   });
 });

@@ -1,5 +1,5 @@
 // Every request the frontend makes: GETs to dataforge.viz's API.
-import { useEffect, useState } from "react";
+import { createContext, use, useEffect, useState } from "react";
 import type { z } from "zod";
 
 import { listing } from "./types";
@@ -63,12 +63,24 @@ function reasonOf(body: unknown): string | null {
 }
 
 /**
+ * The generation of what a page reads while an attempt runs: each read again
+ * raises it, and what follows the attempt as it goes reads again with it.
+ */
+export const RefreshContext = createContext(0);
+
+/** The page's generation of reads, for useLoaded's refresh. */
+export const useRefresh = () => use(RefreshContext);
+
+/**
  * What load gives, loaded again whenever key changes; a null key loads
- * nothing. The same key must always load the same thing.
+ * nothing. The same key must always load the same thing. When refresh
+ * changes, the same key loads again, and what it loaded before stays until
+ * the new read lands; a read again that fails keeps it.
  */
 export function useLoaded<T>(
   key: string | null,
   load: (signal: AbortSignal) => Promise<T>,
+  refresh = 0,
 ): Loaded<T> {
   const [loaded, setLoaded] = useState<{ key: string; value: Loaded<T> }>();
   useEffect(() => {
@@ -76,12 +88,17 @@ export function useLoaded<T>(
     const controller = new AbortController();
     load(controller.signal).then(
       (data) => {
+        if (controller.signal.aborted) return;
         setLoaded({ key, value: { state: "ok", data } });
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
         const message = error instanceof Error ? error.message : String(error);
-        setLoaded({ key, value: { state: "error", message } });
+        setLoaded((last) =>
+          last?.key === key && last.value.state === "ok"
+            ? last
+            : { key, value: { state: "error", message } },
+        );
       },
     );
     return () => {
@@ -89,14 +106,22 @@ export function useLoaded<T>(
     };
     // load is a new function on each render, and key names what it loads.
     // eslint-disable-next-line @eslint-react/exhaustive-deps
-  }, [key]);
+  }, [key, refresh]);
   // A result for another key is stale: the new one is still loading.
   return loaded?.key === key ? loaded.value : { state: "loading" };
 }
 
-/** The JSON at url, parsed with schema. */
-export function useJson<T>(url: string | null, schema: z.ZodType<T>) {
-  return useLoaded(url, (signal) => getJson(url ?? "", schema, signal));
+/** The JSON at url, parsed with schema; refresh as for useLoaded. */
+export function useJson<T>(
+  url: string | null,
+  schema: z.ZodType<T>,
+  refresh = 0,
+) {
+  return useLoaded(
+    url,
+    (signal) => getJson(url ?? "", schema, signal),
+    refresh,
+  );
 }
 
 export interface FileCount {
@@ -130,22 +155,32 @@ async function countFiles(
   return { files, complete: queue.length === 0 };
 }
 
-// One walk per path while the page is open, shared by a tab's count and a
-// deliverable's card; a failed walk is dropped, to be tried again. The page
-// shows what was on disk when it was loaded, as everywhere else.
-const fileCounts = new Map<string, Promise<FileCount>>();
+// One walk per path and generation of the page's reads, shared by a tab's
+// count and a deliverable's card; a failed walk is dropped, to be tried again.
+const fileCounts = new Map<
+  string,
+  { refresh: number; count: Promise<FileCount> }
+>();
 
 /** countFiles as a hook, for a tab's count and a deliverable's card. */
 export function useFileCount(p: string, attempt: string, path: string | null) {
+  const refresh = useRefresh();
   const key = path === null ? null : JSON.stringify([p, attempt, path]);
-  return useLoaded(key, () => {
-    if (key === null || path === null) return Promise.reject(new Error(""));
-    let count = fileCounts.get(key);
-    if (count === undefined) {
-      count = countFiles(p, attempt, path);
-      fileCounts.set(key, count);
-      count.catch(() => fileCounts.delete(key));
-    }
-    return count;
-  });
+  return useLoaded(
+    key,
+    () => {
+      if (key === null || path === null) return Promise.reject(new Error(""));
+      let walk = fileCounts.get(key);
+      if (walk?.refresh !== refresh) {
+        const made = { refresh, count: countFiles(p, attempt, path) };
+        fileCounts.set(key, made);
+        made.count.catch(() => {
+          if (fileCounts.get(key) === made) fileCounts.delete(key);
+        });
+        walk = made;
+      }
+      return walk.count;
+    },
+    refresh,
+  );
 }

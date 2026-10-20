@@ -1,7 +1,15 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { POLL_MS } from "../../api/poll";
 import type { AttemptRow, Project } from "../../api/types";
 import Home from "./index";
 import { project, row, unreadable } from "./rows.test-data";
@@ -188,7 +196,7 @@ describe("the home page", () => {
     expect(screen.getByText("3 of 4 hidden by the search.")).toBeVisible();
   });
 
-  it("reads the listing again only on refresh", async () => {
+  it("reads the listing again on refresh", async () => {
     show();
     await screen.findByText("t-run");
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -441,5 +449,97 @@ describe("the home page's empty attempts", () => {
       ),
     ).toBeVisible();
     expect(screen.getByText("1 older record hidden")).toBeVisible();
+  });
+});
+
+describe("the home page while an attempt runs", () => {
+  // Each read of the listing answers with the next of reads, the last one
+  // again once they run out.
+  function serve(...reads: AttemptRow[][]) {
+    let n = 0;
+    const fetch = vi.fn(() => {
+      const rows = must(reads[Math.min(n++, reads.length - 1)]);
+      return Promise.resolve(
+        new Response(JSON.stringify(rows), { status: 200 }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+
+  const tick = async (ms = POLL_MS) => {
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+    await act(() => Promise.resolve());
+  };
+
+  /** The Duration cell of an item's row. */
+  const durationOf = (id: string) =>
+    must(
+      screen.getByText(id).closest("tr")?.querySelector("td:nth-child(8)") ??
+        undefined,
+    );
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-03-02T09:45:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("counts a running attempt's duration on from its start", async () => {
+    serve(ROWS);
+    show();
+    await screen.findByText("t-run");
+
+    expect(durationOf("t-run")).toHaveTextContent("45m 0s");
+    await tick(1000);
+    expect(durationOf("t-run")).toHaveTextContent("45m 1s");
+    // One that has ended keeps the time it took.
+    expect(durationOf("t-old")).toHaveTextContent("1h 0m");
+  });
+
+  it("reads the listing again while an attempt runs, with no Reading…", async () => {
+    const ended = row("t-run/1", {
+      started_at: at(9),
+      ended_at: at(10),
+      cost_usd: 3,
+    });
+    const fetch = serve(ROWS, [ended, ...ROWS.slice(1)]);
+    show();
+    await screen.findByText("t-run");
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(POLL_MS);
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Reading…")).toBeNull();
+    await act(() => Promise.resolve());
+
+    const item = must(screen.getByText("t-run").closest("tr") ?? undefined);
+    await waitFor(() => {
+      expect(within(item).getByText("Passed")).toBeVisible();
+    });
+    expect(within(item).getByText("$3.00")).toBeVisible();
+    expect(durationOf("t-run")).toHaveTextContent("1h 0m");
+
+    // None runs now, so it reads on no timer.
+    await tick();
+    await tick();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads it on no timer when no attempt runs", async () => {
+    const fetch = serve(ROWS.slice(1));
+    show();
+    await screen.findByText("t-old");
+
+    await tick();
+    await tick();
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

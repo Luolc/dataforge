@@ -1,10 +1,11 @@
 // The file tree of a files deliverable: each directory is read when it is
-// first opened, directories before the other entries, each group by name.
+// first opened, and again with the page's reads while the attempt runs,
+// directories before the other entries, each group by name.
 import { ChevronRight } from "lucide-react";
 import { type CSSProperties, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import { urls, useJson } from "../../api/client";
+import { urls, useJson, useRefresh } from "../../api/client";
 import { listing } from "../../api/types";
 import { type Entry, inTreeOrder } from "./entries";
 import { FileIcon, FolderIcon, OtherIcon } from "./FileIcon";
@@ -37,6 +38,7 @@ function Entries({
   const loaded = useJson(
     urls.files(props.project, props.attempt, dir),
     listing,
+    useRefresh(),
   );
   if (loaded.state !== "ok") {
     return (

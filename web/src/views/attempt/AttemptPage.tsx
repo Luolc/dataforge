@@ -1,10 +1,18 @@
 // An attempt: its header, a row of tabs (Runs, then one per deliverable kind
-// in the order its first deliverable is declared) and the current tab.
-import type { ReactNode } from "react";
+// in the order its first deliverable is declared) and the current tab. While
+// the attempt runs, the page reads it again every POLL_MS.
+import { type ReactNode, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { Link } from "react-router";
 
-import { getJson, urls, useJson, useLoaded } from "../../api/client";
+import {
+  getJson,
+  RefreshContext,
+  urls,
+  useJson,
+  useLoaded,
+} from "../../api/client";
+import { usePolling } from "../../api/poll";
 import { z } from "zod";
 
 import {
@@ -33,17 +41,33 @@ export function AttemptPage() {
   const [query] = useSearchParams();
   const attempt = query.get("id");
   const project = useProject(id);
+  // Raised by each read again; what is open, chosen or panned on the page
+  // stays, since what was read before stays shown until the new read lands.
+  const [refresh, setRefresh] = useState(0);
   const url =
     id !== undefined && attempt !== null ? urls.record(id, attempt) : null;
-  const loaded = useLoaded(url, (signal) =>
-    getJson(url ?? "", z.unknown(), signal).then(readRecord),
+  const loaded = useLoaded(
+    url,
+    (signal) => getJson(url ?? "", z.unknown(), signal).then(readRecord),
+    refresh,
   );
   // How the attempt stands now; a page that cannot read it shows the record
   // alone, as for a project with no lock.
   const liveUrl =
     id !== undefined && attempt !== null ? urls.live(id, attempt) : null;
-  const liveLoaded = useJson(liveUrl, liveInfo);
+  const liveLoaded = useJson(liveUrl, liveInfo, refresh);
   const live = liveLoaded.state === "ok" ? liveLoaded.data : null;
+  // Read again only while /live says it runs and the record has not ended.
+  usePolling(
+    live?.live === "running" &&
+      project.state === "ok" &&
+      loaded.state === "ok" &&
+      loaded.data.shape === "record" &&
+      attemptStatus(project.data, loaded.data.record) === null,
+    () => {
+      setRefresh((r) => r + 1);
+    },
+  );
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
   const discarded = runOf(query.get("discarded"));
@@ -100,7 +124,11 @@ export function AttemptPage() {
         discarded={discarded}
       />
     );
-  return <Frame crumbs={crumbs}>{body}</Frame>;
+  return (
+    <Frame crumbs={crumbs}>
+      <RefreshContext value={refresh}>{body}</RefreshContext>
+    </Frame>
+  );
 }
 
 function runOf(value: string | null): number | null {
