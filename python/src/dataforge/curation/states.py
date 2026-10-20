@@ -598,11 +598,12 @@ class TrialsState(_ActionState):
   when the agent runs more than once.
 
   Outcomes: "ok" when no trial reports an exception, else "error". Data: each
-  trial's {"rewards", "exception"}, by output name. A judge that reads the
-  trials is a JudgeState after this one.
+  trial's {"rewards", "exception"}, by output name. With a judge, the judge
+  decides instead, given the trials' outputs as inputs, in the order of trials.
 
   Attributes:
-    OUTCOMES: The outcomes it gives, before rename.
+    OUTCOMES: The outcomes it gives, before rename; with a judge, the
+      judge's.
   """
 
   OUTCOMES: ClassVar[frozenset[str] | None] = frozenset({"ok", "error"})
@@ -620,6 +621,7 @@ class TrialsState(_ActionState):
     limits: Limits,
     configs: Mapping[str, TrialAgent] | None = None,
     each_task: bool = False,
+    judge: Judge | None = None,
     rename: Mapping[str, str] | None = None,
     feedback: str | None = None,
     max_cost_usd: float = 0.0,
@@ -640,6 +642,8 @@ class TrialsState(_ActionState):
       configs: The agent each name runs, for a name that is not itself the
         agent (such as "nop" or "oracle").
       each_task: Whether every agent runs on each subdirectory of task_dir.
+      judge: What decides the outcome in place of looking for exceptions, if
+        anything.
       rename: A new name for each outcome that is to have one, by its name.
       feedback: The state's feedback template.
       max_cost_usd: The most one visit may spend, in US dollars.
@@ -659,6 +663,13 @@ class TrialsState(_ActionState):
     self.limits: Limits = limits
     self.configs: Mapping[str, TrialAgent] = dict(configs or {})
     self.each_task: bool = each_task
+    self.judge: Judge | None = judge
+
+  @override
+  def given_outcomes(self) -> frozenset[str] | None:
+    if self.judge is not None:
+      return _judge_outcomes(self.judge)
+    return self.OUTCOMES
 
   def trials(self, ctx: Context) -> list[tuple[str, Path, TrialAgent]]:
     """Return the trials of a visit: output name, task directory and agent.
@@ -694,6 +705,9 @@ class TrialsState(_ActionState):
       return lambda: self.actions.trial(ctx, name, task_dir, agent, self.limits)
 
     results = fan_out([one(*trial) for trial in trials])
+    if self.judge is not None:
+      names = [name for name, _, _ in trials]
+      return self.renamed(_judged(self.actions.judge(ctx, self.judge, names)))
     data = {
       name: {"rewards": dict(result.rewards), "exception": result.exception}
       for (name, _, _), result in zip(trials, results, strict=True)
