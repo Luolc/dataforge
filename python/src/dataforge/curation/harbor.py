@@ -1,7 +1,8 @@
 """Run a trial with Harbor: start the environment, run an agent, verify.
 
 The trial starts the task's environment, runs an agent in it and runs the
-verifier.
+verifier. Its result has the rewards, the cost and the agent's trace, which is
+read for Harbor's claude-code, pi and codex agents (TRACES).
 
 HarborRunner drives the `harbor` command line, which the dataset installs;
 dataforge does not depend on Harbor. Harbor runs with an empty environment plus
@@ -68,7 +69,7 @@ from dataforge.curation.actions import (
   TrialAgent,
   TrialResult,
 )
-from dataforge.runtime import claude
+from dataforge.runtime import claude, codex, pi
 
 LABEL = "dataforge.trial"
 CPUS = 2.0
@@ -93,15 +94,44 @@ CHOWN_IMAGE = "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab30
 # The variables of this process that Harbor and docker get; everything else is
 # dropped.
 PASSED = ("HOME", "PATH", "DOCKER_HOST", "DOCKER_CONFIG")
-# Where in a trial's directory Harbor's claude-code agent tees Claude Code's
-# stream-json.
-CLAUDE_CODE_TRACE = Path("agent", "claude-code.txt")
-# What that file holds: the raw output of `claude -p --output-format
-# stream-json`, one JSON event per line.
-TRACE_FORMAT = "claude-code-stream-json"
+
+
+@dataclass(frozen=True)
+class TraceFile:
+  """Where in a trial's directory one of Harbor's agents tees its trace.
+
+  Attributes:
+    path: The file, relative to the trial's directory.
+    format: What it holds.
+    cost: Reads the cost a trace gives, in US dollars, or None when it gives
+      none.
+  """
+
+  path: Path
+  format: str
+  cost: Callable[[Path], float | None]
+
+
+# The traces of Harbor's claude-code, pi and codex agents; a trial's trace is
+# the first of them that is a regular file.
+TRACES = (
+  TraceFile(
+    Path("agent", "claude-code.txt"),
+    # claude.TRACE_FORMAT, which runtime.claude, importing this module, has not
+    # set yet when this runs.
+    "claude-code-stream-json",
+    lambda path: claude.read_trace(path).cost_usd,
+  ),
+  TraceFile(
+    Path("agent", "pi.txt"),
+    pi.TRACE_FORMAT,
+    lambda path: pi.read_trace(path).cost_usd,
+  ),
+  TraceFile(Path("agent", "codex.txt"), codex.TRACE_FORMAT, lambda _: None),
+)
 
 TRACE_LIMIT = 64 * 2**20
-"""The most bytes of CLAUDE_CODE_TRACE read for a trial's cost."""
+"""The most bytes of a trial's trace read for its cost."""
 
 
 @dataclass(frozen=True)
@@ -153,11 +183,20 @@ class HarborRunner:
   the egress sidecar, when there is one, gets sidecar's limits and SIDECAR_PIDS
   processes.
 
+  A trial's trace is the first file of TRACES that is a regular file in the
+  trial's directory, not a symlink: `agent/claude-code.txt`, which Harbor's
+  claude-code agent writes (`claude-code-stream-json`), `agent/pi.txt`, which
+  its pi agent writes (`pi-json`), or `agent/codex.txt`, which its codex agent
+  writes (`codex-exec-jsonl`). A trial without one has no trace and no trace
+  format.
+
   A trial's cost is the `agent_result.cost_usd` of Harbor's `result.json`. When
-  that is not a number, it is the `total_cost_usd` of the last `result` event
-  in the trial's CLAUDE_CODE_TRACE, a Claude Code trace that Harbor's
-  claude-code agent writes, read only when it is a regular file of at most
-  TRACE_LIMIT bytes; for an agent that writes none, the cost is 0.
+  that is not a number, it is read from the trial's trace, only when that is at
+  most TRACE_LIMIT bytes: for Claude Code, the `total_cost_usd` of the last
+  `result` event; for Pi, the sum of the `usage.cost.total` of the assistant
+  messages' `message_end` events, the price Pi lists, not what was charged.
+  Codex's trace gives no cost; for it, and for a trial without a trace or
+  whose trace gives none, the cost is 0.
 
   Attributes:
     harbor: The `harbor` command.
@@ -663,13 +702,19 @@ def _read(
       artifacts[name] = trial / name
   # The agent's container writes agent/, and a symlink there could point
   # the record or the cost at a file of the host.
-  trace = trial / CLAUDE_CODE_TRACE
-  traced = trace.is_file(follow_symlinks=False)
+  traced = next(
+    (
+      (kind, trial / kind.path)
+      for kind in TRACES
+      if (trial / kind.path).is_file(follow_symlinks=False)
+    ),
+    None,
+  )
   cost = agent.get("cost_usd")
   if isinstance(cost, bool) or not isinstance(cost, int | float):
     cost = None
-    if traced and trace.stat(follow_symlinks=False).st_size <= TRACE_LIMIT:
-      cost = claude.read_trace(trace).cost_usd
+    if traced and traced[1].stat(follow_symlinks=False).st_size <= TRACE_LIMIT:
+      cost = traced[0].cost(traced[1])
   return TrialResult(
     {key: float(value) for key, value in rewards.items()},
     exception,
@@ -678,6 +723,6 @@ def _read(
     artifacts,
     id=trial.name,
     path=trial,
-    trace=trace if traced else None,
-    trace_format=TRACE_FORMAT,
+    trace=None if traced is None else traced[1],
+    trace_format=None if traced is None else traced[0].format,
   )
