@@ -1,0 +1,61 @@
+# One tool from a release tarball pinned by version and sha256 in
+# versions.yml (the Pinned tarballs loop in tasks/tools.yml), as `pinned`, for the
+# agent user: the tarball is kept at ~/.local/libexec/<name>/<version>.tar.gz,
+# unpacked next to it into <version>/, and ~/.local/bin/<name> points at its
+# program. get_url checks the download against the pinned digest before it
+# writes the tarball, and skips the download when the kept one already has
+# that digest, so a rerun changes nothing; a download that does not match
+# stops the run before anything is unpacked or relinked.
+
+- name: "{{ pinned.name }}"
+  vars:
+    root: "{{ home }}/.local/libexec/{{ pinned.name }}"
+    dir: "{{ root }}/{{ pinned.version }}"
+  block:
+    - name: "{{ pinned.name }} | directory"
+      ansible.builtin.file:
+        path: "{{ root }}"
+        state: directory
+        mode: "0755"
+      register: pinned_root
+
+    # Check mode creates no directory, and get_url fails on a missing one;
+    # the directory reports the change instead.
+    - name: "{{ pinned.name }} | tarball"
+      when: not (ansible_check_mode and pinned_root.changed)
+      ansible.builtin.get_url:
+        url: "{{ pinned.url }}"
+        dest: "{{ dir }}.tar.gz"
+        checksum: "sha256:{{ pinned.sha256 }}"
+        mode: "0644"
+
+    - name: "{{ pinned.name }} | version directory"
+      ansible.builtin.file:
+        path: "{{ dir }}"
+        state: directory
+        mode: "0755"
+
+    # Check mode makes neither the version directory nor the tarball, so
+    # there is nothing to unpack; the tasks above report the change.
+    - name: "{{ pinned.name }} | unpacked"
+      when: not ansible_check_mode
+      ansible.builtin.unarchive:
+        src: "{{ dir }}.tar.gz"
+        dest: "{{ dir }}"
+        remote_src: true
+        extra_opts: "{{ pinned.tar_options | default([]) }}"
+        creates: "{{ dir }}/{{ pinned.program }}"
+
+    - name: "{{ pinned.name }} | on PATH"
+      ansible.builtin.file:
+        src: "{{ dir }}/{{ pinned.program }}"
+        dest: "{{ home }}/.local/bin/{{ pinned.name }}"
+        state: link
+        force: true
+  rescue:
+    - name: "{{ pinned.name }} | failed"
+      ansible.builtin.fail:
+        msg: >-
+          {{ pinned.name }}: the pinned release {{ pinned.version }} could not be
+          installed ({{ pinned.name }}_version and {{ pinned.name }}_sha256 in
+          versions.yml): {{ ansible_failed_result.msg }}

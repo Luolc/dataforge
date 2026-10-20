@@ -11,8 +11,10 @@
 # would stop a new machine from installing. bootstrap.sh installs the first
 # list (what Ansible itself needs), the playbook the second.
 ubuntu_bootstrap_packages: ca-certificates curl python3 python3-apt
-# fonts-noto-cjk gives the pages Chrome renders their CJK glyphs.
-ubuntu_packages: [git, jq, zsh, direnv, fonts-noto-cjk]
+# fonts-noto-cjk gives the pages Chrome renders their CJK glyphs. Pi uses
+# rg and fd (as fdfind) from PATH; without them it downloads their latest
+# release, unverified, the first time it needs them.
+ubuntu_packages: [git, jq, zsh, direnv, fonts-noto-cjk, ripgrep, fd-find]
 
 # Read by bootstrap.sh: uv itself, then Ansible run through uv.
 uv_version: 0.12.22
@@ -58,6 +60,17 @@ gh_sha256: 3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
 # The linux-x64 binary's checksum from the release's manifest.json.
 claude_code_version: 2.1.292
 claude_code_sha256: a967e7b1d8b4e47ee421d5433027880347952b0c0857abf880e2c942a4ec93b3
+
+# The clients redcoast-client starts for Codex gateway sessions, each from
+# its release tarball (tasks/pinned-tarball.yml), with the tarball's sha256
+# from the release's asset list. Pi's is a compiled binary with its assets,
+# so none of its npm dependencies are fetched; Codex CLI's is the package its
+# npm wrapper runs. Pi stays at 1.2.0 until the gateway client's launcher,
+# which is written against that version's environment variables, moves.
+pi_version: 1.2.0
+pi_sha256: 00fc36cffdebceea5a48230da62cf3fb463178f8fe185766652f96002a246847
+codex_version: 0.159.3
+codex_sha256: 3930f31ac5fca861ea3e444e2683f261190d96b63fba58e0a40a879174369cdf
 
 # Only installed with zsh_personal (the default).
 oh_my_zsh_commit: 60c9a7a839b790cd905d0fd4419435124fd1bdc0
