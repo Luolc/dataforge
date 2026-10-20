@@ -1,0 +1,29 @@
+id = 41
+slug = "frontend-numeric-columns-right"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["purpose"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Right-align columns of numbers"
+
+[text.statement]
+en = "Right-align every column of numbers in a table on a page."
+
+[text.reason]
+en = '''
+With the digits lined up by place, a reader compares costs and durations down a column without reading each one.
+'''
+
+[text.verification]
+en = '''
+Violated when a table column whose cells are numbers, such as costs, durations or counts, is aligned otherwise.
+'''
