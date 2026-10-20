@@ -14,9 +14,6 @@
     # Overridable with -e or ~/.config/dataforge/setup.yml.
     # The personal zsh layer: oh-my-zsh, powerlevel10k and its prompt config.
     zsh_personal: true
-    # Global git identity of the agent user; skipped while empty.
-    git_user_name: ""
-    git_user_email: ""
     # Where the user puts the token of the GitHub account the machine commits
     # and opens PRs with. The setup only hands this path to `gh auth login`;
     # it never reads the value itself.

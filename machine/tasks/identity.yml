@@ -1,19 +1,9 @@
-# Git identity and the gh login of the GitHub account the machine commits and
-# opens PRs with. The token file is put in place by the user
-# (machine/README.md, step 1); the setup passes its path to gh and never reads
-# the value. Values left empty or a missing file skip the step.
-
-- name: Git identity
-  ansible.builtin.shell:
-    cmd: |
-      [ "$(git config --global --get user.{{ item.key }})" = "$VALUE" ] && exit 0
-      git config --global user.{{ item.key }} "$VALUE" && echo changed
-  environment:
-    VALUE: "{{ item.value }}"
-  loop: "{{ {'name': git_user_name, 'email': git_user_email} | dict2items }}"
-  when: item.value != ""
-  register: git_identity
-  changed_when: git_identity.stdout == "changed"
+# The gh login of the GitHub account the machine commits and opens PRs with.
+# The setup never writes the global git configuration (~/.gitconfig): the
+# git identity and credential helper belong to the machine's owner. The token
+# file is put in place by the user (machine/README.md, step 1); the setup
+# passes its path to gh and never reads the value. A missing file skips the
+# step.
 
 - name: GitHub token file
   ansible.builtin.stat:
@@ -33,7 +23,7 @@
     - name: gh login | log in with the token file
       when: gh_status.rc != 0
       ansible.builtin.shell:
-        cmd: gh auth login --hostname github.com --with-token < "$TOKEN_FILE" && gh auth setup-git --hostname github.com
+        cmd: gh auth login --hostname github.com --with-token < "$TOKEN_FILE"
       environment:
         TOKEN_FILE: "{{ gh_token_file }}"
 

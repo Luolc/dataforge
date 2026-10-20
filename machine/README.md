@@ -24,7 +24,7 @@ Done when `git -C ~/dev/dataforge log --oneline -1` prints a commit.
 
 This installs Docker, gh, herdr, Claude Code, Pi and Codex CLI (the clients the gateway client starts for Codex sessions), Tailscale, the 1Password CLI `op`, Node.js (from NodeSource, with npm), Google Chrome (`google-chrome-stable`, Google's `.deb`, with no apt source) and direnv at the versions pinned in `machine/versions.yml`, the Noto CJK fonts, ripgrep and fd (as `fdfind`, both for Pi) from the Ubuntu archive, and the tools the repository owner publishes, the gateway client, Agent Fleet (`fleet`), fednet, atb and statute, at the latest release of each, checked against the checksum file published in that release. It needs no GitHub token for that: it reads the latest release from the release pages, and statute's from one anonymous GitHub API call. Claude Code, Pi and Codex CLI are the agent user's own, at `~/.local/bin/claude`, `~/.local/bin/pi` and `~/.local/bin/codex`. Programs that other setups refer to by absolute path are at `/usr/local/bin/<name>` (`fleet`, `fednet`, `atb`, `statute`, `herdr`, `gh`) and `/usr/bin/<name>` (`tailscale`, `op`, `direnv`, `node`, `npm`, `npx`, `google-chrome`). The setup only installs them: it joins no tailnet, signs in to no account, and writes no config for fleet, fednet, Pi or Codex CLI or starts any service of theirs. It does configure Docker's log rotation, `log-driver` and `log-opts` in `/etc/docker/daemon.json` (`docker_log_max_size` and `docker_log_max_file` in `machine/playbook.yml`), keeping the file's other keys, and restarts dockerd when those change, which stops the running containers.
 
-With no settings yet, the run skips the git identity and the gh login, and leaves the gateway client without its config; it says so in its output.
+With no settings yet, the run skips the gh login, and leaves the gateway client without its config; it says so in its output.
 
 Done when the line under `PLAY RECAP` shows `failed=0`.
 
@@ -44,14 +44,12 @@ Then paste that account's token into `~/.config/dataforge/github-token` with an 
 
 Done when `[ -s ~/.config/dataforge/github-token ] && echo set` prints `set`.
 
-### Git identity and the gateway address
+### The gateway address
 
-Replace the placeholders with the git identity of the account above and the account gateway's address (`host:port`):
+Replace the placeholder with the account gateway's address (`host:port`):
 
 ```sh
 cat >~/.config/dataforge/setup.yml <<'SETTINGS'
-git_user_name: "<account name>"
-git_user_email: "<account email>"
 redcoast_client_address: "<host:port>"
 SETTINGS
 ```
@@ -60,7 +58,7 @@ SETTINGS
 
 The setup installs the gateway client from the latest [redcoast](https://github.com/Luolc/redcoast) release, checking each file against that release's `SHA256SUMS`: `redcoast-client`, with the shim `redcoast-client-shim-full` as `claude` next to it. Once the address is set, it writes the shim's config, `~/.config/redcoast-client/shim.env`, which points at the machine credential (`~/.config/redcoast-client/machine-credential`) without reading it; the user places the credential, like the GitHub token.
 
-Done when `cat ~/.config/dataforge/setup.yml` shows the three lines with real values.
+Done when `cat ~/.config/dataforge/setup.yml` shows the line with a real value.
 
 ### Private environment variables
 
@@ -74,9 +72,21 @@ Done when `zsh -c 'echo ok'` prints `ok` with no error.
 ~/dev/dataforge/machine/bootstrap.sh
 ```
 
-This run logs gh in with the token (`gh auth login --with-token`, then `gh auth setup-git`), sets the git identity and writes the gateway client's config.
+This run logs gh in with the token (`gh auth login --with-token`) and writes the gateway client's config.
 
 Done when the line under `PLAY RECAP` shows `failed=0`, and `gh auth status --hostname github.com` reports a logged-in account. Running it again should show `changed=0`.
+
+### Git identity and credential helper
+
+The setup never writes `~/.gitconfig`; the machine's owner configures git there, by hand or with their dotfiles. For the account above, once the run above has logged gh in:
+
+```sh
+git config --global user.name "<account name>"
+git config --global user.email "<account email>"
+gh auth setup-git --hostname github.com
+```
+
+Done when `git config --global user.email` prints the email and `git config --global --get-all credential.https://github.com.helper` prints a `gh auth git-credential` line.
 
 ## 5. Log in again
 
