@@ -84,7 +84,7 @@ setup() {
   log=$out/$1
   shift
   # shellcheck disable=SC2086 # $fake is a list of options
-  PATH=${setup_path:-$PATH} "$m/bootstrap.sh" -e '{"git_user_name": "Test Agent", "git_user_email": "agent@example.invalid"}' \
+  PATH=${setup_path:-$PATH} "$m/bootstrap.sh" \
     $fake -e redcoast_client_address=gateway.invalid:7801 "$@" >"$log" 2>&1
 }
 # The installed programs have the digests in "<client digest> <shim digest>".
@@ -109,8 +109,12 @@ daemon=/etc/docker/daemon.json
 sudo mkdir -p /etc/docker
 echo '{"debug": true, "log-opts": {"labels": "kept"}}' | sudo tee "$daemon" >/dev/null
 
+# The owner's global git configuration, which no run of the setup may touch.
+printf '[user]\n\tname = Owner\n\temail = owner@example.invalid\n' >"$HOME/.gitconfig"
+gitconfig_sha=$(sha256sum <"$HOME/.gitconfig")
+
 # A new machine runs the setup before any of its settings are in place: no
-# gateway address, git identity or GitHub token. Every tool comes from its
+# gateway address or GitHub token. Every tool comes from its
 # real latest release, found without a token.
 "$m/bootstrap.sh" >"$out/run0.log" 2>&1 || { tail -n 40 "$out/run0.log"; fail "run without machine settings"; }
 for t in fleet fednet atb statute "gateway client"; do
@@ -119,7 +123,7 @@ done
 case "$(tag_of statute run0.log)" in statute-v*) ;; *) fail "run0 took statute from $(tag_of statute run0.log)" ;; esac
 grep -q 'No redcoast_client_address' "$out/run0.log" || fail "run0 did not report the missing gateway address"
 [ ! -e "$HOME/.config/redcoast-client/shim.env" ] || fail "shim.env written without a gateway address"
-[ -z "$(git config --global user.email)" ] || fail "git identity set without settings"
+[ "$(sha256sum <"$HOME/.gitconfig")" = "$gitconfig_sha" ] || fail "run0 changed ~/.gitconfig"
 ok "run without machine settings: $(recap run0.log), statute $(tag_of statute run0.log), gateway client $(tag_of "gateway client" run0.log)"
 
 serve
@@ -282,9 +286,8 @@ ok "check-mode run before Chrome, Pi and Codex CLI are installed: $(recap run2h.
 
 for d in dev wt scratch; do [ -d "$HOME/$d" ] || fail "$HOME/$d missing"; done
 ok "dev, wt and scratch under $HOME"
-[ "$(git config --global user.email)" = agent@example.invalid ] || fail "git identity"
-[ "$(git config --global user.name)" = "Test Agent" ] || fail "git identity"
-ok "git identity"
+[ "$(sha256sum <"$HOME/.gitconfig")" = "$gitconfig_sha" ] || fail "the setup changed ~/.gitconfig"
+ok "~/.gitconfig unchanged"
 [ "$(getent passwd agent | cut -d: -f7)" = /usr/bin/zsh ] || fail "login shell"
 id -nG agent | grep -qw docker || fail "docker group"
 ok "login shell zsh, in docker group"
