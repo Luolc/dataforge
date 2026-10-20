@@ -1,13 +1,13 @@
 // The file tree of a files deliverable: each directory is read when it is
 // first opened, directories before the other entries, each group by name.
-import { ChevronRight, File, Link2 } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { type CSSProperties, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { urls, useJson } from "../../api/client";
 import { listing } from "../../api/types";
 import { type Entry, inTreeOrder } from "./entries";
-import { FileIcon, FolderIcon } from "./FileIcon";
+import { FileIcon, FolderIcon, OtherIcon } from "./FileIcon";
 
 interface TreeProps {
   project: string;
@@ -96,10 +96,9 @@ function EntryRow({
       </Link>
     );
   }
-  const Icon = entry.type === "symlink" ? Link2 : File;
   return (
     <span style={indent(depth)} className={`${row} text-fg-3`}>
-      <Icon className="size-3.5 flex-none text-faint" aria-hidden />
+      <OtherIcon />
       {entry.name}
       <span className="text-xs">
         {entry.type === "symlink" ? "symlink" : "not a regular file"}

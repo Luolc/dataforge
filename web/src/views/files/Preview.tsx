@@ -3,11 +3,9 @@
 import { Note } from "../../ui/card";
 import { CodeView } from "../../ui/code";
 import { DiffView } from "../../ui/diff";
+import { fileTypeOf } from "../../ui/file-kind";
 import { Markdown } from "../../ui/markdown";
 import { type FileContent, size, useFile } from "./file";
-
-const isMarkdown = (name: string) => /\.(md|markdown)$/i.test(name);
-const isDiff = (name: string) => /\.(diff|patch)$/i.test(name);
 
 const lineCount = (text: string) =>
   (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n").length;
@@ -56,13 +54,14 @@ function Body({ name, content }: { name: string; content: FileContent }) {
   if (content.kind === "binary") {
     return <Note>{`Not shown: not UTF-8 text, ${size(content.size)}.`}</Note>;
   }
-  if (isMarkdown(name)) {
+  const { kind } = fileTypeOf(name);
+  if (kind === "markdown") {
     return (
       <div className="px-5 py-4">
         <Markdown text={content.text} />
       </div>
     );
   }
-  if (isDiff(name)) return <DiffView text={content.text} />;
+  if (kind === "diff") return <DiffView text={content.text} />;
   return <CodeView name={name} text={content.text} />;
 }

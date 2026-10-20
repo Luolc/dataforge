@@ -146,6 +146,49 @@ describe("the files view", () => {
     expect(kindOf("fix.patch")).toBe("diff");
   });
 
+  const previews = {
+    rendered: ".md h1",
+    diff: "[data-line=head]",
+    highlighted: "[class^=hljs-]",
+  };
+
+  it.each([
+    ["Notes.MARKDOWN", "# A heading\n", "markdown", ["rendered"]],
+    ["Change.Diff", "--- a/x\n+++ b/x\n", "diff", ["diff"]],
+    ["Main.PY", "import os\n", "python", ["highlighted"]],
+    ["DOCKERFILE", "FROM scratch\n", "docker", []],
+  ])(
+    "shows %s with the icon and the preview of one kind",
+    async (name, text, kind, shown) => {
+      const { container } = show(
+        { [`${root}/${name}`]: text },
+        `${root}/${name}`,
+      );
+
+      await screen.findByText(/^[12] lines/);
+      expect(
+        screen
+          .getByRole("link", { name })
+          .querySelector("[data-kind]")
+          ?.getAttribute("data-kind"),
+      ).toBe(kind);
+      expect(
+        Object.entries(previews)
+          .filter(([, selector]) => container.querySelector(selector) !== null)
+          .map(([preview]) => preview),
+      ).toEqual(shown);
+    },
+  );
+
+  it("marks a symlink with the icon of any other file", async () => {
+    show(task);
+
+    const latest = (await screen.findByText("symlink")).parentElement;
+    expect(
+      latest?.querySelector("[data-kind]")?.getAttribute("data-kind"),
+    ).toBe("other");
+  });
+
   it("highlights source by its extension", async () => {
     const { container } = show(task, `${root}/src/tinyparse/header.py`);
 
