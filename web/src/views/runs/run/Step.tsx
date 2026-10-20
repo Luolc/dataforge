@@ -2,14 +2,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 
 import type { Tone } from "../../../api/types";
-import { toneGlyph } from "../../../ui/status";
-
-const toneIcon: Record<Tone, string> = {
-  good: "bg-good",
-  bad: "bg-bad",
-  warn: "bg-warn",
-  neutral: "bg-neutral",
-};
+import { ToneIcon } from "../../../ui/status-mark";
 
 /**
  * One step of a run, folded or open. Its body is drawn only while it is
@@ -30,7 +23,6 @@ export function Step({
 }) {
   const [open, setOpen] = useState(startOpen);
   const bodyId = useId();
-  const Glyph = toneGlyph[status.tone];
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <section className="border-t border-line-subtle">
@@ -45,18 +37,7 @@ export function Step({
           className="flex target w-full items-center gap-2 px-5 py-2.5 text-left hover:bg-hover"
         >
           <Chevron className="size-4 flex-none text-icon" aria-hidden />
-          <span
-            role="img"
-            aria-label={status.label}
-            title={status.label}
-            className={`inline-grid size-4 flex-none place-items-center rounded-full ${toneIcon[status.tone]}`}
-          >
-            <Glyph
-              className="size-2.5 text-on-tone"
-              strokeWidth={3}
-              aria-hidden
-            />
-          </span>
+          <ToneIcon {...status} />
           <span className="min-w-0 flex-auto font-medium break-words">
             {name}
           </span>

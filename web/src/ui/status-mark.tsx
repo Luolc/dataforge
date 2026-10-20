@@ -42,8 +42,8 @@ export function StatusLabel({
 }
 
 /**
- * A filled circle with a glyph; its label is read out, not shown. ended is as
- * for StatusLabel.
+ * A status word as its tone's icon, in outline in the tone's colour; its
+ * label is read out, not shown. ended is as for StatusLabel.
  */
 export function StatusIcon({
   project,
@@ -54,7 +54,11 @@ export function StatusIcon({
   word: string | null;
   ended?: boolean;
 }) {
-  const { label, tone } = outcomeOf(project, word, ended);
+  return <ToneIcon {...outcomeOf(project, word, ended)} />;
+}
+
+/** A label and tone as the tone's icon; the label is read out, not shown. */
+export function ToneIcon({ label, tone }: { label: string; tone: Tone }) {
   const Glyph = toneGlyph[tone];
   return (
     <span

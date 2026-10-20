@@ -1,37 +1,14 @@
-// The colour templates: each is one set of values for the same tokens
-// (theme.css), chosen on the page and kept in localStorage.
+// The colour template switch at the right of the breadcrumb's bar.
 import { Palette } from "lucide-react";
 import { useState } from "react";
 
-export const TEMPLATES = [
-  { id: "contrast", label: "High contrast" },
-  { id: "ac", label: "AC layered" },
-  { id: "neutral", label: "Neutral light" },
-  { id: "dark", label: "Dark" },
-] as const;
-
-type TemplateId = (typeof TEMPLATES)[number]["id"];
-
-const KEY = "viz.template";
-const DEFAULT: TemplateId = "contrast";
-
-const isTemplate = (v: string | null): v is TemplateId =>
-  TEMPLATES.some((t) => t.id === v);
-
-/** The template kept in localStorage, else the default. */
-export function savedTemplate(): TemplateId {
-  try {
-    const v = localStorage.getItem(KEY);
-    return isTemplate(v) ? v : DEFAULT;
-  } catch {
-    return DEFAULT;
-  }
-}
-
-/** Draws the page in a template: theme.css keys its tokens on this. */
-export function applyTemplate(id: TemplateId) {
-  document.documentElement.dataset["template"] = id;
-}
+import {
+  applyTemplate,
+  isTemplate,
+  KEY,
+  savedTemplate,
+  TEMPLATES,
+} from "./template";
 
 /** The switch at the top right of every page. */
 export function TemplateSwitch() {
