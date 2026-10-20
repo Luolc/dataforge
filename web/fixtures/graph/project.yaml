@@ -1,0 +1,35 @@
+# Synthetic attempts on a machine of ten states and many edges back:
+# task-0301 went round it many times and passed, task-0302 is still in its
+# third state. They were made up and ran nowhere.
+id: graph-sample
+name: Graph sample
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+states:
+  draft: { title: Draft }
+  build: { title: Build }
+  smoke: { title: Smoke test }
+  check: { title: Check }
+  regrade: { title: Regrade }
+  recheck: { title: Regrade check }
+  review: { title: Review }
+  polish: { title: Polish }
+  solve: { title: Pass@k }
+  audit: { title: Audit }
+statuses:
+  passed: { label: Passed, tone: good }
+  exhausted: { label: Exhausted, tone: bad }
+  error: { label: Error, tone: bad }
+  done: { label: Done, tone: good }
+  ok: { label: OK, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+  invalid: { label: Invalid, tone: bad }
+  regrade: { label: Regrade, tone: warn }
+  revise: { label: Revise, tone: warn }
+  in_range: { label: In range, tone: good }
+  none_solved: { label: None solved, tone: bad }
+item: { depth: 2, title: Task }
+columns: []
