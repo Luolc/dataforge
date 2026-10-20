@@ -43,6 +43,7 @@ from dataforge.curation.rubric import (
   judge_review,
   Judgment,
   notes_text,
+  others_text,
   rereview_prompt,
   Review,
   review_prompt,
@@ -828,6 +829,10 @@ class RubricState(_ActionState):
   review that ran, when that call gave verdicts, runs nothing: it gives that
   call's answer again, at no cost, and no session moves on. Each call gives
   the review's notes written since the last review, or all for a first call.
+  With cross_criteria, the whole prompt of each review also gives the
+  criteria of the state's other reviews (others_text); a resume prompt does
+  not, since the session has them from its whole prompt, and they are not a
+  block, so they do not keep a call from reuse.
 
   Attributes:
     OUTCOMES: The outcomes it gives, before rename.
@@ -853,6 +858,7 @@ class RubricState(_ActionState):
     max_cost_usd: float = 0.0,
     resume: bool = False,
     reuse_unchanged: bool = False,
+    cross_criteria: bool = False,
   ) -> None:
     """Make the state; each rubric is read here.
 
@@ -873,6 +879,8 @@ class RubricState(_ActionState):
       resume: Whether a review goes on with its session and re-reviews.
       reuse_unchanged: Whether a review whose blocks did not change gives
         its last answer again instead of running.
+      cross_criteria: Whether a review's prompt gives the criteria of the
+        other reviews.
 
     Raises:
       ValueError: When two reviews have one name, or a rubric is not one.
@@ -897,6 +905,7 @@ class RubricState(_ActionState):
     self.workdir: Path | None = workdir
     self.resume: bool = resume
     self.reuse_unchanged: bool = reuse_unchanged
+    self.cross_criteria: bool = cross_criteria
 
   def calls(self, ctx: Context, review: Review) -> list[Call]:
     """Return the earlier calls of a review in this state.
@@ -967,8 +976,17 @@ class RubricState(_ActionState):
       {tag: versions[seen.get(tag, 0) :] for tag, versions in written.items()}
     )
     rubric = self.rubrics[review.name]
+    others = (
+      others_text(
+        {r.name: self.rubrics[r.name] for r in self.reviews if r is not review}
+      )
+      if self.cross_criteria
+      else ""
+    )
     if last is None or not self.resume:
-      spec = self._spec(review, workdir, review_prompt(rubric, blocks, notes))
+      spec = self._spec(
+        review, workdir, review_prompt(rubric, blocks, notes, others=others)
+      )
     else:
       spec = self._spec(
         review,
@@ -978,6 +996,7 @@ class RubricState(_ActionState):
           blocks,
           notes,
           rereview_prompt(last, blocks, notes, whole=True),
+          others,
         ),
         rereview_prompt(
           last,

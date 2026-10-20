@@ -1014,7 +1014,7 @@ def _rubric(
     value,
     at,
     required={"reviews"},
-    optional={"workdir", "resume", "reuse_unchanged"},
+    optional={"workdir", "resume", "reuse_unchanged", "cross_criteria"},
   )
   reviews: list[Review] = []
   for i, item in enumerate(_list(fields["reviews"], f"{at}.reviews")):
@@ -1049,6 +1049,9 @@ def _rubric(
     "resume": loader.boolean(fields.get("resume", False), f"{at}.resume"),
     "reuse_unchanged": loader.boolean(
       fields.get("reuse_unchanged", False), f"{at}.reuse_unchanged"
+    ),
+    "cross_criteria": loader.boolean(
+      fields.get("cross_criteria", False), f"{at}.cross_criteria"
     ),
   }
 
