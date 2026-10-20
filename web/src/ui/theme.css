@@ -41,6 +41,10 @@
   /* The smallest side of a control, for a fine and a coarse pointer. */
   --spacing-target: 24px;
   --spacing-target-coarse: 44px;
+  /* Icons, as agent-constitution draws them: 1em in a line of text or on a
+     tag, 1.25rem on controls and in lists. */
+  --spacing-icon-sm: 1em;
+  --spacing-icon-md: 16px;
 
   --radius-row: 4px;
   --radius-panel: 6px;
@@ -52,43 +56,231 @@
   --stroke-taken: 1.5px;
   --dash-not-taken: 3 3;
 
-  --color-app: #d1dcc8;
-  --color-panel: #dde6d5;
-  --color-hover: #e5ecde;
-  --color-active: #eef2e9;
-  --color-line: #b5c4aa;
-  --color-line-subtle: #d3dccb;
-  --color-fg: #23301f;
-  --color-fg-2: #46533f;
-  --color-fg-3: #55624f;
-  --color-faint: #7d8a77;
-  --color-icon: #5a6754;
+  /* The colour templates (ui/template.tsx) give the same tokens other
+     values; these are the default, contrast. Surfaces, from the outside in:
+     app (the sidebar and the ground), panel (the page), card and head (a
+     card's body, and the band of a card's or a table's head), group (a
+     group's row), tree (the file tree), code-bg and code-gutter (code, the
+     lightest surface in a light template and the darkest in dark). Each
+     tone's text, a label's -label-fg on its -label fill and a chip's text
+     are at least 7:1 on the surfaces they sit on, an icon and a control's
+     border at least 3:1, in every template (theme.test.ts). */
+  --color-app: #e4eadd;
+  --color-panel: #f6f8f3;
+  --color-card: #f6f8f3;
+  --color-head: #e6ece0;
+  --color-group: #dde5d5;
+  --color-tree: #eef2ea;
+  --color-hover: #e6ece0;
+  --color-active: #ffffff;
+  --color-code-bg: #ffffff;
+  --color-code-gutter: #f1f4ee;
+  --color-line: #a3b298;
+  --color-line-subtle: #d5ddcd;
+  --color-fg: #1b2618;
+  --color-fg-2: #2f3a2a;
+  --color-fg-3: #3a4535;
+  --color-faint: #535e4e;
+  --color-icon: #3a4535;
   --color-accent: #7d3a1e;
   --color-focus: var(--color-accent);
-  --color-code-bg: #f3f6ef;
-
-  /* Each tone's text is at least 4.5:1 on panel, hover, active, code-bg and
-     its own -bg (theme.test.ts); on-tone is the glyph drawn on a tone's fill. */
-  --color-good: #2f6b2a;
-  --color-good-bg: #d5e4cd;
-  --color-bad: #a8323c;
-  --color-bad-bg: #f1d9d6;
-  --color-warn: #875a05;
-  --color-warn-bg: #efe2c2;
-  --color-neutral: #655f55;
-  --color-neutral-bg: #e3e0d7;
+  --color-chip: #ffffff;
+  --color-chip-line: #5f6b59;
+  --color-chip-on: #1b2618;
+  --color-chip-on-fg: #ffffff;
+  --color-chip-on-count: #d1dcc8;
+  --color-good: #004a75;
+  --color-good-bg: #dbe8f3;
+  --color-bad: #7a2a00;
+  --color-bad-bg: #f8dfcf;
+  --color-warn: #533f00;
+  --color-warn-bg: #f6e7a8;
+  --color-neutral: #45403a;
+  --color-neutral-bg: #e8e5de;
+  --color-good-label: #005a8f;
+  --color-good-label-fg: #ffffff;
+  --color-bad-label: #933300;
+  --color-bad-label-fg: #ffffff;
+  --color-warn-label: #e8b400;
+  --color-warn-label-fg: #2b2100;
+  --color-neutral-label: #e3e0d7;
+  --color-neutral-label-fg: #45403a;
   --color-on-tone: #ffffff;
+  --color-syn-comment: #5f6b59;
+  --color-syn-string: #005a8f;
+  --color-syn-keyword: #8a3000;
+  --color-syn-number: #6b4f00;
+  --color-syn-function: #5a3d8a;
+  --color-syn-variable: #8a3000;
+  --color-syn-key: #00607a;
+}
 
-  --color-syn-comment: #6b7566;
-  --color-syn-string: #2f6b2a;
+/* The other templates: every colour token again, so that none falls back
+   to the default's value. */
+html[data-template="ac"] {
+  --color-app: #d1dcc8;
+  --color-panel: #dde6d5;
+  --color-card: #e3eadc;
+  --color-head: #d1dcc8;
+  --color-group: #d1dacb;
+  --color-tree: #d8e1d0;
+  --color-hover: #cfd8c7;
+  --color-active: #eef2e9;
+  --color-code-bg: #f6f8f3;
+  --color-code-gutter: #e9eee4;
+  --color-line: #b5c4aa;
+  --color-line-subtle: #cbd6c1;
+  --color-fg: #23301f;
+  --color-fg-2: #36422f;
+  --color-fg-3: #3f4b39;
+  --color-faint: #5f6b59;
+  --color-icon: #3f4b39;
+  --color-accent: #7d3a1e;
+  --color-focus: var(--color-accent);
+  --color-chip: #eaf0e5;
+  --color-chip-line: #6f7d68;
+  --color-chip-on: #23301f;
+  --color-chip-on-fg: #ffffff;
+  --color-chip-on-count: #d1dcc8;
+  --color-good: #1e4d1a;
+  --color-good-bg: #d5e4cd;
+  --color-bad: #7f1d27;
+  --color-bad-bg: #f1d9d6;
+  --color-warn: #5e3d00;
+  --color-warn-bg: #efe2c2;
+  --color-neutral: #45403a;
+  --color-neutral-bg: #e3e0d7;
+  --color-good-label: var(--color-good-bg);
+  --color-good-label-fg: var(--color-good);
+  --color-bad-label: var(--color-bad-bg);
+  --color-bad-label-fg: var(--color-bad);
+  --color-warn-label: var(--color-warn-bg);
+  --color-warn-label-fg: var(--color-warn);
+  --color-neutral-label: var(--color-neutral-bg);
+  --color-neutral-label-fg: var(--color-neutral);
+  --color-on-tone: #ffffff;
+  --color-syn-comment: #5f6b59;
+  --color-syn-string: #245a20;
   --color-syn-keyword: #7d3a1e;
-  --color-syn-number: #875a05;
-  --color-syn-function: #2b5a85;
+  --color-syn-number: #6b4700;
+  --color-syn-function: #1f4a70;
   --color-syn-variable: #a8323c;
   --color-syn-key: #2f6461;
 }
 
+html[data-template="neutral"] {
+  --color-app: #f6f8fa;
+  --color-panel: #ffffff;
+  --color-card: #ffffff;
+  --color-head: #f6f8fa;
+  --color-group: #eef1f4;
+  --color-tree: #fafbfc;
+  --color-hover: #f0f3f6;
+  --color-active: #e9eef3;
+  --color-code-bg: #f6f8fa;
+  --color-code-gutter: #eef1f4;
+  --color-line: #d1d9e0;
+  --color-line-subtle: #e5e9ed;
+  --color-fg: #1f2328;
+  --color-fg-2: #333a42;
+  --color-fg-3: #424a53;
+  --color-faint: #59636e;
+  --color-icon: #424a53;
+  --color-accent: #0550ae;
+  --color-focus: var(--color-accent);
+  --color-chip: #ffffff;
+  --color-chip-line: #818b98;
+  --color-chip-on: #1f2328;
+  --color-chip-on-fg: #ffffff;
+  --color-chip-on-count: #d1d9e0;
+  --color-good: #0f5323;
+  --color-good-bg: #dafbe1;
+  --color-bad: #8f0d22;
+  --color-bad-bg: #ffebe9;
+  --color-warn: #6a4200;
+  --color-warn-bg: #fff8c5;
+  --color-neutral: #424a53;
+  --color-neutral-bg: #eff2f5;
+  --color-good-label: var(--color-good-bg);
+  --color-good-label-fg: var(--color-good);
+  --color-bad-label: var(--color-bad-bg);
+  --color-bad-label-fg: var(--color-bad);
+  --color-warn-label: var(--color-warn-bg);
+  --color-warn-label-fg: var(--color-warn);
+  --color-neutral-label: var(--color-neutral-bg);
+  --color-neutral-label-fg: var(--color-neutral);
+  --color-on-tone: #ffffff;
+  --color-syn-comment: #59636e;
+  --color-syn-string: #0a3069;
+  --color-syn-keyword: #a40e26;
+  --color-syn-number: #0550ae;
+  --color-syn-function: #5a2fa8;
+  --color-syn-variable: #953800;
+  --color-syn-key: #0550ae;
+}
+
+html[data-template="dark"] {
+  color-scheme: dark;
+  --color-app: #161b17;
+  --color-panel: #1e2520;
+  --color-card: #222a24;
+  --color-head: #29322b;
+  --color-group: #2f3931;
+  --color-tree: #1b211c;
+  --color-hover: #2c352e;
+  --color-active: #343e36;
+  --color-code-bg: #121714;
+  --color-code-gutter: #171d18;
+  --color-line: #3d4a3f;
+  --color-line-subtle: #2e3830;
+  --color-fg: #d8e0d4;
+  --color-fg-2: #c0cabc;
+  --color-fg-3: #b8c2b4;
+  --color-faint: #8f9b8b;
+  --color-icon: #b8c2b4;
+  --color-accent: #dba37f;
+  --color-focus: var(--color-accent);
+  --color-chip: #222a24;
+  --color-chip-line: #7a8777;
+  --color-chip-on: #d8e0d4;
+  --color-chip-on-fg: #161b17;
+  --color-chip-on-count: #3a453c;
+  --color-good: #a6d9a0;
+  --color-good-bg: #2a3a2b;
+  --color-bad: #f7b8b8;
+  --color-bad-bg: #452a2b;
+  --color-warn: #e8c784;
+  --color-warn-bg: #3d3623;
+  --color-neutral: #c6cec3;
+  --color-neutral-bg: #2f3530;
+  --color-good-label: var(--color-good-bg);
+  --color-good-label-fg: var(--color-good);
+  --color-bad-label: var(--color-bad-bg);
+  --color-bad-label-fg: var(--color-bad);
+  --color-warn-label: var(--color-warn-bg);
+  --color-warn-label-fg: var(--color-warn);
+  --color-neutral-label: var(--color-neutral-bg);
+  --color-neutral-label-fg: var(--color-neutral);
+  --color-on-tone: #161b17;
+  --color-syn-comment: #8f9b8b;
+  --color-syn-string: #a8d39a;
+  --color-syn-keyword: #e3a57f;
+  --color-syn-number: #e8c784;
+  --color-syn-function: #94bde3;
+  --color-syn-variable: #f7b8b8;
+  --color-syn-key: #8fd0c8;
+}
+
 @layer base {
+  :root {
+    /* Every icon's one stroke width, in Lucide's 24-unit box. */
+    --icon-stroke: 1.75;
+  }
+
+  svg.lucide {
+    stroke-width: var(--icon-stroke);
+  }
+
   html {
     color-scheme: light;
     background: var(--color-app);

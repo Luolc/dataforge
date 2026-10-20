@@ -15,6 +15,7 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  LoaderCircle,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -37,7 +38,7 @@ import {
   toneGlyph,
   toneText,
 } from "../../ui/status";
-import { StatusLabel } from "../../ui/status-mark";
+import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import {
   filterItems,
@@ -131,6 +132,13 @@ const lineSpent = (l: Line) =>
 
 function specs(project: Project): Spec[] {
   const fixed: Spec[] = [
+    {
+      id: "icon",
+      title: "",
+      numeric: false,
+      value: (l) => statusOf(project, rowStatus(l.row)).label,
+      cell: (l) => <RowIcon project={project} row={l.row} />,
+    },
     {
       id: "item",
       title: project.item.title,
@@ -246,6 +254,27 @@ function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   );
 }
 
+/** The row's status as an icon: a spinner while it runs. */
+function RowIcon({ project, row }: { project: Project; row: AttemptRow }) {
+  const word = rowStatus(row);
+  // The same box as the item's link beside it, so the icon stands on its
+  // line.
+  return (
+    <span className="inline-flex target items-center">
+      {word === "~running" ? (
+        <span role="img" aria-label="Running" title="Running">
+          <LoaderCircle
+            className="block size-icon-md animate-spin text-icon motion-reduce:animate-none"
+            aria-hidden
+          />
+        </span>
+      ) : (
+        <StatusIcon project={project} word={word} />
+      )}
+    </span>
+  );
+}
+
 /** One cell per round: its last visit's state and outcome. */
 function RoundsCell({ project, row }: { project: Project; row: AttemptRow }) {
   if (!row.rounds || row.rounds.length === 0) return "—";
@@ -261,12 +290,22 @@ function RoundsCell({ project, row }: { project: Project; row: AttemptRow }) {
             {r.state !== null && (
               <span className="text-fg-2">{stateTitle(project, r.state)}</span>
             )}
-            <span className={toneText[outcome.tone]}>{outcome.label}</span>
+            <span
+              className={`inline-flex items-center gap-0.5 ${toneText[outcome.tone]}`}
+            >
+              <OutcomeGlyph tone={outcome.tone} />
+              {outcome.label}
+            </span>
           </li>
         );
       })}
     </ol>
   );
+}
+
+function OutcomeGlyph({ tone }: { tone: keyof typeof toneGlyph }) {
+  const Glyph = toneGlyph[tone];
+  return <Glyph className="size-icon-sm" aria-hidden />;
 }
 
 function AttemptLink({ href, children }: { href: string; children: string }) {
@@ -281,7 +320,7 @@ function AttemptLink({ href, children }: { href: string; children: string }) {
 }
 
 const control =
-  "target inline-flex items-center gap-1.5 rounded-row border border-line px-2 text-xs font-medium hover:bg-hover";
+  "target inline-flex items-center gap-1.5 rounded-row border border-chip-line px-2 text-xs font-medium hover:bg-hover";
 
 /** A project's items in their groups, with search, status chips and refresh. */
 export function HomeTable({
@@ -382,7 +421,9 @@ export function HomeTable({
   };
 
   const cellClass = (s: Spec) =>
-    `px-3 py-1.5 align-top ${s.numeric ? "text-right whitespace-nowrap tabular-nums" : ""} ${s.id === "status" ? "whitespace-nowrap" : ""}`;
+    s.id === "icon"
+      ? "w-8 py-1.5 pr-0 pl-3 align-top"
+      : `px-3 py-1.5 align-top ${s.numeric ? "text-right whitespace-nowrap tabular-nums" : ""} ${s.id === "status" || s.id === "item" ? "whitespace-nowrap" : ""}`;
 
   const lineRow = (
     line: Line,
@@ -479,7 +520,10 @@ export function HomeTable({
                     choose(chosen === key ? null : key);
                   }}
                   icon={
-                    <Glyph className={`size-3 ${toneText[tone]}`} aria-hidden />
+                    <Glyph
+                      className={`size-icon-sm ${toneText[tone]}`}
+                      aria-hidden
+                    />
                   }
                   label={label}
                   count={count}
@@ -487,7 +531,7 @@ export function HomeTable({
               );
             })}
           </div>
-          <label className="inline-flex target items-center gap-1.5 rounded-row border border-line px-2 focus-within:border-fg-3">
+          <label className="inline-flex target items-center gap-1.5 rounded-row border border-chip-line px-2 focus-within:border-fg-3">
             <Search className="size-3.5 text-icon" aria-hidden />
             <input
               type="search"
@@ -540,11 +584,17 @@ export function HomeTable({
         )}
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b border-line text-xs text-fg-3">
+            <tr className="border-b border-line bg-head text-xs text-fg-2">
               {table.getHeaderGroups()[0]?.headers.map((header, i) => {
                 const spec = columnSpecs[i];
                 const sorted = header.column.getIsSorted();
                 const Arrow = sorted === "desc" ? ArrowDown : ArrowUp;
+                if (spec?.id === "icon")
+                  return (
+                    <th key={header.id} scope="col" className="w-8">
+                      <span className="sr-only">Status icon</span>
+                    </th>
+                  );
                 return (
                   <th
                     key={header.id}
@@ -630,11 +680,13 @@ function Chip({
       type="button"
       aria-pressed={pressed}
       onClick={onClick}
-      className={`${control} aria-pressed:border-fg-3 aria-pressed:bg-active`}
+      className={`${control} group bg-chip aria-pressed:border-chip-on aria-pressed:bg-chip-on aria-pressed:text-chip-on-fg`}
     >
       {icon}
       {label}
-      <span className="font-normal text-fg-3 tabular-nums">{count}</span>
+      <span className="font-normal text-fg-2 tabular-nums group-aria-pressed:text-chip-on-count">
+        {count}
+      </span>
     </button>
   );
 }
@@ -661,7 +713,7 @@ function Group({
           <th
             scope="rowgroup"
             colSpan={width}
-            className="px-1 pt-4 pb-1 text-left"
+            className="border-y border-line-subtle bg-group px-1 py-0.5 text-left"
           >
             <button
               type="button"
@@ -678,7 +730,7 @@ function Group({
                 <ChevronDown className="size-3.5 text-icon" aria-hidden />
               )}
               {title}
-              <span className="font-normal text-fg-3">{summary}</span>
+              <span className="font-normal text-fg-2">{summary}</span>
             </button>
           </th>
         </tr>
