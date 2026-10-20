@@ -1,9 +1,10 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import older from "../../../fixtures/oldrec/attempts/older/task-0301/record.json";
 import passed from "../../../fixtures/attempts/batch-1/task-0001/record.json";
+import midway from "../../../fixtures/live-deliverables/attempts/task-0301/2026-03-04T101500Z/record.json";
 import running from "../../../fixtures/attempts/batch-2/task-0005/record.json";
 import { sampleProject } from "../../../fixtures/sample";
 import type { Project } from "../../api/types";
@@ -21,13 +22,24 @@ const project: Project = {
   ],
 };
 
-function show(body: unknown, at = "", shown: Project = project) {
+function show(
+  body: unknown,
+  at = "",
+  shown: Project = project,
+  live: unknown = { entries: [] },
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string) =>
       Promise.resolve(
         new Response(
-          JSON.stringify(url.includes("/record?") ? body : { entries: [] }),
+          JSON.stringify(
+            url.includes("/record?")
+              ? body
+              : url.includes("/live?")
+                ? live
+                : { entries: [] },
+          ),
           { status: 200 },
         ),
       ),
@@ -120,5 +132,82 @@ describe("the deliverables a project declares", () => {
       "Pass@k2 / 4",
       "Review1",
     ]);
+  });
+});
+
+describe("a running attempt's record", () => {
+  // As the engine writes it while its pass@4 runs: the task and the reviews
+  // made, the trials started.
+  const live: Project = {
+    ...sampleProject,
+    deliverables: [
+      { name: "task", kind: "files", title: "Task" },
+      { name: "pass_at_k", kind: "trials", title: "pass@4" },
+      { name: "reviews", kind: "report", title: "Reviews" },
+    ],
+  };
+
+  it("counts on its tabs what it has made", async () => {
+    show(midway, "", live);
+
+    expect(await tabs()).toEqual([
+      "Runs3",
+      expect.stringMatching(/^Task\d*$/),
+      "pass@4— / 4",
+      "Reviews1",
+    ]);
+  });
+
+  it("lists what it has made in the Summary, none as not run", async () => {
+    show(midway, "", live);
+
+    expect(
+      (await screen.findByText("Deliverables", { selector: "dt" })).nextSibling,
+    ).toHaveTextContent(/^3$/);
+    const card = screen.getByRole("table");
+    expect(within(card).getAllByRole("row")).toHaveLength(4);
+    expect(within(card).queryByText(/Not run/)).toBeNull();
+    expect(within(card).getByText("— / 4 solved")).toBeVisible();
+    expect(within(card).getByText("report.md")).toBeVisible();
+  });
+
+  it.each([
+    ["running", 2],
+    ["may have stopped", 0],
+  ] as const)(
+    "hands its trials tab whether it runs: %s",
+    async (word, spinners) => {
+      show(midway, "&tab=trials", live, {
+        live: word,
+        held: word === "running",
+        current: null,
+      });
+
+      const list = await screen.findByRole("navigation", { name: "Trials" });
+      await waitFor(() => {
+        expect(list.querySelectorAll(".lucide-loader-circle")).toHaveLength(
+          spinners,
+        );
+      });
+    },
+  );
+
+  it("counts only what it reached, of all", async () => {
+    const early = structuredClone(midway);
+    const reviews = early.deliverables.find((d) => d.name === "reviews");
+    if (reviews === undefined) throw new Error("no reviews");
+    Object.assign(reviews, {
+      visit: null,
+      visit_index: null,
+      path: null,
+      reason: "review was never visited",
+    });
+    show(early, "", live);
+
+    expect(await tabs()).toContain("ReviewsNot run");
+    expect(
+      (await screen.findByText("Deliverables", { selector: "dt" })).nextSibling,
+    ).toHaveTextContent("2 of 3");
+    expect(screen.getByText("Not run: review was never visited")).toBeVisible();
   });
 });

@@ -182,6 +182,7 @@ function Attempt({
           attempt={attempt}
           record={record}
           items={itemsOf(tab)}
+          live={live}
         />
       ) : (
         <Note>This attempt has no deliverable of kind {tab}.</Note>

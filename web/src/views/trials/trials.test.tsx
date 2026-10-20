@@ -7,12 +7,13 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import midway from "../../../fixtures/live-deliverables/attempts/task-0301/2026-03-04T101500Z/record.json";
 import passAtK from "../../../fixtures/p3/attempts/pass-at-k/record.json";
 import solved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-1/trace.jsonl?raw";
 import unsolved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-2/trace.jsonl?raw";
 import diff from "../../../fixtures/trialdiff/attempts/pass-at-k/artifacts/solve/1/trial-1/verifier/patch.diff?raw";
 import { must, sampleProject } from "../../../fixtures/sample";
-import { type Project, record } from "../../api/types";
+import { type LiveInfo, type Project, record } from "../../api/types";
 import TrialsView from ".";
 
 const project: Project = {
@@ -328,5 +329,80 @@ describe("the trials view's Diff tab", () => {
         ([url]) => typeof url === "string" && url.includes("trace.jsonl"),
       );
     expect(reads).toHaveLength(1);
+  });
+});
+
+describe("the trials of a visit that has not ended", () => {
+  const open = record.parse(midway);
+  const pass = must(open.deliverables?.find((d) => d.kind === "trials"));
+  const info = (live: LiveInfo["live"]): LiveInfo => ({
+    live,
+    held: live === "running",
+    current: null,
+  });
+  const view = (live: LiveInfo | null) =>
+    render(
+      <TrialsView
+        project={project}
+        attempt="task-0301/2026-03-04T101500Z"
+        record={open}
+        deliverable={pass}
+        live={live}
+      />,
+    );
+  const rows = () =>
+    within(screen.getByRole("navigation", { name: "Trials" }))
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+
+  it("lists each trial that has started, turning while it runs", () => {
+    view(info("running"));
+
+    expect(rows()).toEqual([
+      "tinyparse-fold__l0solved",
+      "tinyparse-fold__l1not solved",
+      "trial-2running",
+      "trial-3running",
+    ]);
+    // The word says it, so the turning icon is not read out as well.
+    const spinner = must(
+      trial("trial-2").querySelector(".lucide-loader-circle"),
+    );
+    expect(spinner).toHaveClass("animate-spin", "motion-reduce:animate-none");
+    expect(spinner.closest("[aria-hidden]")).not.toBeNull();
+    expect(trial("trial-2")).toHaveAccessibleName("trial-2running");
+    expect(screen.getByText("— / 4 solved")).toBeVisible();
+    // The value is read once the visit ends, so its reason is not shown.
+    expect(screen.queryByText(/has no key/)).toBeNull();
+  });
+
+  it("shows a running trial's page as running", () => {
+    view(info("running"));
+    fireEvent.click(trial("trial-3"));
+
+    expect(trial("trial-3")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("This trial is still running.")).toBeVisible();
+    expect(
+      within(must(screen.getByText("Reward").closest("dl"))).getAllByText("—"),
+    ).toHaveLength(5);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Diff" }));
+    expect(screen.getAllByText("This trial is still running.")).toHaveLength(2);
+  });
+
+  it.each([
+    ["may have stopped", info("may have stopped")],
+    ["not known", null],
+  ])("stands still once the attempt %s", (_, live) => {
+    view(live);
+
+    expect(rows()).toEqual([
+      "tinyparse-fold__l0solved",
+      "tinyparse-fold__l1not solved",
+      "trial-2not finished",
+      "trial-3not finished",
+    ]);
+    expect(document.querySelector(".lucide-loader-circle")).toBeNull();
+    fireEvent.click(trial("trial-2"));
+    expect(screen.getByText("This trial did not finish.")).toBeVisible();
   });
 });

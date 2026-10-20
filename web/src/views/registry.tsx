@@ -6,7 +6,12 @@ import { DropdownMenu } from "radix-ui";
 import { type ComponentType, useState } from "react";
 
 import { useFileCount } from "../api/client";
-import type { AttemptRecord, Deliverable, Project } from "../api/types";
+import type {
+  AttemptRecord,
+  Deliverable,
+  LiveInfo,
+  Project,
+} from "../api/types";
 import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
 import FilesView from "./files";
@@ -19,6 +24,7 @@ interface TabProps {
   attempt: string;
   record: AttemptRecord;
   items: Deliverable[];
+  live?: LiveInfo | null;
 }
 
 interface ItemProps {
@@ -84,7 +90,10 @@ const kinds: Partial<Record<string, Kind>> = {
   report: {
     View: ReportView,
     stack: true,
-    Count: ({ items }) => items.length,
+    Count: ({ items }) => {
+      const reached = items.filter((item) => item.path !== null).length;
+      return reached === 0 ? NOT_RUN : reached;
+    },
     Line: ({ item }) => (
       <code className="font-mono text-xs">{item.path?.split("/").at(-1)}</code>
     ),
@@ -137,6 +146,7 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
           attempt={props.attempt}
           record={props.record}
           deliverable={deliverable}
+          live={props.live ?? null}
         />
       ))}
     </div>

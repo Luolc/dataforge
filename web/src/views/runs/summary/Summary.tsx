@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import {
   type AttemptRecord,
   currentOf,
+  type Deliverable,
   type LiveInfo,
   type Project,
 } from "../../../api/types";
@@ -140,12 +141,7 @@ function TopRow({
     },
     {
       key: "Deliverables",
-      value:
-        record.deliverables === undefined
-          ? "—"
-          : missing.length === 0
-            ? record.deliverables.length
-            : `${String(record.deliverables.length)} of ${String(record.deliverables.length + missing.length)}`,
+      value: deliveredOf(record.deliverables, missing.length),
     },
   ];
   return (
@@ -218,6 +214,23 @@ function Summaries({
       </div>
     </Card>
   );
+}
+
+/**
+ * The top row's Deliverables: how many of the record's deliverables have a
+ * path, of all of them and those the project declares that it lacks, when
+ * the two differ.
+ */
+function deliveredOf(
+  recorded: Deliverable[] | undefined,
+  missing: number,
+): string {
+  if (recorded === undefined) return "—";
+  const reached = recorded.filter((item) => item.path !== null).length;
+  const all = recorded.length + missing;
+  return reached === all
+    ? String(reached)
+    : `${String(reached)} of ${String(all)}`;
 }
 
 function Deliverables({ project, attempt, record }: Props) {
