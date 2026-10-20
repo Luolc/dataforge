@@ -295,7 +295,9 @@ def test_a_bad_rubric_or_a_repeated_name_is_an_error(
 def test_a_visit_writes_its_scores_and_a_report(
   tmp_path: Path, task: Path
 ) -> None:
-  docs = verdicts(sound=("fail", "it | breaks\nhere", "mend it"), tidy=PASS)
+  docs = verdicts(
+    sound=("fail", "it | breaks\n<b>here</b> & now", "mend it"), tidy=PASS
+  )
   reviewers = Reviewers(
     {"tests": ("ok", verdicts(sound=PASS)), "docs": ("ok", docs)}
   )
@@ -345,7 +347,7 @@ def test_a_visit_writes_its_scores_and_a_report(
             "criterion": "sound",
             "severity": "error",
             "passed": False,
-            "note": "it | breaks\nhere",
+            "note": "it | breaks\n<b>here</b> & now",
             "fix": "mend it",
           },
           {
@@ -380,7 +382,7 @@ Failed: docs.
 
 | Criterion | Severity | Result | Note |
 | --- | --- | --- | --- |
-| sound | error | fail | it \\| breaks here |
+| sound | error | fail | it \\| breaks &lt;b&gt;here&lt;/b&gt; &amp; now |
 | tidy | warning | pass | fine |
 
 1 of 2 criteria fail. Errors: sound.

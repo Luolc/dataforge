@@ -185,7 +185,7 @@ class Score:
     severity: Its severity, "error" or "warning".
     passed: Whether its verdict was a pass.
     note: The reviewer's evidence, or "no verdict" when it gave none.
-    fix: The reviewer's fix; empty for a pass or no verdict.
+    fix: The reviewer's fix, as it gave it; empty when it gave no verdict.
   """
 
   criterion: str
@@ -327,7 +327,9 @@ def rubric_report(judgments: Sequence[Judgment]) -> str:
   """Return what reviews judged as a Markdown report for people.
 
   A line on the whole, then for each review a heading, a table of its
-  criteria and a paragraph on what failed.
+  criteria and a paragraph on what failed. A cell is one line, with "&", "<",
+  ">" and "|" escaped, so that a reviewer's words neither end the table nor
+  become HTML.
 
   Args:
     judgments: The reviews' judgments, in order.
@@ -379,8 +381,16 @@ def _summary(judgment: Judgment) -> str:
 
 
 def _cell(text: str) -> str:
-  # A cell is one line, and "|" would end it.
-  return " ".join(text.split()).replace("|", "\\|")
+  # A cell holds a reviewer's words, which are not to be trusted: it is one
+  # line, "|" would end it, and HTML in it is shown as text.
+  line = " ".join(text.split())
+  for char, escaped in _CELL_ESCAPES:
+    line = line.replace(char, escaped)
+  return line
+
+
+# "&" first, since the other escapes hold it.
+_CELL_ESCAPES = (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ("|", "\\|"))
 
 
 def _verdicts(value: object) -> list[dict[str, str]] | None:
