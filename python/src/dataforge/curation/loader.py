@@ -34,6 +34,12 @@ The schema, version 1:
                     end_on_last_visit: <boolean>}
                  | {end: <status>}
 
+In the fields the engine renders as string.Template (feedback, prompt and
+report_prompt, a prompt file and its vars), an input's value has each $
+doubled, so that the engine's output holds it as given; vars are template
+text, inserted as written, and feedback must be a valid template. In other
+fields "$$" is passed on as it is.
+
 "environments" and "runners" are reserved for declaring them as data; this
 version rejects them. Relative paths (prompt and rubric files, validators,
 {path: ...} inputs) are against the base directory.
@@ -42,8 +48,9 @@ version rejects them. Relative paths (prompt and rubric files, validators,
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 import re
+import string
 from typing import cast
 
 import yaml
@@ -228,7 +235,8 @@ class _Loader:
       required={"dataforge", "name", "start", "states"},
       optional={"inputs", "vars", "max_cost_usd", "environments", "runners"},
     )
-    if top["dataforge"] != SCHEMA_VERSION or isinstance(top["dataforge"], bool):
+    version = top["dataforge"]
+    if type(version) is not int or version != SCHEMA_VERSION:
       raise SpecError("dataforge", "the schema version must be 1")
     for reserved in ("environments", "runners"):
       if reserved in top:
@@ -242,10 +250,17 @@ class _Loader:
     self.inputs = _inputs(top.get("inputs", {}), inputs)
     _ = self.string(top["name"], "name")
     self.vars = {}
-    for name, value in _mapping(top.get("vars", {}), "vars").items():
+    declared = _mapping(top.get("vars", {}), "vars")
+    for name, value in declared.items():
       at = f"vars.{name}"
       _check_name(name, at)
-      self.vars[name] = self.string(value, at)
+      _ = self.string(value, at)
+      text = cast(str, value)
+      for found in _SUBST.finditer(text):
+        ref = found.group(2)
+        if ref in declared and ref not in self.vars:
+          raise SpecError(at, f"${{{ref}}} names a var declared after it")
+      self.vars[name] = text
     cap = None
     if "max_cost_usd" in top:
       cap = self.number(top["max_cost_usd"], "max_cost_usd", minimum=0)
@@ -291,9 +306,7 @@ class _Loader:
       "on_exhausted": self.string(
         fields.get("on_exhausted", "failed"), f"{at}.on_exhausted"
       ),
-      "feedback": self.optional_string(
-        fields.get("feedback"), f"{at}.feedback"
-      ),
+      "feedback": self.feedback(fields.get("feedback"), f"{at}.feedback"),
       "max_cost_usd": self.number(
         fields.get("max_cost_usd", 0.0), f"{at}.max_cost_usd", minimum=0
       ),
@@ -315,11 +328,12 @@ class _Loader:
     if "env" in fields:
       if not kind.env:
         raise SpecError(f"{at}.env", f"not taken by uses: {uses}")
-      args["env"] = cast(Env, self.binding(fields["env"], f"{at}.env"))
+      env = self.binding(fields["env"], f"{at}.env", "env")
+      args["env"] = cast(Env, env)
     if "runner" in fields:
       if kind.runner is None:
         raise SpecError(f"{at}.runner", f"not taken by uses: {uses}")
-      runner = self.binding(fields["runner"], f"{at}.runner")
+      runner = self.binding(fields["runner"], f"{at}.runner", kind.runner)
       field = f"{kind.runner}_runner"
       args["actions"] = dataclasses.replace(self.actions, **{field: runner})
     return self.make(cls, args, at)
@@ -386,25 +400,34 @@ class _Loader:
       for name, new in _mapping(value, at).items()
     }
 
-  def binding(self, value: object, at: str) -> object:
+  def binding(self, value: object, at: str, protocol: str) -> object:
     name = self.string(value, at)
     if name not in self.bindings:
       raise SpecError(at, f"no binding named {name!r}")
-    return self.bindings[name]
+    bound = self.bindings[name]
+    what, methods = _PROTOCOLS[protocol]
+    if not all(callable(getattr(bound, m, None)) for m in methods):
+      raise SpecError(at, f"the binding {name!r} is not {what}")
+    return bound
 
-  def substitute(self, text: str, at: str, extra: Mapping[str, str]) -> str:
-    names = {**self.vars, **extra}
+  def substitute(self, text: str, at: str, template: bool) -> str:
+    # In a template, a text the engine renders again, an input's value has
+    # each $ doubled so that it reaches the engine's output as given; a var
+    # is template text and goes in as written, its own inputs escaped alike.
 
     def one(match: re.Match[str]) -> str:
       whole, expression, var = match.group(0, 1, 2)
       if var is not None:
-        return names.get(var, whole)
+        if var not in self.vars:
+          return whole
+        return self.substitute(self.vars[var], at, template)
       if expression is None:
         return whole
       found = _INPUT.fullmatch(whole)
       if found is None:
         raise SpecError(at, f"{whole}: only ${{{{ inputs.<name> }}}} is known")
-      return _text(self.input(found.group(1), at)[1])
+      value = _text(self.input(found.group(1), at)[1])
+      return value.replace("$", "$$") if template else value
 
     return _SUBST.sub(one, text)
 
@@ -418,10 +441,20 @@ class _Loader:
       return self.input(found.group(1), at)
     return None
 
-  def string(self, value: object, at: str) -> str:
+  def string(self, value: object, at: str, template: bool = False) -> str:
     if not isinstance(value, str):
       raise SpecError(at, _expected("a string", value))
-    return self.substitute(value, at, {})
+    return self.substitute(value, at, template)
+
+  def feedback(self, value: object, at: str) -> str | None:
+    # The engine renders feedback with string.Template.substitute, which
+    # raises on a $ that starts no placeholder; refuse it here instead.
+    if value is None:
+      return None
+    text = self.string(value, at, template=True)
+    if not string.Template(text).is_valid():
+      raise SpecError(at, "not a valid template: write $$ for a lone $")
+    return text
 
   def optional_string(self, value: object, at: str) -> str | None:
     return None if value is None else self.string(value, at)
@@ -498,18 +531,22 @@ class _Loader:
 
   def prompt(self, value: object, at: str) -> str:
     if not _is_mapping(value):
-      return self.string(value, at)
+      return self.string(value, at, template=True)
     fields = _fields(value, at, required={"file"}, optional={"vars"})
     path = self.file(fields["file"], f"{at}.file")
     extra: dict[str, str] = {}
     for name, var in _mapping(fields.get("vars", {}), f"{at}.vars").items():
       _check_name(name, f"{at}.vars.{name}")
-      extra[name] = self.string(var, f"{at}.vars.{name}")
+      extra[name] = self.string(var, f"{at}.vars.{name}", template=True)
     try:
       text = path.read_text()
     except OSError as error:
       raise SpecError(f"{at}.file", str(error)) from error
-    return _replace_vars(text, {**self.vars, **extra})
+    names = {
+      name: self.substitute(raw, at, template=True)
+      for name, raw in self.vars.items()
+    }
+    return _replace_vars(text, {**names, **extra})
 
   def script(self, fields: Mapping[str, object], at: str) -> ScriptSpec:
     return ScriptSpec(
@@ -548,6 +585,13 @@ class _Loader:
 
 
 _SCRIPT = {"inputs", "outputs", "memory_gb", "optional_inputs"}
+
+_PROTOCOLS = {
+  "env": ("an Env", ("start", "stop", "stage", "exec", "collect")),
+  "agent": ("an AgentRunner", ("start", "resume")),
+  "trial": ("a TrialRunner", ("memory_gb", "run")),
+}
+"""What env and runner bindings must be, by the methods each must have."""
 
 
 def _agent(
@@ -605,8 +649,12 @@ def _agent(
   )
   return {
     "spec": spec,
-    "report_prompt": loader.optional_string(
-      get("report_prompt"), f"{at}.report_prompt"
+    "report_prompt": (
+      None
+      if get("report_prompt") is None
+      else loader.string(
+        fields["report_prompt"], f"{at}.report_prompt", template=True
+      )
     ),
     "last_if_unresumable": loader.boolean(
       get("last_if_unresumable", False), f"{at}.last_if_unresumable"
@@ -785,6 +833,8 @@ def _inputs(
     value = given[name]
     if not _is_type(cast(str, kind), value):
       raise SpecError(at, f"given {value!r}, which is not of type {kind}")
+    if isinstance(value, PurePath):
+      value = str(value)
     found[name] = (cast(str, kind), value)
   for name in given:
     if name not in found:
@@ -804,8 +854,10 @@ def _is_type(kind: str, value: object) -> bool:
   if isinstance(value, bool):
     return kind == "boolean"
   match kind:
-    case "string" | "path":
+    case "string":
       return isinstance(value, str)
+    case "path":
+      return isinstance(value, str | PurePath)
     case "integer":
       return isinstance(value, int)
     case "number":

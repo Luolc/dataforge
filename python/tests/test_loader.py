@@ -4,6 +4,7 @@
 from collections.abc import Callable, Mapping
 import json
 from pathlib import Path
+import string
 import sys
 from typing import cast
 
@@ -188,6 +189,15 @@ def drop(path: str) -> Callable[[Doc], None]:
       ),
     ),
     (put("dataforge", 2), "dataforge: the schema version must be 1"),
+    (put("dataforge", 1.0), "dataforge: the schema version must be 1"),
+    (
+      put("vars", {"a": "${b}", "b": "x"}),
+      "vars.a: ${b} names a var declared after it",
+    ),
+    (
+      put("vars.tail", "Each run costs $5."),
+      "states.make.feedback: not a valid template: write $$ for a lone $",
+    ),
     (put("start", "nowhere"), "start: no state named 'nowhere'"),
     (
       put("environments", {"box": {}}),
@@ -505,6 +515,12 @@ def test_a_validator_an_input_names_is_left_to_the_caller(
 def spec_of(state: AgentState) -> AgentSpec:
   spec = cast(object, vars(state)["_spec"])
   assert isinstance(spec, AgentSpec)
+  return spec
+
+
+def script_spec(state: State) -> ScriptSpec:
+  spec = cast(object, vars(state)["_spec"])
+  assert isinstance(spec, ScriptSpec)
   return spec
 
 
@@ -1040,3 +1056,77 @@ def test_dataforge_check_checks_a_declaration_without_running_it(
   )
   assert main([*args, "--bindings", "example_bindings"]) == 2
   _ = sys.modules.pop("example_bindings", None)
+
+
+def test_an_inputs_value_reaches_the_engines_templates_as_given(
+  tmp_path: Path,
+) -> None:
+  files(tmp_path)
+  value = "costs $5, ${HOME} and ${state}"
+  doc = agent_doc()
+  doc["inputs"] = {"note": "string"}
+  doc["vars"] = {"tail": "Note: ${{ inputs.note }}.", "then": "${tail} Go."}
+  write = states_of(doc)["write"]
+  put(
+    "states.write.with.prompt",
+    {"file": "prompts/session.md", "vars": {"item": "${{ inputs.note }}"}},
+  )(doc)
+  put("states.write.with.report_prompt", "${feedback} ${{ inputs.note }}")(doc)
+  write["feedback"] = "${then} ${details} $$9"
+  machine = load_doc(doc, {"note": value}, base_dir=tmp_path)
+  state = machine.states[0]
+  assert isinstance(state, AgentState)
+  assert state.feedback is not None
+  engine = {"state": "write", "visit": 1, "round": 1}
+  assert (
+    string.Template(state.feedback).substitute({"details": "d"}, **engine)
+    == f"Note: {value}. Go. d $9"
+  )
+  spec = spec_of(state)
+  assert (
+    string.Template(spec.prompt).safe_substitute(feedback="", **engine)
+    == f"Work on {value} (${{note}}) in round 1. Note: {value}."
+  )
+  assert state.report_prompt is not None
+  assert (
+    string.Template(state.report_prompt).safe_substitute(feedback="f", **engine)
+    == f"f {value}"
+  )
+
+
+def test_an_input_outside_a_template_is_inserted_as_given() -> None:
+  doc = base()
+  machine = load_doc(doc, {**INPUTS, "item": "$5"})
+  make = machine.states[0]
+  assert isinstance(make, ScriptState)
+  assert script_spec(make).argv == ("make", "--item=$5")
+
+
+def test_a_path_input_may_be_given_as_a_path(tmp_path: Path) -> None:
+  doc = base()
+  doc["inputs"] = {**doc["inputs"], "tool": "path"}  # pyright: ignore[reportGeneralTypeIssues]
+  put("states.make.with.inputs", ["${{ inputs.tool }}"])(doc)
+  machine = load_doc(
+    doc, {**INPUTS, "tool": Path("/opt/tool")}, base_dir=tmp_path
+  )
+  make = machine.states[0]
+  assert script_spec(make).inputs == (Path("/opt/tool"),)
+
+
+def test_env_and_runner_bindings_must_be_of_their_kind(tmp_path: Path) -> None:
+  files(tmp_path)
+  doc = agent_doc()
+  put("states.write.env", "box")(doc)
+  put("states.write.runner", "agents")(doc)
+  bindings: dict[str, object] = {"box": 42, "agents": Agents()}
+  with pytest.raises(SpecError) as raised:
+    _ = load_doc(doc, {}, bindings=bindings, base_dir=tmp_path)
+  assert (
+    str(raised.value) == "states.write.env: the binding 'box' is not an Env"
+  )
+  bindings = {"box": HOST, "agents": Trials()}
+  with pytest.raises(SpecError) as raised:
+    _ = load_doc(doc, {}, bindings=bindings, base_dir=tmp_path)
+  assert str(raised.value) == (
+    "states.write.runner: the binding 'agents' is not an AgentRunner"
+  )
