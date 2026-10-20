@@ -1,0 +1,9 @@
+# The job queue and a data item's actions, for developing the viewer and
+# taking screenshots: copy this directory, fill the queue from the copy with
+# `dataforge queue serve --config queue.yaml` and `dataforge queue submit
+# --config queue.yaml ...`, and serve it with `dataforge viz serve --config
+# site.yaml --static web/dist`. The queue's database and logs are made beside
+# queue.yaml, so a run here would leave them in the checkout.
+listen: { host: 127.0.0.1, port: 8800 }
+projects: [project.yaml]
+queue: { config: queue.yaml }

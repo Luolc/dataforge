@@ -110,20 +110,18 @@ describe("the queue page", () => {
       "fast",
       "batch-1/task-3",
       "Run again",
-      "—",
       "2026-03-02 09:15 UTC",
       "2026-03-02 09:16 UTC",
       "2026-03-02 09:17 UTC",
       "1m 40s",
       "0",
-      "2.0 GiB",
       "",
     ]);
     expect(cells("2")[0]).toBe("Failed");
     expect(cells("1")[0]).toBe("Canceled");
-    expect(cells("1")[10]).toBe("-15");
+    expect(cells("1")[9]).toBe("-15");
     expect(cells("4")[0]).toBe("Canceling");
-    expect(cells("6").slice(3, 6)).toEqual(["—", "—", "note=by hand"]);
+    expect(cells("6").slice(3, 5)).toEqual(["—", "note=by hand"]);
     expect(
       within(row("3") ?? document.body).getByRole("link", {
         name: "batch-1/task-3",
@@ -154,7 +152,10 @@ describe("the queue page", () => {
     });
     show();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(cancel);
+    expect(cancel).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Cancel job 6?")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Cancel job" }));
 

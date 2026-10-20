@@ -17,15 +17,14 @@ import {
 import { Frame } from "../../shell/Shell";
 import { ProjectsContext } from "../../shell/projects";
 import { Note } from "../../ui/card";
-import { Confirm, control } from "../../ui/confirm";
-import { bytes, duration, epoch, time } from "../../ui/format";
+import { useAsk } from "../../ui/ask";
+import { control, Question } from "../../ui/confirm";
+import { duration, epoch, time } from "../../ui/format";
 import { Elapsed } from "../../ui/running";
 import { Group } from "../home/HomeTable";
 import { toneGlyph, toneText } from "../../ui/status";
 import { ToneLabel } from "../../ui/status-mark";
 import { isOpen, jobLabel } from "./status";
-
-const MIB = 1024 * 1024;
 
 /** What a read gives, kept on the page while the next read loads. */
 interface Read {
@@ -108,13 +107,11 @@ const HEADS: { title: string; numeric?: boolean }[] = [
   { title: "Queue" },
   { title: "Item" },
   { title: "Action" },
-  { title: "Labels" },
   { title: "Queued" },
   { title: "Started" },
   { title: "Ended" },
   { title: "Duration", numeric: true },
   { title: "Exit code", numeric: true },
-  { title: "Memory", numeric: true },
 ];
 
 function Queues({
@@ -196,7 +193,7 @@ function Queues({
                 <th
                   key={h.title}
                   scope="col"
-                  className={`px-3 py-1 font-medium ${h.numeric === true ? "text-right" : "text-left"}`}
+                  className={`px-2 py-1 font-medium whitespace-nowrap ${h.numeric === true ? "text-right" : "text-left"}`}
                 >
                   {h.title}
                 </th>
@@ -248,7 +245,7 @@ function Queues({
   );
 }
 
-const cell = "px-3 py-1.5 align-top";
+const cell = "px-2 py-1.5 align-top";
 const numeric = `${cell} text-right whitespace-nowrap tabular-nums`;
 const LABELED = ["project", "action", "item"];
 
@@ -271,64 +268,86 @@ function JobRow({
   );
   const cancelable = isOpen(job) && job.cancel_requested_at === null;
   const id = job.id.toString();
+  const ask = useAsk();
+  const questionId = useId();
   return (
-    <tr className="border-b border-line-subtle hover:bg-hover">
-      <td className={`${cell} whitespace-nowrap`}>
-        <ToneLabel {...jobLabel(job)} />
-      </td>
-      <td className={numeric}>{id}</td>
-      <td className={`${cell} font-mono`}>{job.queue}</td>
-      <td className={`${cell} font-mono`}>
-        {item === undefined ? (
-          "—"
-        ) : project !== undefined ? (
-          <Link
-            to={`/${encodeURIComponent(project.id)}?${new URLSearchParams({ q: item }).toString()}`}
-            className="link hover:underline"
-          >
-            {item}
-          </Link>
-        ) : (
-          item
-        )}
-      </td>
-      <td className={cell}>{label ?? "—"}</td>
-      <td className={`${cell} font-mono text-xs`}>
-        {others.length === 0
-          ? "—"
-          : others.map(([k, v]) => `${k}=${v}`).join(" ")}
-      </td>
-      <td className={`${cell} whitespace-nowrap`}>{epoch(job.queued_at)}</td>
-      <td className={`${cell} whitespace-nowrap`}>
-        {job.started_at === null ? "—" : epoch(job.started_at)}
-      </td>
-      <td className={`${cell} whitespace-nowrap`}>
-        {job.ended_at === null ? "—" : epoch(job.ended_at)}
-      </td>
-      <td className={numeric}>
-        <Took job={job} />
-      </td>
-      <td className={numeric}>
-        {job.exit_code === null ? "—" : job.exit_code.toString()}
-      </td>
-      <td className={numeric}>{bytes(job.memory_mib * MIB)}</td>
-      <td className={`${cell} text-right whitespace-nowrap`}>
-        {cancelable && (
-          <Confirm
-            question={
-              job.state === "running"
-                ? `Cancel job ${id}? Its processes are sent SIGTERM.`
-                : `Cancel job ${id}?`
-            }
-            yes="Cancel job"
-            onYes={() => onCancel(job)}
-          >
-            <X className="size-3.5 text-icon" aria-hidden />
-            Cancel
-          </Confirm>
-        )}
-      </td>
-    </tr>
+    <>
+      <tr className="border-b border-line-subtle hover:bg-hover">
+        <td className={`${cell} whitespace-nowrap`}>
+          <ToneLabel {...jobLabel(job)} />
+        </td>
+        <td className={numeric}>{id}</td>
+        <td className={`${cell} font-mono`}>{job.queue}</td>
+        <td className={`${cell} font-mono whitespace-nowrap`}>
+          {item === undefined ? (
+            "—"
+          ) : project !== undefined ? (
+            <Link
+              to={`/${encodeURIComponent(project.id)}?${new URLSearchParams({ q: item }).toString()}`}
+              className="link hover:underline"
+            >
+              {item}
+            </Link>
+          ) : (
+            item
+          )}
+        </td>
+        <td className={cell}>
+          {label === undefined && others.length === 0 && "—"}
+          {label !== undefined && (
+            <div className="whitespace-nowrap">{label}</div>
+          )}
+          {others.length > 0 && (
+            <div className="font-mono text-xs text-fg-2">
+              {others.map(([k, v]) => `${k}=${v}`).join(" ")}
+            </div>
+          )}
+        </td>
+        <td className={`${cell} whitespace-nowrap`}>{epoch(job.queued_at)}</td>
+        <td className={`${cell} whitespace-nowrap`}>
+          {job.started_at === null ? "—" : epoch(job.started_at)}
+        </td>
+        <td className={`${cell} whitespace-nowrap`}>
+          {job.ended_at === null ? "—" : epoch(job.ended_at)}
+        </td>
+        <td className={numeric}>
+          <Took job={job} />
+        </td>
+        <td className={numeric}>
+          {job.exit_code === null ? "—" : job.exit_code.toString()}
+        </td>
+        <td className={`${cell} text-right`}>
+          {cancelable && (
+            <button
+              type="button"
+              className={control}
+              aria-expanded={ask.asking}
+              aria-controls={questionId}
+              onClick={ask.ask}
+            >
+              <X className="size-3.5 text-icon" aria-hidden />
+              Cancel
+            </button>
+          )}
+        </td>
+      </tr>
+      {cancelable && ask.asking && (
+        <tr id={questionId} className="border-b border-line-subtle">
+          <td colSpan={HEADS.length + 1} className={`${cell} text-right`}>
+            <Question
+              ask={ask}
+              question={
+                job.state === "running"
+                  ? `Cancel job ${id}? Its processes are sent SIGTERM.`
+                  : `Cancel job ${id}?`
+              }
+              yes="Cancel job"
+              onYes={() => onCancel(job)}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
