@@ -124,6 +124,14 @@ class State:
     self.feedback: str | None = feedback
     self.max_cost_usd: float = max_cost_usd
 
+  def possible_outcomes(self) -> frozenset[str] | None:
+    """Name the outcomes this state's run may give, if it can say.
+
+    Returns:
+      The outcomes' names, or None when the state does not say, as here.
+    """
+    return None
+
   def run(self, ctx: Context) -> Outcome:
     """Run one visit of the state; a subclass implements it.
 

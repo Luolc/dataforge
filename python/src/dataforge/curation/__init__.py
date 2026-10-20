@@ -51,6 +51,7 @@ from dataforge.curation.engine import (
 )
 from dataforge.curation.graph import Graph, GraphEdge, GraphState, mermaid
 from dataforge.curation.harbor import HarborRunner, TrialSetup
+from dataforge.curation.loader import load, SpecError
 from dataforge.curation.rubric import Review
 from dataforge.curation.states import (
   AgentState,
@@ -105,6 +106,7 @@ __all__ = [
   "ScriptSpec",
   "ScriptState",
   "Source",
+  "SpecError",
   "Staged",
   "State",
   "TrialAgent",
@@ -119,6 +121,7 @@ __all__ = [
   "Version",
   "Visit",
   "fan_out",
+  "load",
   "mermaid",
   "summary_path",
 ]

@@ -72,6 +72,26 @@ class _ActionState(State):
     self.actions: Actions = actions
     self.rename: Mapping[str, str] = dict(rename or {})
 
+  def given_outcomes(self) -> frozenset[str] | None:
+    """Name the outcomes this state's outcome method gives, before rename.
+
+    Returns:
+      The class's OUTCOMES; a state whose judge decides overrides it.
+    """
+    return getattr(type(self), "OUTCOMES", None)
+
+  @override
+  def possible_outcomes(self) -> frozenset[str] | None:
+    """Name the outcomes this state may give: given_outcomes, renamed.
+
+    Returns:
+      The outcomes' names, or None when they are not known.
+    """
+    given = self.given_outcomes()
+    if given is None:
+      return None
+    return frozenset(self.rename.get(name, name) for name in given)
+
   def renamed(self, outcome: Outcome) -> Outcome:
     """Give an outcome the name rename gives it, if any.
 
@@ -515,6 +535,12 @@ class PassAtKState(TrialState):
     self.k: int = k
     self.judge: Judge | None = judge
 
+  @override
+  def given_outcomes(self) -> frozenset[str] | None:
+    if self.judge is not None:
+      return _judge_outcomes(self.judge)
+    return self.OUTCOMES
+
   def outcomes(self, ctx: Context, results: Sequence[TrialResult]) -> Outcome:
     """Turn the results of the k trials into the visit's outcome.
 
@@ -714,6 +740,10 @@ class JudgeState(_ActionState):
     self.judge: Judge = judge
 
   @override
+  def given_outcomes(self) -> frozenset[str] | None:
+    return _judge_outcomes(self.judge)
+
+  @override
   def run(self, ctx: Context) -> Outcome:
     return self.renamed(_judged(self.actions.judge(ctx, self.judge)))
 
@@ -842,6 +872,10 @@ def _task_dir(
   if isinstance(task_dir, str):
     return next(iter(ctx.resolve([task_dir]).values()))
   return task_dir(ctx)
+
+
+def _judge_outcomes(judge: Judge) -> frozenset[str] | None:
+  return frozenset(judge.outcomes) if judge.outcomes else None
 
 
 def _judged(verdict: Verdict) -> Outcome:

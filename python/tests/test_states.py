@@ -27,9 +27,11 @@ from dataforge.curation import (
   Machine,
   Outcome,
   PassAtKState,
+  Review,
   RubricState,
   ScriptSpec,
   ScriptState,
+  State,
   TrialAgent,
   TrialResult,
   TrialsState,
@@ -535,4 +537,75 @@ def test_each_state_names_the_outcomes_it_gives() -> None:
     "TrialsState": {"ok", "error"},
     "JudgeState": None,
     "RubricState": {"pass", "fail", "error"},
+  }
+
+
+def test_each_state_names_the_outcomes_it_may_give_after_rename(
+  tmp_path: Path,
+) -> None:
+  actions = Actions()
+  spec = ScriptSpec(["judge"])
+  limits = Limits(1)
+  rubric = tmp_path / "rubric.toml"
+  _ = rubric.write_text(
+    'system = "S"\n[[criteria]]\nid = "a"\nseverity = "error"\nquestion = "Q"\n'
+  )
+  states = {
+    "agent": AgentState("s", {}, actions=actions, rename={"failed": "invalid"}),
+    "script": ScriptState("s", {}, actions=actions),
+    "trial": TrialState(
+      "s", {}, actions=actions, task_dir="t", agent="nop", limits=limits
+    ),
+    "pass_at_k": PassAtKState(
+      "s", {}, actions=actions, task_dir="t", agent="nop", limits=limits, k=2
+    ),
+    "pass_at_k_judged": PassAtKState(
+      "s",
+      {},
+      actions=actions,
+      task_dir="t",
+      agent="nop",
+      limits=limits,
+      k=2,
+      judge=Judge(spec, ["fine", "bad"]),
+      rename={"bad": "worse"},
+    ),
+    "pass_at_k_judged_any": PassAtKState(
+      "s",
+      {},
+      actions=actions,
+      task_dir="t",
+      agent="nop",
+      limits=limits,
+      k=2,
+      judge=Judge(spec),
+    ),
+    "trials": TrialsState(
+      "s", {}, actions=actions, task_dir="t", agents={"nop": 1}, limits=limits
+    ),
+    "judge": JudgeState(
+      "s", {}, actions=actions, judge=Judge(spec, ["pass", "fail"])
+    ),
+    "judge_any": JudgeState("s", {}, actions=actions, judge=Judge(spec)),
+    "rubric": RubricState(
+      "s",
+      {},
+      actions=actions,
+      reviews=[Review("r", rubric, {})],
+      rename={"error": "fail"},
+    ),
+    "state": State("s", {}),
+  }
+  assert {name: s.possible_outcomes() for name, s in states.items()} == {
+    "agent": {"ok", "invalid", "error"},
+    "script": {"ok", "failed"},
+    "trial": {"solved", "unsolved", "error"},
+    "pass_at_k": {"all_solved", "none_solved", "in_range", "error"},
+    "pass_at_k_judged": {"fine", "worse"},
+    "pass_at_k_judged_any": None,
+    "trials": {"ok", "error"},
+    "judge": {"pass", "fail"},
+    "judge_any": None,
+    "rubric": {"pass", "fail"},
+    "state": None,
   }
