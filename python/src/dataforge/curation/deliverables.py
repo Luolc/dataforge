@@ -1,11 +1,12 @@
-"""What an attempt delivers: declared by name, resolved when it ends.
+"""What an attempt delivers: declared by name, resolved as it runs and ends.
 
 A dataset declares each deliverable as a Deliverable: its kind, which says how
 it is shown ("files", "trials" or "report"), a title, and where it comes from,
 a state's output in one of the state's visits. The machine
-(dataforge.curation.engine) resolves them when an attempt ends into the
-record's "deliverables", with paths relative to the attempt's root and, for
-what was not reached, a reason instead of a path.
+(dataforge.curation.engine) resolves them into the record's "deliverables" at
+each step, as the attempt would end then, and when it ends, with paths
+relative to the attempt's root and, for what was not reached, a reason instead
+of a path.
 """
 
 from collections.abc import Mapping, Sequence

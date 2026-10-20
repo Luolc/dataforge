@@ -1398,7 +1398,7 @@ class Actions:
     runner = self.trial_runner
     if runner is None:
       raise RuntimeError("a trial needs a trial_runner")
-    _, started_at = ctx.claim([name]), datetime.now(UTC)
+    _, started_at = ctx.claim([name], trial=True), datetime.now(UTC)
     outdir = ctx.outdir / name
     outdir.mkdir()
     with _reserve(self.pool, runner.memory_gb(limits)):
