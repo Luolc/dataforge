@@ -1,0 +1,378 @@
+"""The site file and the project files the viewer reads at start.
+
+A file loads only when it passes every check; one that fails raises
+ConfigError naming the file and the key that is wrong.
+"""
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+import ipaddress
+import os
+from pathlib import Path
+import re
+import stat
+from typing import cast
+
+import yaml
+
+TONES = ("good", "bad", "warn", "neutral")
+"""The tones a status may take."""
+
+FORMATS = ("text", "number", "usd", "duration", "time")
+"""The formats a column may take."""
+
+THINKING = ("collapsed", "expanded", "hidden")
+"""How a session view may first show thinking blocks."""
+
+_ID = re.compile(r"[a-z0-9-]+")
+_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+class ConfigError(Exception):
+  """A site or project file that fails a check."""
+
+
+@dataclass(frozen=True, slots=True)
+class Listen:
+  """The address the server binds.
+
+  Attributes:
+    host: An IP address literal, never an unspecified one.
+    port: The port.
+  """
+
+  host: str
+  port: int
+
+
+@dataclass(frozen=True, slots=True)
+class Column:
+  """A column of the attempt table.
+
+  Attributes:
+    title: Its heading.
+    field: The keys into the record its value is at.
+    format: One of FORMATS.
+  """
+
+  title: str
+  field: tuple[str, ...]
+  format: str
+
+
+@dataclass(frozen=True, slots=True)
+class Project:
+  """A dataset's project file, as loaded.
+
+  Attributes:
+    id: The project's ID, in URLs.
+    name: Its name, in the sidebar and the breadcrumb.
+    color: Its colour, #rrggbb.
+    root: The directory its attempts are under.
+    attempts: The pattern of an attempt's directory under root, plain and
+      "*" components.
+    record: The record file's path in an attempt's directory.
+    states: Each state's title, by name.
+    statuses: Each status's label and tone, by name.
+    columns: The attempt table's columns after the ID.
+    thinking: How a session view first shows thinking, one of THINKING.
+  """
+
+  id: str
+  name: str
+  color: str
+  root: Path
+  attempts: tuple[str, ...]
+  record: tuple[str, ...]
+  states: dict[str, dict[str, str]]
+  statuses: dict[str, dict[str, str]]
+  columns: tuple[Column, ...]
+  thinking: str
+
+  def public(self) -> dict[str, object]:
+    """Return what the frontend reads: all but where the files are.
+
+    Returns:
+      The project as JSON data, without root, attempts and record.
+    """
+    return {
+      "id": self.id,
+      "name": self.name,
+      "color": self.color,
+      "states": self.states,
+      "statuses": self.statuses,
+      "columns": [
+        {"title": c.title, "field": list(c.field), "format": c.format}
+        for c in self.columns
+      ],
+      "session": {"thinking": self.thinking},
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class Site:
+  """The site file, with its projects loaded.
+
+  Attributes:
+    listen: The address the server binds.
+    projects: The projects, in the file's order.
+  """
+
+  listen: Listen
+  projects: tuple[Project, ...]
+
+
+def load_site(path: Path) -> Site:
+  """Load a site file and each project file it names.
+
+  Paths in either file are relative to the file that holds them.
+
+  Args:
+    path: The site file.
+
+  Returns:
+    The site.
+
+  Raises:
+    ConfigError: When a file fails a check.
+  """
+  data = _read(path)
+  _keys(path, "", data, required={"listen", "projects"}, optional=set())
+  listen = _mapping(path, "listen", data["listen"])
+  _keys(path, "listen", listen, required={"host", "port"}, optional=set())
+  host = _str(path, "listen.host", listen["host"])
+  try:
+    address = ipaddress.ip_address(host)
+  except ValueError:
+    raise ConfigError(
+      f"{path}: listen.host: {host!r} is not an IP address"
+    ) from None
+  if address.is_unspecified:
+    raise ConfigError(f"{path}: listen.host: {host} would listen everywhere")
+  port = listen["port"]
+  if not isinstance(port, int) or isinstance(port, bool):
+    raise ConfigError(f"{path}: listen.port: not an integer")
+  if not 1 <= port <= 65535:
+    raise ConfigError(f"{path}: listen.port: {port} is out of range")
+  files = data["projects"]
+  if not isinstance(files, list) or not files:
+    raise ConfigError(f"{path}: projects: not a non-empty list")
+  projects: list[Project] = []
+  for i, file in enumerate(cast(list[object], files)):
+    name = _str(path, f"projects[{i}]", file)
+    projects.append(load_project(path.parent / name))
+  ids = [p.id for p in projects]
+  for i, id_ in enumerate(ids):
+    if id_ in ids[:i]:
+      raise ConfigError(f"{path}: projects: id {id_} is repeated")
+  return Site(Listen(host, port), tuple(projects))
+
+
+def load_project(path: Path) -> Project:
+  """Load a project file.
+
+  Args:
+    path: The project file.
+
+  Returns:
+    The project.
+
+  Raises:
+    ConfigError: When the file fails a check.
+  """
+  data = _read(path)
+  _keys(
+    path,
+    "",
+    data,
+    required={"id", "name", "color", "root", "attempts", "record"},
+    optional={"states", "statuses", "columns", "session"},
+  )
+  id_ = _str(path, "id", data["id"])
+  if not _ID.fullmatch(id_):
+    raise ConfigError(f"{path}: id: {id_!r} is not of [a-z0-9-]")
+  color = _str(path, "color", data["color"])
+  if not _COLOR.fullmatch(color):
+    raise ConfigError(f"{path}: color: {color!r} is not #rrggbb")
+  return Project(
+    id=id_,
+    name=_str(path, "name", data["name"]),
+    color=color,
+    root=_root(path, _str(path, "root", data["root"])),
+    attempts=_attempts(path, _str(path, "attempts", data["attempts"])),
+    record=_relative(path, "record", _str(path, "record", data["record"])),
+    states=_entries(path, "states", data.get("states"), {"title"}),
+    statuses=_statuses(path, data.get("statuses")),
+    columns=_columns(path, data.get("columns")),
+    thinking=_thinking(path, data.get("session")),
+  )
+
+
+def split_relative(path: str) -> tuple[str, ...] | None:
+  """Split a relative path into its components, or refuse it.
+
+  Args:
+    path: A path relative to some root, "" for the root itself.
+
+  Returns:
+    Its components; None when it is absolute or holds an empty, "." or ".."
+    component.
+  """
+  if path == "":
+    return ()
+  parts = tuple(path.split("/"))
+  if any(part in ("", ".", "..") or "\0" in part for part in parts):
+    return None
+  return parts
+
+
+def _repeated(node: yaml.Node | None) -> str | None:
+  # safe_load keeps the last of a repeated key; a file may not repeat one.
+  if isinstance(node, yaml.SequenceNode):
+    items = cast(list[yaml.Node], node.value)
+    return next(filter(None, map(_repeated, items)), None)
+  if not isinstance(node, yaml.MappingNode):
+    return None
+  keys: set[str] = set()
+  for key, value in cast(list[tuple[yaml.Node, yaml.Node]], node.value):
+    text = cast(str, key.value) if isinstance(key, yaml.ScalarNode) else ""
+    if text and text in keys:
+      return f"line {cast(int, key.start_mark.line) + 1}: key {text} repeated"
+    keys.add(text)
+    if found := _repeated(value):
+      return found
+  return None
+
+
+def _read(path: Path) -> dict[str, object]:
+  try:
+    text = path.read_text(encoding="utf-8")
+    repeated = _repeated(yaml.SafeLoader(text).get_single_node())
+    data = cast(object, yaml.safe_load(text))
+  except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+    raise ConfigError(f"{path}: {error}") from None
+  if repeated:
+    raise ConfigError(f"{path}: {repeated}")
+  return _mapping(path, "", data)
+
+
+def _mapping(path: Path, key: str, value: object) -> dict[str, object]:
+  if not isinstance(value, dict):
+    raise ConfigError(f"{path}: {key or 'the file'}: not a mapping")
+  mapping = cast(dict[object, object], value)
+  for k in mapping:
+    if not isinstance(k, str):
+      raise ConfigError(f"{path}: {key or 'the file'}: key {k!r} not a string")
+  return cast(dict[str, object], mapping)
+
+
+def _keys(
+  path: Path,
+  where: str,
+  data: Mapping[str, object],
+  required: set[str],
+  optional: set[str],
+) -> None:
+  prefix = f"{where}." if where else ""
+  for key in data:
+    if key not in required | optional:
+      raise ConfigError(f"{path}: {prefix}{key}: unknown key")
+  for key in sorted(required):
+    if key not in data:
+      raise ConfigError(f"{path}: {prefix}{key}: missing")
+
+
+def _str(path: Path, key: str, value: object) -> str:
+  if not isinstance(value, str) or not value:
+    raise ConfigError(f"{path}: {key}: not a non-empty string")
+  return value
+
+
+def _root(path: Path, value: str) -> Path:
+  root = path.parent / value
+  try:
+    status = os.lstat(root)
+  except OSError as error:
+    raise ConfigError(f"{path}: root: {error}") from None
+  # A symlinked root could point the viewer anywhere on the machine.
+  if not stat.S_ISDIR(status.st_mode):
+    raise ConfigError(f"{path}: root: {root} is not a directory")
+  return root
+
+
+def _attempts(path: Path, value: str) -> tuple[str, ...]:
+  parts = split_relative(value)
+  if not parts or any("*" in p and p != "*" for p in parts):
+    raise ConfigError(
+      f"{path}: attempts: {value!r} is not plain and * components"
+    )
+  return parts
+
+
+def _relative(path: Path, key: str, value: str) -> tuple[str, ...]:
+  parts = split_relative(value)
+  if not parts:
+    raise ConfigError(f"{path}: {key}: {value!r} is not a relative path")
+  return parts
+
+
+def _entries(
+  path: Path, key: str, value: object, fields: set[str]
+) -> dict[str, dict[str, str]]:
+  if value is None:
+    return {}
+  entries: dict[str, dict[str, str]] = {}
+  for name, entry in _mapping(path, key, value).items():
+    where = f"{key}.{name}"
+    mapping = _mapping(path, where, entry)
+    _keys(path, where, mapping, required=fields, optional=set())
+    entries[name] = {f: _str(path, f"{where}.{f}", mapping[f]) for f in fields}
+  return entries
+
+
+def _statuses(path: Path, value: object) -> dict[str, dict[str, str]]:
+  statuses = _entries(path, "statuses", value, {"label", "tone"})
+  for name, entry in statuses.items():
+    _one_of(path, f"statuses.{name}.tone", entry["tone"], TONES)
+  return statuses
+
+
+def _columns(path: Path, value: object) -> tuple[Column, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list):
+    raise ConfigError(f"{path}: columns: not a list")
+  columns: list[Column] = []
+  for i, item in enumerate(cast(list[object], value)):
+    where = f"columns[{i}]"
+    entry = _mapping(path, where, item)
+    _keys(path, where, entry, required={"title", "field"}, optional={"format"})
+    field = entry["field"]
+    if not isinstance(field, list) or not field:
+      raise ConfigError(f"{path}: {where}.field: not a non-empty list")
+    keys = tuple(
+      _str(path, f"{where}.field", k) for k in cast(list[object], field)
+    )
+    format_ = _str(path, f"{where}.format", entry.get("format", "text"))
+    _one_of(path, f"{where}.format", format_, FORMATS)
+    title = _str(path, f"{where}.title", entry["title"])
+    columns.append(Column(title, keys, format_))
+  return tuple(columns)
+
+
+def _thinking(path: Path, value: object) -> str:
+  if value is None:
+    return "collapsed"
+  session = _mapping(path, "session", value)
+  _keys(path, "session", session, required=set(), optional={"thinking"})
+  thinking = _str(
+    path, "session.thinking", session.get("thinking", "collapsed")
+  )
+  _one_of(path, "session.thinking", thinking, THINKING)
+  return thinking
+
+
+def _one_of(path: Path, key: str, value: str, choices: tuple[str, ...]) -> None:
+  if value not in choices:
+    choice = ", ".join(choices)
+    raise ConfigError(f"{path}: {key}: {value!r} is not one of {choice}")

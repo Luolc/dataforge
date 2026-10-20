@@ -9,12 +9,24 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+[project.optional-dependencies]
+# The viewer, dataforge.viz: a dataset repo that only runs attempts does not
+# install it.
+viz = [
+    "fastapi>=0.150.0",
+    "uvicorn>=0.54.0",
+]
+
 [project.scripts]
 dataforge = "dataforge.cli:main"
 
 [dependency-groups]
 dev = [
     "basedpyright==1.40.2",
+    # The checks cover dataforge.viz, so they run with its extra.
+    "dataforge[viz]",
+    # FastAPI's TestClient.
+    "httpx2==2.15.1",
     "pydoclint==0.11.0",
     "pytest==9.1.1",
     "ruff==0.17.1",
@@ -80,6 +92,8 @@ skip-checking-short-docstrings = false
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib", "--strict-markers"]
+# Tests import their shared helpers as tests.<...>.
+pythonpath = ["."]
 # A file or connection left open fails the test; a ResourceWarning raised
 # while an object is collected reaches pytest as an unraisable exception.
 filterwarnings = [

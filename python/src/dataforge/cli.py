@@ -22,14 +22,16 @@ def main(argv: Sequence[str] | None = None) -> int:
   inputs in the JSON file and the bindings the dataset registers; it starts
   nothing. "dataforge graph" takes the same arguments and "--format json" or
   "--format mermaid", loads the declaration as check does and prints the
-  machine's graph: its JSON, or a Mermaid flowchart.
+  machine's graph: its JSON, or a Mermaid flowchart. "dataforge viz serve
+  --config <site file> --static <dir>" starts the viewer; it needs the extra
+  viz.
 
   Args:
     argv: The arguments; None for the command line's.
 
   Returns:
     The exit status: 0 when the declaration loads, 1 when it does not, 2 for
-    bad arguments.
+    bad arguments; for viz serve, see dataforge.viz.serve.
   """
   parser = argparse.ArgumentParser(prog="dataforge")
   commands = parser.add_subparsers(dest="command", required=True)
@@ -56,8 +58,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     default="json",
     help="the graph's JSON (the default) or a Mermaid flowchart",
   )
+  viz = commands.add_parser("viz", help="the read-only viewer of attempts")
+  serve = viz.add_subparsers(dest="viz", required=True).add_parser(
+    "serve", help="serve the viewer at the site file's address"
+  )
+  _ = serve.add_argument(
+    "--config", type=Path, required=True, help="the site file (YAML)"
+  )
+  _ = serve.add_argument(
+    "--static", type=Path, required=True, help="the built frontend"
+  )
   args = parser.parse_args(argv)
   command = cast(str, args.command)
+  if command == "viz":
+    return _viz(cast(Path, args.config), cast(Path, args.static))
   file = cast(Path, args.file)
   try:
     inputs = _inputs(cast(Path | None, args.inputs))
@@ -85,6 +99,19 @@ def main(argv: Sequence[str] | None = None) -> int:
   else:
     print(mermaid(machine.graph()), end="")
   return 0
+
+
+def _viz(config: Path, static: Path) -> int:
+  # Imported here: FastAPI and uvicorn come only with the extra viz.
+  try:
+    from dataforge.viz.serve import serve
+  except ImportError as error:
+    print(
+      f"dataforge viz: {error}; install dataforge with the extra viz",
+      file=sys.stderr,
+    )
+    return 2
+  return serve(config, static)
 
 
 def _inputs(path: Path | None) -> dict[str, object]:

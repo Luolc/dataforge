@@ -1,0 +1,10 @@
+{"status": "passed",   "reason": null, "kept_visit": 1, "round": 1,
+ "budget": {"max_usd": 5.0, "cost_usd": 0.42, "stopped": null},
+ "final": {}, "visits": [
+  {"state": "write", "visit": 1, "round": 1, "outcome": "done", "data": {}, "mark": null,
+   "actions": [{"kind": "agent", "status": "ok", "outputs": {"task": "artifacts/write/1/task"},
+     "cost_usd": 0.42, "started_at": "2026-01-02T03:04:05+00:00", "ended_at": "2026-01-02T03:14:05+00:00",
+     "summary": "Wrote the task."}]}],
+ "deliverables": [],
+ "graph": {"start": "write", "states": [{"name": "write", "kind": "AgentState", "max_visits": 2, "on_exhausted": "exhausted", "max_cost_usd": null}],
+   "edges": [{"from": "write", "outcome": "done", "to": null, "end": "passed", "report": false, "mark": null, "end_on_last_visit": false}]}}
