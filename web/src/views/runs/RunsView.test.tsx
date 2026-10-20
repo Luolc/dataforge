@@ -257,7 +257,8 @@ describe("a running attempt in the Runs column", () => {
 
     expect(runs.getByText("Runs · 2")).toBeVisible();
     expect(runs.getByRole("img", { name: "Running" })).toBeVisible();
-    expect(runs.getByText(/^Running · 18m 48s/)).toBeVisible();
+    // The cost of the actions it has recorded so far, as the record has it.
+    expect(runs.getByText(/^Running · 18m 48s · \$\d+\.\d\d$/)).toBeVisible();
     expect(runs.queryByText(/Not ended/)).toBeNull();
   });
 
