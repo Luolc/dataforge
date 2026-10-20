@@ -309,10 +309,12 @@ class _Server(socketserver.ThreadingUnixStreamServer):
     except Exception as e:  # noqa: BLE001
       usd, reason = None, f"the reply could not be read: {e!r}"
     if reason == NO_USAGE:
-      # Only the shape of the reply: event types and a byte count.
+      # Only the shape of the reply: event types, a byte count, how it was
+      # read and the protocol field its first line opens with.
       kinds = ",".join(meter.kinds) or "none"
       _ = sys.stderr.write(
-        f"gateway: {NO_USAGE}: {meter.size} bytes, events {kinds}\n"
+        f"gateway: {NO_USAGE}: {meter.size} bytes, events {kinds}, "
+        + f"read as {meter.mode}, first field {meter.field!r}\n"
       )
     capped = self._settle(usd, reason)
     if self.ledger is None:
