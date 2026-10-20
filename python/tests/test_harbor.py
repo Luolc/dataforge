@@ -66,6 +66,9 @@ if mode == "no-reward":
     result["verifier_result"] = None
 cost = os.environ.get("FAKE_COST", "0.25")
 result["agent_result"] = {"cost_usd": None if cost == "none" else float(cost)}
+if "FAKE_TRACE_LINK" in os.environ:
+    link = trial / "agent" / "claude-code.txt"
+    link.symlink_to(os.environ["FAKE_TRACE_LINK"])
 if "FAKE_TRACE" in os.environ:
     events = [
         "not json",
@@ -620,3 +623,29 @@ def test_the_reprs_leave_out_env(tmp_path: Path) -> None:
   assert "mounts=" in repr(setup)
   assert "s3cret" not in repr(runner)
   assert "s3cret" not in repr(setup)
+
+
+def test_a_trace_that_is_a_symlink_is_not_given(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  secret = tmp_path / "host-only.txt"
+  _ = secret.write_text("host-only text")
+  env = {"FAKE_TRACE_LINK": str(secret)}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.trace is None
+
+
+@pytest.mark.parametrize("traced", [True, False])
+def test_a_trial_gives_its_name_directory_and_claude_code_trace(
+  tmp_path: Path, fakes: tuple[Path, Path], traced: bool
+) -> None:
+  out = outdir(tmp_path)
+  env = {"FAKE_TRACE": "0.75"} if traced else {}
+  result = runner(fakes, env=env).run(task(tmp_path), "oracle", Limits(2), out)
+  trial = out / "job" / "task__abc"
+  assert (result.id, result.path) == ("task__abc", trial)
+  trace = trial / "agent" / "claude-code.txt" if traced else None
+  assert result.trace == trace
+  assert result.trace_format == "claude-code-stream-json"

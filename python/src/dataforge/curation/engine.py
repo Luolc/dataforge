@@ -11,12 +11,17 @@ from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
+import json
+import os
 from pathlib import Path
+import re
+import stat
 import string
 import threading
+from typing import cast
 
 from dataforge.curation.deliverables import check as check_deliverables
-from dataforge.curation.deliverables import Deliverable, Source
+from dataforge.curation.deliverables import Deliverable, Source, Value
 from dataforge.curation.graph import Graph, GraphEdge, GraphState
 
 type Data = Mapping[str, object]
@@ -221,6 +226,27 @@ class Artifacts:
       self._versions.setdefault(name, []).append(version)
 
 
+@dataclass(frozen=True)
+class TrialRecord:
+  """What a trial action records about its trial.
+
+  Attributes:
+    id: The trial's name, as its runner gives it, else its output's name.
+    path: The trial's directory.
+    trace: The agent's trace, if the runner gives one.
+    format: The trace's format, such as "claude-code-stream-json".
+    rewards: The verifier's rewards, by name.
+    exception: What ended the trial early, if anything did.
+  """
+
+  id: str
+  path: Path
+  trace: Path | None
+  format: str | None
+  rewards: Mapping[str, float]
+  exception: str | None
+
+
 @dataclass
 class ActionRecord:
   """The record of one action of a visit.
@@ -234,6 +260,7 @@ class ActionRecord:
     cost_usd: What it cost, in US dollars.
     summary: The Markdown summary a script or a judge wrote to
       DATAFORGE_SUMMARY, if it wrote one.
+    trial: For a trial, what it recorded about it.
   """
 
   kind: str
@@ -243,6 +270,7 @@ class ActionRecord:
   ended_at: datetime
   cost_usd: float
   summary: str | None = None
+  trial: TrialRecord | None = None
 
 
 @dataclass
@@ -774,6 +802,13 @@ def _entry(name: str, item: Deliverable, attempt: Attempt) -> dict[str, object]:
   if item.kind == "report":
     table = item.table
     entry["table"] = None if table is None else _source(table, attempt)
+  if item.kind == "trials":
+    index = entry["visit_index"]
+    visit = attempt.visits[index] if isinstance(index, int) else None
+    trials = [] if visit is None else _trials(visit, attempt.root)
+    entry["k"] = len(trials)
+    entry["value"] = None if item.value is None else _value(item.value, visit)
+    entry["trials"] = trials
   return entry
 
 
@@ -785,6 +820,9 @@ def _source(source: Source, attempt: Attempt) -> dict[str, object]:
     return found | unreached | {"reason": why}
   visit = attempt.visits[index]
   found |= {"visit": visit.visit, "visit_index": index}
+  if source.output is None:
+    path = attempt.root / "artifacts" / visit.state / str(visit.visit)
+    return found | {"path": str(path.relative_to(attempt.root)), "reason": None}
   path = visit.outputs.get(source.output)
   if path is None:
     why = f"{source.state} visit {visit.visit} has no output {source.output}"
@@ -814,6 +852,94 @@ def _deliverable_visit(
   if not found:
     return None, f"{source.state} has no visit {source.visit}"
   return found[0], ""
+
+
+def _trials(visit: Visit, root: Path) -> list[dict[str, object]]:
+  trials: list[tuple[tuple[str, int], dict[str, object]]] = []
+  for action in visit.actions:
+    trial = action.trial
+    if trial is None:
+      continue
+    output = next(iter(action.outputs))
+    trace = None
+    if trial.trace is not None:
+      trace = {
+        "path": str(trial.trace.relative_to(root)),
+        "format": trial.format,
+      }
+    trials.append(
+      (
+        _order(output),
+        {
+          "id": trial.id,
+          "output": output,
+          "path": str(trial.path.relative_to(root)),
+          "trace": trace,
+          "result": {
+            "reward": trial.rewards.get("reward"),
+            "rewards": dict(trial.rewards),
+            "exception": trial.exception,
+          },
+        },
+      )
+    )
+  return [entry for _, entry in sorted(trials, key=lambda pair: pair[0])]
+
+
+def _order(output: str) -> tuple[str, int]:
+  # "trial-10" comes after "trial-9".
+  match = re.fullmatch(r"(.*)-(\d+)", output)
+  if match is None:
+    return output, -1
+  return match[1], int(match[2])
+
+
+def _value(value: Value, visit: Visit | None) -> dict[str, object]:
+  found: dict[str, object] = {
+    "output": value.output,
+    "field": list(value.field),
+  }
+  if visit is None:
+    return found | {"value": None, "reason": "the state was not reached"}
+  current: object = visit.data
+  if value.output is not None:
+    path = visit.outputs.get(value.output)
+    if path is None:
+      why = f"{visit.state} visit {visit.visit} has no output {value.output}"
+      return found | {"value": None, "reason": why}
+    try:
+      current = _read_json(path)
+    except RecursionError:
+      return found | {
+        "value": None,
+        "reason": f"{value.output}: nested too deep",
+      }
+    except (OSError, ValueError) as error:
+      return found | {"value": None, "reason": f"{value.output}: {error}"}
+  where = value.output or "the outcome data"
+  for key in value.field:
+    if not isinstance(current, dict) or key not in current:
+      return found | {"value": None, "reason": f"{where} has no key {key}"}
+    current = cast(dict[str, object], current)[key]
+  return found | {"value": current, "reason": None}
+
+
+VALUE_LIMIT = 1024 * 1024
+"""The most bytes of a JSON output a deliverable's value is read from."""
+
+
+def _read_json(path: Path) -> object:
+  # An output may come from a container running untrusted code: never follow
+  # a symlink, which could bring a host file into the record.
+  fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+  with os.fdopen(fd, "rb") as file:
+    status = os.fstat(file.fileno())
+    if not stat.S_ISREG(status.st_mode):
+      raise ValueError("not a regular file")
+    if status.st_size > VALUE_LIMIT:
+      raise ValueError(f"over {VALUE_LIMIT} bytes")
+    data: bytes = file.read(VALUE_LIMIT)
+    return cast("object", json.loads(data))
 
 
 def _check_states(states: Sequence[State]) -> dict[str, State]:
