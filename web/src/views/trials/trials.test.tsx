@@ -44,7 +44,7 @@ function show() {
       project={project}
       attempt="pass-at-k"
       record={attempt}
-      deliverable={must(attempt.deliverables[0])}
+      deliverable={must(attempt.deliverables?.[0])}
     />,
   );
 }
@@ -82,7 +82,7 @@ describe("the trials view", () => {
           project={shown}
           attempt="pass-at-k"
           record={open}
-          deliverable={must(open.deliverables[0])}
+          deliverable={must(open.deliverables?.[0])}
         />,
       );
     const heading = () =>
@@ -131,7 +131,7 @@ describe("the trials view", () => {
         project={project}
         attempt="pass-at-k"
         record={{ ...attempt, visits: [{ ...visit, actions }] }}
-        deliverable={must(attempt.deliverables[0])}
+        deliverable={must(attempt.deliverables?.[0])}
       />,
     );
 
