@@ -820,8 +820,9 @@ class RubricState(_ActionState):
   its Call, recorded as an action of kind "report".
 
   Each visit calls each review once. A call compares its blocks with those
-  of the last call of the review in this state that gave verdicts, which
-  rereview_prompt calls the last review. With resume, each review's agent
+  of the last call of the review in this state that gave verdicts, one for
+  each criterion of its rubric (Call.judged), which rereview_prompt calls
+  the last review. With resume, each review's agent
   has the session key "<state>/<review>" and a call after such a one is a
   re-review: its prompt is the whole prompt with what rereview_prompt adds,
   and its resume prompt what rereview_prompt gives alone. With
@@ -938,7 +939,8 @@ class RubricState(_ActionState):
     """
     calls = self.calls(ctx, review)
     ran = [call for call in calls if call.reused is None]
-    judged = [call for call in ran if call.judged]
+    rubric = self.rubrics[review.name]
+    judged = [call for call in ran if call.judged(rubric)]
     last = judged[-1] if judged else None
     blocks = {
       tag: block_text(next(iter(ctx.resolve([item]).values())))
@@ -975,7 +977,6 @@ class RubricState(_ActionState):
     notes = notes_text(
       {tag: versions[seen.get(tag, 0) :] for tag, versions in written.items()}
     )
-    rubric = self.rubrics[review.name]
     others = (
       others_text(
         {r.name: self.rubrics[r.name] for r in self.reviews if r is not review}

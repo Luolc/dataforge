@@ -826,7 +826,16 @@ def test_a_review_whose_blocks_did_not_change_gives_its_answer_again(
   assert table(attempt, 3)["tests"]["call"] == 3
 
 
-@pytest.mark.parametrize("first", [("failed", "no result"), ("ok", "not JSON")])
+@pytest.mark.parametrize(
+  "first",
+  [
+    ("failed", "no result"),
+    ("ok", "not JSON"),
+    ("ok", json.dumps({"criteria": []})),
+    ("ok", verdicts(tidy=PASS)),
+  ],
+  ids=["no-result", "not-json", "empty", "one-missing"],
+)
 def test_a_review_that_gave_no_verdicts_is_not_reused(
   tmp_path: Path, first: tuple[str, str]
 ) -> None:
