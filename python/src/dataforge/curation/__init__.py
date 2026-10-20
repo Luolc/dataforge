@@ -45,6 +45,7 @@ from dataforge.curation.engine import (
   Version,
   Visit,
 )
+from dataforge.curation.graph import Graph, GraphEdge, GraphState, mermaid
 from dataforge.curation.harbor import HarborRunner, TrialSetup
 from dataforge.curation.loader import load, SpecError
 from dataforge.curation.rubric import Review
@@ -77,6 +78,9 @@ __all__ = [
   "End",
   "Env",
   "Goto",
+  "Graph",
+  "GraphEdge",
+  "GraphState",
   "Guard",
   "HarborRunner",
   "Host",
@@ -109,4 +113,5 @@ __all__ = [
   "Visit",
   "fan_out",
   "load",
+  "mermaid",
 ]
