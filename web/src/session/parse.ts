@@ -73,26 +73,26 @@ function resultText(content: unknown): string {
   return list(content)
     .map((block) => {
       if (!isObject(block)) return "";
-      return block.type === "text"
-        ? (str(block.text) ?? "")
-        : `[${String(block.type)}]`;
+      return block["type"] === "text"
+        ? (str(block["text"]) ?? "")
+        : `[${String(block["type"])}]`;
     })
     .join("\n");
 }
 
 function blockOf(raw: unknown, at: number | null): Block | null {
   if (!isObject(raw)) return null;
-  switch (raw.type) {
+  switch (raw["type"]) {
     case "text":
-      return { kind: "text", text: str(raw.text) ?? "" };
+      return { kind: "text", text: str(raw["text"]) ?? "" };
     case "thinking":
-      return { kind: "thinking", text: str(raw.thinking) ?? "" };
+      return { kind: "thinking", text: str(raw["thinking"]) ?? "" };
     case "tool_use":
       return {
         kind: "tool",
-        id: str(raw.id) ?? "",
-        name: str(raw.name) ?? "tool",
-        input: raw.input,
+        id: str(raw["id"]) ?? "",
+        name: str(raw["name"]) ?? "tool",
+        input: raw["input"],
         output: null,
         failed: false,
         at,
@@ -125,33 +125,33 @@ export function parseTrace(text: string): Session {
       entries.push({ kind: "bad", line: index + 1, text: line });
       continue;
     }
-    const time = Date.parse(str(event.timestamp) ?? "");
+    const time = Date.parse(str(event["timestamp"]) ?? "");
     if (!Number.isNaN(time) && first === null) first = time;
     const at = Number.isNaN(time) || first === null ? null : time - first;
-    if (event.type === "system" && event.subtype === "init") init = event;
-    if (event.type === "result") result = event;
-    if (event.type !== "assistant" && event.type !== "user") continue;
+    if (event["type"] === "system" && event["subtype"] === "init") init = event;
+    if (event["type"] === "result") result = event;
+    if (event["type"] !== "assistant" && event["type"] !== "user") continue;
 
-    const message = isObject(event.message) ? event.message : {};
-    const parentId = str(event.parent_tool_use_id) ?? "";
+    const message = isObject(event["message"]) ? event["message"] : {};
+    const parentId = str(event["parent_tool_use_id"]) ?? "";
     const parent = parentId === "" ? null : (calls.get(parentId) ?? null);
     const thread = parent === null ? "" : parentId;
     const into = parent === null ? entries : parent.children;
-    const role = event.type;
+    const role = event["type"];
     const content =
-      typeof message.content === "string"
-        ? [{ type: "text", text: message.content }]
-        : list(message.content);
+      typeof message["content"] === "string"
+        ? [{ type: "text", text: message["content"] }]
+        : list(message["content"]);
 
     // A user turn's tool results go to their calls; only its text is shown.
     const raws =
       role === "user"
         ? content.filter((raw) => {
-            if (!isObject(raw) || raw.type !== "tool_result") return true;
-            const call = calls.get(str(raw.tool_use_id) ?? "");
+            if (!isObject(raw) || raw["type"] !== "tool_result") return true;
+            const call = calls.get(str(raw["tool_use_id"]) ?? "");
             if (call !== undefined) {
-              call.output = resultText(raw.content);
-              call.failed = raw.is_error === true;
+              call.output = resultText(raw["content"]);
+              call.failed = raw["is_error"] === true;
             }
             return false;
           })
@@ -163,7 +163,7 @@ export function parseTrace(text: string): Session {
 
     // stream-json writes each block of an assistant message as its own event,
     // all with the message's ID.
-    const id = role === "assistant" ? (str(message.id) ?? "") : "";
+    const id = role === "assistant" ? (str(message["id"]) ?? "") : "";
     const last = open.get(thread);
     let target: Message;
     if (id !== "" && last?.id === id && into.at(-1) === last.message) {
@@ -180,22 +180,22 @@ export function parseTrace(text: string): Session {
   }
 
   const all = [...calls.values()];
-  const usage = isObject(result?.usage) ? result.usage : null;
+  const usage = isObject(result?.["usage"]) ? result["usage"] : null;
   const tokensIn =
     usage === null
       ? null
-      : (num(usage.input_tokens) ?? 0) +
-        (num(usage.cache_read_input_tokens) ?? 0) +
-        (num(usage.cache_creation_input_tokens) ?? 0);
-  const ms = num(result?.duration_ms);
+      : (num(usage["input_tokens"]) ?? 0) +
+        (num(usage["cache_read_input_tokens"]) ?? 0) +
+        (num(usage["cache_creation_input_tokens"]) ?? 0);
+  const ms = num(result?.["duration_ms"]);
   return {
     totals: {
       seconds: ms === null ? null : ms / 1000,
-      costUsd: num(result?.total_cost_usd),
-      turns: num(result?.num_turns),
+      costUsd: num(result?.["total_cost_usd"]),
+      turns: num(result?.["num_turns"]),
       tokensIn,
-      tokensOut: usage === null ? null : num(usage.output_tokens),
-      model: str(init?.model),
+      tokensOut: usage === null ? null : num(usage["output_tokens"]),
+      model: str(init?.["model"]),
     },
     entries,
     tools: all.length,
