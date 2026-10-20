@@ -11,7 +11,7 @@ afterEach(() => {
 
 describe("the colour templates", () => {
   it("default to the high contrast template", () => {
-    expect(TEMPLATES[0]?.id).toBe("contrast");
+    expect(TEMPLATES[0].id).toBe("contrast");
     expect(savedTemplate()).toBe("contrast");
   });
 

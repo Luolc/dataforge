@@ -63,7 +63,7 @@ const colour = (id: string, name: string): string => {
   const v = blocks.get(id)?.get(name) ?? "";
   const ref = /^var\(--color-([a-z0-9-]+)\)$/.exec(v);
   if (ref) return colour(id, ref[1] ?? "");
-  expect(v, `${id}: --color-${name}`).toMatch(/^#[0-9a-f]{6}$/);
+  expect(`${id}: --color-${name}: ${v}`).toMatch(/: #[0-9a-f]{6}$/);
   return v;
 };
 
@@ -118,11 +118,10 @@ describe("the theme's tokens", () => {
     );
   });
 
-  it("list in every template each colour token the default has", () => {
+  it.each(templateIds)("%s: list each colour token the default has", (id) => {
     const names = [...(blocks.get("contrast")?.keys() ?? [])];
     expect(names.length).toBeGreaterThan(40);
-    for (const id of templateIds)
-      expect([...(blocks.get(id)?.keys() ?? [])], id).toEqual(names);
+    expect([...(blocks.get(id)?.keys() ?? [])]).toEqual(names);
   });
 
   it.each([

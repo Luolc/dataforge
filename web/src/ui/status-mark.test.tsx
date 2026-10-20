@@ -1,16 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { Project } from "../api/types";
+import { project } from "../views/home/rows.test-data";
 import { StatusIcon, StatusLabel } from "./status-mark";
-
-const project = {
-  statuses: {
-    passed: { label: "Passed", tone: "good" },
-    exhausted: { label: "Exhausted", tone: "bad" },
-    too_easy: { label: "Too easy", tone: "warn" },
-  },
-} as unknown as Project;
 
 describe("a status's icon", () => {
   it.each([
