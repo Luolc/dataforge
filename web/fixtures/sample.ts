@@ -6,6 +6,7 @@ import tooEasy from "./attempts/batch-1/task-0002/record.json";
 import exhausted from "./attempts/batch-1/task-0003/record.json";
 import running from "./attempts/batch-2/task-0005/record.json";
 import raised from "./attempts/batch-2/task-0006/record.json";
+import resumed from "./attempts/resumeviz/task-0401/record.json";
 
 export const sampleProject: Project = {
   id: "sample",
@@ -34,4 +35,5 @@ export const records = {
   exhausted: record.parse(exhausted),
   running: record.parse(running),
   raised: record.parse(raised),
+  resumed: record.parse(resumed),
 } satisfies Record<string, AttemptRecord>;

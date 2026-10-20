@@ -36,7 +36,8 @@ export function AttemptPage() {
   );
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
-  const summary = tab === "runs" && run === null;
+  const discarded = runOf(query.get("discarded"));
+  const summary = tab === "runs" && run === null && discarded === null;
   const crumbs: Crumb[] = [
     { label: "Projects", to: "/" },
     {
@@ -81,6 +82,7 @@ export function AttemptPage() {
         record={loaded.data.record}
         tab={tab}
         run={run}
+        discarded={discarded}
       />
     );
   return <Frame crumbs={crumbs}>{body}</Frame>;
@@ -97,12 +99,14 @@ function Attempt({
   record,
   tab,
   run,
+  discarded,
 }: {
   project: Project;
   attempt: string;
   record: AttemptRecord;
   tab: string;
   run: number | null;
+  discarded: number | null;
 }) {
   const recorded = deliverablesOf(record);
   const deliverables = [...recorded, ...declaredMissing(project, record)];
@@ -145,6 +149,7 @@ function Attempt({
           attempt={attempt}
           record={record}
           run={run}
+          discarded={discarded}
         />
       ) : kinds.includes(tab) ? (
         <KindTab
