@@ -34,6 +34,7 @@ from dataforge.curation import (
   State,
   TrialAgent,
   TrialResult,
+  Value,
 )
 
 # A fake dataset shaped like a curate process, built from dataforge's own
@@ -952,6 +953,145 @@ def test_an_end_resolves_deliverables_before_the_last_on_step(
   ]
 
 
+class NamedTrials:
+  """A trial runner whose trials have names, directories and traces.
+
+  The trial of output trial-<i> solves when i is even; only even ones have a
+  trace, and trial-1's is outside its output directory.
+  """
+
+  def memory_gb(self, limits: Limits) -> float:
+    return 0.0
+
+  def run(
+    self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+  ) -> TrialResult:
+    i = int(outdir.name.removeprefix("trial-"))
+    trial = outdir / f"task__{i}"
+    (trial / "agent").mkdir(parents=True)
+    trace = trial / "agent" / "claude-code.txt"
+    _ = trace.write_text("{}\n")
+    if i == 1:
+      trace = task_dir / "elsewhere.txt"
+    reward = 1.0 if i % 2 == 0 else 0.0
+    return TrialResult(
+      {"reward": reward},
+      None,
+      0.0,
+      1.0,
+      {},
+      id=f"task__{i}",
+      path=trial,
+      trace=trace if i % 2 == 0 or i == 1 else None,
+      trace_format="claude-code-stream-json",
+    )
+
+
+def test_trials_list_each_trial_with_its_id_trace_and_result(
+  tmp_path: Path,
+) -> None:
+  actions = Actions(trial_runner=NamedTrials())
+  verdict = '{"data": {"solved": 2}}'
+
+  def solve(ctx: Context) -> Outcome:
+    for i in (10, 2, 1, 0):
+      _ = actions.trial(ctx, f"trial-{i}", tmp_path, "oracle", Limits(1))
+    write = [
+      "sh",
+      "-c",
+      f"echo '{verdict}' > \"$DATAFORGE_OUTPUTS/verdict.json\"",
+    ]
+    assert actions.script(ctx, ScriptSpec(write, outputs=["verdict.json"])).ok
+    return Outcome("done", {"solved": 2})
+
+  def trials(value: Value) -> Deliverable:
+    return Deliverable("trials", "pass@k", Source("solve"), value=value)
+
+  seen: list[object] = []
+  attempt = Machine(
+    [Step("solve", solve, {"done": End("passed")})],
+    on_step=lambda attempt: seen.append(attempt.to_json()["deliverables"]),
+    deliverables={
+      "from_verdict": trials(Value(["data", "solved"], "verdict.json")),
+      "from_data": trials(Value(["solved"])),
+      "no_key": trials(Value(["data", "k"], "verdict.json")),
+    },
+  ).run(tmp_path / "attempt")
+  entries = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
+  assert seen == [entries]
+  first = entries[0]
+  assert {key: first[key] for key in ("path", "reason", "k")} == {
+    "path": "artifacts/solve/1",
+    "reason": None,
+    "k": 4,
+  }
+  base = "artifacts/solve/1"
+
+  def trial(i: int, traced: bool) -> dict[str, object]:
+    path = f"{base}/trial-{i}/task__{i}"
+    trace = {
+      "path": f"{path}/agent/claude-code.txt",
+      "format": "claude-code-stream-json",
+    }
+    reward = 1.0 if i % 2 == 0 else 0.0
+    return {
+      "id": f"task__{i}",
+      "output": f"trial-{i}",
+      "path": path,
+      "trace": trace if traced else None,
+      "result": {
+        "reward": reward,
+        "rewards": {"reward": reward},
+        "exception": None,
+      },
+    }
+
+  assert first["trials"] == [
+    trial(0, True),
+    trial(1, False),
+    trial(2, True),
+    trial(10, True),
+  ]
+  assert [entry["value"] for entry in entries] == [
+    {
+      "output": "verdict.json",
+      "field": ["data", "solved"],
+      "value": 2,
+      "reason": None,
+    },
+    {"output": None, "field": ["solved"], "value": 2, "reason": None},
+    {
+      "output": "verdict.json",
+      "field": ["data", "k"],
+      "value": None,
+      "reason": "verdict.json has no key k",
+    },
+  ]
+
+
+def test_a_value_from_a_symlinked_output_is_never_read(tmp_path: Path) -> None:
+  secret = tmp_path / "host-only.json"
+  _ = secret.write_text('{"token": "host-only"}')
+  link = ["sh", "-c", f'ln -s {secret} "$DATAFORGE_OUTPUTS/verdict.json"']
+
+  def solve(ctx: Context) -> Outcome:
+    assert Actions().script(ctx, ScriptSpec(link, outputs=["verdict.json"])).ok
+    return Outcome("done")
+
+  attempt = Machine(
+    [Step("solve", solve, {"done": End("passed")})],
+    deliverables={
+      "pass_at_k": Deliverable(
+        "trials",
+        "pass@k",
+        Source("solve"),
+        value=Value(["token"], "verdict.json"),
+      )
+    },
+  ).run(tmp_path / "attempt")
+  assert "host-only" not in json.dumps(attempt.to_json())
+
+
 @pytest.mark.parametrize(
   ("deliverable", "error"),
   [
@@ -960,10 +1100,22 @@ def test_an_end_resolves_deliverables_before_the_last_on_step(
       "unknown state nowhere",
     ),
     (Deliverable("pictures", "t", Source("a", "x")), "unknown kind 'pictures'"),  # pyright: ignore[reportArgumentType]
+    (
+      Deliverable("files", "t", Source("a")),
+      "a files deliverable takes an output",
+    ),
+    (
+      Deliverable("trials", "t", Source("a", "x")),
+      "a trials deliverable takes no output",
+    ),
     (Deliverable("files", "t", Source("a", "x", 0)), "unknown visit 0"),
     (
       Deliverable("files", "t", Source("a", "x"), table=Source("a", "y")),
       "only a report has a table",
+    ),
+    (
+      Deliverable("report", "t", Source("a", "x"), value=Value(["v"])),
+      "only trials have a value",
     ),
   ],
 )

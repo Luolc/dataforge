@@ -83,6 +83,9 @@ PASSED = ("HOME", "PATH", "DOCKER_HOST", "DOCKER_CONFIG")
 # Where in a trial's directory Harbor's claude-code agent tees Claude Code's
 # stream-json.
 CLAUDE_CODE_TRACE = Path("agent", "claude-code.txt")
+# What that file holds: the raw output of `claude -p --output-format
+# stream-json`, one JSON event per line.
+TRACE_FORMAT = "claude-code-stream-json"
 
 
 @dataclass(frozen=True)
@@ -535,10 +538,15 @@ def _read(
   cost = agent.get("cost_usd")
   if isinstance(cost, bool) or not isinstance(cost, int | float):
     cost = claude.read_trace(trial / CLAUDE_CODE_TRACE).cost_usd
+  trace = trial / CLAUDE_CODE_TRACE
   return TrialResult(
     {key: float(value) for key, value in rewards.items()},
     exception,
     0.0 if cost is None else float(cost),
     seconds,
     artifacts,
+    id=trial.name,
+    path=trial,
+    trace=trace if trace.is_file() else None,
+    trace_format=TRACE_FORMAT,
   )
