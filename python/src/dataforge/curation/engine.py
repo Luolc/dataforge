@@ -15,6 +15,8 @@ from pathlib import Path
 import string
 import threading
 
+from dataforge.curation.deliverables import check as check_deliverables
+from dataforge.curation.deliverables import Deliverable, Source
 from dataforge.curation.graph import Graph, GraphEdge, GraphState
 
 type Data = Mapping[str, object]
@@ -290,6 +292,10 @@ class Attempt:
     visits: Its visits, in order.
     max_cost_usd: What the attempt may spend, in US dollars; None for no cap.
     stopped: The reason, when the cost cap ended the attempt.
+    graph: The machine's graph when the attempt began.
+    deliverables: The machine's deliverables as the attempt's end resolved
+      them, one entry each, in their order. Empty until it ends, and when a
+      state's run raised.
   """
 
   root: Path
@@ -299,6 +305,10 @@ class Attempt:
   visits: list[Visit] = field(default_factory=list[Visit])
   max_cost_usd: float | None = None
   stopped: str | None = None
+  graph: Graph | None = None
+  deliverables: list[dict[str, object]] = field(
+    default_factory=list[dict[str, object]]
+  )
 
   @property
   def cost_usd(self) -> float:
@@ -339,6 +349,8 @@ class Attempt:
         state: self._visit_json(visit) for state, visit in self.final.items()
       },
       "visits": [self._visit_json(visit) for visit in self.visits],
+      "deliverables": self.deliverables,
+      "graph": self.graph,
     }
 
   def _visit_json(self, visit: Visit) -> dict[str, object]:
@@ -532,6 +544,7 @@ class Machine:
     guard: Guard | None = None,
     on_step: Callable[[Attempt], None] | None = None,
     max_cost_usd: float | None = None,
+    deliverables: Mapping[str, Deliverable] | None = None,
   ) -> None:
     """Make a machine.
 
@@ -542,9 +555,17 @@ class Machine:
       max_cost_usd: What one attempt may spend, in US dollars; None for no
         cap. A state is not entered when what the attempt's actions cost so
         far and the state's max_cost_usd together would pass it.
-    """
+      deliverables: What an attempt delivers, by name, in the order its
+        record lists them; each attempt's end resolves them.
+
+    Raises:
+      ValueError: When a deliverable is not well formed or names an unknown
+        state.
+    """  # noqa: DOC502
     self.states: list[State] = list(states)
     self._by_name: dict[str, State] = _check_states(self.states)
+    self.deliverables: dict[str, Deliverable] = dict(deliverables or {})
+    check_deliverables(self.deliverables, set(self._by_name))
     self._guard: Guard | None = guard
     self._on_step: Callable[[Attempt], None] | None = on_step
     self.max_cost_usd: float | None = max_cost_usd
@@ -614,7 +635,7 @@ class Machine:
     Raises:
       BaseException: Whatever a state's run raised, unchanged.
     """
-    attempt = Attempt(root, max_cost_usd=self.max_cost_usd)
+    attempt = Attempt(root, max_cost_usd=self.max_cost_usd, graph=self.graph())
     artifacts = Artifacts()
     visits: Counter[str] = Counter()
     closed: set[str] = set()
@@ -627,6 +648,7 @@ class Machine:
       ctx = Context(attempt, artifacts, record, report)
       if (blocked := self._blocked(ctx, state, closed)) is not None:
         _stop(attempt, *blocked)
+        self._resolve(attempt)
         self.on_step(attempt)
         return attempt
       visits[state.name] = visit
@@ -642,10 +664,17 @@ class Machine:
       if outcome.last:
         closed.add(state.name)
       step = self._go(ctx, record, state, outcome, state.name in closed)
+      if step is None:
+        self._resolve(attempt)
       self.on_step(attempt)
       if step is None:
         return attempt
       state, report = step
+
+  def _resolve(self, attempt: Attempt) -> None:
+    attempt.deliverables = [
+      _entry(name, item, attempt) for name, item in self.deliverables.items()
+    ]
 
   def _blocked(
     self, ctx: Context, state: State, closed: set[str]
@@ -736,6 +765,55 @@ def _edge(state: str, outcome: str, transition: Goto | End) -> GraphEdge:
     "mark": transition.mark,
     "end_on_last_visit": transition.end_on_last_visit,
   }
+
+
+def _entry(name: str, item: Deliverable, attempt: Attempt) -> dict[str, object]:
+  entry: dict[str, object] = {"name": name, "kind": item.kind}
+  entry["title"] = item.title
+  entry.update(_source(item.source, attempt))
+  if item.kind == "report":
+    table = item.table
+    entry["table"] = None if table is None else _source(table, attempt)
+  return entry
+
+
+def _source(source: Source, attempt: Attempt) -> dict[str, object]:
+  found: dict[str, object] = {"state": source.state, "output": source.output}
+  index, why = _deliverable_visit(source, attempt)
+  if index is None:
+    unreached = {"visit": None, "visit_index": None, "path": None}
+    return found | unreached | {"reason": why}
+  visit = attempt.visits[index]
+  found |= {"visit": visit.visit, "visit_index": index}
+  path = visit.outputs.get(source.output)
+  if path is None:
+    why = f"{source.state} visit {visit.visit} has no output {source.output}"
+    return found | {"path": None, "reason": why}
+  return found | {"path": str(path.relative_to(attempt.root)), "reason": None}
+
+
+def _deliverable_visit(
+  source: Source, attempt: Attempt
+) -> tuple[int | None, str]:
+  indices = [
+    i for i, visit in enumerate(attempt.visits) if visit.state == source.state
+  ]
+  if not indices:
+    return None, f"{source.state} was never visited"
+  if source.visit == "last":
+    return indices[-1], ""
+  if source.visit == "kept":
+    end = (
+      len(attempt.visits) if attempt.kept_visit is None else attempt.kept_visit
+    )
+    kept = [i for i in indices if i <= end]
+    if not kept:
+      return None, f"{source.state} has no visit up to the kept one"
+    return kept[-1], ""
+  found = [i for i in indices if attempt.visits[i].visit == source.visit]
+  if not found:
+    return None, f"{source.state} has no visit {source.visit}"
+  return found[0], ""
 
 
 def _check_states(states: Sequence[State]) -> dict[str, State]:

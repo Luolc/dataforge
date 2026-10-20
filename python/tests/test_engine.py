@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import json
 from pathlib import Path
-from typing import cast, override
+from typing import cast, Literal, override
 
 import pytest
 
@@ -20,6 +20,7 @@ from dataforge.curation import (
   AgentTask,
   Attempt,
   Context,
+  Deliverable,
   End,
   Env,
   Goto,
@@ -29,6 +30,7 @@ from dataforge.curation import (
   Outcome,
   PassAtKState,
   ScriptSpec,
+  Source,
   State,
   TrialAgent,
   TrialResult,
@@ -791,3 +793,185 @@ def test_each_visit_records_its_round(tmp_path: Path) -> None:
   assert json.dumps(record["budget"]) == (
     '{"max_usd": null, "cost_usd": 0.0, "stopped": null}'
   )
+
+
+def build_and_judge(
+  deliverables: dict[str, Deliverable], on_step: Callable[[Attempt], None]
+) -> Machine:
+  """Build, then judge: easy (marked too_easy) once, then hard, until a cap.
+
+  Args:
+    deliverables: The machine's deliverables.
+    on_step: Its on_step.
+
+  Returns:
+    The machine.
+  """
+  actions = Actions()
+
+  def build(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", f'echo {ctx.visit} > "$DATAFORGE_OUTPUTS/task"']
+    assert actions.script(ctx, ScriptSpec(argv, outputs=["task"])).ok
+    return Outcome("done")
+
+  def judge(ctx: Context) -> Outcome:
+    return Outcome("easy" if ctx.visit == 1 else "hard")
+
+  return Machine(
+    [
+      Step("build", build, {"done": Goto("judge")}, 3),
+      Step(
+        "judge",
+        judge,
+        {"easy": Goto("build", mark="too_easy"), "hard": Goto("build")},
+        2,
+      ),
+      Step("never", judge, {"easy": End("passed")}),
+    ],
+    on_step=on_step,
+    deliverables=deliverables,
+  )
+
+
+def test_deliverables_take_the_kept_last_or_nth_visit(tmp_path: Path) -> None:
+  def files(output: str, visit: Literal["kept", "last"] | int) -> Deliverable:
+    return Deliverable("files", output, Source("build", output, visit))
+
+  seen: list[object] = []
+  machine = build_and_judge(
+    {
+      "kept": files("task", "kept"),
+      "last": files("task", "last"),
+      "second": files("task", 2),
+      "fifth": files("task", 5),
+      "missing": files("absent", "kept"),
+      "marked": Deliverable("files", "verdict", Source("judge", "verdict")),
+      "report": Deliverable(
+        "report",
+        "Report",
+        Source("build", "task"),
+        table=Source("never", "table.json"),
+      ),
+    },
+    lambda attempt: seen.append(attempt.to_json()["deliverables"]),
+  )
+  attempt = machine.run(tmp_path)
+  assert (attempt.status, attempt.kept_visit) == ("too_easy", 1)
+
+  def found(name: str, kind: str, visit: int, index: int) -> dict[str, object]:
+    return {
+      "name": name,
+      "kind": kind,
+      "title": "task" if kind == "files" else "Report",
+      "state": "build",
+      "output": "task",
+      "visit": visit,
+      "visit_index": index,
+      "path": f"artifacts/build/{visit}/task",
+      "reason": None,
+    }
+
+  def unreached(name: str, output: str, reason: str) -> dict[str, object]:
+    return {
+      "name": name,
+      "kind": "files",
+      "title": output,
+      "state": "build",
+      "output": output,
+      "visit": None,
+      "visit_index": None,
+      "path": None,
+      "reason": reason,
+    }
+
+  expected = [
+    found("kept", "files", 1, 0),
+    found("last", "files", 3, 4),
+    found("second", "files", 2, 2),
+    unreached("fifth", "task", "build has no visit 5"),
+    {
+      **unreached("missing", "absent", "build visit 1 has no output absent"),
+      "visit": 1,
+      "visit_index": 0,
+    },
+    {
+      **unreached("marked", "verdict", "judge visit 1 has no output verdict"),
+      "state": "judge",
+      "visit": 1,
+      "visit_index": attempt.kept_visit,
+    },
+    {
+      **found("report", "report", 1, 0),
+      "table": {
+        "state": "never",
+        "output": "table.json",
+        "visit": None,
+        "visit_index": None,
+        "path": None,
+        "reason": "never was never visited",
+      },
+    },
+  ]
+  assert attempt.to_json()["deliverables"] == expected
+  assert seen[-1] == expected
+  assert all(entries == [] for entries in seen[:-1])
+  assert attempt.to_json()["graph"] == machine.graph()
+
+
+def test_an_end_resolves_deliverables_before_the_last_on_step(
+  tmp_path: Path,
+) -> None:
+  def build(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", 'echo done > "$DATAFORGE_OUTPUTS/task"']
+    assert Actions().script(ctx, ScriptSpec(argv, outputs=["task"])).ok
+    return Outcome("done")
+
+  seen: list[object] = []
+  attempt = Machine(
+    [Step("build", build, {"done": End("passed")})],
+    on_step=lambda attempt: seen.append(attempt.to_json()["deliverables"]),
+    deliverables={
+      "task": Deliverable("files", "Task", Source("build", "task"))
+    },
+  ).run(tmp_path)
+  assert attempt.status == "passed"
+  assert seen == [
+    [
+      {
+        "name": "task",
+        "kind": "files",
+        "title": "Task",
+        "state": "build",
+        "output": "task",
+        "visit": 1,
+        "visit_index": 0,
+        "path": "artifacts/build/1/task",
+        "reason": None,
+      }
+    ]
+  ]
+
+
+@pytest.mark.parametrize(
+  ("deliverable", "error"),
+  [
+    (
+      Deliverable("files", "t", Source("nowhere", "x")),
+      "unknown state nowhere",
+    ),
+    (Deliverable("pictures", "t", Source("a", "x")), "unknown kind 'pictures'"),  # pyright: ignore[reportArgumentType]
+    (Deliverable("files", "t", Source("a", "x", 0)), "unknown visit 0"),
+    (
+      Deliverable("files", "t", Source("a", "x"), table=Source("a", "y")),
+      "only a report has a table",
+    ),
+  ],
+)
+def test_a_malformed_deliverable_is_an_error(
+  deliverable: Deliverable, error: str
+) -> None:
+  with pytest.raises(ValueError, match=f"deliverable d: {error}"):
+    _ = Machine(
+      [Step("a", lambda _: Outcome("ok"), {"ok": End("ok")})],
+      deliverables={"d": deliverable},
+    )
