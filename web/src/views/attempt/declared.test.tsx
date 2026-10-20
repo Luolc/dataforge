@@ -185,9 +185,9 @@ describe("a running attempt's record", () => {
 
       const list = await screen.findByRole("navigation", { name: "Trials" });
       await waitFor(() => {
-        expect(
-          within(list).queryAllByRole("img", { name: "Running" }),
-        ).toHaveLength(spinners);
+        expect(list.querySelectorAll(".lucide-loader-circle")).toHaveLength(
+          spinners,
+        );
       });
     },
   );

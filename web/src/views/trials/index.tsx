@@ -67,7 +67,7 @@ function TrialStatus({
       className={`inline-flex flex-none items-center gap-1 text-xs ${toneText[tone]}`}
     >
       {word === RUNNING ? (
-        <RunningIcon />
+        <Spinner small />
       ) : (
         <Glyph className="size-3" aria-hidden />
       )}
@@ -270,12 +270,27 @@ function TrialPane({
   );
 }
 
+/**
+ * RunningIcon beside a word that already says running, so it is not read out
+ * twice; small, as large as the trial's other status glyphs.
+ */
+function Spinner({ small = false }: { small?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={small ? "inline-flex [&_*]:size-3" : "contents"}
+    >
+      <RunningIcon />
+    </span>
+  );
+}
+
 /** What a trial with no result shows in place of its trace and its diff. */
 function Unfinished({ live }: { live: LiveInfo | null | undefined }) {
   return isRunning(live) ? (
     <Note>
       <span className="flex items-center gap-2">
-        <RunningIcon />
+        <Spinner />
         This trial is still running.
       </span>
     </Note>

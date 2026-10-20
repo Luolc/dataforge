@@ -364,13 +364,13 @@ describe("the trials of a visit that has not ended", () => {
       "trial-2running",
       "trial-3running",
     ]);
-    const spinner = within(trial("trial-2")).getByRole("img", {
-      name: "Running",
-    });
-    expect(spinner.querySelector("svg")).toHaveClass(
-      "animate-spin",
-      "motion-reduce:animate-none",
+    // The word says it, so the turning icon is not read out as well.
+    const spinner = must(
+      trial("trial-2").querySelector(".lucide-loader-circle"),
     );
+    expect(spinner).toHaveClass("animate-spin", "motion-reduce:animate-none");
+    expect(spinner.closest("[aria-hidden]")).not.toBeNull();
+    expect(trial("trial-2")).toHaveAccessibleName("trial-2running");
     expect(screen.getByText("— / 4 solved")).toBeVisible();
     // The value is read once the visit ends, so its reason is not shown.
     expect(screen.queryByText(/has no key/)).toBeNull();
@@ -401,7 +401,7 @@ describe("the trials of a visit that has not ended", () => {
       "trial-2not finished",
       "trial-3not finished",
     ]);
-    expect(screen.queryByRole("img", { name: "Running" })).toBeNull();
+    expect(document.querySelector(".lucide-loader-circle")).toBeNull();
     fireEvent.click(trial("trial-2"));
     expect(screen.getByText("This trial did not finish.")).toBeVisible();
   });
