@@ -202,9 +202,9 @@ describe("the queue page", () => {
     show();
 
     await screen.findByRole("button", { name: /^Ended/ });
-    if (note === null)
-      expect(screen.queryByText(/older jobs? that ended/)).toBeNull();
-    else expect(screen.getByText(note)).toBeVisible();
+    expect(
+      screen.queryByText(/older jobs? that ended/)?.textContent ?? null,
+    ).toBe(note);
   });
 
   it("warns that a running job's processes are sent SIGTERM", async () => {
