@@ -611,3 +611,12 @@ def test_each_package_imports_first_in_a_fresh_interpreter(module: str) -> None:
     check=False,
   )
   assert done.returncode == 0, done.stderr
+
+
+def test_the_reprs_leave_out_env(tmp_path: Path) -> None:
+  runner = HarborRunner(tmp_path / "harbor", env={"MODEL_TOKEN": "s3cret"})
+  setup = TrialSetup(env={"MODEL_TOKEN": "s3cret"})
+  assert "harbor=" in repr(runner)
+  assert "mounts=" in repr(setup)
+  assert "s3cret" not in repr(runner)
+  assert "s3cret" not in repr(setup)

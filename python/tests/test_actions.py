@@ -837,3 +837,9 @@ def test_a_summary_that_is_a_symlink_is_never_read(tmp_path: Path) -> None:
   attempt = Machine([Once(body)]).run(tmp_path / "attempt")
   assert attempt.visits[0].actions[0].summary == NOT_A_FILE
   assert "host-only" not in json.dumps(attempt.to_json())
+
+
+def test_a_dockers_repr_leaves_out_its_env() -> None:
+  env = Docker("solver:1", env={"MODEL_TOKEN": "s3cret"})
+  assert "image='solver:1'" in repr(env)
+  assert "s3cret" not in repr(env)

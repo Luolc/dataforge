@@ -34,7 +34,7 @@ from collections.abc import Callable, Mapping, Sequence
 import contextlib
 from contextlib import AbstractContextManager, nullcontext
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 import math
@@ -220,7 +220,8 @@ class Session:
       for the caller to remove with `remove_project_dir`.
     env: The environment the command runs in on this machine, or None for
       this process's; with a prefix such as `docker exec`, the prefix's. Give
-      one without the credentials `claude` has no need of.
+      one without the credentials `claude` has no need of. Left out of
+      the repr, as its values may be credentials.
   """
 
   command: tuple[str, ...] = ("claude",)
@@ -229,7 +230,7 @@ class Session:
   max_budget_usd: float
   timeout: float = DEFAULT_TIMEOUT
   persist: bool = False
-  env: Mapping[str, str] | None = None
+  env: Mapping[str, str] | None = field(default=None, repr=False)
 
   @classmethod
   def from_args(cls, args: argparse.Namespace) -> Session:

@@ -445,7 +445,7 @@ class Docker:
     cap_drop: The capabilities it drops.
     user: The user it runs as.
     workdir: Its working directory.
-    env: Variables set at create.
+    env: Variables set at create, left out of the repr.
     pass_env: Variables set at create from the docker command's own
       environment, by name, so that their values are not on its command
       line; one unset there is left unset.
@@ -469,7 +469,7 @@ class Docker:
   cap_drop: Sequence[str] = ()
   user: str | None = None
   workdir: str | None = None
-  env: Mapping[str, str] = field(default_factory=dict[str, str])
+  env: Mapping[str, str] = field(default_factory=dict[str, str], repr=False)
   pass_env: Sequence[str] = ()
   pre_start: Callable[[Docker], None] | None = None
   post_start: Callable[[Docker], None] | None = None
