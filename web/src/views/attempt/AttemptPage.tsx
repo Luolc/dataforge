@@ -21,6 +21,7 @@ import { attemptStatus, stateTitle } from "../../ui/status";
 import { StatusIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
+import { declaredMissing, tabKinds } from "./declared";
 import { attemptHref } from "./href";
 
 export function AttemptPage() {
@@ -107,26 +108,32 @@ function Attempt({
   run: number | null;
   discarded: number | null;
 }) {
-  const deliverables = deliverablesOf(record);
-  const kinds = [...new Set(deliverables.map((d) => d.kind))];
+  const recorded = deliverablesOf(record);
+  const deliverables = [...recorded, ...declaredMissing(project, record)];
+  const kinds = tabKinds(project, deliverables);
   const itemsOf = (kind: string) => deliverables.filter((d) => d.kind === kind);
   const tabs = [
     { key: "runs", title: "Runs", count: <>{record.visits.length}</> },
     ...kinds.map((kind) => {
       const items = itemsOf(kind);
       const first = items[0];
+      const counted = recorded.filter((d) => d.kind === kind);
+      const one = counted[0];
       return {
         key: kind,
         title: first?.title ?? kind,
-        count: first && (
-          <KindCount
-            kind={kind}
-            project={project.id}
-            attempt={attempt}
-            item={first}
-            items={items}
-          />
-        ),
+        count:
+          one === undefined ? (
+            "—"
+          ) : (
+            <KindCount
+              kind={kind}
+              project={project.id}
+              attempt={attempt}
+              item={one}
+              items={counted}
+            />
+          ),
       };
     }),
   ];

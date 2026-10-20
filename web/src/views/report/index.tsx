@@ -1,12 +1,10 @@
 // The report view: a report's Markdown under its title, where a table cell
 // whose whole text is a key of the project's statuses shows as its label.
-import type { Project } from "../../api/types";
 import { Card } from "../../ui/card";
-import { Markdown } from "../../ui/markdown";
 import { NOT_RUN } from "../../ui/status";
-import { StatusLabel } from "../../ui/status-mark";
 import { size, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
+import { ReportMarkdown } from "./markdown";
 
 /** The report view, for a deliverable of kind report. */
 export default function ReportView({
@@ -39,18 +37,10 @@ export default function ReportView({
   return (
     <Card title={deliverable.title} aside={aside}>
       {content?.kind === "text" ? (
-        <Markdown text={content.text} cell={statusCell(project)} />
+        <ReportMarkdown project={project} text={content.text} />
       ) : (
         <p className="text-fg-3">{body}</p>
       )}
     </Card>
   );
-}
-
-/** A cell that is a key of the project's statuses, as its label. */
-function statusCell(project: Project) {
-  return (text: string) =>
-    Object.hasOwn(project.statuses, text) ? (
-      <StatusLabel project={project} word={text} />
-    ) : null;
 }
