@@ -1,18 +1,34 @@
+import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router";
 
 import { Frame, Shell } from "./shell/Shell";
 import { Note } from "./ui/card";
 import { AttemptPage } from "./views/attempt/AttemptPage";
-import { Monitor } from "./views/monitor/Monitor";
 import { HomePage } from "./views/HomePage";
 import { ProjectsPage } from "./views/ProjectsPage";
+
+// uPlot loads with the Monitor page only, the one page that draws charts.
+const Monitor = lazy(() => import("./views/monitor/Monitor"));
 
 export function App() {
   return (
     <Routes>
       <Route element={<Shell />}>
         <Route index element={<ProjectsPage />} />
-        <Route path="monitor" element={<Monitor />} />
+        <Route
+          path="monitor"
+          element={
+            <Suspense
+              fallback={
+                <Frame crumbs={[{ label: "Monitor" }]}>
+                  <Note>Loading…</Note>
+                </Frame>
+              }
+            >
+              <Monitor />
+            </Suspense>
+          }
+        />
         <Route path=":project" element={<HomePage />} />
         <Route path=":project/attempt" element={<AttemptPage />} />
         <Route

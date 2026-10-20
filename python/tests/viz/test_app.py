@@ -144,6 +144,7 @@ def test_projects_leave_out_where_the_files_are(
     "not_ended": None,
     "deliverables": [],
     "trials": None,
+    "monitor": False,
   }
 
 

@@ -53,3 +53,47 @@ export function visitSeconds(v: Visit): number | null {
 
 export const visitCost = (v: Visit): number =>
   v.actions.reduce((sum: number, a: Action) => sum + a.cost_usd, 0);
+
+const clockUtc = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+const secondsUtc = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Seconds since the epoch as "2026-03-02 09:15 UTC". */
+export const epoch = (seconds: number): string =>
+  time(new Date(seconds * 1000).toISOString());
+
+/** Seconds since the epoch as "09:15", in UTC: a chart's time axis. */
+export const clock = (seconds: number): string =>
+  clockUtc.format(new Date(seconds * 1000));
+
+/** Seconds since the epoch as "09:15:42 UTC". */
+export const instant = (seconds: number): string =>
+  `${secondsUtc.format(new Date(seconds * 1000))} UTC`;
+
+/** Bytes in binary units, as "512 MiB" or "12.5 GiB". */
+export function bytes(value: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let v = value;
+  let unit = 0;
+  while (Math.abs(v) >= 1024 && unit < units.length - 1) {
+    v /= 1024;
+    unit++;
+  }
+  const digits = unit === 0 || Math.abs(v) >= 100 ? 0 : 1;
+  return `${v.toFixed(digits)} ${units[unit] ?? ""}`;
+}
+
+/** CPU time per second, as "1.5 cores". */
+export const cores = (value: number): string =>
+  `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)} cores`;

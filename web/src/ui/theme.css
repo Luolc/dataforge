@@ -45,6 +45,19 @@
      them; 16px on controls and in lists, its 1.25rem at a 13px root. */
   --spacing-icon-sm: 1em;
   --spacing-icon-md: 16px;
+  /* The Monitor page's charts: a chart's height, its top padding, its left
+     axis and right padding, which the containers' bars line up with, and
+     the height of one lane of bars. */
+  --spacing-chart: 150px;
+  --spacing-chart-top: 12px;
+  --spacing-chart-axis: 64px;
+  --spacing-chart-pad: 16px;
+  --spacing-lane: 7px;
+  /* The least width a container's bar is drawn at, how far from the
+     pointer a bar is still found, and the bar tooltip's offset from it. */
+  --spacing-bar-least: 2px;
+  --spacing-bar-reach: 3px;
+  --spacing-tip-offset: 12px;
 
   --radius-row: 4px;
   --radius-panel: 6px;
@@ -128,6 +141,13 @@
   --color-file-log: #818520;
   --color-file-other: #6a8492;
   --color-file-folder: #6a8492;
+  /* The Monitor page's charts (views/monitor/): its curves and the
+     containers' bars, each at least 3:1 on a card and on a pause's
+     warn-bg band. */
+  --color-series-1: #005a8f;
+  --color-series-2: #933300;
+  --color-series-3: #6b4f00;
+  --color-bar: #4a6478;
 }
 
 /* The other templates: every colour token again, so that none falls back
@@ -194,6 +214,10 @@ html[data-template="ac"] {
   --color-file-log: #75781d;
   --color-file-other: #5f7783;
   --color-file-folder: #5f7783;
+  --color-series-1: #1f4a70;
+  --color-series-2: #a8323c;
+  --color-series-3: #6b4700;
+  --color-bar: #4f6a5a;
 }
 
 html[data-template="neutral"] {
@@ -258,6 +282,10 @@ html[data-template="neutral"] {
   --color-file-log: #858921;
   --color-file-other: #6e8895;
   --color-file-folder: #6e8895;
+  --color-series-1: #0969da;
+  --color-series-2: #bc4c00;
+  --color-series-3: #8250df;
+  --color-bar: #57606a;
 }
 
 html[data-template="dark"] {
@@ -323,6 +351,10 @@ html[data-template="dark"] {
   --color-file-log: #afb42b;
   --color-file-other: #90a4ae;
   --color-file-folder: #90a4ae;
+  --color-series-1: #94bde3;
+  --color-series-2: #f0a27a;
+  --color-series-3: #e8c784;
+  --color-bar: #8fa69a;
 }
 
 @layer base {

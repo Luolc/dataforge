@@ -3,6 +3,7 @@
 from collections.abc import Awaitable, Callable
 from datetime import datetime, UTC
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import cast
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
-from dataforge.viz import live
+from dataforge.viz import live, monitor
 from dataforge.viz.config import Project, Site, split_relative
 from dataforge.viz.paths import (
   FILE_LIMIT,
@@ -56,6 +57,9 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/api/projects/{p}/attempts", api.attempts),
     ("/api/projects/{p}/record", api.record),
     ("/api/projects/{p}/files", api.files),
+    ("/api/projects/{p}/monitor/runs", api.monitor_runs),
+    ("/api/projects/{p}/monitor/window", api.monitor_window),
+    ("/api/projects/{p}/monitor/curve", api.monitor_curve),
     ("/api/{rest:path}", api.no_route),
     ("/{rest:path}", api.static),
   ]
@@ -102,6 +106,47 @@ class _Api:
       data = read_regular(fd, FILE_LIMIT).data
     return Response(data, media_type="application/octet-stream")
 
+  def monitor_runs(self, p: str) -> Response:
+    return JSONResponse(monitor.runs(self._monitor(p)))
+
+  def monitor_window(
+    self,
+    p: str,
+    run: str | None = None,
+    t0: str | None = None,
+    t1: str | None = None,
+  ) -> Response:
+    db = self._monitor(p)
+    return JSONResponse(
+      monitor.window(
+        db,
+        _integer("run", run),
+        None if t0 is None else _seconds("t0", t0),
+        None if t1 is None else _seconds("t1", t1),
+      )
+    )
+
+  def monitor_curve(
+    self,
+    p: str,
+    run: str | None = None,
+    t0: str | None = None,
+    t1: str | None = None,
+    attempt: str | None = None,
+    container: str | None = None,
+  ) -> Response:
+    db = self._monitor(p)
+    return JSONResponse(
+      monitor.curve(
+        db,
+        _integer("run", run),
+        _seconds("t0", t0),
+        _seconds("t1", t1),
+        attempt,
+        container,
+      )
+    )
+
   def no_route(self, rest: str) -> Response:
     return _error(404, f"no route /api/{rest}")
 
@@ -113,11 +158,33 @@ class _Api:
       raise RefusedError(404, f"no project {p!r}")
     return self._projects[p]
 
+  def _monitor(self, p: str) -> Path:
+    db = self._project(p).monitor
+    if db is None:
+      raise RefusedError(404, f"the project {p!r} names no monitor database")
+    return db
+
 
 def _attempt(value: str | None) -> str:
   if value is None:
     raise RefusedError(400, "the attempt query parameter is missing")
   return value
+
+
+def _integer(name: str, value: str | None) -> int:
+  if value is None or not value.isascii() or not value.isdigit():
+    raise RefusedError(400, f"{name} is not a whole number")
+  return int(value)
+
+
+def _seconds(name: str, value: str | None) -> float:
+  try:
+    seconds = float(value or "")
+  except ValueError:
+    seconds = math.nan
+  if not math.isfinite(seconds):
+    raise RefusedError(400, f"{name} is not a number of seconds")
+  return seconds
 
 
 async def _refused(request: Request, error: Exception) -> Response:
@@ -136,7 +203,12 @@ async def _headers(
 
 
 def _error(status: int, reason: str) -> Response:
-  names = {400: "bad request", 404: "not found", 413: "too large"}
+  names = {
+    400: "bad request",
+    404: "not found",
+    413: "too large",
+    503: "unavailable",
+  }
   return JSONResponse(
     {"error": names.get(status, "error"), "reason": reason}, status_code=status
   )

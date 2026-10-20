@@ -201,6 +201,11 @@ describe("the theme's tokens", () => {
     ...pairs(["chip-line", "icon"], ["panel", "card", "tree"], 3),
     ...pairs([...tones], ["tree", "group"], 3),
     ...pairs(fileIcons, ["tree", "hover", "active"], 3),
+    ...pairs(
+      ["series-1", "series-2", "series-3", "bar", "accent", "warn"],
+      ["card", "warn-bg"],
+      3,
+    ),
   ])("%s: %s on %s at least %d:1", (id, text, bg, least) => {
     expect(contrast(colour(id, text), colour(id, bg))).toBeGreaterThanOrEqual(
       least,

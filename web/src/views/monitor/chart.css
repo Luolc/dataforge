@@ -1,0 +1,45 @@
+/* uPlot's layout, which its own stylesheet would give with colours and
+   fonts of its own; the colours here are the theme's tokens. */
+[data-monitor-chart] .uplot {
+  width: 100%;
+}
+[data-monitor-chart] .u-wrap {
+  position: relative;
+  user-select: none;
+}
+[data-monitor-chart] .u-over,
+[data-monitor-chart] .u-under {
+  position: absolute;
+}
+[data-monitor-chart] .u-under {
+  overflow: hidden;
+}
+[data-monitor-chart] canvas {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+[data-monitor-chart] .u-axis {
+  position: absolute;
+}
+[data-monitor-chart] .u-select {
+  position: absolute;
+  pointer-events: none;
+  background: var(--color-hover);
+  opacity: var(--opacity-idle);
+}
+[data-monitor-chart] .u-cursor-x {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-right: 1px dashed var(--color-fg-3);
+  pointer-events: none;
+}
+[data-monitor-chart] .u-cursor-y {
+  display: none;
+}
+[data-monitor-chart] .u-off {
+  display: none;
+}

@@ -37,6 +37,56 @@ def test_a_session_view_shows_thinking_as_the_project_file_says(
   assert project.thinking == "collapsed"
 
 
+def test_a_session_with_no_thinking_shows_it_hidden(tree: Tree) -> None:
+  _ = tree.project.write_text(
+    PROJECT.replace("statuses:", "session: {}\nstatuses:", 1)
+  )
+
+  [project] = load_site(tree.site).projects
+
+  assert project.thinking == "hidden"
+
+
+def test_the_monitor_database_is_relative_to_attempts_dir(tree: Tree) -> None:
+  _ = tree.project.write_text(
+    PROJECT + "monitor: {db: ../monitor/monitor.sqlite}\n"
+  )
+
+  [project] = load_site(tree.site).projects
+
+  # Not checked at start: the sampler may not have written it yet.
+  assert project.monitor == tree.root.parent / "monitor" / "monitor.sqlite"
+  assert project.public()["monitor"] is True
+  assert "monitor.sqlite" not in str(project.public())
+
+
+def test_the_monitor_database_does_not_follow_the_project_file(
+  tree: Tree, tmp_path: Path
+) -> None:
+  # A deployment copies the project file elsewhere to pin it; its relative
+  # monitor.db still names the database beside attempts_dir.
+  pinned = tmp_path / "pinned" / "deep" / "viz-project-0123abcd.yaml"
+  pinned.parent.mkdir(parents=True)
+  _ = pinned.write_text(
+    PROJECT.replace("attempts_dir: attempts", f"attempts_dir: {tree.root}")
+    + "monitor: {db: ../monitor/monitor.sqlite}\n"
+  )
+  _ = tree.site.write_text(
+    f"listen: {{host: 127.0.0.1, port: 8800}}\nprojects: [{pinned}]\n"
+  )
+
+  [project] = load_site(tree.site).projects
+
+  assert project.monitor == tree.root.parent / "monitor" / "monitor.sqlite"
+
+
+def test_a_project_with_no_monitor_says_so(tree: Tree) -> None:
+  [project] = load_site(tree.site).projects
+
+  assert project.monitor is None
+  assert project.public()["monitor"] is False
+
+
 def test_the_server_binds_only_the_configured_address(
   tree: Tree, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -126,6 +176,12 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       ("name: Example", "name: Example\ntrials: {diff: x, glob: y}"),
       r"trials\.glob: unknown key",
+    ),
+    (("name: Example", "name: Example\nmonitor: {}"), r"monitor\.db: missing"),
+    (("name: Example", "name: Example\nmonitor: {db: ''}"), r"monitor\.db"),
+    (
+      ("name: Example", "name: Example\nmonitor: {db: m.sqlite, wal: x}"),
+      r"monitor\.wal: unknown key",
     ),
   ],
 )

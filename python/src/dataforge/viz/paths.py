@@ -33,7 +33,7 @@ class RefusedError(Exception):
     """Make the refusal.
 
     Args:
-      status: The HTTP status, 400, 404 or 413.
+      status: The HTTP status, 400, 404, 413 or 503.
       reason: Why, for the person reading it.
     """
     super().__init__(reason)
