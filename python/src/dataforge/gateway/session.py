@@ -141,10 +141,11 @@ def serve(
   in a session of its own, out of reach of a Ctrl-C at the terminal; the
   launcher's and the proxy's stderr are copied to this process's line by line.
 
-  Inside `sessions`, it first waits for a free slot of its channel. Inside
-  `pausing`, it shares its channel's pause: it starts once no pause is under
-  way, and when the gateway refuses the session for its quota, the refusal
-  pauses the channel and the proxy starts again once the pause is over.
+  Inside `sessions`, it first waits for a free slot of its channel on the
+  machine. Inside `pausing`, it shares its channel's pause: it starts once no
+  pause is under way, and when the gateway refuses the session for its quota,
+  the refusal pauses the channel and the proxy starts again once the pause is
+  over.
 
   With `spend`, once the cap ends the session, this process answers every
   request on the socket with 403 until the block ends; for a moment while it
@@ -169,14 +170,13 @@ def serve(
       time, or left a process behind.
   """  # noqa: DOC502
   slots = channel_slots(channel)
-  if slots is not None:
-    _ = slots.acquire()
+  slot = None if slots is None else slots.take()
   try:
     with _serving(channel, socket, address, spend, ledger, timeout) as path:
       yield path
   finally:
-    if slots is not None:
-      slots.release()
+    if slot is not None:
+      slot.release()
 
 
 @contextlib.contextmanager

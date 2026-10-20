@@ -1,12 +1,14 @@
 """Pauses of model calls after a 429 or a quota refusal, shared by proxies.
 
 Inside `pausing`, the proxies `serve` starts for one channel share one `Pause`,
-kept in a file under a lock, so that proxies in other processes share it too:
-a 429 from the gateway holds every call of that channel, and the proxy that
-got it waits and sends it again, so that the client gets the answer late
-instead of the 429. A session the gateway refuses for its quota pauses the
-channel too. The other channel's calls go on. Inside `sessions`, at most a
-given number of proxies of each channel run at once.
+kept in a file of the state directory (`dataforge.statedir`) under a lock, so
+that the proxies of every process of the machine share it: a 429 from the
+gateway holds every call of that channel, and the proxy that got it waits and
+sends it again, so that the client gets the answer late instead of the 429. A
+session the gateway refuses for its quota pauses the channel too. The other
+channel's calls go on. Inside `sessions`, at most a given number of proxies of
+each channel run at once on the machine, counted in leases
+(`dataforge.leases`) of the state directory.
 """
 
 from collections.abc import Callable, Generator, Mapping
@@ -15,15 +17,17 @@ from dataclasses import dataclass
 import datetime
 import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import sys
 import tempfile
-import threading
 import time
 import typing
 
 from dataforge.gateway.channels import Channel
+from dataforge.leases import Lease, Leases
+from dataforge.statedir import state_dir
 
 # redcoast-client exits with 3 on any failure before the client starts; when
 # the gateway refused the session, it prints the refusal's message first, as a
@@ -42,6 +46,10 @@ REFUSALS = 3
 # ends, before what it served counts as cut (`QuotaError`): Claude Code gives
 # up on a request with no answer after about 6 minutes.
 CUT_S = 360.0
+# How long after a pause ended a 429 or a quota refusal still goes on with
+# its run of pauses: a proxy sends a held call again, and a launcher starts
+# again, within seconds of the pause's end.
+LAPSE_S = 900.0
 # How often a paused request looks whether its caller still waits for it.
 POLL_S = 1.0
 # What began a pause or last made it longer.
@@ -128,37 +136,47 @@ class Pause:
     Returns:
       The pause.
     """
-    state: _State = {
-      "backoff": {
-        "start_s": backoff.start_s,
-        "max_s": backoff.max_s,
-        "factor": backoff.factor,
-        "limit_s": backoff.limit_s,
-      },
-      "until": 0.0,
-      "paused_s": 0.0,
-      "delay": None,
-      "since": None,
-      "refusals": 0,
-      "refusal": None,
-      "cause": None,
-      "stopped": None,
-    }
-    _ = path.write_text(json.dumps(state))
+    _write(path, _new(backoff))
     return cls(path)
+
+  @classmethod
+  def shared(cls, path: Path, backoff: Backoff) -> Pause:
+    """Use the pause a file holds, written as `create` does when missing.
+
+    A pause the file already holds keeps its state, only its backoff set to
+    `backoff`, so that two processes that come at once use the same pause.
+
+    Args:
+      path: The file.
+      backoff: How long to pause.
+
+    Returns:
+      The pause.
+    """
+    new = _written(path, _new(backoff))
+    try:
+      with contextlib.suppress(FileExistsError):
+        os.link(new, path)
+    finally:
+      new.unlink()
+    pause = cls(path)
+    with pause._state() as state:
+      state["backoff"] = _new(backoff)["backoff"]
+    return pause
 
   @contextlib.contextmanager
   def _state(self) -> Generator[_State]:
-    # The file's state, locked; what the block leaves in it is written back.
-    with self.path.open("r+") as f:
+    # The file's state, under the lock of the file beside it; what the block
+    # leaves in it is written to a new file that then takes the file's name,
+    # so that a process killed while it writes leaves the file whole.
+    lock = self.path.with_name(f"{self.path.name}.lock")
+    with lock.open("a") as f:
       fcntl.flock(f, fcntl.LOCK_EX)
-      state = typing.cast(_State, json.load(f))
+      state = typing.cast(_State, json.loads(self.path.read_text()))
       before = state.copy()
       yield state
       if state != before:
-        _ = f.seek(0)
-        _ = f.truncate()
-        json.dump(state, f)
+        _write(self.path, state)
 
   def remaining(self) -> float:
     """Return how long the pause under way lasts.
@@ -275,6 +293,23 @@ class Pause:
     )
     return True
 
+  def clear(self) -> None:
+    """Let the work go on after the pause stopped for good, as a person decided.
+
+    A stopped pause loses its stop and the run of pauses and refusals before
+    it; a pause that did not stop is left as it is.
+    """
+    with self._state() as state:
+      if state["stopped"] is not None:
+        state.update(
+          stopped=None,
+          delay=None,
+          since=None,
+          refusals=0,
+          refusal=None,
+          cause=None,
+        )
+
   def answered(self) -> None:
     """End the run of pauses: the gateway gave an answer other than 429.
 
@@ -288,11 +323,49 @@ class Pause:
         state.update(delay=None, since=None, refusals=0)
 
 
+def _written(path: Path, state: _State) -> Path:
+  # A new file beside `path` that holds `state`.
+  with tempfile.NamedTemporaryFile(
+    "w", dir=path.parent, prefix=f".{path.name}.", delete=False
+  ) as f:
+    json.dump(state, f)
+  return Path(f.name)
+
+
+def _write(path: Path, state: _State) -> None:
+  # Gives `path` the state whole.
+  _ = _written(path, state).replace(path)
+
+
+def _new(backoff: Backoff) -> _State:
+  # A pause's state with none under way.
+  return {
+    "backoff": {
+      "start_s": backoff.start_s,
+      "max_s": backoff.max_s,
+      "factor": backoff.factor,
+      "limit_s": backoff.limit_s,
+    },
+    "until": 0.0,
+    "paused_s": 0.0,
+    "delay": None,
+    "since": None,
+    "refusals": 0,
+    "refusal": None,
+    "cause": None,
+    "stopped": None,
+  }
+
+
 def _goes_on(state: _State, now: float) -> bool:
   # Whether the pause still holds calls; stops it once the run of pauses has
-  # lasted the backoff's limit.
+  # lasted the backoff's limit. A run that no call went on with for `LAPSE_S`
+  # after its last pause ended, such as one a process that has since ended
+  # left, is over, as an answer would have ended it.
   if state["stopped"] is not None:
     return False
+  if now - state["until"] > LAPSE_S:
+    state.update(delay=None, since=None, refusals=0)
   limit = state["backoff"]["limit_s"]
   since = state["since"] if state["since"] is not None else now
   if limit is not None and now - since >= limit:
@@ -386,46 +459,83 @@ def _recovery(refusal: str) -> float | None:
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class Slots:
+  """The gateway sessions a channel's proxies hold on the machine, capped.
+
+  Attributes:
+    leases: One lease per session held, in whatever process.
+    limit: The most at once.
+  """
+
+  leases: Leases
+  limit: int
+
+  def take(self) -> Lease:
+    """Hold a session's slot, waiting until fewer than `limit` are held.
+
+    Returns:
+      The slot, held until it is released or its process ends.
+    """
+    return self.leases.wait(1, lambda held: len(held) < self.limit)
+
+
 _active: dict[Channel, Pause] = {}
-_slots: dict[Channel, threading.BoundedSemaphore] = {}
+_slots: dict[Channel, Slots] = {}
 
 
 @contextlib.contextmanager
-def pausing(backoff: Backoff) -> Generator[Mapping[Channel, Pause]]:
+def pausing(
+  backoff: Backoff, *, clear: bool = False
+) -> Generator[Mapping[Channel, Pause]]:
   """Share one pause per channel among the proxies `serve` starts in the block.
 
+  Each channel's pause is `pause/<channel>.json` of the state directory, which
+  every process of the machine inside `pausing` shares and which stays after
+  the block: a pause one of them began holds the others' calls too, and a
+  pause that stopped for good stays stopped for all of them, in later blocks
+  too, until it is cleared (`Pause.clear`).
+
   Args:
-    backoff: How long to pause.
+    backoff: How long to pause, set on the pauses as the block begins.
+    clear: Clear a pause that stopped for good as the block begins, for work
+      a person started again.
 
   Yields:
-    Each channel's pause, in a file of a new temporary directory, removed
-    after.
+    Each channel's pause.
   """
-  with tempfile.TemporaryDirectory(prefix="dataforge-pause-") as d:
-    pauses = {
-      c: Pause.create(Path(d) / f"{c.value}.json", backoff) for c in Channel
-    }
-    _active.update(pauses)
-    try:
-      yield pauses
-    finally:
-      _active.clear()
+  root = state_dir() / "pause"
+  root.mkdir(mode=0o700, exist_ok=True)
+  pauses = {c: Pause.shared(root / f"{c.value}.json", backoff) for c in Channel}
+  if clear:
+    for pause in pauses.values():
+      pause.clear()
+  _active.update(pauses)
+  try:
+    yield pauses
+  finally:
+    _active.clear()
 
 
 @contextlib.contextmanager
 def sessions(limit: int) -> Generator[None]:
-  """Let at most `limit` proxies of each channel that `serve` starts run.
+  """Let at most `limit` proxies of each channel run on the machine.
 
   Each proxy holds one gateway session, and the gateway caps how many of each
-  channel a machine holds at once.
+  channel a machine holds at once. The proxies `serve` starts in the block
+  count, with those of every other process of the machine inside `sessions`,
+  in `sessions/<channel>/` of the state directory; a session of a process that
+  ended, killed too, no longer counts.
 
   Args:
-    limit: The most at once, per channel.
+    limit: The most at once, per channel; processes that give different
+      limits each keep to their own.
 
   Yields:
     Nothing; the block runs under the limit.
   """
-  _slots.update({c: threading.BoundedSemaphore(limit) for c in Channel})
+  root = state_dir() / "sessions"
+  _slots.update({c: Slots(Leases(root / c.value), limit) for c in Channel})
   try:
     yield
   finally:
@@ -444,14 +554,14 @@ def active(channel: Channel) -> Pause | None:
   return _active.get(channel)
 
 
-def slots(channel: Channel) -> threading.BoundedSemaphore | None:
+def slots(channel: Channel) -> Slots | None:
   """Return the slots `sessions` gives a channel, or None outside it.
 
   Args:
     channel: The channel.
 
   Returns:
-    The semaphore, or None.
+    The slots, or None.
   """
   return _slots.get(channel)
 
