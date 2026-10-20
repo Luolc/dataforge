@@ -36,6 +36,12 @@ const project = z.looseObject({
   trials: z.looseObject({ diff: z.string() }).nullable().optional(),
   // Whether the project names a resource monitor database.
   monitor: z.boolean().optional(),
+  // What a data item's page may put in a queue.
+  actions: z
+    .array(
+      z.looseObject({ name: z.string(), label: z.string(), queue: z.string() }),
+    )
+    .optional(),
 });
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];
@@ -89,6 +95,52 @@ export const liveInfo = z.looseObject({
 });
 export type LiveInfo = z.infer<typeof liveInfo>;
 export type Current = NonNullable<LiveInfo["current"]>;
+
+// Each of a data item's actions, and why it may not be submitted now; null
+// when it may.
+export const actionStates = z.array(
+  z.looseObject({
+    name: z.string(),
+    label: z.string(),
+    queue: z.string(),
+    reason: z.string().nullable(),
+  }),
+);
+
+// A job of the queue, as a page may show it; times in seconds since the
+// epoch.
+const job = z.looseObject({
+  id: z.number(),
+  queue: z.string(),
+  labels: z.record(z.string(), z.string()),
+  state: z.string(),
+  memory_mib: z.number(),
+  queued_at: z.number(),
+  started_at: z.number().nullable(),
+  ended_at: z.number().nullable(),
+  exit_code: z.number().nullable(),
+  cancel_requested_at: z.number().nullable(),
+});
+export type Job = z.infer<typeof job>;
+
+/** What a write answers: the job it queued or canceled. */
+export const written = z.looseObject({ job });
+
+/** The queue page's read: each queue, and the jobs open and lately ended. */
+export const queueRead = z.looseObject({
+  queues: z.array(
+    z.looseObject({
+      name: z.string(),
+      limit: z.number(),
+      running: z.number(),
+      queued: z.number(),
+    }),
+  ),
+  max_running: z.number(),
+  ended_limit: z.number(),
+  jobs: z.array(job),
+});
+export type QueueRead = z.infer<typeof queueRead>;
 
 export const listing = z.looseObject({
   entries: z.array(

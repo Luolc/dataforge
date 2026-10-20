@@ -31,7 +31,7 @@ const project: Project = {
   states: { author: { title: "Author" }, check: { title: "Check" } },
 };
 
-function show(body: unknown, at = "") {
+function show(body: unknown, at = "", shown: Project = project) {
   vi.stubGlobal(
     "fetch",
     vi.fn(() =>
@@ -39,7 +39,7 @@ function show(body: unknown, at = "") {
     ),
   );
   render(
-    <ProjectsContext value={{ state: "ok", data: [project] }}>
+    <ProjectsContext value={{ state: "ok", data: [shown] }}>
       <MemoryRouter
         initialEntries={[`/${project.id}/attempt?id=older/task-0301${at}`]}
       >
@@ -58,6 +58,25 @@ const tabs = () =>
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("a data item's actions", () => {
+  it("show under the heading only when the project names any", async () => {
+    show(older);
+    await screen.findByText("Passed");
+    expect(screen.queryByRole("region", { name: /^Actions of/ })).toBeNull();
+  });
+
+  it("act on the attempt's item", async () => {
+    show(older, "", {
+      ...project,
+      actions: [{ name: "again", label: "Run again", queue: "fast" }],
+    });
+    await screen.findByText("Passed");
+    expect(
+      screen.getByRole("region", { name: "Actions of Task older/task-0301" }),
+    ).toBeVisible();
+  });
 });
 
 describe("a record an older dataforge wrote", () => {

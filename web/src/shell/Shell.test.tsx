@@ -1,8 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { Frame } from "./Shell";
+import { Frame, Shell } from "./Shell";
 
 describe("the breadcrumb", () => {
   it("styles each crumb before the page as a link, the page as plain text", () => {
@@ -37,5 +37,30 @@ describe("the breadcrumb", () => {
       "page",
     );
     expect(crumbs.getByText("task-0001")).not.toHaveClass("link");
+  });
+});
+
+describe("the sidebar", () => {
+  it("leads to the Monitor and Queue pages", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("[]", { status: 200 }))),
+    );
+    render(
+      <MemoryRouter>
+        <Shell />
+      </MemoryRouter>,
+    );
+    const site = within(screen.getByRole("navigation", { name: "Site" }));
+
+    expect(site.getByRole("link", { name: "Monitor" })).toHaveAttribute(
+      "href",
+      "/monitor",
+    );
+    expect(site.getByRole("link", { name: "Queue" })).toHaveAttribute(
+      "href",
+      "/queue",
+    );
+    vi.unstubAllGlobals();
   });
 });

@@ -724,7 +724,7 @@ function Chip({
 }
 
 /** A group of rows under a heading row that folds it. */
-function Group({
+export function Group({
   id,
   title,
   summary,

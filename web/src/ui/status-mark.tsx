@@ -29,7 +29,11 @@ export function StatusLabel({
   word: string | null;
   ended?: boolean;
 }) {
-  const { label, tone } = outcomeOf(project, word, ended);
+  return <ToneLabel {...outcomeOf(project, word, ended)} />;
+}
+
+/** A label and tone as a tone-coloured label. */
+export function ToneLabel({ label, tone }: { label: string; tone: Tone }) {
   const Glyph = toneGlyph[tone];
   return (
     <span

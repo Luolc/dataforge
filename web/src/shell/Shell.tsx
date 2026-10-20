@@ -1,6 +1,12 @@
 // The frame of every page: a fixed sidebar and an inset panel whose top bar
 // holds the breadcrumb.
-import { ChevronDown, ChevronRight, Diamond, Activity } from "lucide-react";
+import {
+  Activity,
+  ChevronDown,
+  ChevronRight,
+  Diamond,
+  ListOrdered,
+} from "lucide-react";
 import { Collapsible } from "radix-ui";
 import type { ReactNode } from "react";
 import { Link, NavLink, Outlet } from "react-router";
@@ -24,6 +30,10 @@ export function Shell() {
         <NavLink to="/monitor" className={navItem}>
           <Activity className="size-4 text-icon" aria-hidden />
           Monitor
+        </NavLink>
+        <NavLink to="/queue" className={navItem}>
+          <ListOrdered className="size-4 text-icon" aria-hidden />
+          Queue
         </NavLink>
         <Collapsible.Root defaultOpen className="mt-3">
           <Collapsible.Trigger className="group flex h-row target items-center gap-1 rounded-row px-1.5 text-xs font-medium text-fg-3 hover:bg-hover hover:text-fg-2">
