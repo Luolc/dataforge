@@ -11,6 +11,7 @@ them.
 import codecs
 from collections.abc import Callable, Generator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+import contextlib
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 import dataclasses
 from dataclasses import dataclass, field
@@ -420,10 +421,12 @@ def run_docker(args: Sequence[str]) -> CommandResult:
 
 @dataclass(eq=False)
 class Docker:
-  """A container, kept across visits, that each action starts and stops.
+  """A container, kept across visits unless fresh, that actions start and stop.
 
   `docker create` makes it on first use, `docker start` and `docker stop`
-  bracket each action in it, and leaving its `with` removes it.
+  bracket each action in it, and leaving its `with` removes it. With fresh, it
+  is removed as soon as its last running action stops, so that the next action
+  creates one from whatever the image names then.
 
   Inputs are copied in under /dataforge/<state>/<visit>/<action>/inputs, outputs
   copied out from .../outputs, and a validator copied to
@@ -455,6 +458,12 @@ class Docker:
       needs memory_gb. Equal to it, the container gets no swap.
     pids: Its --pids-limit.
     network: Whether it has a network.
+    fresh: Whether to remove the container when the last running action stops,
+      so that each action runs in a container created from the image as the
+      tag points to it then, with nothing left by an earlier action. A state
+      that runs one action per visit gets a new container each visit; what an
+      action leaves only in the container, and not in outputs, is gone with
+      it.
     labels: Its labels.
     security: Its --security-opt options.
     cap_drop: The capabilities it drops.
@@ -479,6 +488,7 @@ class Docker:
   memory_swap_gb: float | None = None
   pids: int | None = None
   network: bool = False
+  fresh: bool = False
   labels: Mapping[str, str] = field(default_factory=dict[str, str])
   security: Sequence[str] = ()
   cap_drop: Sequence[str] = ()
@@ -667,7 +677,7 @@ class Docker:
     Raises:
       BaseException: Whatever creating, starting or post_start raised; the
         memory is given back, and after a failed post_start the container is
-        stopped.
+        stopped. A fresh env also removes its container.
     """
     with self._lock:
       if self._users == 0:
@@ -688,11 +698,15 @@ class Docker:
               raise
         except BaseException:
           self._release()
+          if self.fresh:
+            # The failure that got here is the one to raise.
+            with contextlib.suppress(Exception):
+              self._remove()
           raise
       self._users += 1
 
   def stop(self) -> None:
-    """Stop the container once its last action ends."""
+    """Stop the container once its last action ends; remove it if fresh."""
     with self._lock:
       self._users -= 1
       if self._users == 0 and self._id is not None:
@@ -700,6 +714,8 @@ class Docker:
           _ = self._docker(["stop", self._id])
         finally:
           self._release()
+          if self.fresh:
+            self._remove()
 
   def _release(self) -> None:
     if self._pool is not None and self.memory_gb is not None:
@@ -709,9 +725,12 @@ class Docker:
   def remove(self) -> None:
     """Remove the container, if it was created."""
     with self._lock:
-      if self._id is not None:
-        _ = self._docker(["rm", "--force", self._id])
-        self._id = None
+      self._remove()
+
+  def _remove(self) -> None:
+    if self._id is not None:
+      _ = self._docker(["rm", "--force", self._id])
+      self._id = None
 
   def __enter__(self) -> Self:
     """Return the env; leaving the with block removes the container.

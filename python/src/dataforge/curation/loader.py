@@ -25,6 +25,7 @@ The schema, version 1:
       cpus, memory_gb, memory_swap_gb: <number>
       cpu_shares, pids: <integer>
       network: <boolean>
+      fresh: <boolean>
       labels: {<name>: <string>}
       security, cap_drop: [<string>]
       user, workdir: <string>
@@ -1079,6 +1080,7 @@ _DOCKER: dict[str, _Read] = {
   "memory_swap_gb": lambda r, v, at: r.number(v, at, minimum=0),
   "pids": lambda r, v, at: r.integer(v, at, minimum=1),
   "network": _Loader.boolean,
+  "fresh": _Loader.boolean,
   "labels": lambda r, v, at: r.renames(v, at),
   "security": _Loader.strings,
   "cap_drop": _Loader.strings,

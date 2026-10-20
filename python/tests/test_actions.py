@@ -496,6 +496,97 @@ def test_post_start_runs_after_each_start_and_before_the_action(
   assert steps == ["start", "forwarder", "true", "stop"] * 2
 
 
+class MovingTagDocker(FakeDocker):
+  """FakeDocker, where `docker create` records the image its tag points to.
+
+  Args:
+    root: Where the container's file system is.
+  """
+
+  def __init__(self, root: Path) -> None:
+    super().__init__(root)
+    self.tag: str = "image-1"
+    self.created: list[str] = []
+
+  @override
+  def __call__(self, args: Sequence[str]) -> CommandResult:
+    if args[0] == "create":
+      self.created.append(self.tag)
+    return super().__call__(args)
+
+
+def run_twice_while_the_tag_moves(
+  tmp_path: Path, docker: MovingTagDocker, env: Docker
+) -> None:
+  def body(ctx: Context) -> Outcome:
+    assert Actions().script(ctx, ScriptSpec(["true"]), env).ok
+    docker.tag = "image-2"
+    assert Actions().script(ctx, ScriptSpec(["true"]), env).ok
+    return Outcome("ok")
+
+  once(tmp_path, body)
+
+
+def test_a_fresh_docker_is_created_again_from_the_image_as_it_is_then(
+  tmp_path: Path,
+) -> None:
+  docker = MovingTagDocker(tmp_path / "container")
+  with Docker("solver:1", fresh=True, cli=docker) as env:
+    run_twice_while_the_tag_moves(tmp_path, docker, env)
+    assert env.container is None
+  assert docker.created == ["image-1", "image-2"]
+  lifecycle = [
+    call[0]
+    for call in docker.calls
+    if call[0] in {"create", "start", "stop", "rm"}
+  ]
+  assert lifecycle == ["create", "start", "stop", "rm"] * 2
+
+
+def test_a_docker_that_is_not_fresh_keeps_its_container_for_the_next_action(
+  tmp_path: Path,
+) -> None:
+  docker = MovingTagDocker(tmp_path / "container")
+  with Docker("solver:1", cli=docker) as env:
+    run_twice_while_the_tag_moves(tmp_path, docker, env)
+    assert env.container == "c1"
+  assert docker.created == ["image-1"]
+
+
+def test_a_fresh_docker_keeps_its_container_while_another_action_runs(
+  tmp_path: Path,
+) -> None:
+  docker = MovingTagDocker(tmp_path / "container")
+  env = Docker("solver:1", fresh=True, cli=docker)
+  env.start(None)
+  env.start(None)
+  env.stop()
+  assert env.container == "c1"
+  env.stop()
+  assert env.container is None
+  assert docker.created == ["image-1"]
+
+
+def test_a_fresh_docker_whose_start_failed_is_created_again(
+  tmp_path: Path,
+) -> None:
+  docker = MovingTagDocker(tmp_path / "container")
+  starts: list[str] = []
+
+  def post_start(env: Docker) -> None:
+    starts.append(env.container or "")
+    if len(starts) == 1:
+      raise RuntimeError("no forwarder")
+
+  env = Docker("solver:1", fresh=True, post_start=post_start, cli=docker)
+  with pytest.raises(RuntimeError, match="no forwarder"):
+    env.start(None)
+  assert env.container is None
+  docker.tag = "image-2"
+  env.start(None)
+  assert docker.created == ["image-1", "image-2"]
+
+
 def test_a_failed_post_start_stops_the_container_and_returns_its_memory(
   tmp_path: Path,
 ) -> None:
