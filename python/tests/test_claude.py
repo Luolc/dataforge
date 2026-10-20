@@ -815,13 +815,10 @@ def test_a_keyed_start_resumes_its_session_with_the_resume_prompt(
     [
       {"project": True, "lines": [result(session_id="s1", total_cost_usd=1)]},
       {"lines": [result(session_id="s1", total_cost_usd=1.25)]},
-      {"lines": [result(session_id="s2")]},
     ],
   )
   runs = tmp_path / "runs"
-  runner = claude.Runner(
-    fake.session, claude.numbered(runs), continue_session=True
-  )
+  runner = claude.Runner(fake.session, claude.numbered(runs))
   check = tmp_path / "ok.sh"
   _ = check.write_text("#!/bin/sh\nexit 0\n")
   check.chmod(0o755)
@@ -849,17 +846,32 @@ def test_a_keyed_start_resumes_its_session_with_the_resume_prompt(
   assert option(fake.argv(1), "--resume") == []
   assert option(fake.argv(2), "--resume") == ["s1"]
   assert calls[1]["cwd"] == str(runs / "review-1")
-  # close kept the keyed session, and it is not the one continue_session
-  # drives.
+  # close kept the keyed session; end removes it.
   assert len(fake.projects()) == 1
-  assert runner.current is None
-  task = AgentTask("Go.", {}, str(tmp_path), None, "Go on.")
-  plain = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
-  assert option(fake.argv(3), "--resume") == []
-  assert fake.calls()[2]["prompt"] == "Go."
-  assert runner.current is plain.session
   runner.end()
   assert fake.projects() == []
+
+
+def test_a_keyed_start_leaves_the_continued_session_alone(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(
+    tmp_path,
+    [
+      {"lines": [result(session_id="s1")]},
+      {"lines": [result(session_id="s2")]},
+    ],
+  )
+  runner = claude.Runner(
+    fake.session, claude.numbered(tmp_path / "runs"), continue_session=True
+  )
+  task = AgentTask("Go.", {}, str(tmp_path), None, "Go on.")
+  _ = runner.start(AgentSpec("Go.", tmp_path, session="k"), task, HOST)
+  assert runner.current is None
+  plain = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert option(fake.argv(2), "--resume") == []
+  assert fake.calls()[1]["prompt"] == "Go."
+  assert runner.current is plain.session
 
 
 def test_keys_started_at_once_each_resume_their_own_session(
