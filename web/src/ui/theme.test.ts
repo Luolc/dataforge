@@ -86,6 +86,14 @@ describe("the theme's tokens", () => {
     expect(contrast(color("on-tone"), color(tone))).toBeGreaterThanOrEqual(3);
   });
 
+  it.each(["panel", "hover", "active"])(
+    "give a link, in the accent, at least 4.5:1 on %s",
+    (bg) => {
+      expect(theme).toMatch(/@utility link \{\s*color: var\(--color-accent\);/);
+      expect(contrast(color("accent"), color(bg))).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
   it("ring focus in the accent", () => {
     expect(value("color-focus")).toBe("var(--color-accent)");
   });

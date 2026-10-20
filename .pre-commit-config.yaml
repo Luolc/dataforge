@@ -32,7 +32,7 @@ repos:
   # two change together. The mirror's files pattern also covers this
   # file, so a rev change runs the hook.
   - repo: https://github.com/Luolc/statute-pre-commit
-    rev: v0.1.25
+    rev: v0.1.29
     hooks:
       # --check writes nothing: AGENTS.md and the skills statute copies and
       # links must match a fresh compile of statute.toml, statute.lock and the
