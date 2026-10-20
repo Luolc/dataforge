@@ -1,0 +1,19 @@
+{
+  "cost_usd": 4.1,
+  "tone": "warn",
+  "kept_round": null,
+  "rounds": [
+    {
+      "round": 1,
+      "author": "done",
+      "check": "fail"
+    },
+    {
+      "round": 2,
+      "author": "done",
+      "check": "fail"
+    }
+  ],
+  "max_usd": 20.0,
+  "stopped": null
+}

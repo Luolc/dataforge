@@ -24,7 +24,7 @@ const task: Record<string, FakeEntry> = {
 };
 
 const deliverable = (path: string | null): Deliverable => ({
-  ...must(records.passed.deliverables.find((d) => d.kind === "files")),
+  ...must(records.passed.deliverables?.find((d) => d.kind === "files")),
   path,
   reason: path === null ? "author was never visited" : null,
 });

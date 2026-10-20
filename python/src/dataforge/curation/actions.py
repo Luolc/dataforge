@@ -508,6 +508,100 @@ class Docker:
     """
     return self._id
 
+  def adopt(self, container: str) -> None:
+    """Take an existing container as this env's, so that start creates none.
+
+    Such as the container of an attempt that a resume goes on with. It
+    checks what `docker inspect` gives against what create_args would set:
+    the image, each of labels (the container may have more, from its image),
+    the network (none without network, any but the host's with it), and the
+    user, the working directory, the bind mounts, the security options
+    (exactly security), and each of cap_drop (the container may drop more),
+    cpus, cpu_shares, memory_gb, memory_swap_gb and pids that this env sets.
+    It also refuses a container isolated less than create_args leaves one:
+    privileged, with a capability added, a device, a mount other than the
+    env's bind mounts or volumes from another container, a PID or IPC
+    namespace other than docker's default, or the host's UTS, user or cgroup
+    namespace; where docker's default cgroup namespace is the host's, as
+    under cgroup v1, no container is adopted. The rest of what the env leaves
+    to docker's defaults is not checked, nor is env or pass_env, whose
+    values inspect would show.
+
+    Args:
+      container: The container's ID or name.
+
+    Raises:
+      ValueError: When this env has a container already, inspect printed no
+        JSON object, or the container differs from this env in a checked
+        item, which the error names.
+      RuntimeError: When docker inspect fails, such as for no such container.
+    """  # noqa: DOC503
+    with self._lock:
+      if self._id is not None:
+        raise ValueError(f"the env has a container already: {self._id}")
+      args = ["inspect", "--type", "container", "--format", "{{json .}}"]
+      # The log is stdout and then stderr, where docker may warn; the format
+      # prints the container as JSON on one line.
+      printed = self._docker([*args, container]).partition("\n")[0]
+      found = cast("object", json.loads(printed))
+      if not isinstance(found, dict):
+        raise ValueError(f"docker inspect {container} printed no JSON object")
+      found = cast(dict[str, object], found)
+      differ = self._differences(
+        _json_object(found.get("Config")), _json_object(found.get("HostConfig"))
+      )
+      if differ:
+        raise ValueError(f"{container} differs in {', '.join(differ)}")
+      found_id = found.get("Id")
+      self._id = found_id if isinstance(found_id, str) else container
+
+  def _differences(
+    self, config: dict[str, object], host: dict[str, object]
+  ) -> list[str]:
+    labels = _json_object(config.get("Labels"))
+    mounts = [*self.mounts, *([] if self.outputs is None else [self.outputs])]
+    binds = [
+      f"{m.source.resolve()}:{m.target}{':ro' if m.read_only else ''}"
+      for m in mounts
+    ]
+    caps = _capabilities(_strings(host.get("CapDrop")))
+    mode = host.get("NetworkMode")
+    # Each item the env sets: whether the container has it.
+    checks: dict[str, bool | None] = {
+      "image": config.get("Image") == self.image,
+      **{f"label {k}": labels.get(k) == v for k, v in self.labels.items()},
+      "network": mode not in ("none", "host")
+      if self.network
+      else mode == "none",
+      "mounts": _strings(host.get("Binds")) == sorted(binds),
+      "user": _same(config.get("User"), self.user),
+      "workdir": _same(config.get("WorkingDir"), self.workdir),
+      "cap_drop": caps >= _capabilities(self.cap_drop),
+      "security": set(_strings(host.get("SecurityOpt"))) == set(self.security),
+      "cpus": _same(
+        host.get("NanoCpus"),
+        None if self.cpus is None else round(self.cpus * 1e9),
+      ),
+      "cpu_shares": _same(host.get("CpuShares"), self.cpu_shares),
+      "memory_gb": _same(host.get("Memory"), _bytes(self.memory_gb)),
+      "memory_swap_gb": _same(
+        host.get("MemorySwap"), _bytes(self.memory_swap_gb)
+      ),
+      "pids": _same(host.get("PidsLimit"), self.pids),
+      # What create_args never asks for, whatever the env.
+      "privileged": host.get("Privileged") is not True,
+      "cap_add": not host.get("CapAdd"),
+      "devices": not host.get("Devices"),
+      "other_mounts": not host.get("Mounts"),
+      "volumes_from": not host.get("VolumesFrom"),
+      "pid_mode": not _shared(host.get("PidMode")),
+      "ipc_mode": not _shared(host.get("IpcMode")),
+      "uts_mode": host.get("UTSMode") != "host",
+      "userns_mode": host.get("UsernsMode") != "host",
+      "cgroupns_mode": host.get("CgroupnsMode") != "host",
+    }
+    return [name for name, same in checks.items() if same is False]
+
   def create_args(self) -> list[str]:
     """Return the arguments of the `docker create` that makes the container.
 
@@ -841,6 +935,7 @@ class AgentRun:
     result: Its answer.
     ending: How it ended, in the runner's words, if the runner says.
     resumable: Whether the session can go on after it.
+    trace_format: The trace's format, such as "claude-code-stream-json".
   """
 
   session: object
@@ -850,13 +945,19 @@ class AgentRun:
   result: str
   ending: str | None = None
   resumable: bool = True
+  trace_format: str | None = None
 
 
 class AgentRunner(Protocol):
   """Drives a headless coding agent in an env.
 
   The agent action also calls close(session) when it ends, if the runner has
-  close.
+  close. A runner that can go on after this process ends has two more
+  methods: checkpoint(session) returns, as JSON data, what restore needs of a
+  run's session, and the agent action records it as the action's session;
+  restore(points), given the checkpoints of an attempt's agent actions on
+  this runner in the order they ended, makes a fresh runner go on as the one
+  that made them would. Machine.resume calls restore.
   """
 
   def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
@@ -1081,6 +1182,7 @@ class Actions:
         env,
       )
       cost, log, fixes, check = run.cost_usd, [run.result], 0, None
+      first = run
       try:
         while True:
           note = env.collect(staged, ctx.outdir)
@@ -1096,12 +1198,15 @@ class Actions:
           run = runner.resume(run.session, _fix_prompt(check.log))
           cost += run.cost_usd
           log.append(run.result)
+        # Only once every run of the action has returned.
+        session = _checkpoint(runner, run.session)
       finally:
         close = getattr(runner, "close", None)
         if callable(close):
           _ = close(run.session)
     finally:
       env.stop()
+    trace = _trace_inside(ctx.attempt.root, first)
     passed = run.status == "ok" and (check is None or check.exit_code == 0)
     if check is not None and check.exit_code != 0:
       log.append(f"validator failed after {fixes} fixes:\n{check.log}")
@@ -1121,6 +1226,9 @@ class Actions:
       "\n".join(log),
       value,
       cost,
+      session=session,
+      trace=trace,
+      trace_format=None if trace is None else first.trace_format,
     )
     return dataclasses.replace(result, run=run, validation=check, fixes=fixes)
 
@@ -1506,6 +1614,46 @@ def _confined(root: Path, link: Path) -> bool:
   return resolve(at, os.readlink(link)) is not None
 
 
+def _checkpoint(runner: AgentRunner, session: object) -> Data | None:
+  checkpoint = getattr(runner, "checkpoint", None)
+  if not callable(checkpoint):
+    return None
+  return cast("Data | None", checkpoint(session))
+
+
+def _trace_inside(root: Path, run: AgentRun) -> Path | None:
+  # The record names paths relative to the attempt's root.
+  trace = run.trace
+  return trace if trace is not None and trace.is_relative_to(root) else None
+
+
+def _shared(mode: object) -> bool:
+  # The daemon's default, such as "", "private" or "shareable", is not.
+  return mode == "host" or str(mode).startswith("container:")
+
+
+def _same(found: object, wanted: object) -> bool | None:
+  # None: the env leaves it to docker's default, which is not checked.
+  return None if wanted is None else found == wanted
+
+
+def _bytes(gb: float | None) -> int | None:
+  return None if gb is None else _mb(gb) * 2**20
+
+
+def _capabilities(names: Sequence[str]) -> set[str]:
+  return {name.upper().removeprefix("CAP_") for name in names}
+
+
+def _strings(value: object) -> list[str]:
+  items = cast(list[object], value) if isinstance(value, list) else []
+  return sorted(item for item in items if isinstance(item, str))
+
+
+def _json_object(value: object) -> dict[str, object]:
+  return cast(dict[str, object], value) if isinstance(value, dict) else {}
+
+
 def _remove(path: Path) -> None:
   if path.is_dir() and not path.is_symlink():
     shutil.rmtree(path)
@@ -1523,6 +1671,10 @@ def _finish(
   value: object = None,
   cost_usd: float = 0.0,
   summary: str | None = None,
+  *,
+  session: Data | None = None,
+  trace: Path | None = None,
+  trace_format: str | None = None,
 ) -> ActionResult:
   outputs = {
     name: ctx.outdir / name for name in names if (ctx.outdir / name).exists()
@@ -1534,7 +1686,16 @@ def _finish(
   status = "ok" if passed else "failed"
   ctx.record(
     ActionRecord(
-      kind, status, outputs, started_at, datetime.now(UTC), cost_usd, summary
+      kind,
+      status,
+      outputs,
+      started_at,
+      datetime.now(UTC),
+      cost_usd,
+      summary,
+      session=session,
+      trace=trace,
+      trace_format=trace_format,
     )
   )
   return ActionResult(status, outputs, log, value, cost_usd)

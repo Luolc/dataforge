@@ -146,7 +146,7 @@ export function layout(
   backLanes: BackLanes = "bundled",
 ): Layout | null {
   const graph = record.graph;
-  if (graph === null) return null;
+  if (!graph) return null;
   const order = [...graph.states.map((s) => s.name), END];
   const at = (key: string) => order.indexOf(key);
   const taken = takenCounts(record, project);

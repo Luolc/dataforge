@@ -1,11 +1,12 @@
 // What a run page reads from the record: the visit's input, each action's
 // status and session, and which steps start open.
-import type {
-  Action,
-  AttemptRecord,
-  Project,
-  Tone,
-  Visit,
+import {
+  type Action,
+  type AttemptRecord,
+  deliverablesOf,
+  type Project,
+  type Tone,
+  type Visit,
 } from "../../../api/types";
 import { statusOf } from "../../../ui/status";
 
@@ -33,7 +34,7 @@ export function inputOf(record: AttemptRecord, index: number): Input {
   const visit = record.visits[index];
   const before = record.visits[index - 1];
   if (visit === undefined || before === undefined) return { kind: "none" };
-  if (record.graph === null) return { kind: "unknown" };
+  if (!record.graph) return { kind: "unknown" };
   const edge = record.graph.edges.find(
     (e) => e.from === before.state && e.outcome === before.outcome,
   );
@@ -57,7 +58,7 @@ export function traceOf(
   action: Action,
 ): Trace | null {
   const names = Object.keys(action.outputs);
-  for (const item of record.deliverables) {
+  for (const item of deliverablesOf(record)) {
     if (item.visit_index !== index) continue;
     const trial = item.trials?.find((t) => names.includes(t.output));
     if (trial?.trace) return trial.trace;
