@@ -430,3 +430,19 @@ def test_a_write_s_preflight_is_never_allowed(
     assert response.status_code == 405, url
     names: list[str] = list(response.headers.keys())
     assert not [h for h in names if h.startswith("access-control")]
+
+
+@pytest.mark.parametrize("item", ["-batch-1", "--help", ".batch-1"])
+def test_an_item_that_reads_as_an_option_is_refused_whatever_the_pattern(
+  made: QueueTree, static: Path, item: str
+) -> None:
+  text = made.tree.project.read_text()
+  _ = made.tree.project.write_text(
+    text.replace('pattern: "batch-[0-9]+"', 'pattern: ".+"')
+  )
+  web = client(made, static)
+
+  submitted = web.post(f"{ACTIONS}/again", params={"item": item}, headers=WRITE)
+
+  assert submitted.status_code == 400
+  assert jobs(made) == []
