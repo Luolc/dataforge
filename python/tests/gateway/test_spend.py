@@ -26,6 +26,7 @@ import pytest
 from dataforge.gateway import Channel, Price, proxy, read_ledger, serve, Spend
 from dataforge.gateway.channels import DRAINED
 from dataforge.gateway.session import _Refuser, _Refusing, holders
+from dataforge.gateway.spend import Meter
 from tests.gateway.fakes import (
   call,
   Launcher,
@@ -310,6 +311,90 @@ def test_a_stream_without_a_content_type_is_priced_as_a_stream(
   assert line["model"] == MODEL[channel]
   assert line["cost_usd"] == pytest.approx(COST[channel])
   assert line["reason"] is None
+
+
+def split(body: bytes, sizes: tuple[int, ...]) -> list[bytes]:
+  # The same reply cut into chunks of the given sizes, the rest in the last.
+  chunks: list[bytes] = []
+  for size in sizes:
+    chunks.append(body[:size])
+    body = body[size:]
+  return [*chunks, body]
+
+
+def read_bare(channel: Channel, body: bytes, sizes: tuple[int, ...]) -> Meter:
+  meter = Meter(channel, "")
+  for chunk in split(body, sizes):
+    meter.feed(chunk)
+  meter.end()
+  return meter
+
+
+SPLITS = [(), (1,), (2, 1), (1, 1, 1, 7), (5, 40)]
+OPENINGS = [
+  b": keepalive\n\n",
+  b"id: 7\nretry: 1000\n",
+  b"\xef\xbb\xbf",
+  b"event: x\n",
+]
+
+
+@pytest.mark.parametrize("sizes", SPLITS)
+@pytest.mark.parametrize("opening", OPENINGS)
+@pytest.mark.parametrize("channel", list(Channel))
+def test_a_stream_without_a_content_type_is_read_whatever_it_opens_with(
+  channel: Channel, opening: bytes, sizes: tuple[int, ...]
+):
+  body = opening + b"".join(events(channel))
+  meter = read_bare(channel, body, sizes)
+  assert meter.model == MODEL[channel]
+  assert meter.mode == "stream"
+  assert meter.usage != {}
+  assert meter.usage == read_bare(channel, body, ()).usage
+
+
+@pytest.mark.parametrize("sizes", SPLITS)
+def test_a_stream_with_crlf_lines_and_an_event_across_chunks_is_read(
+  sizes: tuple[int, ...],
+):
+  body = b"".join(events(Channel.CODEX)).replace(b"\n", b"\r\n")
+  meter = read_bare(Channel.CODEX, b": hi\r\n" + body, sizes)
+  assert meter.usage == CODEX_USAGE
+
+
+@pytest.mark.parametrize("sizes", SPLITS)
+@pytest.mark.parametrize("lead", [b"", b" \n"])
+def test_a_json_reply_without_a_content_type_is_read_as_json(
+  lead: bytes, sizes: tuple[int, ...]
+):
+  body = lead + json.dumps({"model": "m", "usage": CODEX_USAGE}).encode()
+  meter = read_bare(Channel.CODEX, body, sizes)
+  assert (meter.mode, meter.usage) == ("json", CODEX_USAGE)
+
+
+def test_a_reply_without_usage_names_its_first_field_and_how_it_was_read(
+  socket_dir: Path, capfd: pytest.CaptureFixture[str]
+):
+  path = socket_dir / "model.sock"
+  respond = bare(b": SECRET-WORDS\n\n", data({"type": "x", "delta": "SECRET"}))
+  with (
+    upstream(respond) as (base, _),
+    proxy.make_server(
+      Channel.CODEX,
+      path,
+      base,
+      "t",
+      spend=Spend(prices=PRICES, max_usd=10.0),
+    ) as server,
+  ):
+    _ = serving(server)
+    _ = call(path, ROUTE[Channel.CODEX])
+    assert wait_for(lambda: server.capped is not None)
+    server.shutdown()
+  err = capfd.readouterr().err
+  [line] = [x for x in err.splitlines() if "without usage:" in x]
+  assert line.endswith("read as stream, first field ''")
+  assert "SECRET" not in err
 
 
 def test_the_refuser_leaves_the_path_answering_while_it_takes_it_over(
