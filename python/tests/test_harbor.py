@@ -20,6 +20,7 @@ from typing import cast
 
 import pytest
 
+from dataforge.curation import harbor
 from dataforge.curation.actions import Limits, Mount, TrialAgent
 from dataforge.curation.harbor import (
   HarborRunner,
@@ -623,6 +624,29 @@ def test_the_reprs_leave_out_env(tmp_path: Path) -> None:
   assert "mounts=" in repr(setup)
   assert "s3cret" not in repr(runner)
   assert "s3cret" not in repr(setup)
+
+
+def test_a_trace_that_is_a_symlink_gives_no_cost(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  host = tmp_path / "host-trace.txt"
+  _ = host.write_text(json.dumps({"type": "result", "total_cost_usd": 0.75}))
+  env = {"FAKE_COST": "none", "FAKE_TRACE_LINK": str(host)}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.cost_usd == 0.0
+
+
+def test_a_trace_over_the_limit_gives_no_cost(
+  tmp_path: Path, fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  monkeypatch.setattr(harbor, "TRACE_LIMIT", 10)
+  env = {"FAKE_COST": "none", "FAKE_TRACE": "0.75"}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.cost_usd == 0.0
 
 
 def test_a_trace_that_is_a_symlink_is_not_given(
