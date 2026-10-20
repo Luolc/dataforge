@@ -85,6 +85,8 @@ export default function RunPage({
       {visit.actions.map((action, i) => (
         <ActionStep
           key={i}
+          project={project}
+          attempt={attempt}
           record={record}
           index={index}
           action={action}
@@ -198,11 +200,15 @@ function InputStep({
 }
 
 function ActionStep({
+  project,
+  attempt,
   record,
   index,
   action,
   open,
 }: {
+  project: Project;
+  attempt: string;
   record: AttemptRecord;
   index: number;
   action: Action;
@@ -244,7 +250,12 @@ function ActionStep({
       {isSession(record, index, action) && (
         <div className="mt-3">
           {trace ? (
-            <SessionView path={trace.path} format={trace.format} />
+            <SessionView
+              project={project}
+              attempt={attempt}
+              path={trace.path}
+              format={trace.format}
+            />
           ) : (
             <p className="text-fg-3">
               The record names no trace for this session.
