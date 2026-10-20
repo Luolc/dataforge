@@ -27,6 +27,17 @@ environment the dataset gives and knows no gateway or credential.
 (design: [`docs/design-viz.md`](../docs/design-viz.md)). It needs the extra `viz`, which brings
 FastAPI and uvicorn; `dataforge viz serve --config <site file> --static <built web/dist>` starts it.
 
+`dataforge.queue` is a queue of jobs on one machine: a job is a command, a queue name and the
+memory it declares, kept in one SQLite file. The dataset gives a queue file that names its queues
+and their caps, the machine's cap, and the `MemAvailable` and 1-minute load a start needs.
+`dataforge queue serve --config <queue file>` runs the scheduler, which starts each job in a
+session of its own under a wrapper that writes how it ended, so a scheduler started again takes
+the running jobs as they are. `dataforge queue submit`, `list` and `cancel`, and the functions
+`submit`, `jobs` and `cancel`, are how other processes use it. A job's command runs with the
+scheduler's environment, not the submitter's; one that needs a PATH or a credential sets it up
+itself. A systemd unit that runs the scheduler needs `KillMode=process`, so that stopping or
+restarting it leaves the jobs running.
+
 A dataset repository depends on it at a commit of main:
 
 ```toml
