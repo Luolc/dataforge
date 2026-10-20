@@ -102,6 +102,19 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
       ),
       r"deliverables\[1\]\.name: 't' repeated",
     ),
+    (
+      ("name: Example", "name: Example\ntrials: {diff: ../x.diff}"),
+      r"trials\.diff: '\.\./x\.diff' is not",
+    ),
+    (
+      ("name: Example", "name: Example\ntrials: {diff: /x.diff}"),
+      r"trials\.diff: '/x\.diff' is not",
+    ),
+    (("name: Example", "name: Example\ntrials: {}"), r"trials\.diff: missing"),
+    (
+      ("name: Example", "name: Example\ntrials: {diff: x, glob: y}"),
+      r"trials\.glob: unknown key",
+    ),
   ],
 )
 def test_a_project_file_that_breaks_a_rule_is_refused(

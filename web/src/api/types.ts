@@ -32,6 +32,8 @@ const project = z.looseObject({
       z.looseObject({ name: z.string(), kind: z.string(), title: z.string() }),
     )
     .optional(),
+  // A trial's diff, relative to its directory.
+  trials: z.looseObject({ diff: z.string() }).nullable().optional(),
 });
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];

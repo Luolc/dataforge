@@ -109,6 +109,8 @@ class Project:
     lock: The path of the lock file in an item's directory; None when the
       dataset names none.
     deliverables: The deliverables an attempt has once it ends, in order.
+    trial_diff: The path of a trial's diff in its directory; None when the
+      dataset names none.
   """
 
   id: str
@@ -125,6 +127,7 @@ class Project:
   not_ended: tuple[str, ...] | None = None
   lock: tuple[str, ...] | None = None
   deliverables: tuple[Deliverable, ...] = ()
+  trial_diff: tuple[str, ...] | None = None
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
@@ -150,6 +153,9 @@ class Project:
         {"name": d.name, "kind": d.kind, "title": d.title}
         for d in self.deliverables
       ],
+      "trials": None
+      if self.trial_diff is None
+      else {"diff": "/".join(self.trial_diff)},
     }
 
 
@@ -246,6 +252,7 @@ def load_project(path: Path) -> Project:
       "not_ended",
       "lock",
       "deliverables",
+      "trials",
     },
   )
   id_ = _str(path, "id", data["id"])
@@ -273,6 +280,7 @@ def load_project(path: Path) -> Project:
     if data.get("lock") is None
     else _relative(path, "lock", _str(path, "lock", data["lock"])),
     deliverables=_deliverables(path, data.get("deliverables")),
+    trial_diff=_trial_diff(path, data.get("trials")),
   )
 
 
@@ -454,6 +462,16 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
       raise ConfigError(f"{path}: {where}.name: {name!r} repeated")
     found.append(Deliverable(name, kind, title))
   return tuple(found)
+
+
+def _trial_diff(path: Path, value: object) -> tuple[str, ...] | None:
+  if value is None:
+    return None
+  mapping = _mapping(path, "trials", value)
+  _keys(path, "trials", mapping, required={"diff"}, optional=set())
+  return _relative(
+    path, "trials.diff", _str(path, "trials.diff", mapping["diff"])
+  )
 
 
 def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:

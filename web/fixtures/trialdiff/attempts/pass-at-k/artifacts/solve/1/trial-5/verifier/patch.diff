@@ -1,0 +1,25 @@
+diff --git a/tinyparse/stream.py b/tinyparse/stream.py
+index 7a0e3f1..b2c94d8 100644
+--- a/tinyparse/stream.py
++++ b/tinyparse/stream.py
+@@ -3,6 +3,6 @@
+ # A header block ends at the first empty line; a line of two dashes
+ # separates blocks in a multipart body.
+--- a block separator
+-SEPARATOR = "--"
++++ a block separator, kept as written
++SEPARATOR = "--\n"
+ 
+ 
+diff --git a/tinyparse/fold.py b/tinyparse/fold.py
+new file mode 100644
+index 0000000..f3e1a29
+--- /dev/null
++++ b/tinyparse/fold.py
+@@ -0,0 +1,6 @@
++"""Continuation lines of a header block."""
++
++
++def unfold(value, line):
++    """Join a continuation line to the value before it."""
++    return f"{value} {line.strip()}"

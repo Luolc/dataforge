@@ -1,0 +1,18 @@
+# Synthetic trials that left a diff, for the trials view's Diff tab: the
+# attempt of p3's pass-at-k, made up and run nowhere, with a made-up
+# `verifier/patch.diff` in trials 1, 2 and 5; trials 3 and 4 left none.
+id: trialdiff
+name: Trial diff samples
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*"
+record: record.json
+states:
+  solve: { title: Pass@k }
+statuses:
+  passed: { label: Passed, tone: good }
+  in_range: { label: In range, tone: good }
+item: { depth: 1, title: Task }
+columns: []
+session: { thinking: collapsed }
+trials: { diff: verifier/patch.diff }

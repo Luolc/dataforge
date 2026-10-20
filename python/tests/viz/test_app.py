@@ -143,6 +143,7 @@ def test_projects_leave_out_where_the_files_are(
     "session": {"thinking": "collapsed"},
     "not_ended": None,
     "deliverables": [],
+    "trials": None,
   }
 
 
@@ -172,6 +173,16 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
     {"name": "task", "kind": "files", "title": "Task"},
     {"name": "review", "kind": "report", "title": "Review"},
   ]
+
+
+def test_projects_carry_the_trial_diff(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(PROJECT + "trials: {diff: verifier/patch.diff}\n")
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["trials"] == {"diff": "verifier/patch.diff"}
 
 
 def test_attempts_are_newest_first_with_their_values(
