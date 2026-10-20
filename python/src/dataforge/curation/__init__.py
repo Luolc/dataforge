@@ -46,6 +46,7 @@ from dataforge.curation.engine import (
   Visit,
 )
 from dataforge.curation.harbor import HarborRunner, TrialSetup
+from dataforge.curation.loader import load, SpecError
 from dataforge.curation.rubric import Review
 from dataforge.curation.states import (
   AgentState,
@@ -94,6 +95,7 @@ __all__ = [
   "RubricState",
   "ScriptSpec",
   "ScriptState",
+  "SpecError",
   "Staged",
   "State",
   "TrialAgent",
@@ -106,4 +108,5 @@ __all__ = [
   "Version",
   "Visit",
   "fan_out",
+  "load",
 ]
