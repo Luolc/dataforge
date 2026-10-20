@@ -11,6 +11,7 @@ from typing import cast
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from dataforge.viz import live
 from dataforge.viz.config import Project, Site, split_relative
 from dataforge.viz.paths import (
   FILE_LIMIT,
@@ -76,6 +77,7 @@ class _Api:
     project = self._project(p)
     rows = [_row(project, attempt) for attempt in list_attempts(project)]
     rows.sort(key=lambda r: cast(str, r["modified"] or ""), reverse=True)
+    live.mark(project, rows)
     return JSONResponse(rows)
 
   def record(self, p: str, attempt: str | None = None) -> Response:
@@ -152,6 +154,7 @@ def _row(project: Project, attempt: str) -> dict[str, object]:
     "ended_at": None,
     "rounds": None,
     "values": None,
+    "live": None,
     "error": None,
   }
   try:
@@ -180,14 +183,18 @@ def _row(project: Project, attempt: str) -> dict[str, object]:
     for a in _list(v.get("actions"))
     if isinstance(a, dict)
   ]
+  status = _str(_field(data, ("status",)))
+  outcome = _str(visits[-1].get("outcome")) if visits else None
+  ended = live.has_ended(project, status, outcome)
   return row | {
-    "status": _str(_field(data, ("status",))),
+    "status": status,
     "reason": _str(_field(data, ("reason",))),
     "cost_usd": _number(_field(data, ("budget", "cost_usd"))),
     "started_at": _str(actions[0].get("started_at")) if actions else None,
     "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
     "rounds": _rounds(visits),
     "values": [_field(data, c.field) for c in project.columns],
+    "live": None if ended else live.NOT_ENDED,
   }
 
 
