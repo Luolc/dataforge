@@ -1,15 +1,18 @@
 // The trials view: a deliverable's trials on the left, headed by its value and
-// its visit's outcome; on the right the chosen trial's numbers and its trace in
-// the session view.
+// its visit's outcome; on the right the chosen trial's numbers, then its trace
+// in the session view and its diff, each in a tab.
+import { Tabs } from "radix-ui";
 import { type ReactNode, useState } from "react";
 
 import type { Action, Tone, Trial } from "../../api/types";
 import { SessionView } from "../../session";
 import { Note } from "../../ui/card";
+import { DiffView } from "../../ui/diff";
 import { duration, span, usd } from "../../ui/format";
 import { attemptStatus, toneGlyph, toneText } from "../../ui/status";
 import { StatusLabel } from "../../ui/status-mark";
 import { DeliverableCard } from "../DeliverableCard";
+import { size, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
 
 // A trial's status words, the only place they are named.
@@ -69,6 +72,7 @@ export default function TrialsView({
 }: DeliverableProps) {
   const trials = deliverable.trials ?? [];
   const [chosen, setChosen] = useState(trials[0]?.id);
+  const [pane, setPane] = useState<Pane>("trace");
   if (deliverable.path === null) return <DeliverableCard item={deliverable} />;
   if (trials.length === 0)
     return <Note>This deliverable lists no trials.</Note>;
@@ -132,22 +136,34 @@ export default function TrialsView({
           }
           project={project}
           attempt={attempt}
+          pane={pane}
+          onPane={setPane}
         />
       )}
     </div>
   );
 }
 
+type Pane = "trace" | "diff";
+const PANES: { key: Pane; title: string }[] = [
+  { key: "trace", title: "Trace" },
+  { key: "diff", title: "Diff" },
+];
+
 function TrialPane({
   trial,
   action,
   project,
   attempt,
+  pane,
+  onPane,
 }: {
   trial: Trial;
   action: Action | undefined;
   project: DeliverableProps["project"];
   attempt: string;
+  pane: Pane;
+  onPane: (pane: Pane) => void;
 }) {
   const seconds =
     action === undefined ? null : span(action.started_at, action.ended_at);
@@ -170,21 +186,103 @@ function TrialPane({
           </span>
         </Field>
       </dl>
-      {trial.trace === null ? (
-        <Note>This trial recorded no trace.</Note>
+      <Tabs.Root
+        value={pane}
+        onValueChange={(value) => {
+          onPane(value === "diff" ? "diff" : "trace");
+        }}
+        className="flex flex-col gap-4"
+      >
+        <Tabs.List
+          aria-label="Trial"
+          className="flex h-9 gap-1 border-b border-line"
+        >
+          {PANES.map((p) => (
+            <Tabs.Trigger
+              key={p.key}
+              value={p.key}
+              className="relative flex target items-center px-3 font-medium text-fg-2 hover:text-fg data-[state=active]:text-fg data-[state=active]:after:absolute data-[state=active]:after:inset-x-1.5 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent"
+            >
+              {p.title}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+        {/* Kept mounted, so going back to Trace keeps what was opened in it. */}
+        <Tabs.Content value="trace" forceMount hidden={pane !== "trace"}>
+          {trial.trace === null ? (
+            <Note>This trial recorded no trace.</Note>
+          ) : (
+            <SessionView
+              project={project}
+              attempt={attempt}
+              path={trial.trace.path}
+              format={trial.trace.format}
+              badge={
+                <span className="flex items-center gap-2">
+                  <span className="font-mono text-sm text-fg">{trial.id}</span>
+                  <TrialStatus trial={trial} reward />
+                </span>
+              }
+            />
+          )}
+        </Tabs.Content>
+        <Tabs.Content value="diff">
+          <TrialDiff project={project} attempt={attempt} trial={trial} />
+        </Tabs.Content>
+      </Tabs.Root>
+    </div>
+  );
+}
+
+/** The trial's diff, at the project's trials.diff under the trial's path. */
+function TrialDiff({
+  project,
+  attempt,
+  trial,
+}: {
+  project: DeliverableProps["project"];
+  attempt: string;
+  trial: Trial;
+}) {
+  const relative = project.trials?.diff ?? null;
+  const path =
+    relative === null
+      ? null
+      : trial.path === ""
+        ? relative
+        : `${trial.path}/${relative}`;
+  const loaded = useFile(project.id, attempt, path);
+  if (path === null)
+    return <Note>The project names no diff for its trials.</Note>;
+  if (loaded.state === "loading") return <Note>Loading…</Note>;
+  if (loaded.state === "error") return <Note>{loaded.message}</Note>;
+  const content = loaded.data;
+  if (content.kind === "missing") {
+    return (
+      <Note>
+        This trial recorded no diff.
+        <span className="mt-1 block font-mono text-xs break-all">
+          {content.reason}
+        </span>
+      </Note>
+    );
+  }
+  if (content.kind === "too-large")
+    return <Note>{`Not shown: ${content.reason}`}</Note>;
+  if (content.kind === "binary")
+    return <Note>{`Not shown: not UTF-8 text, ${size(content.size)}.`}</Note>;
+  return (
+    <div className="min-w-0 rounded-panel border border-line bg-panel">
+      <header className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-2.5">
+        <h3 className="font-mono text-xs break-all">{path}</h3>
+        <span className="flex-none text-xs text-fg-3 tabular-nums">
+          {size(content.size)}
+        </span>
+      </header>
+      {content.text === "" ? (
+        <Note>The diff is empty: the trial changed nothing.</Note>
       ) : (
-        <SessionView
-          project={project}
-          attempt={attempt}
-          path={trial.trace.path}
-          format={trial.trace.format}
-          badge={
-            <span className="flex items-center gap-2">
-              <span className="font-mono text-sm text-fg">{trial.id}</span>
-              <TrialStatus trial={trial} reward />
-            </span>
-          }
-        />
+        <DiffView text={content.text} />
       )}
     </div>
   );

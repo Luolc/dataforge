@@ -22,6 +22,7 @@ import {
 } from "../../../ui/status";
 import { attemptHref } from "../../attempt/href";
 import { KindLine } from "../../registry";
+import { carried } from "../resumed/resumed";
 import { Graph } from "./Graph";
 import { layout } from "./graph";
 
@@ -40,16 +41,16 @@ export function Summary({ project, attempt, record }: Props) {
       <TopRow project={project} record={record} />
       <Card
         title="State machine"
-        aside={`${record.visits.length} runs · solid arrows are the transitions this attempt took`}
+        aside={`${record.visits.length} runs · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
         flush
       >
-        <div className="rounded-b-panel bg-app px-3 pt-2 pb-1">
-          {machine ? (
-            <Graph layout={machine} runHref={runHref} />
-          ) : (
-            <p className="p-4 text-fg-3">This record has no graph.</p>
-          )}
-        </div>
+        {machine ? (
+          <Graph project={project} layout={machine} runHref={runHref} />
+        ) : (
+          <p className="rounded-b-panel bg-app p-4 text-fg-3">
+            This record has no graph.
+          </p>
+        )}
       </Card>
       <Summaries project={project} record={record} runHref={runHref} />
       <Deliverables project={project} attempt={attempt} record={record} />
@@ -72,6 +73,7 @@ function TopRow({
     started !== undefined && ended !== undefined ? span(started, ended) : null;
   const status = statusOf(project, attemptStatus(project, record));
   const budget = record.budget;
+  const carry = carried(record);
   const items = [
     { key: "Started", value: started === undefined ? "—" : time(started) },
     {
@@ -84,11 +86,20 @@ function TopRow({
     },
     {
       key: "Cost",
-      value: !budget
-        ? "This record has no budget."
-        : budget.max_usd === null
-          ? usd(budget.cost_usd)
-          : `${usd(budget.cost_usd)} of ${usd(budget.max_usd)}`,
+      value: !budget ? (
+        "This record has no budget."
+      ) : (
+        <>
+          {budget.max_usd === null
+            ? usd(budget.cost_usd)
+            : `${usd(budget.cost_usd)} of ${usd(budget.max_usd)}`}
+          {carry.usd > 0 && (
+            <span className="block text-xs font-normal text-fg-3">
+              {`${usd(carry.usd)} carried over ${carry.count.toString()} ${carry.count === 1 ? "resumption" : "resumptions"}`}
+            </span>
+          )}
+        </>
+      ),
     },
     { key: "Deliverables", value: record.deliverables?.length ?? "—" },
   ];

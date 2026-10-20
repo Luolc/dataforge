@@ -155,6 +155,12 @@ describe("an action's fields", () => {
       within(stepAt(1)).getByText("artifacts/solve/1/trial-1/trace.jsonl"),
     ).toBeVisible();
   });
+
+  it("an agent's session shows the trace its action names", () => {
+    show(records.resumed, 0);
+
+    expect(within(stepAt(1)).getByText("runs/author-1.jsonl")).toBeVisible();
+  });
 });
 
 describe("the input and the output", () => {
