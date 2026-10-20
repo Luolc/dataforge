@@ -105,6 +105,7 @@ environments:
     memory_swap_gb: 4
     pids: 1024
     network: true
+    fresh: true
     labels: {demo.run: r1}
     security: [no-new-privileges]
     cap_drop: [ALL]
@@ -270,6 +271,7 @@ def test_environments_and_runners_load_as_they_would_by_hand(
         memory_swap_gb=4,
         pids=1024,
         network=True,
+        fresh=True,
         labels={"demo.run": "r1"},
         security=("no-new-privileges",),
         cap_drop=("ALL",),
