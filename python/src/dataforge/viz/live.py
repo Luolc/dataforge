@@ -105,12 +105,13 @@ def is_held(
 
 
 def mark(project: Project, rows: list[dict[str, object]]) -> None:
-  """Set live on the listing's rows that have not ended.
+  """Set held on every row of the listing, and live on those not ended.
 
-  Without a lock file, each stays "not ended". With one, a row is "running"
-  only when its item's lock is held and it is the item's newest attempt by
-  modified, since one lock covers the whole item; every other is "may have
-  stopped".
+  Without a lock file, held stays None and live "not ended". With one, held
+  says whether the row's item's lock is held, a record that cannot be read
+  included, and a row not ended is "running" only when its item's lock is
+  held and it is the item's newest attempt by modified, since one lock covers
+  the whole item; every other is "may have stopped".
 
   Args:
     project: The project.
@@ -121,14 +122,17 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
   if project.lock is None:
     return
   held = read_held_locks()
+  locked: dict[str, bool] = {}
   seen: set[str] = set()
   for row in rows:
+    item = str(row["item"])
+    if item not in locked:
+      locked[item] = is_held(project, item, held)
+    row["held"] = locked[item]
     if row["error"] is not None:
       continue
-    item = str(row["item"])
     newest = item not in seen
     seen.add(item)
     if row["live"] is None:
       continue
-    running = newest and is_held(project, item, held)
-    row["live"] = RUNNING if running else MAY_HAVE_STOPPED
+    row["live"] = RUNNING if newest and locked[item] else MAY_HAVE_STOPPED

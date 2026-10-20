@@ -62,6 +62,19 @@ export function rowStatus(row: AttemptRow): string | null {
   return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : NO_STATUS_KEY;
 }
 
+/**
+ * Whether an attempt is empty, which the page hides unless asked and labels
+ * an older record: its record cannot be read, or it has no status and no
+ * visit, and it is not live and its item's lock is not held, so where the
+ * project has a lock, an attempt that has just started and has not written
+ * its record yet stays shown.
+ */
+export const isEmptyAttempt = (row: AttemptRow): boolean =>
+  row.held !== true &&
+  (row.live ?? null) === null &&
+  (row.error !== null ||
+    (row.status === null && (row.rounds ?? []).length === 0));
+
 /** An attempt's seconds from start to end; null until it ends. */
 export function rowSeconds(row: AttemptRow): number | null {
   if (notEnded(row) || row.started_at === null || row.ended_at === null)
