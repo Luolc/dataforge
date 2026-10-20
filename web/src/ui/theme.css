@@ -54,21 +54,21 @@
 
   --color-app: #d1dcc8;
   --color-panel: #dde6d5;
-  --color-hover: #d3dccb;
-  --color-active: #c9d4bf;
+  --color-hover: #e5ecde;
+  --color-active: #eef2e9;
   --color-line: #b5c4aa;
   --color-line-subtle: #d3dccb;
   --color-fg: #23301f;
   --color-fg-2: #46533f;
-  --color-fg-3: #5a6754;
+  --color-fg-3: #55624f;
   --color-faint: #7d8a77;
   --color-icon: #5a6754;
   --color-accent: #7d3a1e;
   --color-focus: var(--color-accent);
   --color-code-bg: #f3f6ef;
 
-  /* Each tone's text is at least 4.5:1 on panel, code-bg and its own -bg
-     (theme.test.ts); on-tone is the glyph drawn on a tone's fill. */
+  /* Each tone's text is at least 4.5:1 on panel, hover, active, code-bg and
+     its own -bg (theme.test.ts); on-tone is the glyph drawn on a tone's fill. */
   --color-good: #2f6b2a;
   --color-good-bg: #d5e4cd;
   --color-bad: #a8323c;

@@ -66,11 +66,21 @@ describe("the theme's tokens", () => {
 
   it.each(
     tones.flatMap((tone) =>
-      ["panel", "code-bg", `${tone}-bg`].map((bg) => [tone, bg]),
+      ["panel", "hover", "active", "code-bg", `${tone}-bg`].map((bg) => [
+        tone,
+        bg,
+      ]),
     ),
   )("give %s text at least 4.5:1 on %s", (tone = "", bg = "") => {
     expect(contrast(color(tone), color(bg))).toBeGreaterThanOrEqual(4.5);
   });
+
+  it.each(["app", "panel", "hover", "active"])(
+    "give the faintest body text, fg-3, at least 4.5:1 on %s",
+    (bg) => {
+      expect(contrast(color("fg-3"), color(bg))).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 
   it.each(tones)("draw the on-tone glyph at least 3:1 on a %s fill", (tone) => {
     expect(contrast(color("on-tone"), color(tone))).toBeGreaterThanOrEqual(3);
