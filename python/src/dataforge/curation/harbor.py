@@ -628,6 +628,10 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
         os.killpg(process.pid, signal.SIGKILL)
       _ = process.wait()
       raise
+  # What Harbor started after the SIGTERM never got it and can outlive Harbor.
+  # While any of them runs, the group keeps its ID, so this reaches only them.
+  with suppress(ProcessLookupError):
+    os.killpg(process.pid, signal.SIGKILL)
 
 
 def _read(
