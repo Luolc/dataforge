@@ -718,3 +718,11 @@ def test_a_name_claude_would_hash_is_left(
   claude.remove_project_dir(cwd, env)
   assert kept.is_dir()
   assert "not known to be this session's" in caplog.text
+
+
+def test_a_sessions_repr_leaves_out_its_env() -> None:
+  session = claude.Session(
+    model="m", effort="e", max_budget_usd=1, env={"MODEL_TOKEN": "s3cret"}
+  )
+  assert "model='m'" in repr(session)
+  assert "s3cret" not in repr(session)

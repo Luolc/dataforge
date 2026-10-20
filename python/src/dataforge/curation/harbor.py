@@ -115,12 +115,12 @@ class TrialSetup:
   Attributes:
     mounts: Added to the runner's mounts.
     env: Added to the runner's env; its variables replace the runner's of the
-      same name.
+      same name. Left out of the repr, as its values may be credentials.
     compose_overlay: Added to the runner's compose_overlay.
   """
 
   mounts: Sequence[Mount] = ()
-  env: Mapping[str, str] = field(default_factory=dict[str, str])
+  env: Mapping[str, str] = field(default_factory=dict[str, str], repr=False)
   compose_overlay: Sequence[Path] = ()
 
 
@@ -149,7 +149,7 @@ class HarborRunner:
     mounts: Go to the task's container.
     env: Go to the task's container and to Harbor, whose agents read some
       variables from their own environment. The overlay names the variables
-      without their values.
+      without their values, and the repr leaves them out.
     compose_overlay: Compose files that come after ours, so they can override
       it; one that names the container's network (`network_mode: none`, say)
       takes it off Harbor's egress sidecar.
@@ -172,7 +172,7 @@ class HarborRunner:
   sidecar: Sidecar = Sidecar()
   timeout: float = TIMEOUT
   mounts: Sequence[Mount] = ()
-  env: Mapping[str, str] = field(default_factory=dict[str, str])
+  env: Mapping[str, str] = field(default_factory=dict[str, str], repr=False)
   compose_overlay: Sequence[Path] = ()
   setup: (
     Callable[
