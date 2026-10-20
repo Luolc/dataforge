@@ -43,7 +43,7 @@ The schema, version 1:
         #   continue_session, min_fix_usd, serve, spent
         # harbor: harbor, cpus, cpu_shares, pids, sidecar {cpus, memory_mb},
         #   timeout, mounts, env, pass_env, compose_overlay [<path> | <hook>],
-        #   setup, docker
+        #   setup, docker; not verifier, which only Python sets
   states:
     <name>:
       uses: agent | script | judge | trial | pass-at-k | trials | rubric
@@ -1173,7 +1173,11 @@ _HARBOR: dict[str, _Read] = {
   "setup": _Loader.callable_hook,
   "docker": _Loader.string,
 }
-"""HarborRunner's fields besides harbor, env and pass_env."""
+"""HarborRunner's fields besides harbor, env, pass_env and verifier.
+
+Only Python sets verifier; a declaration that names it is refused as an
+unknown field.
+"""
 
 
 def _harbor(loader: _Loader, value: Mapping[str, object], at: str) -> object:
