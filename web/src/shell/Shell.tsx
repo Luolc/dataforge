@@ -96,7 +96,7 @@ export function Frame({
               {crumb.to !== undefined && i < crumbs.length - 1 ? (
                 <Link
                   to={crumb.to}
-                  className="flex target items-center rounded-row px-1.5 whitespace-nowrap text-fg-2 hover:bg-hover hover:text-fg"
+                  className="flex target items-center rounded-row px-1.5 whitespace-nowrap link hover:underline"
                 >
                   {crumb.label}
                 </Link>
