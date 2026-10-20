@@ -1400,7 +1400,9 @@ def _drop_escaping_links(root: Path, what: str) -> list[str]:
   """Remove each symlink under root that resolves, or may, outside root.
 
   root must be out of reach of whoever wrote it, so that nothing changes
-  while it is checked. A link is kept only when resolving it, through any
+  while it is checked, and owned by this process: each directory in it is
+  first given its owner's rwx, so that none can hide a link from the check
+  or the copy's cleanup. A link is kept only when resolving it, through any
   link it passes, never leaves root; one that passes a missing name is
   judged as if that name were a directory there, so that what is put there
   later, itself checked the same way, cannot lead out either.
@@ -1412,6 +1414,7 @@ def _drop_escaping_links(root: Path, what: str) -> list[str]:
   Returns:
     A line for each symlink removed.
   """
+  _let_owner_in(root)
   links = [
     Path(top, name)
     for top, dirs, files in os.walk(root, onerror=_fail)
@@ -1427,6 +1430,14 @@ def _drop_escaping_links(root: Path, what: str) -> list[str]:
     f"{what}: removed symlink {link.relative_to(root)} -> {to}: it leads out"
     for link, to in escaping.items()
   ]
+
+
+def _let_owner_in(path: Path) -> None:
+  path.chmod(stat.S_IMODE(path.lstat().st_mode) | stat.S_IRWXU)
+  with os.scandir(path) as entries:
+    for entry in entries:
+      if entry.is_dir(follow_symlinks=False):
+        _let_owner_in(Path(entry.path))
 
 
 def _fail(error: OSError) -> None:

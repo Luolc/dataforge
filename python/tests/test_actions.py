@@ -700,7 +700,7 @@ def test_collect_keeps_a_symlink_that_stays_inside(
   assert "removed symlink" not in log
 
 
-def test_collect_fails_on_a_directory_it_cannot_list(tmp_path: Path) -> None:
+def test_collect_checks_a_directory_it_cannot_list(tmp_path: Path) -> None:
   hostdir = tmp_path / "host"
   hostdir.mkdir()
   _ = (hostdir / "secret").write_text("host-only")
@@ -719,21 +719,36 @@ def test_collect_fails_on_a_directory_it_cannot_list(tmp_path: Path) -> None:
 
   docker = LockingDocker(tmp_path / "container")
   outdirs: list[Path] = []
+  logs: list[str] = []
   with Docker("author:1", cli=docker) as env:
 
     def body(ctx: Context) -> Outcome:
       outdirs.append(ctx.outdir)
       agent = LinkingAgent(docker.path, {})
       spec = AgentSpec("Write.", tmp_path, outputs=["sub"])
-      with pytest.raises(PermissionError):
-        _ = Actions(agent_runner=agent).agent(ctx, spec, env)
-      return Outcome("ok")
+      result = Actions(agent_runner=agent).agent(ctx, spec, env)
+      logs.append(result.log)
+      return Outcome(result.status)
 
     once(tmp_path, body)
   with pytest.raises(OSError):
     _ = (outdirs[0] / "sub" / "locked" / "leak").read_text()
-  for locked in outdirs[0].parent.glob(".*/sub/locked"):
-    locked.chmod(0o700)
+  assert "outputs: removed symlink sub/locked/leak" in logs[0]
+  assert [path.name for path in outdirs[0].parent.iterdir()] == ["1"]
+
+
+def test_collect_from_a_mount_fails_on_a_file_it_cannot_read(
+  tmp_path: Path,
+) -> None:
+  def make(outdir: Path) -> dict[str, str]:
+    unreadable = tmp_path / "out" / "unreadable"
+    _ = unreadable.write_text("the container's")
+    unreadable.chmod(0)
+    return {}
+
+  with pytest.raises(PermissionError):
+    _ = collect_links(tmp_path, True, make)
+  assert not list((tmp_path / "attempt").glob("artifacts/a/.*"))
 
 
 @pytest.mark.parametrize("kind", ["file", "directory"])
