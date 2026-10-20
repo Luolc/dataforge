@@ -472,6 +472,29 @@ def test_trials_state_runs_on_each_task_of_a_directory(tmp_path: Path) -> None:
     }
 
 
+def test_trials_state_with_a_judge_takes_its_verdict(tmp_path: Path) -> None:
+  script = tmp_path / "judge.py"
+  _ = script.write_text(JUDGE)
+  names = ["nop-0", "solver-0", "solver-1"]
+  trials = Trials({name: result(0.0, "docker died") for name in names})
+  state = TrialsState(
+    "t",
+    {"easy": End("too_easy")},
+    actions=Actions(trial_runner=trials),
+    task_dir=tmp_path,
+    agents={"nop": 1, "solver": 2},
+    limits=Limits(1.0),
+    judge=Judge(ScriptSpec([sys.executable, "-I", str(script)])),
+    rename={"too_easy": "easy"},
+  )
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert attempt.status == "too_easy"
+  assert attempt.visits[0].data["args"] == names
+  assert attempt.visits[0].data["actions"] == ["trial"] * 3
+  kinds = [(a.kind, a.status) for a in attempt.visits[0].actions]
+  assert kinds[-1] == ("judge", "ok")
+
+
 LOG_JUDGE = """\
 import json, os, pathlib, sys
 log = pathlib.Path(sys.argv[1]).read_text().strip()
@@ -583,6 +606,16 @@ def test_each_state_names_the_outcomes_it_may_give_after_rename(
     "trials": TrialsState(
       "s", {}, actions=actions, task_dir="t", agents={"nop": 1}, limits=limits
     ),
+    "trials_judged": TrialsState(
+      "s",
+      {},
+      actions=actions,
+      task_dir="t",
+      agents={"nop": 1},
+      limits=limits,
+      judge=Judge(spec, ["pass", "fail"]),
+      rename={"fail": "worse"},
+    ),
     "judge": JudgeState(
       "s", {}, actions=actions, judge=Judge(spec, ["pass", "fail"])
     ),
@@ -604,6 +637,7 @@ def test_each_state_names_the_outcomes_it_may_give_after_rename(
     "pass_at_k_judged": {"fine", "worse"},
     "pass_at_k_judged_any": None,
     "trials": {"ok", "error"},
+    "trials_judged": {"pass", "worse"},
     "judge": {"pass", "fail"},
     "judge_any": None,
     "rubric": {"pass", "fail"},

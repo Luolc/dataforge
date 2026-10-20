@@ -978,7 +978,7 @@ def _trials(
     value,
     at,
     required={"task_dir", "agents", "limits"},
-    optional={"configs", "each_task"},
+    optional={"configs", "each_task", "judge"},
   )
   agents = {
     name: loader.integer(n, f"{at}.agents.{name}", minimum=1)
@@ -990,6 +990,7 @@ def _trials(
       fields.get("configs", {}), f"{at}.configs"
     ).items()
   }
+  judge = fields.get("judge")
   return {
     "task_dir": loader.input_ref(fields["task_dir"], f"{at}.task_dir"),
     "agents": agents,
@@ -998,6 +999,7 @@ def _trials(
     "each_task": loader.boolean(
       fields.get("each_task", False), f"{at}.each_task"
     ),
+    "judge": None if judge is None else loader.judge(judge, f"{at}.judge"),
   }
 
 

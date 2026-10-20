@@ -493,6 +493,24 @@ def test_a_state_that_does_not_name_its_outcomes_takes_any_transitions() -> (
   assert load_doc(doc).states[1].possible_outcomes() is None
 
 
+def test_a_trials_state_may_take_a_judge() -> None:
+  doc = base()
+  states_of(doc)["check"] = {
+    "uses": "trials",
+    "with": {
+      "task_dir": "out",
+      "agents": {"nop": 1},
+      "limits": {"memory_gb": 1},
+      "judge": {"argv": ["judge"], "outcomes": ["pass", "fail"]},
+    },
+    "transitions": {"pass": {"end": "passed"}, "fail": {"goto": "make"}},
+  }
+  check = load_doc(doc).states[1]
+  assert isinstance(check, TrialsState)
+  assert check.judge == Judge(ScriptSpec(("judge",)), ("pass", "fail"))
+  assert check.possible_outcomes() == {"pass", "fail"}
+
+
 def test_rename_sets_the_outcomes_the_transitions_must_cover() -> None:
   doc = base()
   make = states_of(doc)["make"]
