@@ -2,13 +2,16 @@
 
 Invariant 27: a 429 or a quota refusal of a channel holds that channel's calls
 only, the pause stops for good as `Backoff` and `REFUSALS` say, and `sessions`
-caps each channel's proxies.
+caps each channel's proxies; the pause, its stop and the slots are those of
+every process of the machine, and a killed process's slot is given back.
 """
 
 import contextlib
 from http.server import BaseHTTPRequestHandler
 import json
 from pathlib import Path
+import subprocess
+import sys
 import threading
 import time
 from typing import cast
@@ -29,6 +32,7 @@ from dataforge.gateway import (
   sessions,
   trial_setup,
 )
+from dataforge.leases import Lease
 from tests.gateway.fakes import (
   call,
   executable,
@@ -37,6 +41,7 @@ from tests.gateway.fakes import (
   serving,
   upstream,
 )
+from tests.processes import holding, kill
 
 ROUTE = {
   Channel.CLAUDE: "/v1/messages",
@@ -301,6 +306,26 @@ def test_a_pause_that_would_pass_the_limit_stops_at_once(
   assert found.remaining() == 0
 
 
+@pytest.mark.parametrize(
+  ("gap_s", "pause_s"), [(10, 120), (2 * pause.LAPSE_S, 60)]
+)
+def test_a_run_no_call_went_on_with_for_lapse_s_is_over(
+  monkeypatch: pytest.MonkeyPatch, gap_s: float, pause_s: float
+):
+  # A 429 `gap_s` after the last pause ended goes on with its run, or, past
+  # `LAPSE_S`, as after a process that left the run ended, starts a new one,
+  # though the old run's start is past `limit_s`.
+  clock = [1_000_000.0]
+  monkeypatch.setattr(time, "time", lambda: clock[0])
+  backoff = Backoff(start_s=60, max_s=900, limit_s=2 * pause.LAPSE_S)
+  with pausing(backoff) as pauses:
+    assert pauses[Channel.CLAUDE].limited()
+  clock[0] += 60 + gap_s
+  with pausing(backoff) as pauses:
+    assert pauses[Channel.CLAUDE].limited()
+    assert pauses[Channel.CLAUDE].remaining() == pause_s
+
+
 @pytest.mark.parametrize("capped", [True, False])
 @pytest.mark.usefixtures("launcher")
 def test_at_most_limit_proxies_of_each_channel_run_at_once(
@@ -329,3 +354,66 @@ def test_at_most_limit_proxies_of_each_channel_run_at_once(
       thread.join(20)
   assert both is not capped
   assert up["second"].is_set()
+
+
+SLOT = """
+import sys
+from dataforge.gateway import Channel, sessions
+from dataforge.gateway.pause import slots
+with sessions(int(sys.argv[1])):
+  slot = slots(Channel.CLAUDE).take()
+  print("held", flush=True)
+  sys.stdin.read()
+"""
+
+
+def test_sessions_count_every_processs_until_it_is_killed():
+  # Two other processes hold both slots of `CLAUDE`; this one gets one once
+  # one of them is killed, and one of `CODEX` at once.
+  taken = threading.Event()
+  with holding(SLOT, "2") as first, holding(SLOT, "2"), sessions(2):
+    claude, codex = pause.slots(Channel.CLAUDE), pause.slots(Channel.CODEX)
+    assert claude is not None and codex is not None
+    codex.take().release()
+    got: list[Lease] = []
+    thread = threading.Thread(
+      target=lambda: (got.append(claude.take()), taken.set()), daemon=True
+    )
+    thread.start()
+    assert not taken.wait(1)
+    kill(first)
+    assert taken.wait(10)
+    got[0].release()
+
+
+LIMITED = """
+import sys
+from dataforge.gateway import Backoff, Channel, pausing
+backoff = Backoff(start_s=float(sys.argv[1]), limit_s=float(sys.argv[2]))
+with pausing(backoff) as pauses:
+  pauses[Channel.CLAUDE].limited()
+"""
+
+
+def got_429(start_s: float, limit_s: float) -> None:
+  # Another process inside `pausing` gets a 429 of `CLAUDE` and ends.
+  args = [sys.executable, "-c", LIMITED, str(start_s), str(limit_s)]
+  _ = subprocess.run(args, check=True, timeout=60)
+
+
+def test_a_pause_another_process_began_holds_this_ones_calls():
+  with pausing(Backoff()) as pauses:
+    got_429(60, 600)
+    assert pauses[Channel.CLAUDE].remaining() > 50
+    assert pauses[Channel.CODEX].remaining() <= 0
+
+
+def test_a_stop_holds_for_every_process_until_it_is_cleared():
+  # The other process's first pause would pass the limit, so it stops.
+  got_429(60, 30)
+  with pausing(Backoff()) as pauses:
+    assert pauses[Channel.CLAUDE].stopped() is not None
+    assert pauses[Channel.CODEX].stopped() is None
+  with pausing(Backoff(), clear=True) as pauses:
+    assert pauses[Channel.CLAUDE].stopped() is None
+    assert pauses[Channel.CLAUDE].remaining() <= 0
