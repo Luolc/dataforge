@@ -89,6 +89,10 @@ class Project:
     item: How its attempts group into data items.
     columns: The home page's extra columns.
     thinking: How a session view first shows thinking, one of THINKING.
+    not_ended: The status words of an attempt that has not ended; None for
+      the engine's own rule.
+    lock: The path of the lock file in an item's directory; None when the
+      dataset names none.
   """
 
   id: str
@@ -102,12 +106,15 @@ class Project:
   item: Item
   columns: tuple[Column, ...]
   thinking: str
+  not_ended: tuple[str, ...] | None = None
+  lock: tuple[str, ...] | None = None
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
 
     Returns:
-      The project as JSON data, without attempts_dir, attempts and record.
+      The project as JSON data, without attempts_dir, attempts, record,
+      not_ended and lock.
     """
     return {
       "id": self.id,
@@ -209,7 +216,7 @@ def load_project(path: Path) -> Project:
       "record",
       "item",
     },
-    optional={"states", "statuses", "columns", "session"},
+    optional={"states", "statuses", "columns", "session", "not_ended", "lock"},
   )
   id_ = _str(path, "id", data["id"])
   if not _ID.fullmatch(id_):
@@ -231,6 +238,10 @@ def load_project(path: Path) -> Project:
     item=_item(path, data["item"], len(attempts)),
     columns=_columns(path, data.get("columns")),
     thinking=_thinking(path, data.get("session")),
+    not_ended=_not_ended(path, data.get("not_ended")),
+    lock=None
+    if data.get("lock") is None
+    else _relative(path, "lock", _str(path, "lock", data["lock"])),
   )
 
 
@@ -392,6 +403,14 @@ def _columns(path: Path, value: object) -> tuple[Column, ...]:
     title = _str(path, f"{where}.title", entry["title"])
     columns.append(Column(title, keys, format_))
   return tuple(columns)
+
+
+def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:
+  if value is None:
+    return None
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: not_ended: not a non-empty list")
+  return tuple(_str(path, "not_ended", w) for w in cast(list[object], value))
 
 
 def _thinking(path: Path, value: object) -> str:
