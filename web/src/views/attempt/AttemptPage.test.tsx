@@ -1,132 +1,115 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "../../App";
+import older from "../../../fixtures/oldrec/attempts/older/task-0301/record.json";
+import other from "../../../fixtures/oldrec/attempts/older/task-0302/record.json";
 import { sampleProject } from "../../../fixtures/sample";
-import passed from "../../../fixtures/attempts/batch-1/task-0001/record.json";
+import type { Project } from "../../api/types";
+import { ProjectsContext } from "../../shell/projects";
+import { AttemptPage } from "./AttemptPage";
 
-const PROJECTS = [
-  { ...sampleProject, id: "first", name: "First dataset", not_ended: null },
-  { ...sampleProject, not_ended: null },
-];
+const project: Project = {
+  ...sampleProject,
+  states: { author: { title: "Author" }, check: { title: "Check" } },
+};
 
-beforeEach(() => {
+function show(body: unknown, at = "") {
   vi.stubGlobal(
     "fetch",
-    vi.fn((url: string) => {
-      const body = url === "/api/projects" ? PROJECTS : passed;
-      return Promise.resolve(
-        new Response(JSON.stringify(body), { status: 200 }),
-      );
-    }),
+    vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify(body), { status: 200 })),
+    ),
   );
-});
+  render(
+    <ProjectsContext value={{ state: "ok", data: [project] }}>
+      <MemoryRouter
+        initialEntries={[`/${project.id}/attempt?id=older/task-0301${at}`]}
+      >
+        <Routes>
+          <Route path=":project/attempt" element={<AttemptPage />} />
+        </Routes>
+      </MemoryRouter>
+    </ProjectsContext>,
+  );
+}
+
+const tabs = () =>
+  within(screen.getByRole("navigation", { name: "Attempt" })).getAllByRole(
+    "link",
+  );
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function Where() {
-  const { pathname, search } = useLocation();
-  return <output aria-label="Path">{pathname + search}</output>;
-}
+describe("a record an older dataforge wrote", () => {
+  it("shows its Summary and says what it lacks", async () => {
+    show(older);
 
-const ATTEMPT = "/sample/attempt?id=batch-1%2Ftask-0001";
-const RUN = `${ATTEMPT}&tab=runs&run=0`;
-
-function open(entry: string) {
-  render(
-    <MemoryRouter initialEntries={[entry]}>
-      <App />
-      <Where />
-    </MemoryRouter>,
-  );
-  return within(screen.getByRole("navigation", { name: "Breadcrumb" }));
-}
-
-const path = () => screen.getByLabelText("Path");
-
-describe("the attempt page's breadcrumb", () => {
-  it.each([ATTEMPT, RUN])(
-    "on %s, Projects opens the projects page",
-    async (entry) => {
-      fireEvent.click(
-        await open(entry).findByRole("link", { name: "Projects" }),
-      );
-
-      expect(path()).toHaveTextContent(/^\/$/);
-      const list = within(
-        await screen.findByRole("list", { name: "Projects" }),
-      );
-      expect(list.getByRole("link", { name: "First dataset" })).toHaveAttribute(
-        "href",
-        "/first",
-      );
-      expect(
-        list.getByRole("link", { name: "Sample dataset" }),
-      ).toHaveAttribute("href", "/sample");
-    },
-  );
-
-  it.each([ATTEMPT, RUN])(
-    "on %s, the project's name opens its home page",
-    async (entry) => {
-      fireEvent.click(
-        await open(entry).findByRole("link", { name: "Sample dataset" }),
-      );
-
-      expect(path()).toHaveTextContent(/^\/sample$/);
-    },
-  );
-
-  it("on a run page, the attempt ID opens the attempt's Summary", async () => {
-    fireEvent.click(
-      await open(RUN).findByRole("link", { name: "batch-1/task-0001" }),
-    );
-
-    expect(path()).toHaveTextContent(
-      /^\/sample\/attempt\?id=batch-1%2Ftask-0001$/,
-    );
+    expect(await screen.findByText("This record has no budget.")).toBeVisible();
+    expect(screen.getByText("This record has no graph.")).toBeVisible();
+    expect(screen.getByText("This record has no summaries.")).toBeVisible();
+    expect(screen.getByText("This record has no deliverables.")).toBeVisible();
     expect(
-      await screen.findByRole("link", { name: "Summary" }),
-    ).toHaveAttribute("aria-current", "page");
+      screen.getByText("Deliverables", { selector: "dt" }).nextSibling,
+    ).toHaveTextContent("—");
+    expect(screen.getByText("Passed")).toBeVisible();
+    expect(tabs().map((t) => t.textContent)).toEqual(["Runs4"]);
   });
 
-  it("on a run page, the run is the last crumb, the page", async () => {
-    const crumbs = open(RUN);
+  it("opens a run with no round in its heading", async () => {
+    show(older, "&tab=runs&run=2");
 
-    expect(await crumbs.findByText("Run 1 · author")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(crumbs.getAllByRole("listitem")).toHaveLength(4);
-  });
-
-  it("on the Summary, the attempt ID is the page, not a link", async () => {
-    const crumbs = open(ATTEMPT);
-
-    expect(await crumbs.findByText("batch-1/task-0001")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    const run = await screen.findByRole("region", { name: "Author · run 3" });
     expect(
-      crumbs.queryByRole("link", { name: "batch-1/task-0001" }),
-    ).toBeNull();
-    expect(crumbs.getAllByRole("listitem")).toHaveLength(3);
+      within(run).getByText(/^Run 3 of 4 · visit 2 of Author/),
+    ).toBeVisible();
+    expect(within(run).queryByText(/round/)).toBeNull();
+    const input = within(run)
+      .getAllByRole("button")
+      .find((b) => b.textContent.startsWith("Input"));
+    fireEvent.click(input ?? run);
+    expect(
+      within(run).getByText(/This record has no graph, so whether/),
+    ).toBeVisible();
   });
 });
 
-describe("the projects page", () => {
-  it("says so when the site has no projects", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(new Response(JSON.stringify([]), { status: 200 })),
-      ),
-    );
-    open("/");
+describe("a record of another shape", () => {
+  it("shows the record as written, under why it is not read", async () => {
+    show(other);
 
-    expect(await screen.findByText("The site has no projects.")).toBeVisible();
+    expect(
+      await screen.findByText(
+        "This record is not in a shape the viewer knows (it has no visits). Below is the record as written.",
+      ),
+    ).toBeVisible();
+    const written = screen.getByRole("region", {
+      name: "The record as written",
+    });
+    expect(written).toHaveTextContent('"kept_round": null');
+    expect(tabs().map((t) => t.textContent)).toEqual(["Runs"]);
+  });
+
+  it("shows raw text from the record as text", async () => {
+    show({ visits: "<img src=x onerror=alert(1)>" });
+
+    const written = await screen.findByRole("region", {
+      name: "The record as written",
+    });
+    expect(written).toHaveTextContent("<img src=x onerror=alert(1)>");
+    expect(written.querySelector("img")).toBeNull();
+  });
+});
+
+describe("a record that is not a JSON object", () => {
+  it("fails the page", async () => {
+    show([older]);
+
+    expect(
+      await screen.findByText("The record is not a JSON object."),
+    ).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "Attempt" })).toBeNull();
   });
 });

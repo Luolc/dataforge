@@ -34,12 +34,12 @@ from dataforge.curation.harbor import (
 # FAKE_MODE says: "ok", "exception", "no-reward", "exit" (exit 3 with no result)
 # or "hang" (start a child, write its own and the child's pid, sleep);
 # "interrupt" also sends its parent SIGUSR1 before it sleeps, and "stubborn"
-# does too, and again on SIGTERM instead of exiting. The
-# agent's cost is FAKE_COST, 0.25 by default and null for "none"; with
-# FAKE_TRACE, the agent directory gets a Claude Code trace whose last result
-# event costs that much. FAKE_LINKS, a JSON object, gives symlinks to make in
-# the trial's directory, by path inside it, FAKE_FILES files to write there and
-# FAKE_FIFO a FIFO to make there.
+# does too, and again on SIGTERM instead of exiting. With FAKE_STRAGGLER, the
+# child ignores SIGTERM, so it outlives harbor. The agent's cost is FAKE_COST,
+# 0.25 by default and null for "none"; with FAKE_TRACE, the agent directory gets
+# a Claude Code trace whose last result event costs that much. FAKE_LINKS, a
+# JSON object, gives symlinks to make in the trial's directory, by path inside
+# it, FAKE_FILES files to write there and FAKE_FIFO a FIFO to make there.
 FAKE_HARBOR = """\
 import json, os, pathlib, signal, subprocess, sys, time
 argv = sys.argv[1:]
@@ -52,7 +52,10 @@ mode = os.environ["FAKE_MODE"]
 if mode == "exit":
     sys.exit(3)
 if mode in ("hang", "interrupt", "stubborn"):
+    if "FAKE_STRAGGLER" in os.environ:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     child = subprocess.Popen(["sleep", "60"])
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
     (jobs / "pids").write_text(f"{os.getpid()} {child.pid}")
     if mode == "stubborn":
         signal.signal(
@@ -649,6 +652,31 @@ def test_an_interrupted_harbor_is_stopped_before_the_chown(
     assert caught.value is raised[-1]
     assert len(raised) == (1 if mode == "interrupt" else 2)
     assert caught.value.args == interrupt.args
+    assert time.monotonic() - started < 20
+    assert json.loads((fakes[1].parent / "alive.json").read_text()) == []
+  finally:
+    _ = signal.signal(signal.SIGUSR1, previous)
+    for pid in alive(out):
+      os.kill(pid, signal.SIGKILL)
+
+
+@pytest.mark.parametrize("mode", ["hang", "interrupt"])
+def test_a_child_that_outlives_a_stopped_harbor_is_killed_before_the_chown(
+  tmp_path: Path, fakes: tuple[Path, Path], mode: str
+) -> None:
+  out = outdir(tmp_path)
+  base = runner(fakes, mode, {"FAKE_STRAGGLER": "1"})
+  previous = signal.signal(signal.SIGUSR1, signal.default_int_handler)
+  started = time.monotonic()
+  try:
+    if mode == "hang":
+      result = replace(base, timeout=1.0).run(
+        task(tmp_path), "nop", Limits(2), out
+      )
+      assert result.exception == "TimeoutError: Harbor ran past 1 s"
+    else:
+      with pytest.raises(KeyboardInterrupt):
+        _ = base.run(task(tmp_path), "nop", Limits(2), out)
     assert time.monotonic() - started < 20
     assert json.loads((fakes[1].parent / "alive.json").read_text()) == []
   finally:
