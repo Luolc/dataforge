@@ -2,7 +2,8 @@
 
 Runs inside an agent's container, whose client reaches the model only at
 `http://127.0.0.1:8787`; every connection to that port is copied byte for byte
-to the socket the host's proxy listens on, mounted at /run/dataforge/model.sock.
+to the socket the host's proxy listens on, which is `/run/dataforge/model.sock`
+in the directory mounted there.
 It needs nothing but Python 3.8 or later and imports nothing from dataforge, so
 that it can be mounted into any image as one file.
 """

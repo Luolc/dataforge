@@ -45,6 +45,9 @@ PI_MODELS = {
     }
   }
 }
+# Pi's settings: the server-sent events transport, so that Pi does not first
+# try the WebSocket one (`transport` in Pi 1.2.0's docs/settings.md).
+PI_SETTINGS = {"transport": "sse"}
 # What redcoast-client v0.1.11 passes Codex CLI with -c (`codex.go`), with the
 # provider's base URL at the forwarder.
 CODEX_CONFIG: dict[str, Any] = {
@@ -121,7 +124,7 @@ class Pi(HarborPi):
 
   @override
   async def install(self, environment: BaseEnvironment) -> None:
-    """Check the mounted `pi` and point its provider at the forwarder.
+    """Check the mounted `pi`; point its provider at the forwarder, over SSE.
 
     Args:
       environment: The trial's environment.
@@ -132,12 +135,15 @@ class Pi(HarborPi):
     # root, which a container without CAP_FOWNER refuses.
     directory = shlex.quote(MODELS_DIR)
     path = shlex.quote(f"{MODELS_DIR}/models.json")
+    settings = shlex.quote(f"{MODELS_DIR}/settings.json")
     text = shlex.quote(json.dumps(deepcopy(PI_MODELS), indent=2) + "\n")
+    config = shlex.quote(json.dumps(PI_SETTINGS, indent=2) + "\n")
     await self.exec_as_agent(
       environment,
       command=(
         f"mkdir -p {directory} && chmod 700 {directory} && "
-        f"printf %s {text} > {path} && chmod 600 {path}"
+        f"printf %s {text} > {path} && chmod 600 {path} && "
+        f"printf %s {config} > {settings} && chmod 600 {settings}"
       ),
     )
 

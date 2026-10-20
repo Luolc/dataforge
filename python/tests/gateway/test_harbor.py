@@ -20,7 +20,13 @@ from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.models.agent.context import AgentContext
 import pytest
 
-from dataforge.gateway.harbor import ClaudeCode, Codex, Pi, PI_MODELS
+from dataforge.gateway.harbor import (
+  ClaudeCode,
+  Codex,
+  Pi,
+  PI_MODELS,
+  PI_SETTINGS,
+)
 
 VERSION = "DATAFORGE_CLIENT_VERSION"
 AGENTS = {
@@ -113,6 +119,9 @@ def test_pi_points_its_provider_at_the_forwarder(
   models = target / "models.json"
   assert json.loads(models.read_text()) == PI_MODELS
   assert stat.S_IMODE(models.stat().st_mode) == 0o600
+  settings = target / "settings.json"
+  assert json.loads(settings.read_text()) == PI_SETTINGS == {"transport": "sse"}
+  assert stat.S_IMODE(settings.stat().st_mode) == 0o600
   assert stat.S_IMODE(target.stat().st_mode) == 0o700
   assert PI_MODELS["providers"]["openai-codex"] == {
     "baseUrl": "http://127.0.0.1:8787/backend-api",

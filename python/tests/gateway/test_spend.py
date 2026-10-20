@@ -155,6 +155,73 @@ def test_a_json_reply_is_priced_as_an_event_stream(
   assert line["reason"] is None
 
 
+@pytest.mark.parametrize(
+  "end", ["response.completed", "response.done", "response.incomplete"]
+)
+def test_a_codex_stream_is_priced_from_any_event_that_ends_it(
+  socket_dir: Path, end: str
+):
+  path = socket_dir / "model.sock"
+  ledger = socket_dir / "ledger.jsonl"
+  response = {"model": MODEL[Channel.CODEX], "usage": CODEX_USAGE}
+  respond = stream(
+    data({"type": "response.output_text.delta", "delta": "ok"}),
+    data({"type": end, "response": response}),
+  )
+  with (
+    upstream(respond) as (base, _),
+    proxy.make_server(
+      Channel.CODEX,
+      path,
+      base,
+      "t",
+      ledger=ledger,
+      spend=Spend(prices=PRICES, max_usd=10.0),
+    ) as server,
+  ):
+    _ = serving(server)
+    _ = call(path, ROUTE[Channel.CODEX])
+    assert wait_for(lambda: bool(read_ledger(ledger)))
+    [line] = read_ledger(ledger)
+    server.shutdown()
+  assert line["cost_usd"] == pytest.approx(COST[Channel.CODEX])
+  assert line["reason"] is None
+
+
+def test_a_reply_without_usage_logs_its_event_types_and_size_not_its_content(
+  socket_dir: Path, capfd: pytest.CaptureFixture[str]
+):
+  path = socket_dir / "model.sock"
+  ledger = socket_dir / "ledger.jsonl"
+  respond = stream(
+    data({"type": "response.created", "response": {"model": "m"}}),
+    data({"type": "response.output_text.delta", "delta": "SECRET-WORDS"}),
+    data({"type": "response.output_text.delta", "delta": "more"}),
+  )
+  with (
+    upstream(respond) as (base, _),
+    proxy.make_server(
+      Channel.CODEX,
+      path,
+      base,
+      "t",
+      ledger=ledger,
+      spend=Spend(prices=PRICES, max_usd=10.0),
+    ) as server,
+  ):
+    _ = serving(server)
+    _ = call(path, ROUTE[Channel.CODEX])
+    assert wait_for(lambda: server.capped is not None)
+    server.shutdown()
+  err = capfd.readouterr().err
+  [line] = [x for x in err.splitlines() if "without usage:" in x]
+  assert "response.created,response.output_text.delta" in line
+  assert "bytes" in line
+  assert "SECRET-WORDS" not in err
+  [reply, _] = read_ledger(ledger)
+  assert reply["reason"] == "a reply without usage"
+
+
 def test_only_a_model_calls_200_has_a_ledger_line(socket_dir: Path):
   path = socket_dir / "model.sock"
   ledger = socket_dir / "ledger.jsonl"

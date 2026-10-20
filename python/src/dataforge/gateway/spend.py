@@ -3,10 +3,10 @@
 The proxy reads the model and usage of each 200 reply to a model call as it
 passes it on (`Meter`): of an event stream, from `message_start` and the last
 `message_delta` (`CLAUDE`) or from the `response` of `response.completed`,
-`response.incomplete` or `response.failed` (`CODEX`); of a JSON reply, from its
-top-level `model` and `usage`. `Spend` prices it, and the ledger gets one line
-per reply (`record`), each written whole and synced before the proxy goes on;
-`read_ledger` reads it back.
+`response.done`, `response.incomplete` or `response.failed` (`CODEX`); of a
+JSON reply, from its top-level `model` and `usage`. `Spend` prices it, and
+the ledger gets one line per reply (`record`), each written whole and synced
+before the proxy goes on; `read_ledger` reads it back.
 """
 
 from collections.abc import Mapping
@@ -23,9 +23,17 @@ from dataforge.gateway.channels import Channel
 
 _log = logging.getLogger(__name__)
 
-# The events of a `CODEX` stream whose `response` holds the reply's usage.
+NO_USAGE = "a reply without usage"
+
+# The events of a `CODEX` stream whose `response` holds the reply's usage; Pi
+# reads `response.done` as an end as well as the other three.
 _CODEX_ENDS = frozenset(
-  {"response.completed", "response.incomplete", "response.failed"}
+  {
+    "response.completed",
+    "response.done",
+    "response.incomplete",
+    "response.failed",
+  }
 )
 
 
@@ -186,6 +194,10 @@ class Meter:
     self.model: str | None = None
     self.usage: dict[str, object] = {}
     self.unreadable: str | None = None
+    # What the diagnosis of a reply without usage reports: the bytes fed, and
+    # the `type` of each kind of event, in order of first appearance.
+    self.size: int = 0
+    self.kinds: list[str] = []
     if content_encoding.lower() != "identity":
       self.unreadable = f"a reply in Content-Encoding {content_encoding}"
 
@@ -197,6 +209,7 @@ class Meter:
     """
     if self.unreadable is not None:
       return
+    self.size += len(chunk)
     self._buffer += chunk
     if self._stream is None:
       head = self._buffer.lstrip()
@@ -224,6 +237,8 @@ class Meter:
 
   def _event(self, event: Mapping[str, object]) -> None:
     kind = event.get("type")
+    if isinstance(kind, str) and kind not in self.kinds:
+      self.kinds.append(kind)
     if self.channel is Channel.CODEX:
       if kind in _CODEX_ENDS:
         self._message(event.get("response"))
@@ -268,7 +283,7 @@ def price(meter: Meter, spend: Spend | None) -> tuple[float | None, str | None]:
   if meter.unreadable is not None:
     return None, meter.unreadable
   if not meter.usage:
-    return None, "a reply without usage"
+    return None, NO_USAGE
   if spend is None:
     return None, "no prices"
   found = spend.prices.get(meter.model or "")

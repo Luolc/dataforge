@@ -2,8 +2,8 @@
 
 A container behind the gateway has no network; its client reaches the model at
 `127.0.0.1:8787`, where `forward.py` copies each connection to the proxy's
-socket, mounted at `/run/dataforge/model.sock`, and holds only placeholders
-(`CLAUDE_ENV`, `CODEX_ENV`), so that its code holds no credential.
+socket in the directory mounted at `/run/dataforge`, and holds only
+placeholders (`CLAUDE_ENV`, `CODEX_ENV`), so that its code holds no credential.
 """
 
 import base64
