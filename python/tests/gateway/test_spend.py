@@ -362,6 +362,85 @@ def test_a_stream_with_crlf_lines_and_an_event_across_chunks_is_read(
   assert meter.usage == CODEX_USAGE
 
 
+# A reply seen once opened, to a first byte that is `{`, with a line that is
+# JSON and no field of an event stream, and went on as one with usage.
+JSON_LINES = [
+  b'{"type": "x", "payload": {"a": 1}}\n',
+  b' \r\n{"id": "r", "object": "x"}\r\n\r\n',
+]
+
+
+@pytest.mark.parametrize("sizes", SPLITS)
+@pytest.mark.parametrize("opening", JSON_LINES)
+@pytest.mark.parametrize("channel", list(Channel))
+def test_a_stream_that_opens_with_a_line_of_json_is_read_by_its_events(
+  channel: Channel, opening: bytes, sizes: tuple[int, ...]
+):
+  body = opening + b"".join(events(channel))
+  meter = read_bare(channel, body, sizes)
+  assert meter.mode == "stream"
+  assert meter.model == MODEL[channel]
+  assert meter.usage != {}
+  assert meter.usage == read_bare(channel, body, ()).usage
+
+
+@pytest.mark.parametrize("sizes", SPLITS)
+def test_a_pretty_printed_json_reply_without_data_lines_is_read_as_json(
+  sizes: tuple[int, ...],
+):
+  body = json.dumps({"model": "m", "usage": CODEX_USAGE}, indent=2).encode()
+  meter = read_bare(Channel.CODEX, body, sizes)
+  assert (meter.mode, meter.usage) == ("json", CODEX_USAGE)
+  assert meter.data_lines == 0
+
+
+def test_a_reply_that_opens_with_a_line_of_json_is_priced_through_the_proxy(
+  launcher: Launcher, socket_dir: Path
+):
+  path = socket_dir / "model.sock"
+  ledger = socket_dir / "ledger.jsonl"
+  opening = JSON_LINES[0]
+  with upstream(bare(opening, *events(Channel.CODEX))) as (base, _):
+    launcher.write(base)
+    with serve(
+      Channel.CODEX,
+      path,
+      spend=Spend(prices=PRICES, max_usd=1.0),
+      ledger=ledger,
+    ):
+      assert call(path, ROUTE[Channel.CODEX])[0] == 200
+  [line] = read_ledger(ledger)
+  assert line["cost_usd"] == pytest.approx(COST[Channel.CODEX])
+  assert line["reason"] is None
+
+
+def test_the_diagnosis_of_a_reply_without_usage_counts_data_lines_names_keys(
+  socket_dir: Path, capfd: pytest.CaptureFixture[str]
+):
+  path = socket_dir / "model.sock"
+  opening = b'{"type": "x", "secret key": "SECRET", "id": 1}\n'
+  respond = bare(opening, data({"type": "y", "delta": "SECRET"}))
+  with (
+    upstream(respond) as (base, _),
+    proxy.make_server(
+      Channel.CODEX,
+      path,
+      base,
+      "t",
+      spend=Spend(prices=PRICES, max_usd=10.0),
+    ) as server,
+  ):
+    _ = serving(server)
+    _ = call(path, ROUTE[Channel.CODEX])
+    assert wait_for(lambda: server.capped is not None)
+    server.shutdown()
+  err = capfd.readouterr().err
+  [line] = [x for x in err.splitlines() if "without usage:" in x]
+  assert "events y, data lines 1, " in line
+  assert f"first line {len(opening) - 1} bytes, keys type,?,id, " in line
+  assert "SECRET" not in err
+
+
 @pytest.mark.parametrize("sizes", SPLITS)
 @pytest.mark.parametrize("lead", [b"", b" \n"])
 def test_a_json_reply_without_a_content_type_is_read_as_json(

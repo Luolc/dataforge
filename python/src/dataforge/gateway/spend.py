@@ -171,7 +171,9 @@ def cost(channel: Channel, price: Price, usage: Mapping[str, object]) -> float:
 _BOM = b"\xef\xbb\xbf"
 _HEAD = 64
 _FIELD = 16
+_KEYS = 8
 _NAME = re.compile(rb"[A-Za-z0-9_-]*")
+_KEY = re.compile(r"[A-Za-z0-9_.-]{1,32}")
 
 
 class Meter:
@@ -188,25 +190,34 @@ class Meter:
     Args:
       channel: The channel, which says where the usage is.
       content_type: The reply's `Content-Type`: `text/event-stream` for a
-        stream, else JSON; with none, a reply whose first byte that is not
-        white space is `{` is JSON, and any other is a stream.
+        stream, any other for JSON; with none, every line is looked at for a
+        `data:` event, and a reply with none is read whole as JSON.
       content_encoding: The reply's `Content-Encoding`; a reply compressed is
         not read, and `unreadable` says so.
     """
     self.channel: Channel = channel
-    self._stream: bool | None = (
+    self._declared: bool | None = (
       content_type.startswith("text/event-stream") if content_type else None
     )
     self._buffer: bytes = b""
+    # The whole reply, kept while it may yet be JSON.
+    self._body: bytearray | None = None if self._declared else bytearray()
     self.model: str | None = None
     self.usage: dict[str, object] = {}
     self.unreadable: str | None = None
-    # What the diagnosis of a reply without usage reports: the bytes fed, and
-    # the `type` of each kind of event, in order of first appearance.
+    # What the diagnosis of a reply without usage reports: the bytes fed, the
+    # `type` of each kind of event in order of first appearance, the `data:`
+    # lines, and the length and top-level keys of the first line that is not
+    # blank.
     self.size: int = 0
     self.kinds: list[str] = []
+    self.data_lines: int = 0
+    self.first_len: int = 0
+    self.first_keys: list[str] | None = None
     self._head: bytes = b""
     self._lead: bool = True
+    self._seen_first: bool = False
+    self._ended: bool = False
     if content_encoding.lower() != "identity":
       self.unreadable = f"a reply in Content-Encoding {content_encoding}"
 
@@ -219,8 +230,12 @@ class Meter:
     if self.unreadable is not None:
       return
     self.size += len(chunk)
-    self._buffer += chunk
     self._head += chunk[: _HEAD - len(self._head)]
+    if self._body is not None:
+      self._body += chunk
+    if self._declared is False:
+      return
+    self._buffer += chunk
     if self._lead:
       # A reply may open with a byte order mark, which a split chunk can leave
       # half-read.
@@ -228,51 +243,66 @@ class Meter:
         return
       self._buffer = self._buffer.removeprefix(_BOM)
       self._lead = False
-    if self._stream is None:
-      head = self._buffer.lstrip()
-      if not head:
-        return
-      self._stream = not head.startswith(b"{")
-    if not self._stream:
-      return
     *lines, self._buffer = self._buffer.split(b"\n")
     for line in lines:
-      if line.startswith(b"data:"):
-        self._event(_json(line.removeprefix(b"data:")))
+      self._line(line)
 
   def end(self) -> None:
     """Read what is left once the reply has ended or was cut off."""
     if self.unreadable is not None:
       return
-    if self._stream is None:
-      self._stream = False
-    if not self._stream:
-      self._message(_json(self._buffer))
-    elif self._buffer.startswith(b"data:"):
-      self._event(_json(self._buffer.removeprefix(b"data:")))
+    self._ended = True
+    if self._declared is False:
+      body = bytes(self._body or b"").removeprefix(_BOM)
+      self._first(next((x for x in body.split(b"\n") if x.strip()), b""))
+    else:
+      self._line(self._buffer)
+    if self._body is not None and not self.data_lines:
+      self._message(_json(bytes(self._body)))
     self._buffer = b""
+    self._body = None
 
   @property
   def mode(self) -> str:
     """How the reply was read: `stream`, `json` or `undecided`."""
-    if self._stream is None:
-      return "undecided"
-    return "stream" if self._stream else "json"
+    if self._declared or self.data_lines:
+      return "stream"
+    return "json" if self._declared is False or self._ended else "undecided"
 
   @property
   def field(self) -> str:
     """The field name before the first colon of a stream's first line.
 
     It is a protocol field, never content: at most 16 bytes of letters,
-    digits, `_` and `-`, else `?`; a JSON reply has none.
+    digits, `_` and `-`, else `?`; a reply read as JSON has none.
     """
-    if self._stream is not True:
+    if self.mode != "stream":
       return "-"
     line = self._head.removeprefix(_BOM).lstrip().split(b"\n")[0]
     name, colon, _ = line.partition(b":")
     if not colon or len(name) > _FIELD or not _NAME.fullmatch(name):
       return "?"
     return name.decode()
+
+  def _first(self, line: bytes) -> None:
+    if self._seen_first or not line.strip():
+      return
+    self._seen_first = True
+    self.first_len = len(line.strip())
+    found = _json(line)
+    if found:
+      # Protocol keys only: a key that is not short and plain is `?`.
+      self.first_keys = [
+        k if _KEY.fullmatch(k) else "?" for k in list(found)[:_KEYS]
+      ]
+
+  def _line(self, line: bytes) -> None:
+    self._first(line)
+    if line.startswith(b"data:"):
+      self.data_lines += 1
+      # A stream is not JSON, so the whole reply need not be kept.
+      self._body = None
+      self._event(_json(line.removeprefix(b"data:")))
 
   def _event(self, event: Mapping[str, object]) -> None:
     kind = event.get("type")
