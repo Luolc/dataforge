@@ -1,0 +1,31 @@
+id = 50
+slug = "frontend-icon-libraries"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Take icons from Lucide, and those of files and folders in a file tree from Material Icon Theme"
+
+[text.statement]
+en = "Take every icon on this repository's pages from Lucide, except the icon beside a file's or a folder's name in a file tree, which you take from Material Icon Theme; draw none by hand, and use no character or emoji as an icon."
+
+[text.reason]
+en = '''
+Icons from one library share one stroke, one size and one style. A file tree reads faster when each file's type, and each folder, has the colored mark readers know from their editors, such as Python's snakes, which Lucide does not draw; Material Icon Theme does, for every type the tree shows. Every other icon stays with Lucide, so the pages take icons from no third source.
+'''
+
+[text.verification]
+en = '''
+The icon beside a file's name stands for the file's type, as chosen by its name or extension; the one beside a folder's name, for a folder, open or closed. An icon recolored to meet {@rule:52} is still from its library.
+
+Violated when a change adds to a page an icon beside a file's or a folder's name in a file tree that is not from Material Icon Theme, any other icon that is not from Lucide, an icon drawn by hand, or a character or emoji standing for an icon.
+'''
