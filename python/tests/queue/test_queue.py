@@ -25,7 +25,7 @@ from dataforge.queue import (
   load_config,
   submit,
 )
-from dataforge.queue.proc import alive, starttime
+from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
 from dataforge.queue.wrapper import main as wrapper
 
@@ -81,9 +81,9 @@ def scheduler(config: Config, readings: Readings) -> Generator[Scheduler]:
   for job in jobs(config, states={"queued"}):
     _ = cancel(config, job.id)
   for job in jobs(config, states={"running"}):
-    pid, start = job.pid, job.starttime
-    if pid is not None and start is not None and alive(pid, start):
-      os.killpg(pid, signal.SIGKILL)
+    started = job.leader()
+    if started is not None and group_alive(started):
+      os.killpg(started.pid, signal.SIGKILL)
   until(lambda: not jobs(config, states={"running"}), scheduler)
   for child in scheduler._children:  # pyright: ignore[reportPrivateUsage]
     _ = child.wait(timeout=20)
@@ -142,6 +142,8 @@ def test_a_job_runs_and_its_end_is_recorded(
   assert ok.queued_at <= cast_float(ok.started_at) <= cast_float(ok.ended_at)
   assert ok.log == str(tmp_path / "logs" / f"{ok.id}.log")
   assert f"{tmp_path}\nout\n" in Path(ok.log).read_text()
+  assert Path(ok.log).stat().st_mode & 0o777 == 0o600
+  assert (tmp_path / "logs").stat().st_mode & 0o777 == 0o700
 
 
 def cast_float(value: float | None) -> float:
@@ -296,8 +298,8 @@ def test_a_restarted_scheduler_takes_the_running_jobs_as_they_are(
     assert serving.wait(timeout=20) == 0
   running = state(config, job)
   assert running.state == "running"
-  assert running.pid is not None and running.starttime is not None
-  assert alive(running.pid, running.starttime)
+  started = running.leader()
+  assert started is not None and alive(started)
   until(ended(config, job), scheduler)
   # The exit status reached the table, though no scheduler waited for it.
   done = state(config, job)
@@ -317,11 +319,29 @@ def test_a_job_whose_wrapper_is_gone_is_recorded_failed(
   assert (done.state, done.exit_code) == ("failed", None)
 
 
-def test_a_pid_with_another_starttime_is_not_the_job():
-  me = starttime(os.getpid())
+def test_a_pid_of_another_start_or_boot_is_not_the_job():
+  me = leader(os.getpid())
   assert me is not None
-  assert alive(os.getpid(), me)
-  assert not alive(os.getpid(), me + 1)
+  assert alive(me)
+  assert not alive(me._replace(start=me.start + 1))
+  assert not alive(me._replace(boot="another boot"))
+  assert not group_alive(me._replace(boot="another boot"))
+
+
+def test_a_job_whose_wrapper_alone_is_killed_ends_with_its_group(
+  config: Config, scheduler: Scheduler
+):
+  job = put(config, "alpha", "sh", "-c", "echo ready; exec sleep 30")
+  until(lambda: "ready" in log(config, job), scheduler)
+  started = state(config, job).leader()
+  assert started is not None
+  os.kill(started.pid, signal.SIGKILL)
+  until(ended(config, job), scheduler)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("failed", None)
+  # The command ended before its row did.
+  assert not group_alive(started)
+  assert not group_alive(Leader(started.pid, 0, started.boot))
 
 
 def test_the_wrapper_runs_nothing_for_a_job_not_claimed_for_it(
@@ -370,9 +390,16 @@ def test_list_json_gives_the_table_rows(
   assert [r["state"] for r in listed] == ["running", "done"]
 
 
-def test_jobs_reads_without_making_the_database(config: Config):
+def test_jobs_reads_without_making_the_database(
+  config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
   with pytest.raises(FileNotFoundError):
     _ = jobs(config)
+  out = io.StringIO()
+  monkeypatch.setattr(sys, "stdout", out)
+  path = str(tmp_path / "queue.yaml")
+  assert cli.main(["queue", "list", "--config", path, "--json"]) == 0
+  assert json.loads(out.getvalue()) == []
   assert not config.database.exists()
 
 

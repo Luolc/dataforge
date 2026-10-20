@@ -20,7 +20,10 @@ Each look at the table (a tick) does three things:
 A job runs as `python -m dataforge.queue.wrapper <database> <id>`, in a
 session of its own: the wrapper runs the command and writes its end, so that
 a job outlives the scheduler, and a scheduler started again takes the running
-jobs as they are, knowing each by its pid and starttime, and kills none.
+jobs as they are, knowing each by its wrapper's pid, starttime and boot, and
+kills none. A wrapper that is gone while processes of its group run still
+(it alone was killed) has its group killed, and its end is recorded once
+nothing of the group runs.
 """
 
 from collections.abc import Callable
@@ -35,8 +38,13 @@ import threading
 import time
 
 from dataforge.queue.config import Config
-from dataforge.queue.proc import alive, ProcReadings, Readings, signal_group
-from dataforge.queue.proc import starttime as read_starttime
+from dataforge.queue.proc import (
+  alive,
+  leader,
+  ProcReadings,
+  Readings,
+  signal_group,
+)
 from dataforge.queue.store import connect, Job, select, write
 
 _LOST = """
@@ -49,7 +57,8 @@ UPDATE jobs SET state = 'failed', started_at = ?, ended_at = ? WHERE id = ?
 """
 
 _STARTED = """
-UPDATE jobs SET state = 'running', pid = ?, starttime = ?, started_at = ?
+UPDATE jobs SET state = 'running', pid = ?, starttime = ?, boot_id = ?,
+  started_at = ?
 WHERE id = ?
 """
 
@@ -76,6 +85,7 @@ class Scheduler:
     self.readings: Readings = readings or ProcReadings()
     self.clock: Callable[[], float] = clock
     self._children: list[subprocess.Popen[bytes]] = []
+    self._waiting: set[int] = set()
 
   def tick(self) -> None:
     """Look at the table once: settle the ended jobs, then start what fits."""
@@ -104,17 +114,22 @@ class Scheduler:
         return
 
   def _settle(self, conn: sqlite3.Connection, job: Job) -> None:
-    pid, start = job.pid, job.starttime
-    if pid is None or start is None:
+    started = job.leader()
+    if started is None:
       return
-    if not alive(pid, start):
+    if not alive(started):
+      # The wrapper alone may have been killed: end what is left of its
+      # group, and record the end once nothing of it runs.
+      if signal_group(started, signal.SIGKILL):
+        _log.warning("job %d: its wrapper is gone; killing its group", job.id)
+        return
       state = "failed" if job.cancel_requested_at is None else "canceled"
       with write(conn):
         # The wrapper writes its end before it exits; a row it wrote is
         # no longer running, and this changes nothing.
         ended = conn.execute(
           _LOST,
-          (state, self.clock(), job.id, pid, start),
+          (state, self.clock(), job.id, started.pid, started.start),
         ).rowcount
       if ended:
         _log.warning("job %d: its wrapper is gone; %s", job.id, state)
@@ -123,7 +138,7 @@ class Scheduler:
     if (
       asked is not None
       and self.clock() - asked >= self.config.cancel_grace_s
-      and signal_group(pid, start, signal.SIGKILL)
+      and signal_group(started, signal.SIGKILL)
     ):
       _log.warning("job %d: SIGKILL after the grace period", job.id)
 
@@ -153,7 +168,17 @@ class Scheduler:
         continue
       if room - job.memory_mib < self.config.min_mem_available_mib:
         blocked.add(job.queue)
+        if job.id not in self._waiting:
+          self._waiting.add(job.id)
+          _log.info(
+            "job %d: waits in %s for %d MiB, %d MiB free above the floor",
+            job.id,
+            job.queue,
+            job.memory_mib,
+            room - self.config.min_mem_available_mib,
+          )
         continue
+      self._waiting.discard(job.id)
       self._start(conn, job)
       room -= job.memory_mib
       counts[job.queue] += 1
@@ -164,7 +189,7 @@ class Scheduler:
     # commit before it runs the command, and runs nothing when the claim
     # was rolled back.
     log = Path(job.log)
-    log.parent.mkdir(parents=True, exist_ok=True)
+    log.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     wrapper = [
       sys.executable,
       "-m",
@@ -174,7 +199,8 @@ class Scheduler:
     ]
     now = self.clock()
     try:
-      with log.open("ab") as out:
+      fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+      with open(fd, "ab") as out:
         child = subprocess.Popen(
           wrapper,
           stdin=subprocess.DEVNULL,
@@ -188,12 +214,12 @@ class Scheduler:
       _ = conn.execute(_UNSTARTED, (now, now, job.id))
       return
     self._children.append(child)
-    start = read_starttime(child.pid)
-    if start is None:
+    started = leader(child.pid)
+    if started is None:
       _log.error("job %d: its wrapper ended before its claim", job.id)
       _ = conn.execute(_UNSTARTED, (now, now, job.id))
       return
-    _ = conn.execute(_STARTED, (child.pid, start, now, job.id))
+    _ = conn.execute(_STARTED, (*started, now, job.id))
     _log.info("job %d: started in %s, pid %d", job.id, job.queue, child.pid)
 
 

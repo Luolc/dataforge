@@ -31,8 +31,10 @@ and their caps, the machine's cap, and the `MemAvailable` and 1-minute load a st
 `dataforge queue serve --config <queue file>` runs the scheduler, which starts each job in a
 session of its own under a wrapper that writes how it ended, so a scheduler started again takes
 the running jobs as they are. `dataforge queue submit`, `list` and `cancel`, and the functions
-`submit`, `jobs` and `cancel`, are how other processes use it. A systemd unit that runs the
-scheduler needs `KillMode=process`, so that stopping or restarting it leaves the jobs running.
+`submit`, `jobs` and `cancel`, are how other processes use it. A job's command runs with the
+scheduler's environment, not the submitter's; one that needs a PATH or a credential sets it up
+itself. A systemd unit that runs the scheduler needs `KillMode=process`, so that stopping or
+restarting it leaves the jobs running.
 
 A dataset repository depends on it at a commit of main:
 

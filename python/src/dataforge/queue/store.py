@@ -17,7 +17,7 @@ import time
 from typing import cast
 
 from dataforge.queue.config import Config
-from dataforge.queue.proc import signal_group
+from dataforge.queue.proc import Leader, signal_group
 
 STATES = ("queued", "running", "done", "failed", "canceled")
 """The states a job may be in."""
@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     CHECK (state IN ('queued', 'running', 'done', 'failed', 'canceled')),
   pid INTEGER,
   starttime INTEGER,
+  boot_id TEXT,
   exit_code INTEGER,
   queued_at REAL NOT NULL,
   started_at REAL,
@@ -109,6 +110,7 @@ class Job:
     state: One of STATES.
     pid: Its wrapper's pid, the leader of its session; None until it starts.
     starttime: The pid's starttime in /proc/<pid>/stat.
+    boot_id: The ID of the boot it started in.
     exit_code: The command's exit status, negative for the signal that ended
       it; None when none was collected.
     queued_at: When it was submitted, in seconds since the epoch.
@@ -128,6 +130,7 @@ class Job:
   state: str
   pid: int | None
   starttime: int | None
+  boot_id: str | None
   exit_code: int | None
   queued_at: float
   started_at: float | None
@@ -145,6 +148,16 @@ class Job:
     row["argv"] = list(self.argv)
     return row
 
+  def leader(self) -> Leader | None:
+    """Give the wrapper that runs the job, as the scheduler recorded it.
+
+    Returns:
+      The leader; None before the job started.
+    """
+    if self.pid is None or self.starttime is None or self.boot_id is None:
+      return None
+    return Leader(self.pid, self.starttime, self.boot_id)
+
 
 @contextmanager
 def connect(path: Path) -> Generator[sqlite3.Connection]:
@@ -156,7 +169,7 @@ def connect(path: Path) -> Generator[sqlite3.Connection]:
   Yields:
     A connection in autocommit mode; write() opens its transactions.
   """
-  path.parent.mkdir(parents=True, exist_ok=True)
+  path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
   with closing(
     sqlite3.connect(path, timeout=_BUSY_MS / 1000, autocommit=True)
   ) as conn:
@@ -362,8 +375,8 @@ def cancel(config: Config, job_id: int) -> Job:
       job = row(conn, job_id)
     if job is None:
       raise NoSuchJobError(f"no job {job_id}")
-    if job.state == "running" and job.pid is not None:
-      _ = signal_group(job.pid, cast(int, job.starttime), signal.SIGTERM)
+    if job.state == "running" and (started := job.leader()) is not None:
+      _ = signal_group(started, signal.SIGTERM)
   return job
 
 
@@ -392,6 +405,7 @@ def _job(found: sqlite3.Row) -> Job:
     state=cast(str, found["state"]),
     pid=cast(int | None, found["pid"]),
     starttime=cast(int | None, found["starttime"]),
+    boot_id=cast(str | None, found["boot_id"]),
     exit_code=cast(int | None, found["exit_code"]),
     queued_at=cast(float, found["queued_at"]),
     started_at=cast(float | None, found["started_at"]),

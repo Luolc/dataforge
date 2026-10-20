@@ -1,18 +1,33 @@
 """What the scheduler reads of the machine and of its jobs, from /proc.
 
-A job is known by its pid together with the pid's starttime (field 22 of
-/proc/<pid>/stat, in clock ticks since boot), so that a pid the kernel has
-given to another process since is not taken for the job.
+A job is known by its wrapper, the leader of its session and process group:
+the wrapper's pid, its starttime (field 22 of /proc/<pid>/stat, in clock
+ticks since boot) and the boot's ID, so that a pid the kernel has given to
+another process since, in this boot or a later one, is not taken for the job.
 """
 
 import os
 from pathlib import Path
 import signal
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 _PROC = Path("/proc")
 _PAGE = os.sysconf("SC_PAGE_SIZE")
 _MIB = 1024 * 1024
+
+
+class Leader(NamedTuple):
+  """A job's wrapper, as the scheduler recorded it when it started.
+
+  Attributes:
+    pid: Its pid, also its process group's and its session's ID.
+    start: Its starttime.
+    boot: The ID of the boot it ran in.
+  """
+
+  pid: int
+  start: int
+  boot: str
 
 
 class Readings(Protocol):
@@ -106,34 +121,88 @@ def starttime(pid: int) -> int | None:
   return int(fields[19])
 
 
-def alive(pid: int, start: int) -> bool:
-  """Tell whether a process is the one with this starttime and runs still.
+def boot_id() -> str:
+  """Read the ID of this boot.
+
+  Returns:
+    /proc/sys/kernel/random/boot_id.
+  """
+  return (_PROC / "sys/kernel/random/boot_id").read_text().strip()
+
+
+def leader(pid: int) -> Leader | None:
+  """Record a process as a job's leader.
 
   Args:
     pid: The process.
-    start: Its starttime when it was recorded.
 
   Returns:
-    True when it runs still.
+    The leader; None when the process is gone or a zombie.
   """
-  return starttime(pid) == start
+  start = starttime(pid)
+  return None if start is None else Leader(pid, start, boot_id())
 
 
-def signal_group(pid: int, start: int, sig: signal.Signals) -> bool:
-  """Send a signal to the process group a job leads, if the job runs still.
+def alive(job: Leader) -> bool:
+  """Tell whether a job's leader runs still.
 
   Args:
-    pid: The job's pid, the leader of its session and process group.
-    start: Its starttime.
+    job: The leader.
+
+  Returns:
+    True when the process with its pid is the one it recorded.
+  """
+  return job.boot == boot_id() and starttime(job.pid) == job.start
+
+
+def group_alive(job: Leader) -> bool:
+  """Tell whether any process of a job's process group runs still.
+
+  The kernel gives no process a pid that is still a process group's ID, so a
+  group whose leader is gone keeps its ID until its last process ends. Its
+  processes started no earlier than the leader did.
+
+  Args:
+    job: The leader.
+
+  Returns:
+    True when the leader or another process of its group runs.
+  """
+  if job.boot != boot_id():
+    return False
+  if alive(job):
+    return True
+  if starttime(job.pid) is not None:
+    # The pid is another process's now, so the group has ended.
+    return False
+  for entry in _PROC.iterdir():
+    if not entry.name.isdigit():
+      continue
+    fields = _stat(int(entry.name))
+    if (
+      fields is not None
+      and fields[0] not in ("Z", "X")
+      and int(fields[2]) == job.pid
+      and int(fields[19]) >= job.start
+    ):
+      return True
+  return False
+
+
+def signal_group(job: Leader, sig: signal.Signals) -> bool:
+  """Send a signal to a job's process group, if any process of it runs.
+
+  Args:
+    job: The leader.
     sig: The signal.
 
   Returns:
     True when the signal was sent.
   """
-  if not alive(pid, start):
+  if not group_alive(job):
     return False
   try:
-    os.killpg(pid, sig)
+    os.killpg(job.pid, sig)
   except ProcessLookupError:
     return False
   return True

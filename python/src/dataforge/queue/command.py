@@ -116,12 +116,16 @@ def _submit(args: argparse.Namespace, config: Config) -> Job:
 
 def _list(args: argparse.Namespace, config: Config) -> None:
   states = cast(list[str] | None, args.state)
-  found = jobs(
-    config,
-    queue=cast(str | None, args.queue),
-    states=None if states is None else set(states),
-    limit=cast(int | None, args.limit),
-  )
+  try:
+    found = jobs(
+      config,
+      queue=cast(str | None, args.queue),
+      states=None if states is None else set(states),
+      limit=cast(int | None, args.limit),
+    )
+  except FileNotFoundError:
+    # No job was ever submitted.
+    found = []
   if cast(bool, args.json):
     print(json.dumps([job.to_json() for job in found], indent=2))
     return
