@@ -17,6 +17,8 @@ export const NOT_RUN = "Not run";
  * project names its own words for not ended (design-viz.md section 4).
  */
 export const NO_STATUS = "No status";
+/** An attempt whose record cannot be read: the listing's error. */
+export const UNREADABLE = "Unreadable";
 /** The engine's outcome of a visit whose state raised (design.md). */
 export const RAISED = "raised";
 
@@ -71,6 +73,12 @@ export function endWord(
   const word = attemptStatus(project, record);
   return word === RAISED ? null : word;
 }
+
+/** The label and tone of the viewer's other words for an attempt. */
+export const viewerStatus = {
+  noStatus: { label: NO_STATUS, tone: "neutral" },
+  unreadable: { label: UNREADABLE, tone: "bad" },
+} as const satisfies Record<string, { label: string; tone: Tone }>;
 
 /** The label and tone of the listing's live (design-viz.md section 4). */
 export const liveStatus: Record<Live, { label: string; tone: Tone }> = {
