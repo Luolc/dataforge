@@ -1,3 +1,7 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -40,5 +44,20 @@ describe("the colour templates", () => {
     expect(select).toHaveValue("ac");
     expect(document.documentElement.dataset["template"]).toBe("ac");
     expect(localStorage.getItem(KEY)).toBe("ac");
+  });
+
+  // Tests run from web/.
+  it("are applied by a script in the head before the bundle paints", () => {
+    const html = readFileSync("index.html", "utf8");
+    const early = html.indexOf('<script src="/template.js"></script>');
+    expect(early).toBeGreaterThan(-1);
+    expect(early).toBeLessThan(html.indexOf("</head>"));
+    expect(early).toBeLessThan(html.indexOf('type="module"'));
+
+    const script = readFileSync("public/template.js", "utf8");
+    expect(script).toContain(`"${KEY}"`);
+    localStorage.setItem(KEY, "dark");
+    runInNewContext(script, { localStorage, document });
+    expect(document.documentElement.dataset["template"]).toBe("dark");
   });
 });

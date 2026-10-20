@@ -151,7 +151,11 @@ describe("the theme's tokens", () => {
     ...pairs(["fg-3"], ["panel", "card", "head", "tree", "chip"], 7),
     ...pairs(["chip-on-fg", "chip-on-count"], ["chip-on"], 7),
     ...pairs(["accent"], ["panel", "hover", "active"], 4.5),
-    ...pairs(["faint"], ["code-gutter"], 4.5),
+    ...pairs(
+      ["faint"],
+      [...surfaces, "app", "group", "tree", "code-bg", "code-gutter"],
+      4.5,
+    ),
     ...pairs(
       [
         "syn-comment",
@@ -182,12 +186,9 @@ describe("the theme's tokens", () => {
     },
   );
 
-  it.each(["panel", "hover", "active"])(
-    "give a link, in the accent, its utility",
-    () => {
-      expect(theme).toMatch(/@utility link \{\s*color: var\(--color-accent\);/);
-    },
-  );
+  it("give a link the accent through its utility", () => {
+    expect(theme).toMatch(/@utility link \{\s*color: var\(--color-accent\);/);
+  });
 
   it("draw every Lucide icon at the one stroke width", () => {
     expect(theme).toMatch(

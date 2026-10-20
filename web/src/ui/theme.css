@@ -41,8 +41,8 @@
   /* The smallest side of a control, for a fine and a coarse pointer. */
   --spacing-target: 24px;
   --spacing-target-coarse: 44px;
-  /* Icons, as agent-constitution draws them: 1em in a line of text or on a
-     tag, 1.25rem on controls and in lists. */
+  /* Icons: 1em in a line of text or on a tag, as agent-constitution draws
+     them; 16px on controls and in lists, its 1.25rem at a 13px root. */
   --spacing-icon-sm: 1em;
   --spacing-icon-md: 16px;
 
@@ -56,7 +56,7 @@
   --stroke-taken: 1.5px;
   --dash-not-taken: 3 3;
 
-  /* The colour templates (ui/template.tsx) give the same tokens other
+  /* The colour templates (ui/template.ts) give the same tokens other
      values; these are the default, contrast. Surfaces, from the outside in:
      app (the sidebar and the ground), panel (the page), card and head (a
      card's body, and the band of a card's or a table's head), group (a
@@ -132,7 +132,7 @@ html[data-template="ac"] {
   --color-fg: #23301f;
   --color-fg-2: #36422f;
   --color-fg-3: #3a4535;
-  --color-faint: #5f6b59;
+  --color-faint: #525d4c;
   --color-icon: #3a4535;
   --color-accent: #7d3a1e;
   --color-focus: var(--color-accent);
@@ -233,7 +233,7 @@ html[data-template="dark"] {
   --color-fg: #d8e0d4;
   --color-fg-2: #c8d1c4;
   --color-fg-3: #b8c2b4;
-  --color-faint: #8f9b8b;
+  --color-faint: #a3ae9f;
   --color-icon: #b8c2b4;
   --color-accent: #dba37f;
   --color-focus: var(--color-accent);
