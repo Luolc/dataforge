@@ -1,8 +1,10 @@
 # pyright: reportUnusedParameter=false
 # The fakes implement protocols and take parameters they do not need.
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import AbstractContextManager, nullcontext
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -245,7 +247,10 @@ class FakeDocker:
         return CommandResult(1, "chmod: Operation not permitted")
       case ["cp", source, target] if source.startswith("c1:"):
         _ = shutil.copytree(
-          self.path(source[3:].removesuffix("/.")), target, dirs_exist_ok=True
+          self.path(source[3:].removesuffix("/.")),
+          target,
+          symlinks=True,
+          dirs_exist_ok=True,
         )
       case ["cp", source, target]:
         self.copied.add(self.path(target.removeprefix("c1:")))
@@ -575,6 +580,224 @@ def test_collect_removes_what_a_fix_deleted(
     once(tmp_path, body)
 
 
+class LinkingAgent:
+  """Writes a file, a directory and links, as links, into its outdir.
+
+  Args:
+    host: Gives the host path of a path in the container.
+    links: The links to make, from path to target.
+  """
+
+  def __init__(
+    self, host: Callable[[str], Path], links: dict[str, str]
+  ) -> None:
+    self.host: Callable[[str], Path] = host
+    self.links: dict[str, str] = links
+
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    outdir = self.host(task.outdir)
+    (outdir / "sub").mkdir()
+    _ = (outdir / "sub" / "file").write_text("inside")
+    for path, target in self.links.items():
+      (outdir / path).symlink_to(target)
+    return AgentRun(None, "ok", 0.0, None, "done")
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    raise AssertionError("not resumed")
+
+
+def collect_links(
+  tmp_path: Path, mounted: bool, links: Callable[[Path], dict[str, str]]
+) -> tuple[Path, str]:
+  """Run a LinkingAgent in Docker and return its visit's outputs and its log.
+
+  Args:
+    tmp_path: The test's directory.
+    mounted: Whether it writes into an outputs mount.
+    links: Gives the links to make from the visit's output directory.
+
+  Returns:
+    The visit's output directory on the host and the agent's log.
+  """
+  docker = FakeDocker(tmp_path / "container")
+  source = tmp_path / "out"
+  source.mkdir()
+  outputs = Mount(source, "/out", read_only=False) if mounted else None
+  found: list[tuple[Path, str]] = []
+  with Docker("author:1", outputs=outputs, cli=docker) as env:
+
+    def body(ctx: Context) -> Outcome:
+      agent = LinkingAgent(
+        lambda outdir: source if mounted else docker.path(outdir),
+        links(ctx.outdir),
+      )
+      result = Actions(agent_runner=agent).agent(
+        ctx, AgentSpec("Write.", tmp_path, outputs=["sub"]), env
+      )
+      found.append((ctx.outdir, result.log))
+      return Outcome(result.status)
+
+    once(tmp_path, body)
+  return found[0]
+
+
+CLIMB = "sub/up/" * 4 + "../" * 3 + ".."
+
+
+@pytest.mark.parametrize("mounted", [False, True])
+@pytest.mark.parametrize(
+  "kind", ["absolute", "dot-dot", "chain", "directory", "directory chain"]
+)
+def test_collect_removes_a_symlink_that_leads_out(
+  tmp_path: Path, mounted: bool, kind: str
+) -> None:
+  hostdir = tmp_path / "host"
+  hostdir.mkdir()
+  _ = (hostdir / "secret").write_text("host-only")
+
+  def links(outdir: Path) -> dict[str, str]:
+    # outdir's parent is <attempt>/outputs/a, so ../.. from outdir is the
+    # attempt, in tmp_path; each link reads host/secret when followed.
+    _ = outdir
+    return {
+      "absolute": {"leak": str(hostdir / "secret")},
+      "dot-dot": {"leak": "../../../../host/secret"},
+      # sub/up leads back to outdir, so leak climbs four levels up from
+      # there, though its text climbs no higher than sub/up/sub/up.
+      "chain": {"sub/up": "..", "leak": f"{CLIMB}/host/secret"},
+      "directory": {"leak": str(hostdir)},
+      "directory chain": {"sub/up": "..", "leak": f"{CLIMB}/host"},
+    }[kind]
+
+  outdir, log = collect_links(tmp_path, mounted, links)
+  for path in [outdir / "leak", outdir / "leak" / "secret"]:
+    with pytest.raises(OSError):
+      _ = path.read_text()
+  assert f"outputs: removed symlink leak -> {links(outdir)['leak']}" in log
+  assert (outdir / "sub" / "file").read_text() == "inside"
+
+
+@pytest.mark.parametrize("mounted", [False, True])
+def test_collect_keeps_a_symlink_that_stays_inside(
+  tmp_path: Path, mounted: bool
+) -> None:
+  outdir, log = collect_links(
+    tmp_path,
+    mounted,
+    lambda outdir: {
+      "file": "sub/file",
+      "sub/up": "..",
+      "via": "sub/up/sub/./file",
+      "dir": "sub",
+      "missing": "sub/not-yet",
+    },
+  )
+  assert (outdir / "file").read_text() == "inside"
+  assert (outdir / "via").read_text() == "inside"
+  assert (outdir / "dir" / "file").read_text() == "inside"
+  assert (outdir / "sub" / "up" / "sub" / "file").read_text() == "inside"
+  assert (outdir / "missing").is_symlink()
+  assert "removed symlink" not in log
+
+
+def test_collect_fails_on_a_directory_it_cannot_list(tmp_path: Path) -> None:
+  hostdir = tmp_path / "host"
+  hostdir.mkdir()
+  _ = (hostdir / "secret").write_text("host-only")
+
+  class LockingDocker(FakeDocker):
+    # docker cp keeps the mode the container gave a directory.
+    @override
+    def __call__(self, args: Sequence[str]) -> CommandResult:
+      result = super().__call__(args)
+      if args[0] == "cp" and args[1].endswith("/outputs/."):
+        locked = Path(args[2]) / "sub" / "locked"
+        locked.mkdir()
+        (locked / "leak").symlink_to(hostdir / "secret")
+        locked.chmod(0o300)
+      return result
+
+  docker = LockingDocker(tmp_path / "container")
+  outdirs: list[Path] = []
+  with Docker("author:1", cli=docker) as env:
+
+    def body(ctx: Context) -> Outcome:
+      outdirs.append(ctx.outdir)
+      agent = LinkingAgent(docker.path, {})
+      spec = AgentSpec("Write.", tmp_path, outputs=["sub"])
+      with pytest.raises(PermissionError):
+        _ = Actions(agent_runner=agent).agent(ctx, spec, env)
+      return Outcome("ok")
+
+    once(tmp_path, body)
+  with pytest.raises(OSError):
+    _ = (outdirs[0] / "sub" / "locked" / "leak").read_text()
+
+
+@pytest.mark.parametrize("kind", ["file", "directory"])
+def test_collect_from_a_mount_never_follows_a_link_swapped_in(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+  hostdir = tmp_path / "host"
+  hostdir.mkdir()
+  _ = (hostdir / "secret").write_text("host-only")
+  swapped = tmp_path / "out" / "swapped"
+  done: list[bool] = []
+
+  def make(outdir: Path) -> dict[str, str]:
+    _ = outdir
+    if kind == "file":
+      _ = swapped.write_text("plain")
+    else:
+      swapped.mkdir()
+    return {}
+
+  def swap() -> None:
+    # The container swaps the file or directory for a link once collect has
+    # looked at it, before collect copies it.
+    if not done:
+      done.append(True)
+      if kind == "file":
+        swapped.unlink()
+      else:
+        swapped.rmdir()
+      swapped.symlink_to(hostdir / "secret" if kind == "file" else hostdir)
+
+  real_stat, real_scandir = os.stat, os.scandir
+
+  def stat(
+    path: int | str | os.PathLike[str],
+    *,
+    dir_fd: int | None = None,
+    follow_symlinks: bool = True,
+  ) -> os.stat_result:
+    status = real_stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+    if path == "swapped":
+      swap()
+    return status
+
+  def scandir(path: int | str) -> AbstractContextManager[Iterator[object]]:
+    if isinstance(path, int) or Path(path) != swapped.parent:
+      return real_scandir(path)
+    with real_scandir(path) as listed:
+      entries = list(listed)
+    swap()
+    return nullcontext(iter(entries))
+
+  monkeypatch.setattr(os, "stat", stat)
+  monkeypatch.setattr(os, "scandir", scandir)
+  outdir, log = collect_links(tmp_path, True, make)
+  assert done
+  copied = [
+    Path(top, name) for top, _, names in os.walk(outdir) for name in names
+  ]
+  assert all(
+    path.read_text() != "host-only" for path in copied if not path.is_symlink()
+  )
+  assert not os.path.lexists(outdir / "swapped")
+  assert "outputs: left out swapped: it changed while copied" in log
+
+
 MAKE_TASK = ScriptSpec(
   ["sh", "-c", 'T="$DATAFORGE_OUTPUTS/task"; mkdir "$T"; echo hi > "$T/a.txt"'],
   outputs=["task"],
@@ -865,6 +1088,37 @@ def test_a_summary_that_is_a_symlink_is_never_read(tmp_path: Path) -> None:
   attempt = Machine([Once(body)]).run(tmp_path / "attempt")
   assert attempt.visits[0].actions[0].summary == NOT_A_FILE
   assert "host-only" not in json.dumps(attempt.to_json())
+
+
+def test_a_symlink_in_dockers_summary_directory_that_leads_out_is_removed(
+  tmp_path: Path,
+) -> None:
+  secret = tmp_path / "host-only.txt"
+  _ = secret.write_text("host-only text")
+
+  class LinkDocker(FakeDocker):
+    @override
+    def __call__(self, args: Sequence[str]) -> CommandResult:
+      for arg in args:
+        if arg.startswith("DATAFORGE_SUMMARY="):
+          self.path(arg.partition("=")[2]).symlink_to(secret)
+      return super().__call__(args)
+
+  docker = LinkDocker(tmp_path / "container")
+  logs: list[str] = []
+  with Docker("builder:1", cli=docker) as env:
+
+    def body(ctx: Context) -> Outcome:
+      result = Actions().script(ctx, ScriptSpec(["true"]), env)
+      logs.append(result.log)
+      assert not os.path.lexists(summary_path(ctx, 1))
+      return Outcome(result.status)
+
+    attempt = Machine([Once(body)]).run(tmp_path / "attempt")
+  assert attempt.visits[0].actions[0].summary is None
+  assert logs == [
+    f"summary: removed symlink summary.md -> {secret}: it leads out"
+  ]
 
 
 def test_a_dockers_repr_leaves_out_its_env() -> None:
