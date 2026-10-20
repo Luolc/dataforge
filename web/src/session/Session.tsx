@@ -207,7 +207,7 @@ function Thinking({ text, open: initial }: { text: string; open: boolean }) {
     <div className="flex flex-col gap-1">
       <button
         {...button}
-        className="target flex min-w-0 items-center gap-1.5 self-start rounded-row text-left text-xs text-fg-2 hover:bg-hover"
+        className="target flex max-w-full min-w-0 items-center gap-1.5 self-start rounded-row text-left text-xs text-fg-2 hover:bg-hover"
       >
         <Chevron open={open} />
         <span className="flex-none font-medium">Thinking · {words} words</span>
