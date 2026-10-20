@@ -230,6 +230,8 @@ class ActionRecord:
     started_at: When it started.
     ended_at: When it ended.
     cost_usd: What it cost, in US dollars.
+    summary: The Markdown summary a script or a judge wrote to
+      DATAFORGE_SUMMARY, if it wrote one.
   """
 
   kind: str
@@ -238,6 +240,7 @@ class ActionRecord:
   started_at: datetime
   ended_at: datetime
   cost_usd: float
+  summary: str | None = None
 
 
 @dataclass
@@ -357,6 +360,7 @@ class Attempt:
           "started_at": action.started_at.isoformat(),
           "ended_at": action.ended_at.isoformat(),
           "cost_usd": action.cost_usd,
+          "summary": action.summary,
         }
         for action in visit.actions
       ],
