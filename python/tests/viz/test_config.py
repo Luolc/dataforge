@@ -97,11 +97,10 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       (
         "name: Example",
-        "name: Example\ndeliverables:\n"
-        "  - {name: task, kind: files, title: Task}\n"
-        "  - {name: task, kind: report, title: Again}",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T}, "
+        + "{name: t, kind: k, title: U}]",
       ),
-      r"deliverables\[1\]\.name: 'task' repeated",
+      r"deliverables\[1\]\.name: 't' repeated",
     ),
   ],
 )
