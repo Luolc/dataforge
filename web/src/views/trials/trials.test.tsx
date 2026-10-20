@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import passAtK from "../../../fixtures/p3/attempts/pass-at-k/record.json";
 import solved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-1/trace.jsonl?raw";
 import unsolved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-2/trace.jsonl?raw";
+import diff from "../../../fixtures/trialdiff/attempts/pass-at-k/artifacts/solve/1/trial-1/verifier/patch.diff?raw";
 import { must, sampleProject } from "../../../fixtures/sample";
 import { type Project, record } from "../../api/types";
 import TrialsView from ".";
@@ -158,5 +159,135 @@ describe("the trials view", () => {
     expect(
       screen.getByText("AgentTimeoutError: the agent ran past its 1800s limit"),
     ).toBeVisible();
+  });
+});
+
+describe("the trials view's Diff tab", () => {
+  const withDiff: Project = {
+    ...project,
+    trials: { diff: "verifier/patch.diff" },
+  };
+  const at = (n: number) =>
+    `artifacts/solve/1/trial-${n.toString()}/verifier/patch.diff`;
+
+  // The files route as the backend answers it: a file's bytes, a directory's
+  // listing as JSON, a 413 over the limit and a 404 for anything else.
+  function serve(files: Record<string, string | { status: number }>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const path = new URL(url, "http://x").searchParams.get("path") ?? "";
+        const found = files[path] ?? traces[path];
+        if (typeof found === "string")
+          return Promise.resolve(new Response(found));
+        if (found?.status === 200)
+          return Promise.resolve(Response.json({ entries: [] }));
+        const status = found?.status ?? 404;
+        const reason =
+          status === 413
+            ? "17.0 MiB, over FILE_LIMIT (16 MiB)"
+            : `${path}: No such file or directory`;
+        return Promise.resolve(
+          Response.json({ error: "x", reason }, { status }),
+        );
+      }),
+    );
+  }
+
+  function showDiff(shown: Project = withDiff) {
+    render(
+      <TrialsView
+        project={shown}
+        attempt="pass-at-k"
+        record={attempt}
+        deliverable={must(attempt.deliverables?.[0])}
+      />,
+    );
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Diff" }));
+  }
+
+  it("opens on the Trace tab, Diff after it", () => {
+    serve({});
+    show();
+
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Trace",
+      "Diff",
+    ]);
+    expect(screen.getByRole("tab", { name: "Trace" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("shows the file the project names under the trial, coloured by line", async () => {
+    serve({ [at(1)]: diff });
+    showDiff();
+
+    expect(await screen.findByText(at(1))).toBeVisible();
+    const kinds = new Set(
+      [...document.querySelectorAll("[data-line]")].map((line) =>
+        line.getAttribute("data-line"),
+      ),
+    );
+    expect(kinds).toEqual(
+      new Set(["head", "hunk", "context", "add", "remove"]),
+    );
+  });
+
+  it("says when the project names no diff", () => {
+    serve({ [at(1)]: diff });
+    showDiff(project);
+
+    expect(
+      screen.getByText("The project names no diff for its trials."),
+    ).toBeVisible();
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("patch.diff"),
+      expect.anything(),
+    );
+  });
+
+  it("says when a trial recorded no diff, with the route's reason", async () => {
+    serve({});
+    showDiff();
+
+    expect(
+      await screen.findByText(/This trial recorded no diff\./),
+    ).toBeVisible();
+    expect(
+      screen.getByText(`${at(1)}: No such file or directory`),
+    ).toBeVisible();
+  });
+
+  it("tells a directory at the diff's path from a diff", async () => {
+    serve({ [at(1)]: { status: 200 } });
+    showDiff();
+
+    expect(
+      await screen.findByText(/This trial recorded no diff\./),
+    ).toBeVisible();
+    expect(screen.getByText(`${at(1)}: a directory, not a file`)).toBeVisible();
+  });
+
+  it("shows the reason of a diff over the limit", async () => {
+    serve({ [at(1)]: { status: 413 } });
+    showDiff();
+
+    expect(
+      await screen.findByText("Not shown: 17.0 MiB, over FILE_LIMIT (16 MiB)"),
+    ).toBeVisible();
+  });
+
+  it("keeps the Diff tab when another trial is chosen", async () => {
+    serve({ [at(1)]: diff, [at(2)]: diff });
+    showDiff();
+    fireEvent.click(trial("tinyparse-fold__p3b2"));
+
+    expect(screen.getByRole("tab", { name: "Diff" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(await screen.findByText(at(2))).toBeVisible();
   });
 });

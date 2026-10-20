@@ -93,6 +93,8 @@ class Project:
       the engine's own rule.
     lock: The path of the lock file in an item's directory; None when the
       dataset names none.
+    trial_diff: The path of a trial's diff in its directory; None when the
+      dataset names none.
   """
 
   id: str
@@ -108,6 +110,7 @@ class Project:
   thinking: str
   not_ended: tuple[str, ...] | None = None
   lock: tuple[str, ...] | None = None
+  trial_diff: tuple[str, ...] | None = None
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
@@ -129,6 +132,9 @@ class Project:
       ],
       "session": {"thinking": self.thinking},
       "not_ended": None if self.not_ended is None else list(self.not_ended),
+      "trials": None
+      if self.trial_diff is None
+      else {"diff": "/".join(self.trial_diff)},
     }
 
 
@@ -217,7 +223,15 @@ def load_project(path: Path) -> Project:
       "record",
       "item",
     },
-    optional={"states", "statuses", "columns", "session", "not_ended", "lock"},
+    optional={
+      "states",
+      "statuses",
+      "columns",
+      "session",
+      "not_ended",
+      "lock",
+      "trials",
+    },
   )
   id_ = _str(path, "id", data["id"])
   if not _ID.fullmatch(id_):
@@ -243,6 +257,7 @@ def load_project(path: Path) -> Project:
     lock=None
     if data.get("lock") is None
     else _relative(path, "lock", _str(path, "lock", data["lock"])),
+    trial_diff=_trial_diff(path, data.get("trials")),
   )
 
 
@@ -404,6 +419,16 @@ def _columns(path: Path, value: object) -> tuple[Column, ...]:
     title = _str(path, f"{where}.title", entry["title"])
     columns.append(Column(title, keys, format_))
   return tuple(columns)
+
+
+def _trial_diff(path: Path, value: object) -> tuple[str, ...] | None:
+  if value is None:
+    return None
+  mapping = _mapping(path, "trials", value)
+  _keys(path, "trials", mapping, required={"diff"}, optional=set())
+  return _relative(
+    path, "trials.diff", _str(path, "trials.diff", mapping["diff"])
+  )
 
 
 def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:

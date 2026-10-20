@@ -90,4 +90,10 @@ describe("the report view", () => {
       await screen.findByText("Not shown: not UTF-8 text, 2 B."),
     ).toBeVisible();
   });
+
+  it("shows the route's reason for a report that is not there", async () => {
+    show({});
+
+    expect(await screen.findByText(`${path} does not exist`)).toBeVisible();
+  });
 });

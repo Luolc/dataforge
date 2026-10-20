@@ -1,0 +1,11 @@
+diff --git a/tinyparse/parser.py b/tinyparse/parser.py
+index 3b1c2d4..0d7aa52 100644
+--- a/tinyparse/parser.py
++++ b/tinyparse/parser.py
+@@ -26,5 +26,5 @@ def parse(stream):
+         if line[:1] in (" ", "\t"):
+-            headers[-1] = (headers[-1][0], headers[-1][1] + line)
++            headers[-1] = (headers[-1][0], headers[-1][1] + line.strip())
+             continue
+         headers.append(_split_line(line))
+     return headers
