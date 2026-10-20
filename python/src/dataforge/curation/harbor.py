@@ -184,6 +184,9 @@ class HarborRunner:
     docker: The docker command that reads the task's compose file and that the
       cleanup runs; when docker fails during the cleanup, run raises, since it
       cannot tell what is left.
+    verifier: The import path (`module:Class`) of the verifier Harbor runs
+      instead of its own, passed as `--verifier`, so that a dataset can take
+      over how the reward is read.
   """
 
   harbor: Path
@@ -202,6 +205,7 @@ class HarborRunner:
     | None
   ) = None
   docker: str = "docker"
+  verifier: str | None = None
 
   def memory_gb(self, limits: Limits) -> float:
     """Return the memory a trial reserves: the task's and the sidecar's.
@@ -257,6 +261,7 @@ class HarborRunner:
       str(self.harbor), "run",
       "--path", str(task_dir.resolve()),
       *agent_args,
+      *(() if self.verifier is None else ("--verifier", self.verifier)),
       "--jobs-dir", str(outdir.resolve()),
       "--job-name", "job",
       "--n-attempts", "1",
