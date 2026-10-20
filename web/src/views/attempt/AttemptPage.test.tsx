@@ -9,6 +9,7 @@ import {
   inReview,
   mayHaveStopped,
   must,
+  records,
   runningIn,
   sampleProject,
 } from "../../../fixtures/sample";
@@ -141,14 +142,14 @@ describe("a record that is not a JSON object", () => {
 });
 
 describe("an attempt that runs", () => {
-  function showLive(live: unknown, status = 200) {
+  function showLive(live: unknown, status = 200, rec: unknown = inReview) {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
         Promise.resolve(
           url.includes("/live?")
             ? new Response(JSON.stringify(live), { status })
-            : new Response(JSON.stringify(inReview), { status: 200 }),
+            : new Response(JSON.stringify(rec), { status: 200 }),
         ),
       ),
     );
@@ -189,6 +190,25 @@ describe("an attempt that runs", () => {
       within(header).getByRole("img", { name: "May have stopped" }),
     ).toBeVisible();
     expect(tabs()[0]).toHaveTextContent("Runs4");
+  });
+
+  it("shows a record that has ended alone over a /live read before", async () => {
+    // /live read while the attempt ran, the record once it had ended.
+    const visits = records.passed.visits.length;
+    showLive(runningIn({ index: visits }), 200, records.passed);
+
+    expect(
+      await screen.findByRole("heading", { name: /Attempt/ }),
+    ).toBeVisible();
+    const header = must(
+      screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+    );
+    expect(within(header).getByRole("img", { name: "Passed" })).toBeVisible();
+    expect(tabs()[0]).toHaveTextContent(`Runs${String(visits)}`);
+    expect(screen.queryByRole("img", { name: "Running" })).toBeNull();
+    expect(
+      screen.getByText(`${String(visits)} runs`, { exact: false }),
+    ).toBeVisible();
   });
 
   it("shows the record alone when /live cannot be read", async () => {
