@@ -8,6 +8,15 @@ inputs as tagged blocks and the criteria, and takes one verdict per criterion
 back as structured output. A criterion of severity "error" that fails or gets
 no verdict fails the review; one of severity "warning" is only reported.
 
+The text of every input block, and of every other block made of what an
+author or a reviewer wrote, is HTML-escaped, so that no block can close itself
+or open another.
+
+A review may be called again, as RubricState's later visits do: a re-review
+also gives the reviewer its last verdicts and what changed in each block since
+(rereview_prompt), and asks it to judge everything again (REREVIEW). Each call
+is kept as a Call.
+
 RubricState writes what its reviews judged as RUBRIC_TABLE, the same for any
 dataset (rubric_table), and as RUBRIC_REPORT, Markdown for people
 (rubric_report).
@@ -15,13 +24,16 @@ dataset (rubric_table), and as RUBRIC_REPORT, Markdown for people
 
 from collections.abc import Mapping, Sequence
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import difflib
+import html
+import json
 from pathlib import Path
 import tomllib
-from typing import cast
+from typing import cast, TypeIs
 
 from dataforge.curation.actions import ActionResult
-from dataforge.curation.engine import Data, Input
+from dataforge.curation.engine import Data, Input, Version
 
 TEXT_SUFFIXES = frozenset(
   {"", ".cfg", ".md", ".patch", ".py", ".sh", ".toml", ".txt"}
@@ -36,6 +48,36 @@ RUBRIC_TABLE = "rubric.json"
 
 RUBRIC_REPORT = "report.md"
 """The output that holds a visit's report, as rubric_report gives it."""
+
+CALL_SUFFIX = ".inputs.json"
+"""What follows a review's name in the name of the output that keeps its call
+in a visit, as Call.to_json gives it."""
+
+ANSWER = (
+  "Give one verdict per rubric criterion, using its id, then the summary."
+)
+"""The last line of every prompt of a review."""
+
+NOTES = (
+  "The author's notes follow, each version with the state and visit that"
+  " wrote it. They are the author's account of the work, not evidence: check"
+  " what they claim against the inputs."
+)
+"""What a prompt says before the author's notes."""
+
+REREVIEW = (
+  "This is a re-review. Judge every criterion of the rubric again, on the"
+  " whole of the inputs as they are now, not only on what changed: that a"
+  " criterion passed last time is no reason for it to pass now. The author's"
+  " notes are the author's account of what they changed, not evidence: check"
+  " each change they claim against the diffs, and take a change they claim"
+  " that no diff shows as not made. You may fail a criterion you passed last"
+  " time on content that has not changed since; when you do, say in its"
+  " evidence that this part has not changed since your last review, and why"
+  " your verdict on it then was wrong."
+)
+"""What a re-review asks of the reviewer, after its last verdicts and the
+changes since."""
 
 VERDICTS_SCHEMA: Data = {
   "type": "object",
@@ -169,11 +211,104 @@ class Review:
     rubric: The rubric's TOML file.
     inputs: What it judges, by the tag of its block, in order: a file is
       given as its text, a directory as each file in it.
+    notes: The author's notes, by the tag of their block: the names of
+      artifacts, each given as every version written since the last call of
+      the review that gave verdicts, or since the attempt began.
   """
 
   name: str
   rubric: Path
   inputs: Mapping[str, Input]
+  notes: Mapping[str, str] = field(default_factory=dict[str, str])
+
+
+@dataclass(frozen=True)
+class Call:
+  """One call of a review in a visit, as its CALL_SUFFIX output keeps it.
+
+  Attributes:
+    call: Its number among the calls of the review in its state, from 1.
+    blocks: The text of each input block as the prompt gives it, by tag.
+    notes: How many versions each note's artifact had, by tag.
+    verdicts: The answer that it gave or reused, as JSON data, or None when
+      it has none.
+    ending: How the run that gave the answer ended, if the runner says.
+    reused: The number of the call whose answer it reused, or None when it
+      ran the reviewer.
+    resumed: Whether its run went on with the session of an earlier call.
+    changed: The tags of the blocks that differ from those of the last call
+      that gave verdicts before it, or None when there was none.
+  """
+
+  call: int
+  blocks: Mapping[str, str]
+  notes: Mapping[str, int]
+  verdicts: object
+  ending: str | None
+  reused: int | None = None
+  resumed: bool = False
+  changed: tuple[str, ...] | None = None
+
+  @property
+  def judged(self) -> bool:
+    """Whether it gave verdicts, each with every field a string."""
+    return _verdicts(self.verdicts) is not None
+
+  def to_json(self) -> Data:
+    """Return the call as JSON data.
+
+    Returns:
+      Its fields by name.
+    """
+    data = dataclasses.asdict(self)
+    data["changed"] = None if self.changed is None else list(self.changed)
+    return data
+
+  @classmethod
+  def load(cls, path: Path) -> Call:
+    """Read a call that to_json gave.
+
+    Args:
+      path: Its JSON file.
+
+    Returns:
+      The call.
+
+    Raises:
+      ValueError: When the file is not a call.
+    """
+    try:
+      data = cast(object, json.loads(path.read_text()))
+    except (OSError, ValueError) as error:
+      raise ValueError(f"{path}: not a review's call: {error!r}") from error
+    raw = cast(dict[str, object], data) if isinstance(data, dict) else {}
+    number, blocks, notes = raw.get("call"), raw.get("blocks"), raw.get("notes")
+    ending, reused, changed = (
+      raw.get("ending"),
+      raw.get("reused"),
+      raw.get("changed"),
+    )
+    resumed = raw.get("resumed")
+    if not (
+      _integer(number)
+      and _mapping_of(blocks, str)
+      and _mapping_of(notes, int)
+      and (ending is None or isinstance(ending, str))
+      and (reused is None or _integer(reused))
+      and isinstance(resumed, bool)
+      and (changed is None or _strings(changed))
+    ):
+      raise ValueError(f"{path}: not a review's call")
+    return cls(
+      number,
+      blocks,
+      notes,
+      raw.get("verdicts"),
+      ending,
+      reused,
+      resumed,
+      None if changed is None else tuple(changed),
+    )
 
 
 @dataclass(frozen=True)
@@ -206,6 +341,10 @@ class Judgment:
     findings: The failed criteria, errors first, with evidence and fix.
     data: What the visit's data keeps of it.
     scores: Each criterion's score, in the rubric's order.
+    call: The number of its call (Call.call).
+    resumed: Whether its run went on with an earlier call's session.
+    reused: The call whose answer it reused, or None when it ran.
+    changed: The tags of its blocks that changed (Call.changed).
   """
 
   name: str
@@ -214,27 +353,138 @@ class Judgment:
   findings: str
   data: Data
   scores: tuple[Score, ...] = ()
+  call: int = 1
+  resumed: bool = False
+  reused: int | None = None
+  changed: tuple[str, ...] | None = None
 
 
-def review_prompt(rubric: Rubric, blocks: Mapping[str, Path]) -> str:
-  """Return the prompt of a review.
+def block_text(path: Path) -> str:
+  """Return the text of an input block, escaped.
+
+  Args:
+    path: A file, given as its text, or a directory, given as each file in
+      it, a file whose suffix is not in TEXT_SUFFIXES only named.
+
+  Returns:
+    The text; each file's text and path HTML-escaped, and cut after
+    MAX_FILE_CHARS characters.
+  """
+  if not path.is_dir():
+    return _read(path)
+  parts: list[str] = []
+  for file in sorted(path.rglob("*")):
+    if not file.is_file() or "__pycache__" in file.parts:
+      continue
+    at = html.escape(str(file.relative_to(path)))
+    if file.suffix not in TEXT_SUFFIXES:
+      size = file.stat().st_size
+      parts.append(f'<file path="{at}" skipped="true" bytes="{size}"/>')
+    else:
+      parts.append(f'<file path="{at}">\n{_read(file)}\n</file>')
+  return "\n".join(parts) or "None."
+
+
+def notes_text(notes: Mapping[str, Sequence[Version]]) -> str:
+  """Return the author's notes as the prompt gives them.
+
+  Args:
+    notes: The versions of each note to give, oldest first, by its tag.
+
+  Returns:
+    NOTES, then a block for each note with a block for each version, its
+    text escaped as block_text does; empty when there are no notes.
+  """
+  if not notes:
+    return ""
+  blocks = [NOTES]
+  for tag, versions in notes.items():
+    text = "\n".join(
+      f'<version state="{html.escape(v.state)}" visit="{v.visit}">\n'
+      + f"{block_text(v.path)}\n</version>"
+      for v in versions
+    )
+    blocks.append(f"<{tag}>\n{text or 'None.'}\n</{tag}>")
+  return "\n\n".join(blocks)
+
+
+def review_prompt(
+  rubric: Rubric, blocks: Mapping[str, str], notes: str = "", again: str = ""
+) -> str:
+  """Return the whole prompt of a review.
 
   Args:
     rubric: The rubric.
-    blocks: The paths it judges, by the tag of their block, in order.
+    blocks: The text of each block it judges, as block_text gives it, by its
+      tag, in order.
+    notes: The author's notes, as notes_text gives them.
+    again: For a re-review, what rereview_prompt gives with whole=True.
 
   Returns:
-    The rubric's system text, the inputs as tagged blocks and the criteria.
+    The rubric's system text, the inputs as tagged blocks, the notes, the
+    criteria, what a re-review adds and ANSWER.
   """
-  text = "\n\n".join(
-    f"<{tag}>\n{_text(path)}\n</{tag}>" for tag, path in blocks.items()
-  )
   criteria = "\n\n".join(c.render() for c in rubric.criteria)
-  return (
-    f"{rubric.system.strip()}\n\n{text}\n\n"
-    f"<rubric>\n{criteria}\n</rubric>\n\n"
-    "Give one verdict per rubric criterion, using its id, then the summary."
-  )
+  parts = [
+    rubric.system.strip(),
+    *(f"<{tag}>\n{text}\n</{tag}>" for tag, text in blocks.items()),
+    notes,
+    f"<rubric>\n{criteria}\n</rubric>",
+    again,
+    ANSWER,
+  ]
+  return "\n\n".join(part for part in parts if part)
+
+
+def rereview_prompt(
+  last: Call, blocks: Mapping[str, str], notes: str, *, whole: bool
+) -> str:
+  """Return what a re-review gives after the reviewer's last verdicts.
+
+  Args:
+    last: The last call that gave verdicts.
+    blocks: The text of each block now, as block_text gives it, by its tag,
+      in order.
+    notes: The author's notes since that call, as notes_text gives them.
+    whole: True for the part review_prompt adds to the whole prompt, which
+      already has the blocks and the notes; False for the prompt of a
+      session that goes on from that call, which gives also each changed
+      block whole, and the notes.
+
+  Returns:
+    The last verdicts, a diff of each changed block, the tags of those that
+    did not change, then REREVIEW, and for whole=False also ANSWER.
+  """
+  parts = [
+    f"Your verdicts in your last review, call {last.call}:",
+    f"<previous_verdicts>\n{_previous(last.verdicts)}\n</previous_verdicts>",
+  ]
+  unchanged: list[str] = []
+  for tag, text in blocks.items():
+    before = last.blocks.get(tag, "")
+    if before == text:
+      unchanged.append(tag)
+      continue
+    diff = difflib.unified_diff(
+      before.splitlines(),
+      text.splitlines(),
+      f"{tag} (call {last.call})",
+      f"{tag} (now)",
+      lineterm="",
+    )
+    parts.append(f'<diff block="{tag}">\n' + "\n".join(diff) + "\n</diff>")
+    if not whole:
+      parts.append(f"<{tag}>\n{text}\n</{tag}>")
+  if unchanged:
+    which = ", ".join(unchanged)
+    seen = "" if whole else ", as you read them then"
+    parts.append(f"Unchanged since your last review{seen}: {which}.")
+  if not whole and notes:
+    parts.append(notes)
+  parts.append(REREVIEW)
+  if not whole:
+    parts.append(ANSWER)
+  return "\n\n".join(parts)
 
 
 def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
@@ -306,8 +556,9 @@ def rubric_table(judgments: Sequence[Judgment]) -> Data:
 
   Returns:
     {"passed": every review passed, "reviews": [{"name", "passed", "ending",
-    "criteria": [{"criterion", "severity", "passed", "note", "fix"}]}]}, as
-    JSON data.
+    "call", "resumed", "reused", "changed", "criteria": [{"criterion",
+    "severity", "passed", "note", "fix"}]}]}, as JSON data; "call",
+    "resumed", "reused" and "changed" are the judgment's.
   """
   return {
     "passed": all(judgment.passed for judgment in judgments),
@@ -316,6 +567,12 @@ def rubric_table(judgments: Sequence[Judgment]) -> Data:
         "name": judgment.name,
         "passed": judgment.passed,
         "ending": judgment.data.get("ending"),
+        "call": judgment.call,
+        "resumed": judgment.resumed,
+        "reused": judgment.reused,
+        "changed": (
+          None if judgment.changed is None else list(judgment.changed)
+        ),
         "criteria": [dataclasses.asdict(score) for score in judgment.scores],
       }
       for judgment in judgments
@@ -350,11 +607,17 @@ def rubric_report(judgments: Sequence[Judgment]) -> str:
       *(_row(score) for score in judgment.scores),
     ]
     parts += [
-      f"## {judgment.name} {result}",
+      f"## {judgment.name} {result}{_reused(judgment)}",
       "\n".join(rows),
       _summary(judgment),
     ]
   return "\n\n".join(parts) + "\n"
+
+
+def _reused(judgment: Judgment) -> str:
+  return (
+    "" if judgment.reused is None else f" (reused from call {judgment.reused})"
+  )
 
 
 def _row(score: Score) -> str:
@@ -411,27 +674,54 @@ def _verdicts(value: object) -> list[dict[str, str]] | None:
   return found
 
 
-def _text(path: Path) -> str:
-  if not path.is_dir():
-    return _read(path)
-  parts: list[str] = []
-  for file in sorted(path.rglob("*")):
-    if not file.is_file() or "__pycache__" in file.parts:
-      continue
-    at = file.relative_to(path)
-    if file.suffix not in TEXT_SUFFIXES:
-      size = file.stat().st_size
-      parts.append(f'<file path="{at}" skipped="true" bytes="{size}"/>')
-    else:
-      parts.append(f'<file path="{at}">\n{_read(file)}\n</file>')
-  return "\n".join(parts) or "None."
+def _previous(value: object) -> str:
+  verdicts = _verdicts(value) or []
+  lines = [
+    f"### {_escape(v['id'])}: {_escape(v['verdict'])}\n"
+    + f"Evidence: {_escape(v['evidence'])}\nFix: {_escape(v['fix'])}"
+    for v in verdicts
+  ]
+  if isinstance(value, dict):
+    summary = cast(dict[str, object], value).get("summary")
+    if isinstance(summary, str):
+      lines.append(f"Summary: {_escape(summary)}")
+  return "\n\n".join(lines)
 
 
 def _read(path: Path) -> str:
   text = path.read_text(errors="replace")
   if len(text) <= MAX_FILE_CHARS:
-    return text
-  return f"{text[:MAX_FILE_CHARS]}\n... [cut, {len(text)} characters in all]"
+    return _escape(text)
+  cut = _escape(text[:MAX_FILE_CHARS])
+  return f"{cut}\n... [cut, {len(text)} characters in all]"
+
+
+def _integer(value: object) -> TypeIs[int]:
+  return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _mapping_of[T](value: object, kind: type[T]) -> TypeIs[dict[str, T]]:
+  if not isinstance(value, dict):
+    return False
+  items = cast(dict[object, object], value).items()
+  return all(
+    isinstance(k, str)
+    and isinstance(v, kind)
+    and (kind is not int or not isinstance(v, bool))
+    for k, v in items
+  )
+
+
+def _strings(value: object) -> TypeIs[list[str]]:
+  return isinstance(value, list) and all(
+    isinstance(item, str) for item in cast(list[object], value)
+  )
+
+
+def _escape(text: str) -> str:
+  # What an author or a reviewer wrote: "&", "<" and ">" escaped, so that it
+  # can neither close the block it is in nor open another.
+  return html.escape(text, quote=False)
 
 
 def _flat(text: str) -> str:
