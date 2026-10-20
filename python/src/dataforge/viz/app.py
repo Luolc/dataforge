@@ -102,7 +102,9 @@ class _Api:
     host = str(ipaddress.ip_address(site.listen.host))
     if ":" in host:
       host = f"[{host}]"
-    self._host: str = f"{host}:{site.listen.port}"
+    port = site.listen.port
+    # A browser leaves out the port when it is http's own.
+    self._host: str = host if port == 80 else f"{host}:{port}"
     self._origin: str = f"http://{self._host}"
 
   def projects(self) -> Response:
@@ -202,8 +204,9 @@ class _Api:
         },
         status_code=409,
       )
-    except ValueError as error:
-      raise RefusedError(503, f"the queue refused the job: {error}") from None
+    except ValueError:
+      # Its text may name the action's directory, which no page shows.
+      raise RefusedError(503, "the queue refused the job") from None
     except (sqlite3.Error, OSError) as error:
       raise RefusedError(503, _queue_failure(error)) from None
     return JSONResponse({"job": actions.public(job)}, status_code=201)
@@ -223,12 +226,15 @@ class _Api:
     config = self._config()
     try:
       open_jobs = queue.jobs(config, states=actions.OPEN)
-      ended = queue.jobs(config, states=actions.ENDED, limit=ENDED_LIMIT)
+      ended = queue.jobs(config, states=actions.ENDED)
     except FileNotFoundError:
       # No job was ever submitted: submitting one makes the database.
       open_jobs, ended = [], []
     except (sqlite3.Error, OSError) as error:
       raise RefusedError(503, _queue_failure(error)) from None
+    # The jobs that ended last, not those queued last: a long job queued
+    # early may end after many short ones.
+    ended.sort(key=lambda j: (j.ended_at or 0.0, j.id), reverse=True)
     return JSONResponse(
       {
         "queues": [
@@ -246,7 +252,8 @@ class _Api:
         ],
         "max_running": config.max_running,
         "ended_limit": ENDED_LIMIT,
-        "jobs": [actions.public(j) for j in open_jobs + ended],
+        "ended": len(ended),
+        "jobs": [actions.public(j) for j in open_jobs + ended[:ENDED_LIMIT]],
       }
     )
 

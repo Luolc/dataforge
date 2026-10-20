@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from dataforge import queue
+from dataforge.viz import app
 from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
 from tests.viz.sites import FIXTURES, make_queue_tree, QueueTree
@@ -446,3 +447,72 @@ def test_an_item_that_reads_as_an_option_is_refused_whatever_the_pattern(
 
   assert submitted.status_code == 400
   assert jobs(made) == []
+
+
+def test_the_queue_lists_the_jobs_that_ended_last_and_counts_them_all(
+  made: QueueTree, static: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  monkeypatch.setattr(app, "ENDED_LIMIT", 2)
+  web = client(made, static)
+  ids = [
+    queue.submit(
+      config(made),
+      "slow",
+      ["x"],
+      cwd=made.work,
+      memory_mib=1,
+      key=None,
+      labels={},
+    ).id
+    for _ in range(3)
+  ]
+  first, second, third = ids
+  # Ended in another order than queued: the third first, then the first.
+  for job in (third, first, second):
+    _ = queue.cancel(config(made), job)
+
+  body = cast(dict[str, object], web.get("/api/queue").json())
+
+  assert body["ended"] == 3
+  assert body["ended_limit"] == 2
+  listed = cast(list[dict[str, object]], body["jobs"])
+  assert [j["id"] for j in listed] == [second, first]
+
+
+def test_a_job_the_queue_refuses_shows_no_path(
+  made: QueueTree, static: Path
+) -> None:
+  web = client(made, static)
+  made.work.rmdir()
+
+  response = web.post(
+    f"{ACTIONS}/again", params={"item": "batch-1"}, headers=WRITE
+  )
+
+  assert response.status_code == 503
+  assert str(made.work) not in response.text
+  assert jobs(made) == []
+
+
+def test_at_http_s_own_port_a_write_names_no_port(
+  made: QueueTree, static: Path
+) -> None:
+  text = made.tree.site.read_text()
+  _ = made.tree.site.write_text(text.replace("port: 8800", "port: 80"))
+  web = TestClient(
+    create_app(load_site(made.tree.site), static),
+    base_url="http://127.0.0.1",
+  )
+
+  refused = web.post(
+    f"{ACTIONS}/again",
+    params={"item": "batch-1"},
+    headers={"X-Viz-Write": "1", "Origin": "http://127.0.0.1:80"},
+  )
+  taken = web.post(
+    f"{ACTIONS}/again",
+    params={"item": "batch-1"},
+    headers={"X-Viz-Write": "1", "Origin": "http://127.0.0.1"},
+  )
+
+  assert (refused.status_code, taken.status_code) == (403, 201)
