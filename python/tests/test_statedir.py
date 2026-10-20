@@ -22,6 +22,7 @@ def test_the_state_directory_is_named_else_xdgs_else_homes(
   found: str,
 ):
   # A relative XDG_STATE_HOME counts as unset; the directory is made 0700.
+  monkeypatch.chdir(tmp_path)
   monkeypatch.setenv(ENV, str(tmp_path / named) if named else "")
   absolute = str(tmp_path / xdg) if xdg and xdg != "relative" else xdg
   monkeypatch.setenv("XDG_STATE_HOME", absolute)
