@@ -112,6 +112,22 @@
   --color-syn-function: #5a3d8a;
   --color-syn-variable: #8a3000;
   --color-syn-key: #00607a;
+  /* A file's or a folder's icon in the file tree (views/files/icons/,
+     NOTICE there): at least 3:1 on the tree, hover and active (L52). */
+  --color-file-python: #0288d1;
+  --color-file-python-2: #9a7e02;
+  --color-file-shell: #f33a00;
+  --color-file-yaml: #ff1c1c;
+  --color-file-toml: #ed413d;
+  --color-file-toml-2: #6a8591;
+  --color-file-json: #b67205;
+  --color-file-docker: #0288d1;
+  --color-file-markdown: #0c83e4;
+  --color-file-diff: #0c83e4;
+  --color-file-text: #0c83e4;
+  --color-file-log: #818520;
+  --color-file-other: #6a8492;
+  --color-file-folder: #6a8492;
 }
 
 /* The other templates: every colour token again, so that none falls back
@@ -164,6 +180,20 @@ html[data-template="ac"] {
   --color-syn-function: #1f4a70;
   --color-syn-variable: #a8323c;
   --color-syn-key: #2f6461;
+  --color-file-python: #0279ba;
+  --color-file-python-2: #8b7101;
+  --color-file-shell: #d93400;
+  --color-file-yaml: #e80000;
+  --color-file-toml: #e31915;
+  --color-file-toml-2: #5e7681;
+  --color-file-json: #a26604;
+  --color-file-docker: #0279ba;
+  --color-file-markdown: #0b75cb;
+  --color-file-diff: #0b75cb;
+  --color-file-text: #0b75cb;
+  --color-file-log: #75781d;
+  --color-file-other: #5f7783;
+  --color-file-folder: #5f7783;
 }
 
 html[data-template="neutral"] {
@@ -214,6 +244,20 @@ html[data-template="neutral"] {
   --color-syn-function: #5a2fa8;
   --color-syn-variable: #953800;
   --color-syn-key: #0550ae;
+  --color-file-python: #0288d1;
+  --color-file-python-2: #9d8002;
+  --color-file-shell: #f83b00;
+  --color-file-yaml: #ff2929;
+  --color-file-toml: #ee4542;
+  --color-file-toml-2: #6c8894;
+  --color-file-json: #b87405;
+  --color-file-docker: #0288d1;
+  --color-file-markdown: #0c86e8;
+  --color-file-diff: #0c86e8;
+  --color-file-text: #0c86e8;
+  --color-file-log: #858921;
+  --color-file-other: #6e8895;
+  --color-file-folder: #6e8895;
 }
 
 html[data-template="dark"] {
@@ -265,6 +309,20 @@ html[data-template="dark"] {
   --color-syn-function: #94bde3;
   --color-syn-variable: #f7b8b8;
   --color-syn-key: #8fd0c8;
+  --color-file-python: #0290de;
+  --color-file-python-2: #fdd835;
+  --color-file-shell: #ff7043;
+  --color-file-yaml: #ff5252;
+  --color-file-toml: #ef5552;
+  --color-file-toml-2: #cfd8dc;
+  --color-file-json: #f9a825;
+  --color-file-docker: #0290de;
+  --color-file-markdown: #42a5f5;
+  --color-file-diff: #42a5f5;
+  --color-file-text: #42a5f5;
+  --color-file-log: #afb42b;
+  --color-file-other: #90a4ae;
+  --color-file-folder: #90a4ae;
 }
 
 @layer base {
