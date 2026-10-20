@@ -239,24 +239,28 @@ describe("an attempt that runs", () => {
 describe("an attempt read again while it runs", () => {
   // Each read of the record and of /live answers with the next of reads, the
   // last one again once they run out.
-  // A read of "gone" fails both, as when the server has gone away.
+  // A read of "gone" fails both, as when the server has gone away; a live
+  // of "gone" fails /live alone.
   function showReads(
-    reads: ({ record: unknown; live: LiveInfo } | "gone")[],
+    reads: ({ record: unknown; live: LiveInfo | "gone" } | "gone")[],
     at = "",
   ) {
     let n = 0;
     const fetch = vi.fn((url: string) => {
       const read = must(reads[Math.min(n, reads.length - 1)]);
       if (url.includes("/live?")) n++;
-      return Promise.resolve(
+      const body =
         read === "gone"
+          ? read
+          : url.includes("/live?")
+            ? read.live
+            : read.record;
+      return Promise.resolve(
+        body === "gone"
           ? new Response(JSON.stringify({ reason: "Bad Gateway" }), {
               status: 502,
             })
-          : new Response(
-              JSON.stringify(url.includes("/live?") ? read.live : read.record),
-              { status: 200 },
-            ),
+          : new Response(JSON.stringify(body), { status: 200 }),
       );
     });
     vi.stubGlobal("fetch", fetch);
@@ -372,6 +376,73 @@ describe("an attempt read again while it runs", () => {
       expect(tabs()[0]).toHaveTextContent("Runs6");
     });
     expect(said()).toBeNull();
+  });
+
+  it("takes a /live that cannot read a record not ended for a failed read", async () => {
+    // As /live answers while the record is caught half written.
+    const unread = {
+      record: inReview,
+      live: { live: null, held: true, current: null },
+    };
+    showReads([
+      { record: inReview, live: runningIn() },
+      unread,
+      unread,
+      reviewed,
+    ]);
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs5");
+    });
+    const header = must(
+      screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+    );
+
+    await tick();
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(tabs()[0]).toHaveTextContent("Runs5");
+    expect(within(header).getByRole("img", { name: "Running" })).toBeVisible();
+    await tick();
+    expect(
+      await screen.findByText(
+        /^Could not read the attempt again \(\/live could not read the record\)/,
+      ),
+    ).toBeVisible();
+
+    await tick();
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs6");
+    });
+  });
+
+  it("keeps what it showed when /live alone cannot be read again", async () => {
+    showReads([
+      { record: inReview, live: runningIn() },
+      { record: inReview, live: "gone" },
+      { record: inReview, live: "gone" },
+      reviewed,
+    ]);
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs5");
+    });
+    const header = must(
+      screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+    );
+
+    await tick();
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(tabs()[0]).toHaveTextContent("Runs5");
+    expect(within(header).getByRole("img", { name: "Running" })).toBeVisible();
+    await tick();
+    expect(
+      await screen.findByText(
+        /^Could not read the attempt again \(502: Bad Gateway\)/,
+      ),
+    ).toBeVisible();
+
+    await tick();
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs6");
+    });
   });
 
   it("keeps the run chosen and the steps opened on it", async () => {

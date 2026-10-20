@@ -8,10 +8,10 @@ import { Link } from "react-router";
 import {
   type Failed,
   getJson,
+  type Loaded,
   nextGeneration,
   RefreshContext,
   urls,
-  useJson,
   useLoaded,
 } from "../../api/client";
 import { usePolling } from "../../api/poll";
@@ -25,6 +25,7 @@ import {
   liveInfo,
   type Project,
   readRecord,
+  type ReadRecord,
 } from "../../api/types";
 import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
@@ -50,22 +51,47 @@ export function AttemptPage() {
   const [query] = useSearchParams();
   const attempt = query.get("id");
   const project = useProject(id);
-  // Raised by each read again; what is open, chosen or panned on the page
-  // stays, since what was read before stays shown until the new read lands.
-  const [refresh, setRefresh] = useState(nextGeneration);
+  // A new generation for each read again; what is open, chosen or panned on
+  // the page stays, since what was read before stays shown until the new
+  // read lands.
+  const [first] = useState(nextGeneration);
+  const [refresh, setRefresh] = useState(first);
+  const again = refresh !== first;
   const url =
     id !== undefined && attempt !== null ? urls.record(id, attempt) : null;
-  const loaded = useLoaded(
-    url,
-    (signal) => getJson(url ?? "", z.unknown(), signal).then(readRecord),
-    refresh,
-  );
-  // How the attempt stands now; a page that cannot read it shows the record
-  // alone, as for a project with no lock.
   const liveUrl =
     id !== undefined && attempt !== null ? urls.live(id, attempt) : null;
-  const liveLoaded = useJson(liveUrl, liveInfo, refresh);
-  const live = liveLoaded.state === "ok" ? liveLoaded.data : null;
+  // The record and how the attempt stands now (/live), read together so that
+  // what the page shows of the two comes from one read.
+  const both = useLoaded(
+    url,
+    async (signal) => {
+      const [read, live] = await Promise.all([
+        getJson(url ?? "", z.unknown(), signal).then(readRecord),
+        // A page that cannot read /live at first shows the record alone, as
+        // for a project with no lock; a read again keeps what it showed.
+        getJson(liveUrl ?? "", liveInfo, signal).catch((error: unknown) => {
+          if (again) throw error;
+          return null;
+        }),
+      ]);
+      // /live has no word for an attempt whose record it cannot read: a
+      // record that has not ended makes that a failed read, not news.
+      if (
+        again &&
+        live?.live == null &&
+        read.shape === "record" &&
+        project.state === "ok" &&
+        attemptStatus(project.data, read.record) === null
+      )
+        throw new Error("/live could not read the record");
+      return { read, live };
+    },
+    refresh,
+  );
+  const loaded: Loaded<ReadRecord> =
+    both.state === "ok" ? { state: "ok", data: both.data.read } : both;
+  const live = both.state === "ok" ? both.data.live : null;
   // Read again only while /live says it runs and the record has not ended.
   usePolling(
     live?.live === "running" &&
@@ -80,9 +106,9 @@ export function AttemptPage() {
   // Said only after two failed reads in a row, so that one read of a record
   // caught half written stays quiet.
   const failed =
-    [loaded, liveLoaded]
-      .map((l) => (l.state === "ok" ? l.failed : undefined))
-      .find((f) => f !== undefined && f.times >= 2) ?? null;
+    both.state === "ok" && (both.failed?.times ?? 0) >= 2
+      ? (both.failed ?? null)
+      : null;
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
   const discarded = runOf(query.get("discarded"));
@@ -112,11 +138,7 @@ export function AttemptPage() {
   if (attempt === null) body = <Note>No attempt is named.</Note>;
   else if (project.state === "error") body = <Note>{project.message}</Note>;
   else if (loaded.state === "error") body = <Note>{loaded.message}</Note>;
-  else if (
-    project.state === "loading" ||
-    loaded.state === "loading" ||
-    liveLoaded.state === "loading"
-  )
+  else if (project.state === "loading" || loaded.state === "loading")
     body = <Note>Loading…</Note>;
   else if (loaded.data.shape === "other")
     body = (
@@ -267,7 +289,7 @@ function ReadFailed({ failed }: { failed: Failed }) {
       className={`flex items-center gap-1.5 px-7 pt-1 text-xs ${toneText.warn}`}
     >
       <Glyph className="size-3.5 flex-none" aria-hidden />
-      {`Could not read the attempt again (${failed.message}); what is shown was read at ${time(new Date(failed.read).toISOString())}.`}
+      {`Could not read the attempt again (${failed.message.replace(/\.$/, "")}); what is shown was read at ${time(new Date(failed.read).toISOString())}.`}
     </p>
   );
 }
