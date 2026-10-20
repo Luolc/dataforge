@@ -22,6 +22,8 @@ const NO_STATUS = "No status";
 const NO_OUTCOME = "No outcome";
 /** An attempt whose record cannot be read: the listing's error. */
 const UNREADABLE = "Unreadable";
+/** A visit a resumption left out, to be run again (design.md). */
+const DISCARDED = "Discarded";
 /** The engine's outcome of a visit whose state raised (design.md). */
 export const RAISED = "raised";
 
@@ -82,6 +84,7 @@ export const viewerStatus = {
   noStatus: { label: NO_STATUS, tone: "neutral" },
   noOutcome: { label: NO_OUTCOME, tone: "neutral" },
   unreadable: { label: UNREADABLE, tone: "bad" },
+  discarded: { label: DISCARDED, tone: "neutral" },
 } as const satisfies Record<string, { label: string; tone: Tone }>;
 
 /**

@@ -18,6 +18,19 @@ function show(name: keyof typeof records, project = sampleProject) {
 }
 
 describe("Summary", () => {
+  it("says what of the cost the resumptions carried over", () => {
+    show("resumed");
+
+    expect(screen.getByText("$5.71 of $40.00")).toBeVisible();
+    expect(screen.getByText("$0.37 carried over 1 resumption")).toBeVisible();
+  });
+
+  it("says nothing of carried cost when nothing was resumed", () => {
+    show("passed");
+
+    expect(screen.queryByText(/carried over/)).toBeNull();
+  });
+
   it("draws the machine with its states linked to their last runs", () => {
     show("passed");
 
