@@ -20,13 +20,20 @@ import os
 from pathlib import Path, PurePosixPath
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
 from types import TracebackType
 from typing import cast, Protocol, Self
 
-from dataforge.curation.engine import ActionRecord, Context, Data, Input
+from dataforge.curation.engine import (
+  ActionRecord,
+  Context,
+  Data,
+  Input,
+  TrialRecord,
+)
 
 
 @dataclass(frozen=True)
@@ -208,6 +215,10 @@ SUMMARY = "summary.md"
 SUMMARY_LIMIT = 1024 * 1024
 """The most bytes of a summary the record keeps; the rest is cut off."""
 
+NOT_A_FILE = "(not kept: the summary is not a regular file)"
+"""The summary in the record when DATAFORGE_SUMMARY is a symlink, a directory
+or anything else that is not a regular file; it is never read."""
+
 
 def summary_path(ctx: Context, index: int) -> Path:
   """Return where an action's summary is on the host.
@@ -329,13 +340,11 @@ class Host:
       copy.parent.mkdir(parents=True, exist_ok=True)
       _ = shutil.copy(validator, copy)
       copy.chmod(0o555)
-    summary = summary_path(ctx, index)
-    summary.parent.mkdir(parents=True, exist_ok=True)
     return Staged(
       {name: str(path) for name, path in inputs.items()},
       str(ctx.outdir),
       None if copy is None else str(copy),
-      str(summary),
+      str(summary_path(ctx, index)),
     )
 
   def exec(self, argv: Sequence[str], env: Mapping[str, str]) -> CommandResult:
@@ -950,6 +959,11 @@ class TrialResult:
     cost_usd: What it cost, in US dollars.
     seconds: How long it took.
     artifacts: Its files, by name.
+    id: The trial's name, stable and readable, if the runner gives one.
+    path: The trial's own directory inside the output directory, if the
+      runner gives one.
+    trace: The agent's trace inside the output directory, if there is one.
+    trace_format: The trace's format, such as "claude-code-stream-json".
   """
 
   rewards: Mapping[str, float]
@@ -957,6 +971,10 @@ class TrialResult:
   cost_usd: float
   seconds: float
   artifacts: Mapping[str, Path]
+  id: str | None = None
+  path: Path | None = None
+  trace: Path | None = None
+  trace_format: str | None = None
 
 
 class TrialRunner(Protocol):
@@ -1182,6 +1200,7 @@ class Actions:
         variables = {**variables, "DATAFORGE_OUTPUTS": staged.outdir}
         if staged.summary is not None:
           variables["DATAFORGE_SUMMARY"] = staged.summary
+          summary_path(ctx, index).parent.mkdir(parents=True, exist_ok=True)
         done = env.exec([*spec.argv, *staged.inputs.values()], variables)
         env.collect(staged, ctx.outdir)
       finally:
@@ -1230,9 +1249,27 @@ class Actions:
       started_at,
       datetime.now(UTC),
       result.cost_usd,
+      trial=_trial_record(name, outdir, result),
     )
     ctx.record(record)
     return result
+
+
+def _trial_record(name: str, outdir: Path, result: TrialResult) -> TrialRecord:
+  # The record names paths relative to the attempt's root, so only paths
+  # inside the trial's output directory are kept.
+  def inside(path: Path | None) -> Path | None:
+    return path if path is not None and path.is_relative_to(outdir) else None
+
+  trace = inside(result.trace)
+  return TrialRecord(
+    result.id or name,
+    inside(result.path) or outdir,
+    trace,
+    None if trace is None else result.trace_format,
+    dict(result.rewards),
+    result.exception,
+  )
 
 
 def fan_out[T](calls: Sequence[Callable[[], T]]) -> list[T]:
@@ -1288,20 +1325,28 @@ def _finish(
 
 
 def _summary(path: Path) -> str | None:
-  # The whole file stays at path; the record keeps at most SUMMARY_LIMIT bytes.
-  if not path.is_file():
+  # The file comes from the action's env, which may be a container running
+  # untrusted code: open it without following a symlink, so that it cannot
+  # bring a host file into the record, and read no more than the limit.
+  try:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+  except FileNotFoundError:
     return None
-  data = path.read_bytes()
+  except OSError:
+    return NOT_A_FILE
+  with os.fdopen(fd, "rb") as file:
+    status = os.fstat(file.fileno())
+    if not stat.S_ISREG(status.st_mode):
+      return NOT_A_FILE
+    data = file.read(SUMMARY_LIMIT)
   if not data:
     return None
-  if len(data) <= SUMMARY_LIMIT:
+  if status.st_size <= SUMMARY_LIMIT:
     return data.decode(errors="replace")
   # A character cut in two at the limit is dropped, not replaced.
-  text = codecs.getincrementaldecoder("utf-8")("replace").decode(
-    data[:SUMMARY_LIMIT]
-  )
+  text = codecs.getincrementaldecoder("utf-8")("replace").decode(data)
   return (
-    f"{text}\n\n(cut off: the summary has {len(data)} bytes, over the"
+    f"{text}\n\n(cut off: the summary has {status.st_size} bytes, over the"
     f" {SUMMARY_LIMIT} kept)"
   )
 

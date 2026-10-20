@@ -2,6 +2,7 @@
 # The fakes implement protocols and take parameters they do not need.
 
 from collections.abc import Callable, Sequence
+import json
 from pathlib import Path
 import shutil
 import sys
@@ -37,6 +38,7 @@ from dataforge.curation import (
   TrialAgent,
   TrialResult,
 )
+from dataforge.curation.actions import NOT_A_FILE
 
 WAIT = 5.0
 
@@ -818,3 +820,18 @@ def test_a_script_in_docker_writes_its_summary(tmp_path: Path) -> None:
 
     attempt = Machine([Once(body)]).run(tmp_path / "attempt")
   assert attempt.visits[0].actions[0].summary == "in docker\n"
+  inside = docker.path("/dataforge/a/1/1/summary")
+  assert inside.stat().st_mode & 0o777 == 0o777
+
+
+def test_a_summary_that_is_a_symlink_is_never_read(tmp_path: Path) -> None:
+  secret = tmp_path / "host-only.txt"
+  _ = secret.write_text("host-only text")
+  link = ["sh", "-c", f'ln -s {secret} "$DATAFORGE_SUMMARY"']
+
+  def body(ctx: Context) -> Outcome:
+    return Outcome(Actions().script(ctx, ScriptSpec(link)).status)
+
+  attempt = Machine([Once(body)]).run(tmp_path / "attempt")
+  assert attempt.visits[0].actions[0].summary == NOT_A_FILE
+  assert "host-only" not in json.dumps(attempt.to_json())

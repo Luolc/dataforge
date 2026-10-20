@@ -611,3 +611,17 @@ def test_each_package_imports_first_in_a_fresh_interpreter(module: str) -> None:
     check=False,
   )
   assert done.returncode == 0, done.stderr
+
+
+@pytest.mark.parametrize("traced", [True, False])
+def test_a_trial_gives_its_name_directory_and_claude_code_trace(
+  tmp_path: Path, fakes: tuple[Path, Path], traced: bool
+) -> None:
+  out = outdir(tmp_path)
+  env = {"FAKE_TRACE": "0.75"} if traced else {}
+  result = runner(fakes, env=env).run(task(tmp_path), "oracle", Limits(2), out)
+  trial = out / "job" / "task__abc"
+  assert (result.id, result.path) == ("task__abc", trial)
+  trace = trial / "agent" / "claude-code.txt" if traced else None
+  assert result.trace == trace
+  assert result.trace_format == "claude-code-stream-json"
