@@ -909,6 +909,11 @@ def _value(value: Value, visit: Visit | None) -> dict[str, object]:
       return found | {"value": None, "reason": why}
     try:
       current = _read_json(path)
+    except RecursionError:
+      return found | {
+        "value": None,
+        "reason": f"{value.output}: nested too deep",
+      }
     except (OSError, ValueError) as error:
       return found | {"value": None, "reason": f"{value.output}: {error}"}
   where = value.output or "the outcome data"

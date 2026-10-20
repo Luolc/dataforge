@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import json
 from pathlib import Path
+import sys
 from typing import cast, Literal, override
 
 import pytest
@@ -957,7 +958,8 @@ class NamedTrials:
   """A trial runner whose trials have names, directories and traces.
 
   The trial of output trial-<i> solves when i is even; only even ones have a
-  trace, and trial-1's is outside its output directory.
+  trace, and trial-1's is outside its output directory, as is trial-2's own
+  directory.
   """
 
   def memory_gb(self, limits: Limits) -> float:
@@ -981,7 +983,7 @@ class NamedTrials:
       1.0,
       {},
       id=f"task__{i}",
-      path=trial,
+      path=task_dir if i == 2 else trial,
       trace=trace if i % 2 == 0 or i == 1 else None,
       trace_format="claude-code-stream-json",
     )
@@ -1046,10 +1048,11 @@ def test_trials_list_each_trial_with_its_id_trace_and_result(
       },
     }
 
+  outside = {**trial(2, True), "path": f"{base}/trial-2"}
   assert first["trials"] == [
     trial(0, True),
     trial(1, False),
-    trial(2, True),
+    outside,
     trial(10, True),
   ]
   assert [entry["value"] for entry in entries] == [
@@ -1067,6 +1070,32 @@ def test_trials_list_each_trial_with_its_id_trace_and_result(
       "reason": "verdict.json has no key k",
     },
   ]
+
+
+def test_a_value_from_json_nested_too_deep_has_a_reason(tmp_path: Path) -> None:
+  write = (
+    "import os; open(os.environ['DATAFORGE_OUTPUTS'] + '/verdict.json', 'w')"
+    ".write('[' * 200000)"
+  )
+
+  def solve(ctx: Context) -> Outcome:
+    spec = ScriptSpec([sys.executable, "-c", write], outputs=["verdict.json"])
+    assert Actions().script(ctx, spec).ok
+    return Outcome("done")
+
+  seen: list[object] = []
+  attempt = Machine(
+    [Step("solve", solve, {"done": End("passed")})],
+    on_step=lambda attempt: seen.append(attempt.to_json()["deliverables"]),
+    deliverables={
+      "pass_at_k": Deliverable(
+        "trials", "pass@k", Source("solve"), value=Value(["x"], "verdict.json")
+      )
+    },
+  ).run(tmp_path / "attempt")
+  entry = cast(list[dict[str, dict[str, object]]], seen[-1])[0]
+  assert entry["value"]["reason"] == "verdict.json: nested too deep"
+  assert attempt.status == "passed"
 
 
 def test_a_value_from_a_symlinked_output_is_never_read(tmp_path: Path) -> None:

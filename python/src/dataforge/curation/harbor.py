@@ -547,6 +547,8 @@ def _read(
     artifacts,
     id=trial.name,
     path=trial,
-    trace=trace if trace.is_file() else None,
+    # The agent's container writes agent/, and a symlink there could point
+    # the record at a file of the host.
+    trace=trace if trace.is_file(follow_symlinks=False) else None,
     trace_format=TRACE_FORMAT,
   )
