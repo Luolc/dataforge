@@ -103,6 +103,18 @@ describe("the attempt page's breadcrumb", () => {
     expect(crumbs.getAllByRole("listitem")).toHaveLength(4);
   });
 
+  it("on a deliverable's tab, the attempt ID opens the attempt's Summary", async () => {
+    fireEvent.click(
+      await open(`${ATTEMPT}&tab=files`).findByRole("link", {
+        name: "batch-1/task-0001",
+      }),
+    );
+
+    expect(path()).toHaveTextContent(
+      /^\/sample\/attempt\?id=batch-1%2Ftask-0001$/,
+    );
+  });
+
   it("on the Summary, the attempt ID is the page, not a link", async () => {
     const crumbs = open(ATTEMPT);
 
