@@ -301,7 +301,8 @@ describe("the home page", () => {
   });
 
   it("shows each row's status as an icon first, a spinner while it runs", async () => {
-    show();
+    // With older records shown, so the unreadable one has its row too.
+    show("/sample?older=1");
     await screen.findByText("t-run");
 
     const first = (id: string) =>
@@ -362,7 +363,8 @@ describe("the home page's empty attempts", () => {
   });
 
   const ids = () =>
-    [...document.querySelectorAll("tbody td:first-child a")].map(
+    // The item is in the second cell: the first holds its status icon.
+    [...document.querySelectorAll("tbody td:nth-child(2) a")].map(
       (a) => a.textContent,
     );
 
