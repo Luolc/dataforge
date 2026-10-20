@@ -9,6 +9,7 @@ the states, their transitions and their caps all come from the dataset.
 
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import json
@@ -32,6 +33,14 @@ type Input = str | Path
 """An action input: a str names an artifact (its latest version), or else a
 path inside one as "<artifact>/<path>", either one prefixed with "<state>:"
 for the latest version a visit of that state wrote; a Path is used as is."""
+
+
+class RecordError(ValueError):
+  """A record that Attempt.from_json cannot read back."""
+
+
+class ResumeError(Exception):
+  """An attempt that Machine.resume cannot go on with."""
 
 
 @dataclass(frozen=True)
@@ -134,6 +143,17 @@ class State:
       The outcomes' names, or None when the state does not say, as here.
     """
     return None
+
+  def runners(self) -> Sequence[object]:
+    """Name the runners whose sessions this state's actions record.
+
+    Machine.resume gives each runner that has restore(points) the session of
+    every action of the record's visits of the states that name it.
+
+    Returns:
+      The runners; none here.
+    """
+    return ()
 
   def run(self, ctx: Context) -> Outcome:
     """Run one visit of the state; a subclass implements it.
@@ -263,6 +283,11 @@ class ActionRecord:
     summary: The Markdown summary a script or a judge wrote to
       DATAFORGE_SUMMARY, if it wrote one.
     trial: For a trial, what it recorded about it.
+    session: For an agent, what its runner's checkpoint gave, if the runner
+      has checkpoint; Machine.resume hands it back to the runner's restore.
+    trace: For an agent, the trace of its session's first run, if the runner
+      gives one inside the attempt's directory.
+    trace_format: The trace's format, such as "claude-code-stream-json".
   """
 
   kind: str
@@ -273,6 +298,9 @@ class ActionRecord:
   cost_usd: float
   summary: str | None = None
   trial: TrialRecord | None = None
+  session: Data | None = None
+  trace: Path | None = None
+  trace_format: str | None = None
 
 
 @dataclass
@@ -289,6 +317,7 @@ class Visit:
     actions: The actions the visit ran.
     round: How many times the attempt's first state had been entered when
       this visit began, this visit included.
+    last: Whether the outcome had last=True.
   """
 
   state: str
@@ -298,6 +327,7 @@ class Visit:
   mark: str | None = None
   actions: list[ActionRecord] = field(default_factory=list[ActionRecord])
   round: int = 1
+  last: bool = False
 
   @property
   def outputs(self) -> dict[str, Path]:
@@ -307,6 +337,29 @@ class Visit:
       for action in self.actions
       for name, path in action.outputs.items()
     }
+
+
+@dataclass(frozen=True)
+class Resumption:
+  """One time Machine.resume went on with an attempt.
+
+  Attributes:
+    at: When it went on.
+    kept: How many visits of the record it kept: the first kept visits of the
+      attempt's visits came before it.
+    discarded: The visits it left out, the visits that had not ended, each as
+      the record had it, with "path", where the caller keeps their outputs
+      relative to the attempt's directory, and "reason", why path is None.
+    carried_usd: What the attempt spent that no kept visit's actions record,
+      in US dollars, as the caller gave it.
+    reason: Why the attempt had stopped, as the caller gave it.
+  """
+
+  at: datetime
+  kept: int
+  discarded: list[dict[str, object]]
+  carried_usd: float
+  reason: str | None = None
 
 
 @dataclass
@@ -326,6 +379,7 @@ class Attempt:
     deliverables: The machine's deliverables as the attempt's end resolved
       them, one entry each, in their order. Empty until it ends, and when a
       state's run raised.
+    resumptions: Each time Machine.resume went on with it, in order.
   """
 
   root: Path
@@ -339,13 +393,14 @@ class Attempt:
   deliverables: list[dict[str, object]] = field(
     default_factory=list[dict[str, object]]
   )
+  resumptions: list[Resumption] = field(default_factory=list[Resumption])
 
   @property
   def cost_usd(self) -> float:
-    """What the recorded actions cost, in US dollars."""
+    """What the recorded actions and each resumption's carried_usd cost."""
     return sum(
       (action.cost_usd for visit in self.visits for action in visit.actions),
-      0.0,
+      sum((r.carried_usd for r in self.resumptions), 0.0),
     )
 
   @property
@@ -381,7 +436,61 @@ class Attempt:
       "visits": [self._visit_json(visit) for visit in self.visits],
       "deliverables": self.deliverables,
       "graph": self.graph,
+      "resumptions": [
+        {
+          "at": resumption.at.isoformat(),
+          "kept": resumption.kept,
+          "discarded": resumption.discarded,
+          "carried_usd": resumption.carried_usd,
+          "reason": resumption.reason,
+        }
+        for resumption in self.resumptions
+      ],
     }
+
+  @classmethod
+  def from_json(cls, root: Path, data: Mapping[str, object]) -> Attempt:
+    """Read back a record that to_json wrote.
+
+    Args:
+      root: The attempt's directory, which the record's paths are relative to.
+      data: The record.
+
+    Returns:
+      The attempt.
+
+    Raises:
+      RecordError: When a field is missing or has the wrong type, or a path
+        is not inside root.
+    """  # noqa: DOC502
+    budget = _object(_get(data, "budget", "the record"), "budget")
+    graph = _get(data, "graph", "the record")
+    if graph is not None:
+      graph = _object(graph, "graph")
+    return cls(
+      root,
+      status=_maybe_text(data, "status", "the record"),
+      reason=_maybe_text(data, "reason", "the record"),
+      kept_visit=_maybe_integer(data, "kept_visit", "the record"),
+      visits=[
+        _read_visit(root, _object(item, f"visits[{i}]"), f"visits[{i}]")
+        for i, item in enumerate(_list(data, "visits", "the record"))
+      ],
+      max_cost_usd=_maybe_number(budget, "max_usd", "budget"),
+      stopped=_maybe_text(budget, "stopped", "budget"),
+      # Machine.resume compares it with its own graph before it uses it.
+      graph=cast(Graph | None, graph),
+      deliverables=[
+        _object(item, f"deliverables[{i}]")
+        for i, item in enumerate(_list(data, "deliverables", "the record"))
+      ],
+      resumptions=[
+        _read_resumption(
+          _object(item, f"resumptions[{i}]"), f"resumptions[{i}]"
+        )
+        for i, item in enumerate(_list(data, "resumptions", "the record"))
+      ],
+    )
 
   def _visit_json(self, visit: Visit) -> dict[str, object]:
     return {
@@ -391,21 +500,34 @@ class Attempt:
       "outcome": visit.outcome,
       "data": dict(visit.data),
       "mark": visit.mark,
-      "actions": [
-        {
-          "kind": action.kind,
-          "status": action.status,
-          "outputs": {
-            name: str(path.relative_to(self.root))
-            for name, path in action.outputs.items()
-          },
-          "started_at": action.started_at.isoformat(),
-          "ended_at": action.ended_at.isoformat(),
-          "cost_usd": action.cost_usd,
-          "summary": action.summary,
-        }
-        for action in visit.actions
-      ],
+      "last": visit.last,
+      "actions": [self._action_json(action) for action in visit.actions],
+    }
+
+  def _action_json(self, action: ActionRecord) -> dict[str, object]:
+    trial = action.trial
+    return {
+      "kind": action.kind,
+      "status": action.status,
+      "outputs": {
+        name: str(path.relative_to(self.root))
+        for name, path in action.outputs.items()
+      },
+      "started_at": action.started_at.isoformat(),
+      "ended_at": action.ended_at.isoformat(),
+      "cost_usd": action.cost_usd,
+      "summary": action.summary,
+      "trace": _trace_json(action.trace, action.trace_format, self.root),
+      "session": None if action.session is None else dict(action.session),
+      "trial": None
+      if trial is None
+      else {
+        "id": trial.id,
+        "path": str(trial.path.relative_to(self.root)),
+        "trace": _trace_json(trial.trace, trial.format, self.root),
+        "rewards": dict(trial.rewards),
+        "exception": trial.exception,
+      },
     }
 
 
@@ -664,13 +786,180 @@ class Machine:
 
     Raises:
       BaseException: Whatever a state's run raised, unchanged.
-    """
+    """  # noqa: DOC502
     attempt = Attempt(root, max_cost_usd=self.max_cost_usd, graph=self.graph())
-    artifacts = Artifacts()
+    return self._loop(
+      attempt, Artifacts(), Counter(), set(), self.states[0], None
+    )
+
+  def resume(
+    self,
+    record: Attempt,
+    *,
+    carried_usd: float = 0.0,
+    discarded_path: str | None = None,
+    reason: str | None = None,
+  ) -> Attempt:
+    """Go on with an attempt from its last whole visit, as run would have.
+
+    It leaves out the visits at the record's end whose outcome is None or
+    "raised", rebuilds from the others how often each state was entered,
+    which states are closed and the artifacts, and takes the last kept
+    visit's transition again, without writing its feedback again: the record
+    has it. With no visit kept, it starts at the first state. Then it runs on
+    as run does, adding a Resumption to the attempt. Before that, each runner
+    a state names (State.runners) that has restore(points) gets the session
+    of each action of the record's visits of those states, the left-out
+    visits included, in order: what a session did is done.
+
+    The cap is this machine's max_cost_usd. The attempt's directory is the
+    record's root; the caller moves the left-out visits' outputs, under
+    root/artifacts/<state>/<visit>, out of the way if it keeps them, since the
+    visits run again under the same numbers.
+
+    Args:
+      record: The attempt, as Attempt.from_json reads it back.
+      carried_usd: What the attempt spent that no kept visit's actions record,
+        in US dollars, such as what the left-out visits spent.
+      discarded_path: Where the caller keeps the left-out visits' outputs,
+        relative to the attempt's directory, if it does.
+      reason: Why the attempt stopped, if the caller knows.
+
+    Returns:
+      The attempt's record.
+
+    Raises:
+      ResumeError: When the record's status is set, its graph is not this
+        machine's, a visit names an unknown state or is numbered out of order,
+        or the last kept visit has no transition to go on with: it has no
+        transition for its outcome, its transition is an End, or its Goto
+        with end_on_last_visit ended the attempt.
+      BaseException: Whatever a state's run raised, unchanged.
+    """  # noqa: DOC503
+    if record.status is not None:
+      raise ResumeError(f"the attempt has ended: {record.status}")
+    if record.graph != self.graph():
+      raise ResumeError("the record's graph is not this machine's")
+    whole = len(record.visits)
+    while whole and record.visits[whole - 1].outcome in (None, "raised"):
+      whole -= 1
+    visits, closed, artifacts = self._rebuild(record.visits, whole)
+    why = None if discarded_path is not None else "the caller kept no copy"
+    resumption = Resumption(
+      datetime.now(UTC),
+      whole,
+      [
+        record._visit_json(visit) | {"path": discarded_path, "reason": why}  # pyright: ignore[reportPrivateUsage]
+        for visit in record.visits[whole:]
+      ],
+      carried_usd,
+      reason,
+    )
+    attempt = dataclasses.replace(
+      record,
+      visits=record.visits[:whole],
+      max_cost_usd=self.max_cost_usd,
+      resumptions=[*record.resumptions, resumption],
+    )
+    step: tuple[State, Report | None] = (self.states[0], None)
+    if whole:
+      step = self._again(attempt.visits[-1], visits, closed)
+    self._restore(record.visits)
+    return self._loop(attempt, artifacts, visits, closed, *step)
+
+  def _rebuild(
+    self, record: Sequence[Visit], whole: int
+  ) -> tuple[Counter[str], set[str], Artifacts]:
+    """Rebuild a loop's state from the visits a resume keeps.
+
+    Args:
+      record: The record's visits.
+      whole: How many of them it keeps.
+
+    Returns:
+      How many times each state was entered, the closed states and the
+      artifacts.
+
+    Raises:
+      ResumeError: When a visit names an unknown state, or a kept one is
+        numbered out of order.
+    """
+    for visit in record:
+      if visit.state not in self._by_name:
+        raise ResumeError(f"{visit.state} visit {visit.visit}: unknown state")
     visits: Counter[str] = Counter()
     closed: set[str] = set()
+    artifacts = Artifacts()
+    for visit in record[:whole]:
+      visits[visit.state] += 1
+      if visit.visit != visits[visit.state]:
+        why = f"is its visit {visits[visit.state]} in the record"
+        raise ResumeError(f"{visit.state} visit {visit.visit} {why}")
+      if visit.last:
+        closed.add(visit.state)
+      for action in visit.actions:
+        for name, path in action.outputs.items():
+          artifacts._add(name, Version(visit.state, visit.visit, path))  # pyright: ignore[reportPrivateUsage]
+    return visits, closed, artifacts
+
+  def _again(
+    self, last: Visit, visits: Counter[str], closed: set[str]
+  ) -> tuple[State, Report | None]:
+    """Take the transition of the last kept visit again, writing nothing.
+
+    Args:
+      last: The visit.
+      visits: How many times each state was entered, this visit included.
+      closed: The states an outcome with last=True closed.
+
+    Returns:
+      The next state and its report.
+
+    Raises:
+      ResumeError: When the visit has no transition to go on with.
+    """
+    where = f"{last.state} visit {last.visit}"
+    transition = self._by_name[last.state].transitions.get(str(last.outcome))
+    if transition is None:
+      raise ResumeError(f"{where}: no transition for {last.outcome!r}")
+    if isinstance(transition, End):
+      raise ResumeError(f"{where} ended the attempt with {transition.status}")
+    if transition.end_on_last_visit and not self._reaches(
+      transition.state, last.state, visits, closed
+    ):
+      raise ResumeError(f"{where} was its last visit and ended the attempt")
+    report = None
+    if transition.report:
+      report = Report(last.state, str(last.outcome), last.data, last.outputs)
+    return self._by_name[transition.state], report
+
+  def _restore(self, visits: Sequence[Visit]) -> None:
+    points: dict[int, tuple[object, list[Data]]] = {}
+    for state in self.states:
+      for runner in state.runners():
+        _ = points.setdefault(id(runner), (runner, []))
+    for visit in visits:
+      for runner in self._by_name[visit.state].runners():
+        points[id(runner)][1].extend(
+          action.session
+          for action in visit.actions
+          if action.session is not None
+        )
+    for runner, sessions in points.values():
+      restore = getattr(runner, "restore", None)
+      if callable(restore):
+        _ = restore(sessions)
+
+  def _loop(
+    self,
+    attempt: Attempt,
+    artifacts: Artifacts,
+    visits: Counter[str],
+    closed: set[str],
+    state: State,
+    report: Report | None,
+  ) -> Attempt:
     first = self.states[0].name
-    state, report = self.states[0], None
     while True:
       visit = visits[state.name] + 1
       round_ = visit if state.name == first else visits[first]
@@ -691,6 +980,7 @@ class Machine:
         self.on_step(attempt)
         raise
       record.outcome, record.data = outcome.name, outcome.data
+      record.last = outcome.last
       if outcome.last:
         closed.add(state.name)
       step = self._go(ctx, record, state, outcome, visits, closed)
@@ -896,12 +1186,7 @@ def _trials(visit: Visit, root: Path) -> list[dict[str, object]]:
     if trial is None:
       continue
     output = next(iter(action.outputs))
-    trace = None
-    if trial.trace is not None:
-      trace = {
-        "path": str(trial.trace.relative_to(root)),
-        "format": trial.format,
-      }
+    trace = _trace_json(trial.trace, trial.format, root)
     trials.append(
       (
         _order(output),
@@ -919,6 +1204,14 @@ def _trials(visit: Visit, root: Path) -> list[dict[str, object]]:
       )
     )
   return [entry for _, entry in sorted(trials, key=lambda pair: pair[0])]
+
+
+def _trace_json(
+  trace: Path | None, format_: str | None, root: Path
+) -> dict[str, object] | None:
+  if trace is None:
+    return None
+  return {"path": str(trace.relative_to(root)), "format": format_}
 
 
 def _order(output: str) -> tuple[str, int]:
@@ -1028,3 +1321,175 @@ def _feedback(ctx: Context, state: State, outcome: Outcome) -> None:
 
 def _name(item: Input) -> str:
   return item.name if isinstance(item, Path) else item
+
+
+def _read_resumption(data: Mapping[str, object], where: str) -> Resumption:
+  return Resumption(
+    _time(data, "at", where),
+    _integer(data, "kept", where),
+    [
+      _object(item, f"{where}.discarded[{i}]")
+      for i, item in enumerate(_list(data, "discarded", where))
+    ],
+    _number(data, "carried_usd", where),
+    _maybe_text(data, "reason", where),
+  )
+
+
+def _read_visit(root: Path, data: Mapping[str, object], where: str) -> Visit:
+  return Visit(
+    _text(data, "state", where),
+    _integer(data, "visit", where),
+    outcome=_maybe_text(data, "outcome", where),
+    data=_object(_get(data, "data", where), f"{where}.data"),
+    mark=_maybe_text(data, "mark", where),
+    actions=[
+      _read_action(
+        root, _object(item, f"{where}.actions[{i}]"), f"{where}.actions[{i}]"
+      )
+      for i, item in enumerate(_list(data, "actions", where))
+    ],
+    round=_integer(data, "round", where),
+    last=_flag(data, "last", where),
+  )
+
+
+def _read_action(
+  root: Path, data: Mapping[str, object], where: str
+) -> ActionRecord:
+  outputs = _object(_get(data, "outputs", where), f"{where}.outputs")
+  trace = _read_trace(root, data, where)
+  session = _get(data, "session", where)
+  trial = _get(data, "trial", where)
+  return ActionRecord(
+    _text(data, "kind", where),
+    _text(data, "status", where),
+    {
+      name: _inside(root, path, f"{where}.outputs.{name}")
+      for name, path in outputs.items()
+    },
+    _time(data, "started_at", where),
+    _time(data, "ended_at", where),
+    _number(data, "cost_usd", where),
+    _maybe_text(data, "summary", where),
+    trial=None
+    if trial is None
+    else _read_trial(root, _object(trial, f"{where}.trial"), f"{where}.trial"),
+    session=None if session is None else _object(session, f"{where}.session"),
+    trace=None if trace is None else trace[0],
+    trace_format=None if trace is None else trace[1],
+  )
+
+
+def _read_trial(
+  root: Path, data: Mapping[str, object], where: str
+) -> TrialRecord:
+  rewards = _object(_get(data, "rewards", where), f"{where}.rewards")
+  trace = _read_trace(root, data, where)
+  return TrialRecord(
+    _text(data, "id", where),
+    _inside(root, _get(data, "path", where), f"{where}.path"),
+    None if trace is None else trace[0],
+    None if trace is None else trace[1],
+    {name: _number(rewards, name, f"{where}.rewards") for name in rewards},
+    _maybe_text(data, "exception", where),
+  )
+
+
+def _read_trace(
+  root: Path, data: Mapping[str, object], where: str
+) -> tuple[Path, str | None] | None:
+  trace = _get(data, "trace", where)
+  if trace is None:
+    return None
+  trace = _object(trace, f"{where}.trace")
+  path = _inside(root, _get(trace, "path", f"{where}.trace"), f"{where}.trace")
+  return path, _maybe_text(trace, "format", f"{where}.trace")
+
+
+def _get(data: Mapping[str, object], key: str, where: str) -> object:
+  if key not in data:
+    raise RecordError(f"{where}: no {key}")
+  return data[key]
+
+
+def _object(value: object, where: str) -> dict[str, object]:
+  if not isinstance(value, dict):
+    raise RecordError(f"{where}: not an object")
+  return cast(dict[str, object], value)
+
+
+def _list(data: Mapping[str, object], key: str, where: str) -> list[object]:
+  value = _get(data, key, where)
+  if not isinstance(value, list):
+    raise RecordError(f"{where}: {key} is not a list")
+  return cast(list[object], value)
+
+
+def _maybe_text(data: Mapping[str, object], key: str, where: str) -> str | None:
+  value = _get(data, key, where)
+  return None if value is None else _text(data, key, where)
+
+
+def _text(data: Mapping[str, object], key: str, where: str) -> str:
+  value = _get(data, key, where)
+  if not isinstance(value, str):
+    raise RecordError(f"{where}: {key} is not a string")
+  return value
+
+
+def _maybe_integer(
+  data: Mapping[str, object], key: str, where: str
+) -> int | None:
+  value = _get(data, key, where)
+  return None if value is None else _integer(data, key, where)
+
+
+def _integer(data: Mapping[str, object], key: str, where: str) -> int:
+  value = _get(data, key, where)
+  if isinstance(value, bool) or not isinstance(value, int):
+    raise RecordError(f"{where}: {key} is not an integer")
+  return value
+
+
+def _maybe_number(
+  data: Mapping[str, object], key: str, where: str
+) -> float | None:
+  value = _get(data, key, where)
+  return None if value is None else _number(data, key, where)
+
+
+def _number(data: Mapping[str, object], key: str, where: str) -> float:
+  value = _get(data, key, where)
+  if isinstance(value, bool) or not isinstance(value, int | float):
+    raise RecordError(f"{where}: {key} is not a number")
+  return float(value)
+
+
+def _flag(data: Mapping[str, object], key: str, where: str) -> bool:
+  value = _get(data, key, where)
+  if not isinstance(value, bool):
+    raise RecordError(f"{where}: {key} is not a boolean")
+  return value
+
+
+def _time(data: Mapping[str, object], key: str, where: str) -> datetime:
+  text = _text(data, key, where)
+  try:
+    value = datetime.fromisoformat(text)
+  except ValueError as error:
+    raise RecordError(f"{where}: {key}: {error}") from error
+  if value.tzinfo is None:
+    raise RecordError(f"{where}: {key} has no time zone")
+  return value
+
+
+def _inside(root: Path, value: object, where: str) -> Path:
+  # A record may have been edited by hand: a path that leaves root would make
+  # a later state read or a deliverable name a file outside the attempt.
+  if not isinstance(value, str):
+    raise RecordError(f"{where}: not a string")
+  path = Path(value)
+  if path.is_absolute() or ".." in path.parts:
+    raise RecordError(f"{where}: {value!r} is not inside the attempt")
+  return root / path

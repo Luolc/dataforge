@@ -508,6 +508,39 @@ class Docker:
     """
     return self._id
 
+  def adopt(self, container: str) -> None:
+    """Take an existing container as this env's, so that start creates none.
+
+    Such as the container of an attempt that a resume goes on with.
+
+    Args:
+      container: The container's ID or name.
+
+    Raises:
+      ValueError: When this env has a container already, or the container's
+        image is not image or its labels lack one of labels or give it
+        another value.
+      RuntimeError: When docker inspect fails, such as for no such container.
+    """  # noqa: DOC503
+    with self._lock:
+      if self._id is not None:
+        raise ValueError(f"the env has a container already: {self._id}")
+      args = ["inspect", "--type", "container", "--format", "{{json .}}"]
+      found = _json_object(
+        cast("object", json.loads(self._docker([*args, container])))
+      )
+      config = _json_object(found.get("Config"))
+      image, labels = config.get("Image"), _json_object(config.get("Labels"))
+      if image != self.image:
+        raise ValueError(f"{container} runs {image!r}, not {self.image!r}")
+      wrong = sorted(
+        key for key, value in self.labels.items() if labels.get(key) != value
+      )
+      if wrong:
+        raise ValueError(f"{container} has other labels: {', '.join(wrong)}")
+      found_id = found.get("Id")
+      self._id = found_id if isinstance(found_id, str) else container
+
   def create_args(self) -> list[str]:
     """Return the arguments of the `docker create` that makes the container.
 
@@ -841,6 +874,7 @@ class AgentRun:
     result: Its answer.
     ending: How it ended, in the runner's words, if the runner says.
     resumable: Whether the session can go on after it.
+    trace_format: The trace's format, such as "claude-code-stream-json".
   """
 
   session: object
@@ -850,13 +884,19 @@ class AgentRun:
   result: str
   ending: str | None = None
   resumable: bool = True
+  trace_format: str | None = None
 
 
 class AgentRunner(Protocol):
   """Drives a headless coding agent in an env.
 
   The agent action also calls close(session) when it ends, if the runner has
-  close.
+  close. A runner that can go on after this process ends has two more
+  methods: checkpoint(session) returns, as JSON data, what restore needs of a
+  run's session, and the agent action records it as the action's session;
+  restore(points), given the checkpoints of an attempt's agent actions on
+  this runner in the order they ended, makes a fresh runner go on as the one
+  that made them would. Machine.resume calls restore.
   """
 
   def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
@@ -1081,6 +1121,7 @@ class Actions:
         env,
       )
       cost, log, fixes, check = run.cost_usd, [run.result], 0, None
+      first = run
       try:
         while True:
           note = env.collect(staged, ctx.outdir)
@@ -1097,11 +1138,13 @@ class Actions:
           cost += run.cost_usd
           log.append(run.result)
       finally:
+        session = _checkpoint(runner, run.session)
         close = getattr(runner, "close", None)
         if callable(close):
           _ = close(run.session)
     finally:
       env.stop()
+    trace = _trace_inside(ctx.attempt.root, first)
     passed = run.status == "ok" and (check is None or check.exit_code == 0)
     if check is not None and check.exit_code != 0:
       log.append(f"validator failed after {fixes} fixes:\n{check.log}")
@@ -1121,6 +1164,9 @@ class Actions:
       "\n".join(log),
       value,
       cost,
+      session=session,
+      trace=trace,
+      trace_format=None if trace is None else first.trace_format,
     )
     return dataclasses.replace(result, run=run, validation=check, fixes=fixes)
 
@@ -1506,6 +1552,23 @@ def _confined(root: Path, link: Path) -> bool:
   return resolve(at, os.readlink(link)) is not None
 
 
+def _checkpoint(runner: AgentRunner, session: object) -> Data | None:
+  checkpoint = getattr(runner, "checkpoint", None)
+  if not callable(checkpoint):
+    return None
+  return cast("Data | None", checkpoint(session))
+
+
+def _trace_inside(root: Path, run: AgentRun) -> Path | None:
+  # The record names paths relative to the attempt's root.
+  trace = run.trace
+  return trace if trace is not None and trace.is_relative_to(root) else None
+
+
+def _json_object(value: object) -> dict[str, object]:
+  return cast(dict[str, object], value) if isinstance(value, dict) else {}
+
+
 def _remove(path: Path) -> None:
   if path.is_dir() and not path.is_symlink():
     shutil.rmtree(path)
@@ -1523,6 +1586,10 @@ def _finish(
   value: object = None,
   cost_usd: float = 0.0,
   summary: str | None = None,
+  *,
+  session: Data | None = None,
+  trace: Path | None = None,
+  trace_format: str | None = None,
 ) -> ActionResult:
   outputs = {
     name: ctx.outdir / name for name in names if (ctx.outdir / name).exists()
@@ -1534,7 +1601,16 @@ def _finish(
   status = "ok" if passed else "failed"
   ctx.record(
     ActionRecord(
-      kind, status, outputs, started_at, datetime.now(UTC), cost_usd, summary
+      kind,
+      status,
+      outputs,
+      started_at,
+      datetime.now(UTC),
+      cost_usd,
+      summary,
+      session=session,
+      trace=trace,
+      trace_format=trace_format,
     )
   )
   return ActionResult(status, outputs, log, value, cost_usd)

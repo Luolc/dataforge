@@ -1,6 +1,7 @@
 # pyright: reportUnusedParameter=false
 # The fakes implement protocols and take parameters they do not need.
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
@@ -30,6 +31,8 @@ from dataforge.curation import (
   Machine,
   Outcome,
   PassAtKState,
+  RecordError,
+  ResumeError,
   ScriptSpec,
   Source,
   State,
@@ -1183,3 +1186,320 @@ def test_a_malformed_deliverable_is_an_error(
       [Step("a", lambda _: Outcome("ok"), {"ok": End("ok")})],
       deliverables={"d": deliverable},
     )
+
+
+class Killed(BaseException):
+  """What kills the process in the tests of resume."""
+
+
+class Resumable:
+  """A machine whose runs a test kills at given visits and resumes.
+
+  write writes a draft; check reads the latest draft, fails its first visit
+  with feedback and closes itself on its third; judge, marked too_easy, goes
+  back to write until it cannot reach itself again. A run goes write, check
+  (fail), write, check, judge, write, check (last), judge, and ends too_easy.
+
+  Args:
+    root: The attempt's directory.
+  """
+
+  def __init__(self, root: Path) -> None:
+    self.root: Path = root
+    self.calls: Counter[tuple[str, int]] = Counter()
+    self.kill: set[tuple[str, int]] = set()
+    self.restored: list[list[object]] = []
+
+  def write(self, ctx: Context) -> Outcome:
+    self._count(ctx)
+    path = ctx.outdir / "draft"
+    _ = ctx.claim(["draft"])
+    _ = path.write_text(f"draft {ctx.visit}")
+    now = datetime.now(UTC)
+    action = ActionRecord(
+      "agent", "ok", {"draft": path}, now, now, 1.0, session={"n": ctx.visit}
+    )
+    ctx.record(action)
+    self._die(ctx)
+    report = ctx.report
+    seen = None if report is None else report.artifacts.get("feedback")
+    return Outcome(
+      "done", {"feedback": None if seen is None else seen.read_text()}
+    )
+
+  def check(self, ctx: Context) -> Outcome:
+    self._count(ctx)
+    self._die(ctx)
+    read = str(ctx.artifacts.get("draft").relative_to(self.root))
+    if ctx.visit == 1:
+      return Outcome("fail", {"read": read}, feedback={"n": "1"})
+    return Outcome("pass", {"read": read}, last=ctx.visit == 3)
+
+  def judge(self, ctx: Context) -> Outcome:
+    self._count(ctx)
+    self._die(ctx)
+    return Outcome("easy")
+
+  def restore(self, points: list[object]) -> None:
+    self.restored.append(points)
+
+  def machine(
+    self, on_step: Callable[[Attempt], None] | None = None
+  ) -> Machine:
+    me = self
+
+    class Writer(Step):
+      @override
+      def runners(self) -> list[object]:
+        return [me]
+
+    return Machine(
+      [
+        Writer("write", self.write, {"done": Goto("check")}, 5),
+        Step(
+          "check",
+          self.check,
+          {"fail": Goto("write"), "pass": Goto("judge")},
+          5,
+          "error",
+          feedback="fix ${n}",
+        ),
+        Step(
+          "judge",
+          self.judge,
+          {"easy": Goto("write", mark="too_easy", end_on_last_visit=True)},
+          3,
+        ),
+      ],
+      on_step=on_step,
+    )
+
+  def _count(self, ctx: Context) -> None:
+    self.calls[ctx.state, ctx.visit] += 1
+
+  def _die(self, ctx: Context) -> None:
+    if (ctx.state, ctx.visit) in self.kill:
+      self.kill.discard((ctx.state, ctx.visit))
+      raise Killed
+
+
+def sequence(attempt: Attempt) -> list[tuple[object, ...]]:
+  return [
+    (v.state, v.visit, v.round, v.outcome, v.mark, dict(v.data))
+    for v in attempt.visits
+  ]
+
+
+def killed_and_resumed(
+  root: Path, at: tuple[str, int], carried_usd: float = 0.25
+) -> tuple[Resumable, Attempt]:
+  """Run a Resumable, kill it at a visit and resume it in a new machine.
+
+  Args:
+    root: The attempt's directory.
+    at: The visit to kill.
+    carried_usd: What the resume carries.
+
+  Returns:
+    The Resumable, and the attempt as the resume ended it.
+  """
+  fake = Resumable(root)
+  fake.kill.add(at)
+  steps: list[dict[str, object]] = []
+  machine = fake.machine(lambda attempt: steps.append(as_json(attempt)))
+  with pytest.raises(Killed):
+    _ = machine.run(root)
+  record = Attempt.from_json(root, steps[-1])
+  resumed = fake.machine().resume(
+    record, carried_usd=carried_usd, discarded_path="resumes/1", reason="killed"
+  )
+  return fake, resumed
+
+
+@pytest.mark.parametrize(
+  "at",
+  [
+    pytest.param(("judge", 2), id="after-a-last-outcome"),
+    pytest.param(("check", 3), id="before-the-end-on-last-visit"),
+    pytest.param(("write", 2), id="after-feedback-going-back"),
+  ],
+)
+def test_a_killed_attempt_resumes_where_it_stopped(
+  tmp_path: Path, at: tuple[str, int]
+) -> None:
+  reference = (
+    Resumable(tmp_path / "reference").machine().run(tmp_path / "reference")
+  )
+  assert (reference.status, reference.kept_visit) == ("too_easy", 7)
+
+  fake, resumed = killed_and_resumed(tmp_path / "attempt", at)
+
+  assert sequence(resumed) == sequence(reference)
+  assert (resumed.status, resumed.reason, resumed.kept_visit) == (
+    reference.status,
+    reference.reason,
+    reference.kept_visit,
+  )
+  # Each visit ran once, but the one killed, which ran again under its number.
+  visits = [(v.state, v.visit) for v in resumed.visits]
+  assert fake.calls == {v: 2 if v == at else 1 for v in visits}
+  assert resumed.cost_usd == pytest.approx(reference.cost_usd + 0.25)
+  [resumption] = resumed.resumptions
+  assert resumption.kept == visits.index(at)
+  assert [
+    (d["state"], d["visit"], d["outcome"]) for d in resumption.discarded
+  ] == [(*at, "raised")]
+  assert resumption.discarded[0]["path"] == "resumes/1"
+  assert (resumption.carried_usd, resumption.reason) == (0.25, "killed")
+  feedback = [a.kind for a in resumed.visits[1].actions]
+  assert feedback == ["report"]
+
+
+def test_resume_hands_each_runner_the_sessions_of_its_states(
+  tmp_path: Path,
+) -> None:
+  fake, _ = killed_and_resumed(tmp_path, ("write", 3))
+  # write 3 recorded its session before it was killed.
+  assert fake.restored == [[{"n": 1}, {"n": 2}, {"n": 3}]]
+
+
+def test_a_resumed_record_reads_back_with_its_resumptions(
+  tmp_path: Path,
+) -> None:
+  _, resumed = killed_and_resumed(tmp_path, ("check", 3))
+  record = as_json(resumed)
+  again = Attempt.from_json(tmp_path, record)
+  assert again.to_json() == record
+  assert again.cost_usd == pytest.approx(resumed.cost_usd)
+  resumptions = cast(list[dict[str, object]], record["resumptions"])
+  assert resumptions[0]["kept"] == 6
+  assert datetime.fromisoformat(cast(str, resumptions[0]["at"])).tzinfo == UTC
+
+
+def test_a_resume_with_no_whole_visit_starts_over(tmp_path: Path) -> None:
+  reference = (
+    Resumable(tmp_path / "reference").machine().run(tmp_path / "reference")
+  )
+  fake, resumed = killed_and_resumed(tmp_path / "attempt", ("write", 1), 0.0)
+  assert fake.calls["write", 1] == 2
+  assert sequence(resumed) == sequence(reference)
+  assert resumed.resumptions[0].kept == 0
+
+
+def as_json(attempt: Attempt) -> dict[str, object]:
+  return cast(dict[str, object], json.loads(json.dumps(attempt.to_json())))
+
+
+def ended(tmp_path: Path) -> dict[str, object]:
+  return as_json(Resumable(tmp_path).machine().run(tmp_path))
+
+
+def visits_of(record: dict[str, object]) -> list[dict[str, object]]:
+  return cast(list[dict[str, object]], record["visits"])
+
+
+def cut(record: dict[str, object], keep: int) -> dict[str, object]:
+  unended = {"status": None, "reason": None, "kept_visit": None}
+  return record | unended | {"visits": visits_of(record)[:keep]}
+
+
+def other_graph(record: dict[str, object]) -> dict[str, object]:
+  graph = cast(dict[str, object], record["graph"])
+  return cut(record, 3) | {"graph": graph | {"start": "check"}}
+
+
+def renumbered(record: dict[str, object]) -> dict[str, object]:
+  visits = visits_of(record)
+  return cut(record, 3) | {"visits": [*visits[:2], visits[2] | {"visit": 3}]}
+
+
+def unknown(record: dict[str, object]) -> dict[str, object]:
+  return cut(record, 1) | {"visits": [visits_of(record)[0] | {"state": "x"}]}
+
+
+def unchanged(record: dict[str, object]) -> dict[str, object]:
+  return record
+
+
+def after_the_last_visit(record: dict[str, object]) -> dict[str, object]:
+  return cut(record, 8)
+
+
+@pytest.mark.parametrize(
+  ("change", "error"),
+  [
+    (unchanged, "the attempt has ended: too_easy"),
+    (other_graph, "graph is not this machine's"),
+    (after_the_last_visit, "judge visit 2 was its last visit"),
+    (renumbered, "write visit 3 is its visit 2"),
+    (unknown, "x visit 1: unknown state"),
+  ],
+)
+def test_resume_refuses_a_record_it_cannot_go_on_with(
+  tmp_path: Path,
+  change: Callable[[dict[str, object]], dict[str, object]],
+  error: str,
+) -> None:
+  record = Attempt.from_json(tmp_path, change(ended(tmp_path)))
+  with pytest.raises(ResumeError, match=error):
+    _ = Resumable(tmp_path).machine().resume(record)
+
+
+def test_resume_refuses_a_visit_that_ended_the_attempt(tmp_path: Path) -> None:
+  machine = Machine([Step("a", lambda _: Outcome("ok"), {"ok": End("done")})])
+  record = machine.run(tmp_path)
+  record.status = None
+  with pytest.raises(
+    ResumeError, match="a visit 1 ended the attempt with done"
+  ):
+    _ = machine.resume(record)
+
+
+def test_a_record_reads_back_whole(tmp_path: Path, validator: Path) -> None:
+  script = Script(tasks=["valid"], verdicts=[True], solved=[1])
+  record = as_json(run(tmp_path, validator, script))
+  assert Attempt.from_json(tmp_path / "attempt", record).to_json() == record
+
+
+def broken(
+  record: dict[str, object], path: list[str | int], value: object
+) -> dict[str, object]:
+  record = cast(dict[str, object], json.loads(json.dumps(record)))
+  where: object = record
+  for key in path[:-1]:
+    where = cast(dict[str | int, object], where)[key]
+  last = path[-1]
+  if value is KeyError:
+    del cast(dict[str | int, object], where)[last]
+  else:
+    cast(dict[str | int, object], where)[last] = value
+  return record
+
+
+@pytest.mark.parametrize(
+  ("path", "value", "error"),
+  [
+    (["visits"], KeyError, "the record: no visits"),
+    (["visits", 0, "last"], KeyError, r"visits\[0\]: no last"),
+    (["visits", 0, "visit"], True, r"visits\[0\]: visit is not an integer"),
+    (["budget", "max_usd"], "1", "budget: max_usd is not a number"),
+    (
+      ["visits", 0, "actions", 0, "started_at"],
+      "2026-01-02T03:04:05",
+      "started_at has no time zone",
+    ),
+    (
+      ["visits", 0, "actions", 0, "outputs", "draft"],
+      "../draft",
+      "is not inside the attempt",
+    ),
+    (["visits", 0, "actions", 0, "session"], [], "session: not an object"),
+    (["resumptions"], {}, "resumptions is not a list"),
+  ],
+)
+def test_a_malformed_record_is_a_record_error(
+  tmp_path: Path, path: list[str | int], value: object, error: str
+) -> None:
+  record = broken(ended(tmp_path), path, value)
+  with pytest.raises(RecordError, match=error):
+    _ = Attempt.from_json(tmp_path, record)

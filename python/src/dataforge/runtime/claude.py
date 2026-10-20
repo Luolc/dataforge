@@ -56,6 +56,7 @@ from dataforge.curation.actions import (
   Env,
   Host,
 )
+from dataforge.curation.engine import Data
 
 DEFAULT_TIMEOUT = 1800.0
 # The values `--effort` takes: the levels of Harbor's claude-code agent
@@ -70,6 +71,9 @@ TOOLS = ("Read", "Glob", "Grep", "Write", "Edit", "Bash")
 FAILED_ENDINGS = ("no result", "error_during_execution")
 # The least of a start's cap that a fix of the validator's problems runs on.
 MIN_FIX_USD = 0.25
+# The format of a session's trace: what `claude -p --output-format
+# stream-json` prints, one JSON event per line.
+TRACE_FORMAT = "claude-code-stream-json"
 # The file tools whose uses are allowed only in the agent's directories.
 _SCOPED_TOOLS = ("Write", "Edit")
 
@@ -745,6 +749,48 @@ class Runner:
     path = self.files(session.spec, session.task, session.number, session.fixes)
     return self._run(session, path, prompt, left)
 
+  def checkpoint(self, session: object) -> Data:
+    """Return what restore needs of a run's session, as JSON data.
+
+    Args:
+      session: The `Conversation` of the run.
+
+    Returns:
+      The session's ID, what it has cost, the number of its start, whether
+      it runs on this machine and its working directory there.
+
+    Raises:
+      TypeError: When session is not a `Conversation`.
+    """
+    if not isinstance(session, Conversation):
+      raise TypeError(f"not a session this runner started: {session!r}")
+    return {
+      "id": session.id,
+      "total_usd": session.total_usd,
+      "number": session.number,
+      "on_host": session.on_host,
+      "cwd": str(session.cwd),
+    }
+
+  def restore(self, points: Sequence[Data]) -> None:
+    """Go on as the runner whose runs checkpoint gave points would.
+
+    Starts are numbered on after the highest start number of points, so that
+    no run's files are written over. With `continue_session`, `current`
+    becomes the session of that start, so that the next start resumes it and
+    counts as its cost only what the session's total grows by.
+
+    Args:
+      points: What checkpoint gave, for the runs of an attempt.
+    """
+    if not points:
+      return
+    latest = max((_conversation(point) for point in points), key=_number)
+    with self._lock:
+      self._starts = max(self._starts, latest.number)
+      if self.continue_session:
+        self.current = latest
+
   def close(self, session: object) -> None:
     """Remove what a session left on this machine, unless it goes on.
 
@@ -825,7 +871,45 @@ class Runner:
       answer,
       result.subtype,
       conversation.resumable,
+      TRACE_FORMAT,
     )
+
+
+def _conversation(point: Data) -> Conversation:
+  """Read back a session that `Runner.checkpoint` gave.
+
+  Args:
+    point: What checkpoint gave.
+
+  Returns:
+    The session, as far as a later start needs it.
+
+  Raises:
+    ValueError: When a field is missing or has the wrong type.
+  """
+  id_, total, number = (
+    point.get("id"),
+    point.get("total_usd"),
+    point.get("number"),
+  )
+  on_host, cwd = point.get("on_host"), point.get("cwd")
+  if (
+    not (id_ is None or isinstance(id_, str))
+    or isinstance(total, bool)
+    or not isinstance(total, int | float)
+    or isinstance(number, bool)
+    or not isinstance(number, int)
+    or not isinstance(on_host, bool)
+    or not isinstance(cwd, str)
+  ):
+    raise ValueError(f"not a checkpoint of a claude.Runner: {point!r}")
+  return Conversation(
+    cwd=Path(cwd), on_host=on_host, id=id_, total_usd=total, number=number
+  )
+
+
+def _number(conversation: Conversation) -> int:
+  return conversation.number
 
 
 def _allow(tools: Sequence[str], dirs: Sequence[str]) -> list[str]:

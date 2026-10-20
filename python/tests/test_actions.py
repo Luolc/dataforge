@@ -1,7 +1,7 @@
 # pyright: reportUnusedParameter=false
 # The fakes implement protocols and take parameters they do not need.
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 import json
 import os
@@ -1142,3 +1142,166 @@ def test_a_dockers_repr_leaves_out_its_env() -> None:
   env = Docker("solver:1", env={"MODEL_TOKEN": "s3cret"})
   assert "image='solver:1'" in repr(env)
   assert "s3cret" not in repr(env)
+
+
+class InspectDocker(FakeDocker):
+  """FakeDocker with one container, c1, that docker inspect describes.
+
+  Args:
+    root: Where the container's file system is.
+    config: What inspect gives as the container's Config.
+  """
+
+  def __init__(self, root: Path, config: Mapping[str, object]) -> None:
+    super().__init__(root)
+    self.config: Mapping[str, object] = config
+
+  @override
+  def __call__(self, args: Sequence[str]) -> CommandResult:
+    if args[0] != "inspect":
+      return super().__call__(args)
+    self.calls.append(list(args))
+    if args[-1] != "c1":
+      return CommandResult(1, f"Error: No such container: {args[-1]}")
+    return CommandResult(0, json.dumps({"Id": "c1", "Config": self.config}))
+
+
+def test_an_adopted_container_is_started_without_a_create(
+  tmp_path: Path,
+) -> None:
+  config = {"Image": "solver:1", "Labels": {"run": "r1", "from": "image"}}
+  docker = InspectDocker(tmp_path / "container", config)
+  env = Docker("solver:1", labels={"run": "r1"}, cli=docker)
+  env.adopt("c1")
+
+  def body(ctx: Context) -> Outcome:
+    assert Actions().script(ctx, ScriptSpec(["true"]), env).ok
+    return Outcome("ok")
+
+  once(tmp_path, body)
+  assert env.container == "c1"
+  assert "create" not in [call[0] for call in docker.calls]
+  assert ["start", "c1"] in docker.calls
+
+
+@pytest.mark.parametrize(
+  ("container", "config", "error"),
+  [
+    ("c1", {"Image": "solver:2", "Labels": {"run": "r1"}}, "runs 'solver:2'"),
+    ("c1", {"Image": "solver:1", "Labels": {"run": "r2"}}, "labels: run"),
+    ("c1", {"Image": "solver:1", "Labels": None}, "labels: run"),
+  ],
+)
+def test_a_container_unlike_the_env_is_not_adopted(
+  tmp_path: Path, container: str, config: Mapping[str, object], error: str
+) -> None:
+  docker = InspectDocker(tmp_path, config)
+  env = Docker("solver:1", labels={"run": "r1"}, cli=docker)
+  with pytest.raises(ValueError, match=error):
+    env.adopt(container)
+  assert env.container is None
+
+
+def test_an_env_with_a_container_adopts_no_other(tmp_path: Path) -> None:
+  config: dict[str, object] = {"Image": "solver:1", "Labels": {}}
+  env = Docker("solver:1", cli=InspectDocker(tmp_path, config))
+  env.adopt("c1")
+  with pytest.raises(ValueError, match="has a container already: c1"):
+    env.adopt("c1")
+  with pytest.raises(RuntimeError, match="No such container"):
+    Docker("solver:1", cli=InspectDocker(tmp_path, config)).adopt("c2")
+
+
+class CheckpointAgent:
+  """Writes "out", gives a trace and checkpoints its session.
+
+  Args:
+    trace: The trace its run gives.
+  """
+
+  def __init__(self, trace: Path) -> None:
+    self.trace: Path = trace
+
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    _ = (Path(task.outdir) / "out").write_text("done")
+    return AgentRun("s1", "ok", 0.0, self.trace, "done", trace_format="fmt")
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    raise AssertionError("no fixes here")
+
+  def checkpoint(self, session: object) -> dict[str, object]:
+    return {"id": session}
+
+
+@pytest.mark.parametrize("inside", [True, False])
+def test_an_agent_records_its_checkpoint_and_the_trace_in_the_attempt(
+  tmp_path: Path, inside: bool
+) -> None:
+  root = tmp_path / "attempt"
+  trace = (root if inside else tmp_path) / "runs/agent-1.trace.jsonl"
+  agent = CheckpointAgent(trace)
+  seen: list[dict[str, object]] = []
+
+  def body(ctx: Context) -> Outcome:
+    spec = AgentSpec("Write.", tmp_path, outputs=["out"])
+    assert Actions(agent_runner=agent).agent(ctx, spec).ok
+    visits = cast(list[dict[str, object]], ctx.attempt.to_json()["visits"])
+    seen.extend(cast(list[dict[str, object]], visits[0]["actions"]))
+    return Outcome("ok")
+
+  once(tmp_path, body)
+  [action] = seen
+  assert action["session"] == {"id": "s1"}
+  expected = {"path": "runs/agent-1.trace.jsonl", "format": "fmt"}
+  assert action["trace"] == (expected if inside else None)
+
+
+class FailingTrials(Trials):
+  @override
+  def run(
+    self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+  ) -> TrialResult:
+    trace = outdir / "agent/trace.txt"
+    trace.parent.mkdir()
+    _ = trace.write_text("{}")
+    return TrialResult(
+      {"reward": 0.0},
+      "TimeoutError: Harbor ran past 5 s",
+      0.25,
+      5.0,
+      {},
+      id="t-1",
+      path=outdir,
+      trace=trace,
+      trace_format="fmt",
+    )
+
+
+def test_a_judge_sees_each_trials_record_and_exception(tmp_path: Path) -> None:
+  out = '"$DATAFORGE_OUTPUTS"'
+  script = (
+    f'cp "$DATAFORGE_RECORD" {out}/seen.json'
+    f' && echo \'{{"outcome": "ok"}}\' > {out}/verdict.json'
+  )
+  seen: list[object] = []
+
+  def body(ctx: Context) -> Outcome:
+    actions = Actions(trial_runner=FailingTrials(ResourcePool(1.0)))
+    _ = actions.trial(ctx, "trial-0", tmp_path, "solver", Limits(0.5))
+    judge = Judge(ScriptSpec(["sh", "-c", script], outputs=["seen.json"]))
+    _ = actions.judge(ctx, judge)
+    seen.append(
+      cast("object", json.loads((ctx.outdir / "seen.json").read_text()))
+    )
+    return Outcome("ok")
+
+  once(tmp_path, body)
+  record = cast(dict[str, list[dict[str, list[dict[str, object]]]]], seen[0])
+  [trial] = record["visits"][0]["actions"]
+  assert trial["trial"] == {
+    "id": "t-1",
+    "path": "artifacts/a/1/trial-0",
+    "trace": {"path": "artifacts/a/1/trial-0/agent/trace.txt", "format": "fmt"},
+    "rewards": {"reward": 0.0},
+    "exception": "TimeoutError: Harbor ran past 5 s",
+  }

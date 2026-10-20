@@ -106,6 +106,16 @@ class _ActionState(State):
       return None
     return frozenset(self.rename.get(name, name) for name in given)
 
+  @override
+  def runners(self) -> Sequence[object]:
+    """Name the agent runner of the state's actions, if they have one.
+
+    Returns:
+      The runners.
+    """
+    runner = self.actions.agent_runner
+    return () if runner is None else (runner,)
+
   def renamed(self, outcome: Outcome) -> Outcome:
     """Give an outcome the name rename gives it, if any.
 
