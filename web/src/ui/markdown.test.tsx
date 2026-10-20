@@ -59,4 +59,22 @@ describe("Markdown", () => {
     expect(screen.getByRole("table")).toHaveTextContent("12");
     expect(container.querySelector(".hljs-keyword")).toHaveTextContent("def");
   });
+
+  it("draws a cell whose whole text is plain, and raw HTML stays text", () => {
+    const { container } = render(
+      <Markdown
+        text={
+          "| a | b |\n| - | - |\n| pass | the pass |\n| <b>pass</b> | `pass` |"
+        }
+        cell={(text) => (text === "pass" ? <mark>{text}</mark> : null)}
+      />,
+    );
+
+    const marks = container.querySelectorAll("mark");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]?.closest("td")).toHaveTextContent(/^pass$/);
+    expect(container.querySelector("b")).toBeNull();
+    expect(screen.getByRole("table")).toHaveTextContent("<b>pass</b>");
+    expect(screen.getByText("the pass").tagName).toBe("TD");
+  });
 });

@@ -179,6 +179,7 @@ def test_attempts_are_newest_first_with_their_values(
     "ended_at": None,
     "rounds": [],
     "values": [3, None, None],
+    "live": "not ended",
     "error": None,
   }
   assert rows[1]["error"] == "the record is not JSON"
@@ -193,6 +194,7 @@ def test_attempts_are_newest_first_with_their_values(
     "ended_at": "2026-01-02T03:14:05+00:00",
     "rounds": [{"round": 1, "state": "write", "outcome": "done"}],
     "values": ["passed", 0.42, None],
+    "live": None,
     "error": None,
   }
   assert rows[3]["modified"] is None
