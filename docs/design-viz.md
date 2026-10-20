@@ -133,7 +133,7 @@ Each phase owns the directories named for it and touches no other's, so P-home, 
 
 P1's backend modules: `config.py` (site and project files, their checks), `paths.py` (opening an attempt and a path in it, invariant 2), `app.py` (the FastAPI app and its routes) and `serve.py` (the `dataforge viz serve` command). The frontend: `web/src/api/` (the client and the record's TypeScript types), `web/src/shell/`, `web/src/ui/`, `web/src/views/registry.tsx` (kind to view). P4 renders an agent's session with P3's `SessionView` from `web/src/session/`; until P3 merges, the placeholder shows the trace's path. A change one phase needs in another's directory goes to that phase's owner, or after its merge, in a PR of its own. P1 created `web/package.json` and `web/package-lock.json`; a later phase's PR that needs a new library may change them, but only one open PR changes them at a time, and once that one merges, the next merges main into its branch and regenerates the lock file.
 
-The checks, besides the repo's Python checks with the `viz` extra installed: in `web/`, `npm ci`, then `npm run lint` (ESLint and Prettier), `npm run typecheck`, `npm test` (Vitest) and `npm run build`. The backend's dependencies, FastAPI and uvicorn, are the package's optional extra `viz`, so a dataset repo that only runs attempts does not install them.
+The checks, besides the repo's Python checks with the `viz` extra installed: in `web/`, `npm ci`, then `npm run lint` (ESLint, Prettier and knip), `npm run typecheck`, `npm test` (Vitest) and `npm run build`. The backend's dependencies, FastAPI and uvicorn, are the package's optional extra `viz`, so a dataset repo that only runs attempts does not install them.
 
 ## 7. Open questions
 
