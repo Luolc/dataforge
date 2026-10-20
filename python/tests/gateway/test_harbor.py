@@ -22,9 +22,9 @@ from dataforge.gateway.harbor import ClaudeCode, Codex, Pi, PI_MODELS
 
 VERSION = "DATAFORGE_CLIENT_VERSION"
 AGENTS = {
-  "claude": (ClaudeCode, "claude-opus-5-5", "2.1.292", "2.1.292 (Claude Code)"),
-  "pi": (Pi, "openai-codex/gpt-6-astra", "1.2.0", "1.2.0"),
-  "codex": (Codex, "gpt-6-astra", "0.159.3", "codex-cli 0.159.3"),
+  "claude": (ClaudeCode, "claude-model", "2.1.292", "2.1.292 (Claude Code)"),
+  "pi": (Pi, "openai-codex/codex-model", "1.2.0", "1.2.0"),
+  "codex": (Codex, "codex-model", "0.159.3", "codex-cli 0.159.3"),
 }
 
 
@@ -111,7 +111,7 @@ def test_codex_takes_redcoast_clients_settings_over_the_datasets(
 ):
   agent = Codex(
     logs_dir=tmp_path,
-    model_name="gpt-6-astra",
+    model_name="codex-model",
     config={
       "model_provider": "openai",
       "model_reasoning_effort": "high",

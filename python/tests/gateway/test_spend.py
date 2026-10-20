@@ -31,14 +31,14 @@ from tests.gateway.fakes import (
 )
 
 PRICES = {
-  "claude-opus-5-5": Price(
+  "claude-model": Price(
     input=4.0,
     output=20.0,
     cache_read=0.2,
     cache_write_5m=5.0,
     cache_write_1h=8.0,
   ),
-  "gpt-6-astra": Price(
+  "codex-model": Price(
     input=1.0,
     output=8.0,
     cache_read=0.1,
@@ -64,7 +64,7 @@ CODEX_USAGE = {
 # 1000 * 4 + 500 * 20 + 2000 * 0.2 + 100 * 5 + 200 * 8 per million, and
 # 500 * 1 + 2000 * 0.1 + 500 * 1.25 + 400 * 8 per million.
 COST = {Channel.CLAUDE: 0.0165, Channel.CODEX: 0.004525}
-MODEL = {Channel.CLAUDE: "claude-opus-5-5", Channel.CODEX: "gpt-6-astra"}
+MODEL = {Channel.CLAUDE: "claude-model", Channel.CODEX: "codex-model"}
 ROUTE = {
   Channel.CLAUDE: "/v1/messages",
   Channel.CODEX: "/backend-api/codex/responses",
@@ -210,7 +210,7 @@ def test_the_cap_refuses_every_request_once_reached_and_ends_the_session(
     (
       stream(
         *(
-          e.replace(b"claude-opus-5-5", b"claude-x")
+          e.replace(b"claude-model", b"claude-x")
           for e in events(Channel.CLAUDE)
         )
       ),
