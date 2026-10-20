@@ -199,6 +199,34 @@ for t in profile:-l bashrc:-i; do
 done
 ok "a new login or interactive shell that finds another claude stops the run"
 
+# The same with zsh as the login shell, as on a real data machine: the line
+# in ~/.zshenv alone passes both shells, and a ~/.zshrc that puts
+# ~/.local/bin first stops the run at the interactive one. The new shells
+# start from a clean environment, so a PATH of the setup's caller with the
+# shim first does not stand in for a missing line in ~/.zshenv.
+sudo usermod -s /usr/bin/zsh agent
+cp "$HOME/.zshenv" "$out/zshenv"
+cp "$HOME/.zshrc" "$out/zshrc"
+setup run2z.log --check || { tail -n 20 "$out/run2z.log"; fail "a zsh login shell with the line in ~/.zshenv was refused"; }
+grep -A1 -F 'TASK [Gateway client | claude is the shim in a new shell]' "$out/run2z.log" | grep -q '^ok:' ||
+  fail "the zsh run did not check that claude is the shim"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >>"$HOME/.zshrc"
+if setup run2zi.log --check; then fail "a ~/.zshrc that puts ~/.local/bin first was accepted"; fi
+cp "$out/zshrc" "$HOME/.zshrc"
+grep -q "in a new shell: ./usr/bin/zsh -i. finds claude at ..$HOME/.local/bin/claude." "$out/run2zi.log" ||
+  { tail -n 20 "$out/run2zi.log"; fail "run2zi failed for another reason"; }
+echo '# No PATH line.' >"$HOME/.zshenv"
+setup_path=$HOME/.local/libexec/redcoast-client/current:$PATH
+if setup run2ze.log --check; then
+  fail "a ~/.zshenv without the line was accepted because the caller's PATH has the shim first"
+fi
+setup_path=
+cp "$out/zshenv" "$HOME/.zshenv"
+grep -q 'in a new shell: ./usr/bin/zsh -l. finds claude at' "$out/run2ze.log" ||
+  { tail -n 20 "$out/run2ze.log"; fail "run2ze failed for another reason"; }
+sudo usermod -s "$login_shell" agent
+ok "a zsh login shell passes with the line in ~/.zshenv alone, and stops the run without it or behind a ~/.zshrc that puts ~/.local/bin first"
+
 # Each of the four Claude Code keys the setup checks, not as it needs: the
 # run stops, naming the key, its file and the README's section.
 for t in \

@@ -69,7 +69,7 @@ Also recommended in `~/.claude/settings.json`, though the setup does not check t
 
 - `"autoMemoryEnabled": false`: agents keep nothing in Claude Code's own memory between sessions.
 - `"DISABLE_ERROR_REPORTING": "1"`, `"DISABLE_FEEDBACK_COMMAND": "1"` and `"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1"` under `env`: no error reports or feedback leave the machine, and no survey appears in a pane nobody watches.
-- `"model": "opus[1m]"`, `"effortLevel": "high"`, `"autoCompactEnabled": true` and `"autoCompactWindow": 520000`: the default model, effort and context window for agents started without `--model`.
+- `model`, `effortLevel`, `autoCompactEnabled` and `autoCompactWindow`: the default model, effort and context window for agents started without `--model`; set them to what the machine's agents should use.
 - `"attribution": {"commit": "", "pr": "", "sessionUrl": false}`: commits and PRs carry no Claude Code attribution or session link.
 - `"promptSuggestionEnabled": false`: the suggested prompt in the input box reads like a typed draft when an agent reads another agent's pane.
 - `"disableRemoteControl": true`: data machines have no Remote Control.
