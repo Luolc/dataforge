@@ -157,6 +157,7 @@ class AgentState(_ActionState):
     env: Env = HOST,
     spec: AgentSpec | None = None,
     report_prompt: str | None = None,
+    report_outputs: Sequence[str] = (),
     last_if_unresumable: bool = False,
     rename: Mapping[str, str] | None = None,
     feedback: str | None = None,
@@ -178,6 +179,9 @@ class AgentState(_ActionState):
         does not know and a lone $ are left as they are.
       report_prompt: The prompt, a template as above, in place of the spec's
         when the visit got a report.
+      report_outputs: Outputs that a visit which got a report must write
+        anew: they join the spec's outputs, and each must differ from its
+        last version, as AgentSpec.fresh_outputs says.
       last_if_unresumable: With True, an outcome after which the agent's
         session cannot go on has last=True.
       rename: A new name for each outcome that is to have one, by its name.
@@ -197,6 +201,7 @@ class AgentState(_ActionState):
     self.env: Env = env
     self._spec: AgentSpec | None = spec
     self.report_prompt: str | None = report_prompt
+    self.report_outputs: tuple[str, ...] = tuple(report_outputs)
     self.last_if_unresumable: bool = last_if_unresumable
 
   def spec(self, ctx: Context) -> AgentSpec:
@@ -213,10 +218,18 @@ class AgentState(_ActionState):
     """
     if self._spec is None:
       raise NotImplementedError(f"{self.name}: no spec given or made")
-    prompt = self._spec.prompt
+    spec = self._spec
+    prompt = spec.prompt
     if ctx.report is not None and self.report_prompt is not None:
       prompt = self.report_prompt
-    return dataclasses.replace(self._spec, prompt=_render(prompt, ctx))
+    if ctx.report is not None and self.report_outputs:
+      added = [name for name in self.report_outputs if name not in spec.outputs]
+      spec = dataclasses.replace(
+        spec,
+        outputs=(*spec.outputs, *added),
+        fresh_outputs=self.report_outputs,
+      )
+    return dataclasses.replace(spec, prompt=_render(prompt, ctx))
 
   def outcome(self, ctx: Context, result: ActionResult) -> Outcome:
     """Turn the action's result into the visit's outcome.

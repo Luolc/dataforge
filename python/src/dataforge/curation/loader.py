@@ -871,6 +871,7 @@ def _agent(
       "tools",
       "name",
       "report_prompt",
+      "report_outputs",
       "last_if_unresumable",
     },
   )
@@ -915,6 +916,9 @@ def _agent(
       else loader.string(
         fields["report_prompt"], f"{at}.report_prompt", template=True
       )
+    ),
+    "report_outputs": loader.strings(
+      get("report_outputs", []), f"{at}.report_outputs"
     ),
     "last_if_unresumable": loader.boolean(
       get("last_if_unresumable", False), f"{at}.last_if_unresumable"
