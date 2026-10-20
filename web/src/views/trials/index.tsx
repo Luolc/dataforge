@@ -52,9 +52,12 @@ function TrialStatus({
   );
 }
 
-/** The trial action of a visit whose output is the trial's. */
+/** The trial action of a visit whose outputs hold the trial's output. */
 function actionOf(actions: Action[], trial: Trial): Action | undefined {
-  return actions.find((action) => trial.output in action.outputs);
+  return actions.find(
+    (action) =>
+      action.kind === "trial" && Object.hasOwn(action.outputs, trial.output),
+  );
 }
 
 export default function TrialsView({

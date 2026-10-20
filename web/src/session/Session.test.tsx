@@ -43,7 +43,11 @@ describe("the session view", () => {
 
     const passing = toolLine(/^Bashpython -m pytest -q$/);
     expect(passing).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText(/41 passed in 3.02s/)).toBeNull();
+    const part = document.getElementById(
+      must(passing.getAttribute("aria-controls")),
+    );
+    expect(part).toHaveTextContent(/41 passed in 3.02s/);
+    expect(part).not.toBeVisible();
     fireEvent.click(passing);
     expect(passing).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(/41 passed in 3.02s/)).toBeVisible();
@@ -91,7 +95,7 @@ describe("the session view", () => {
     const line = toolLine(/^Thinking · 21 wordsStart by reproducing/);
     expect(line).toHaveAttribute("aria-expanded", "false");
     const part = must(line.getAttribute("aria-controls"));
-    expect(document.getElementById(part)).toBeNull();
+    expect(document.getElementById(part)).not.toBeVisible();
     fireEvent.click(line);
     expect(document.getElementById(part)).toHaveTextContent(
       /the parser splits on CRLF\.$/,

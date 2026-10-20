@@ -78,6 +78,35 @@ describe("the trials view", () => {
     expect(await screen.findByText("Hide thinking")).toBeVisible();
   });
 
+  it("takes each trial's duration and cost from its own action", () => {
+    show();
+    fireEvent.click(trial("tinyparse-fold__p3e5"));
+
+    const numbers = must(screen.getByText("Reward").closest("dl"));
+    expect(within(numbers).getByText("24m 5s")).toBeVisible();
+    expect(within(numbers).getByText("$0.62")).toBeVisible();
+  });
+
+  it("shows no duration or cost when no trial action holds the output", () => {
+    const visit = must(attempt.visits[0]);
+    const actions = visit.actions.map((action) =>
+      action.kind === "trial" && "trial-1" in action.outputs
+        ? { ...action, kind: "script" }
+        : action,
+    );
+    render(
+      <TrialsView
+        project={project}
+        attempt="pass-at-k"
+        record={{ ...attempt, visits: [{ ...visit, actions }] }}
+        deliverable={must(attempt.deliverables[0])}
+      />,
+    );
+
+    const numbers = must(screen.getByText("Reward").closest("dl"));
+    expect(within(numbers).getAllByText("—")).toHaveLength(2);
+  });
+
   it("takes the badge from the reward, not from the agent's last word", async () => {
     show();
     fireEvent.click(trial("tinyparse-fold__p3b2"));

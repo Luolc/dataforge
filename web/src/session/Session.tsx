@@ -215,11 +215,13 @@ function Thinking({ text, open: initial }: { text: string; open: boolean }) {
           <span className="truncate text-fg-3">{text.split("\n")[0]}</span>
         )}
       </button>
-      {open && (
-        <p id={id} className="pl-5 text-xs whitespace-pre-wrap text-fg-2">
-          {text}
-        </p>
-      )}
+      <p
+        id={id}
+        hidden={!open}
+        className="pl-5 text-xs whitespace-pre-wrap text-fg-2"
+      >
+        {text}
+      </p>
     </div>
   );
 }
@@ -289,16 +291,14 @@ function ToolRow({
           <span className="flex-none text-fg-3">no result</span>
         )}
       </button>
-      {open && (
-        <div id={id} className="flex flex-col gap-2 pl-5">
-          <Output title="Input" text={inputText(call.input)} />
-          <Output
-            title={call.failed ? "Output · open because it failed" : "Output"}
-            text={call.output ?? "No result came back."}
-            bad={call.failed}
-          />
-        </div>
-      )}
+      <div id={id} hidden={!open} className="flex flex-col gap-2 pl-5">
+        <Output title="Input" text={inputText(call.input)} />
+        <Output
+          title={call.failed ? "Output · open because it failed" : "Output"}
+          text={call.output ?? "No result came back."}
+          bad={call.failed}
+        />
+      </div>
       {call.children.length > 0 && (
         <ol
           aria-label={`Subagent of ${call.name}`}
@@ -367,13 +367,11 @@ function ToolGroup({
           {failed} of {calls.length} failed
         </span>
       </button>
-      {open && (
-        <div id={id} className="flex flex-col gap-1 pl-5">
-          {calls.map((call, i) => (
-            <ToolRow key={i} call={call} thinking={thinking} />
-          ))}
-        </div>
-      )}
+      <div id={id} hidden={!open} className="flex flex-col gap-1 pl-5">
+        {calls.map((call, i) => (
+          <ToolRow key={i} call={call} thinking={thinking} />
+        ))}
+      </div>
     </div>
   );
 }
