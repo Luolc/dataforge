@@ -62,10 +62,12 @@ class Goto:
     mark: A mark (for example "too_easy") keeps this visit: when the attempt
       later ends at a cap or a guard, the last marked visit is kept and the
       mark becomes the attempt's status.
-    end_on_last_visit: With True, a visit after which the state cannot be
-      entered again (its max_visits-th, or one whose outcome has last=True)
-      ends the attempt instead of going to the state, as entering the state
-      once too often would; the mark is recorded first.
+    end_on_last_visit: With True, a visit after which its state cannot be
+      entered again ends the attempt instead of going to the state named
+      here, as entering a state once too often would; the mark is recorded
+      first. The state cannot be entered again after its max_visits-th visit,
+      after an outcome with last=True, or when every way back to it from the
+      state named here passes a state that cannot be entered again.
   """
 
   state: str
@@ -691,7 +693,7 @@ class Machine:
       record.outcome, record.data = outcome.name, outcome.data
       if outcome.last:
         closed.add(state.name)
-      step = self._go(ctx, record, state, outcome, state.name in closed)
+      step = self._go(ctx, record, state, outcome, visits, closed)
       if step is None:
         self._resolve(attempt)
       self.on_step(attempt)
@@ -725,13 +727,44 @@ class Machine:
       return "budget", f"{where}: {why}"
     return None
 
+  def _reaches(
+    self, start: str, goal: str, visits: Counter[str], closed: set[str]
+  ) -> bool:
+    """Whether goal can be entered again by going on from start.
+
+    Args:
+      start: The state the attempt would go to.
+      goal: The state to enter again.
+      visits: How many times each state was entered.
+      closed: The states an outcome with last=True closed.
+
+    Returns:
+      True when some chain of Gotos leads from start to goal through states
+      that can each be entered once more, start and goal included.
+    """
+    seen: set[str] = set()
+    todo = [start]
+    while todo:
+      name = todo.pop()
+      state = self._by_name[name]
+      if name in seen or name in closed or visits[name] >= state.max_visits:
+        continue
+      if name == goal:
+        return True
+      seen.add(name)
+      todo.extend(
+        t.state for t in state.transitions.values() if isinstance(t, Goto)
+      )
+    return False
+
   def _go(
     self,
     ctx: Context,
     record: Visit,
     state: State,
     outcome: Outcome,
-    closed: bool,
+    visits: Counter[str],
+    closed: set[str],
   ) -> tuple[State, Report | None] | None:
     """Take the transition of a visit's outcome.
 
@@ -740,7 +773,8 @@ class Machine:
       record: The visit's record.
       state: The state.
       outcome: The visit's outcome.
-      closed: Whether the state may not be entered again.
+      visits: How many times each state was entered, this visit included.
+      closed: The states an outcome with last=True closed.
 
     Returns:
       The next state and its report, or None when the attempt ended.
@@ -759,8 +793,9 @@ class Machine:
       attempt.status = transition.status
       return None
     record.mark = transition.mark
-    last = closed or ctx.visit == state.max_visits
-    if transition.end_on_last_visit and last:
+    if transition.end_on_last_visit and not self._reaches(
+      transition.state, state.name, visits, closed
+    ):
       why = f"its last visit, not going to {transition.state}"
       _stop(
         attempt, state.on_exhausted, f"{state.name} visit {ctx.visit}: {why}"

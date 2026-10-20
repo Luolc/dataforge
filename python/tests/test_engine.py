@@ -764,6 +764,33 @@ def test_end_on_last_visit_without_a_mark_ends_with_on_exhausted(
   assert attempt.reason == "a visit 2: its last visit, not going to a"
 
 
+def test_end_on_last_visit_ends_when_a_state_on_the_way_back_is_spent(
+  tmp_path: Path,
+) -> None:
+  # judge has visits left, but every way back to it passes review, whose
+  # one visit is spent: no later round could reach judge.
+  attempt = Machine(
+    [
+      Step("author", lambda _: Outcome("done"), {"done": Goto("review")}, 5),
+      Step("review", lambda _: Outcome("pass"), {"pass": Goto("judge")}, 1),
+      Step(
+        "judge",
+        lambda _: Outcome("easy"),
+        {"easy": Goto("author", mark="too_easy", end_on_last_visit=True)},
+        3,
+        "exhausted",
+      ),
+    ]
+  ).run(tmp_path)
+  assert path_of(attempt) == [
+    ("author", "done"),
+    ("review", "pass"),
+    ("judge", "easy"),
+  ]
+  assert (attempt.status, attempt.kept_visit) == ("too_easy", 2)
+  assert attempt.reason == "judge visit 1: its last visit, not going to author"
+
+
 def test_each_visit_records_its_round(tmp_path: Path) -> None:
   def check(ctx: Context) -> Outcome:
     if ctx.round == 1:
