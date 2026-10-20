@@ -13,11 +13,11 @@ import {
   type Project,
   readRecord,
 } from "../../api/types";
-import { Frame } from "../../shell/Shell";
+import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
 import { CodeView } from "../../ui/code";
-import { attemptStatus } from "../../ui/status";
+import { attemptStatus, stateTitle } from "../../ui/status";
 import { StatusIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
@@ -34,14 +34,30 @@ export function AttemptPage() {
   const loaded = useLoaded(url, (signal) =>
     getJson(url ?? "", z.unknown(), signal).then(readRecord),
   );
-  const crumbs = [
+  const tab = query.get("tab") ?? "runs";
+  const run = runOf(query.get("run"));
+  const summary = tab === "runs" && run === null;
+  const crumbs: Crumb[] = [
     { label: "Projects", to: "/" },
     {
       label: project.state === "ok" ? project.data.name : (id ?? ""),
       to: `/${encodeURIComponent(id ?? "")}`,
     },
-    { label: attempt ?? "" },
+    {
+      label: attempt ?? "",
+      ...(id !== undefined && attempt !== null && !summary
+        ? { to: attemptHref(id, attempt) }
+        : {}),
+    },
   ];
+  const visit =
+    run !== null && loaded.state === "ok" && loaded.data.shape === "record"
+      ? loaded.data.record.visits[run]
+      : undefined;
+  if (run !== null && visit && project.state === "ok")
+    crumbs.push({
+      label: `Run ${String(run + 1)} · ${stateTitle(project.data, visit.state)}`,
+    });
   let body;
   if (attempt === null) body = <Note>No attempt is named.</Note>;
   else if (project.state === "error") body = <Note>{project.message}</Note>;
@@ -63,8 +79,8 @@ export function AttemptPage() {
         project={project.data}
         attempt={attempt}
         record={loaded.data.record}
-        tab={query.get("tab") ?? "runs"}
-        run={runOf(query.get("run"))}
+        tab={tab}
+        run={run}
       />
     );
   return <Frame crumbs={crumbs}>{body}</Frame>;
