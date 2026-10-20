@@ -7,7 +7,15 @@ import { listing } from "./types";
 export type Loaded<T> =
   | { state: "loading" }
   | { state: "error"; message: string }
-  | { state: "ok"; data: T };
+  | { state: "ok"; data: T; failed?: Failed };
+
+/** The reads again that failed in a row since data landed, at read. */
+export interface Failed {
+  message: string;
+  times: number;
+  /** When the data shown was read, in milliseconds since the epoch. */
+  read: number;
+}
 
 /** A failed request; body is the response's JSON, null when it had none. */
 export class ApiError extends Error {
@@ -64,9 +72,15 @@ function reasonOf(body: unknown): string | null {
 
 /**
  * The generation of what a page reads while an attempt runs: each read again
- * raises it, and what follows the attempt as it goes reads again with it.
+ * takes a new one, and what follows the attempt as it goes reads again with
+ * it. No two pages, and no two visits of a page, share a generation.
  */
 export const RefreshContext = createContext(0);
+
+let generations = 0;
+
+/** A generation no page has had yet. */
+export const nextGeneration = () => ++generations;
 
 /** The page's generation of reads, for useLoaded's refresh. */
 export const useRefresh = () => use(RefreshContext);
@@ -75,30 +89,43 @@ export const useRefresh = () => use(RefreshContext);
  * What load gives, loaded again whenever key changes; a null key loads
  * nothing. The same key must always load the same thing. When refresh
  * changes, the same key loads again, and what it loaded before stays until
- * the new read lands; a read again that fails keeps it.
+ * the new read lands; a read again that fails keeps it, and says so in
+ * failed until a read lands.
  */
 export function useLoaded<T>(
   key: string | null,
   load: (signal: AbortSignal) => Promise<T>,
   refresh = 0,
 ): Loaded<T> {
-  const [loaded, setLoaded] = useState<{ key: string; value: Loaded<T> }>();
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    value: Loaded<T>;
+    read: number;
+  }>();
   useEffect(() => {
     if (key === null) return;
     const controller = new AbortController();
     load(controller.signal).then(
       (data) => {
         if (controller.signal.aborted) return;
-        setLoaded({ key, value: { state: "ok", data } });
+        setLoaded({ key, value: { state: "ok", data }, read: Date.now() });
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
         const message = error instanceof Error ? error.message : String(error);
-        setLoaded((last) =>
-          last?.key === key && last.value.state === "ok"
-            ? last
-            : { key, value: { state: "error", message } },
-        );
+        setLoaded((last) => {
+          if (last?.key !== key || last.value.state !== "ok")
+            return { key, value: { state: "error", message }, read: 0 };
+          const times = (last.value.failed?.times ?? 0) + 1;
+          return {
+            ...last,
+            value: {
+              state: "ok",
+              data: last.value.data,
+              failed: { message, times, read: last.read },
+            },
+          };
+        });
       },
     );
     return () => {
@@ -156,10 +183,12 @@ async function countFiles(
 }
 
 // One walk per path and generation of the page's reads, shared by a tab's
-// count and a deliverable's card; a failed walk is dropped, to be tried again.
+// count and a deliverable's card; a walk not yet settled serves the later
+// generations too, so walks never pile up. A failed walk is dropped, to be
+// tried again.
 const fileCounts = new Map<
   string,
-  { refresh: number; count: Promise<FileCount> }
+  { refresh: number; count: Promise<FileCount>; settled: boolean }
 >();
 
 /** countFiles as a hook, for a tab's count and a deliverable's card. */
@@ -170,15 +199,24 @@ export function useFileCount(p: string, attempt: string, path: string | null) {
     key,
     () => {
       if (key === null || path === null) return Promise.reject(new Error(""));
-      let walk = fileCounts.get(key);
-      if (walk?.refresh !== refresh) {
-        const made = { refresh, count: countFiles(p, attempt, path) };
-        fileCounts.set(key, made);
-        made.count.catch(() => {
-          if (fileCounts.get(key) === made) fileCounts.delete(key);
-        });
-        walk = made;
-      }
+      const last = fileCounts.get(key);
+      if (last !== undefined && (last.refresh === refresh || !last.settled))
+        return last.count;
+      const walk = {
+        refresh,
+        count: countFiles(p, attempt, path),
+        settled: false,
+      };
+      fileCounts.set(key, walk);
+      walk.count.then(
+        () => {
+          walk.settled = true;
+        },
+        () => {
+          walk.settled = true;
+          if (fileCounts.get(key) === walk) fileCounts.delete(key);
+        },
+      );
       return walk.count;
     },
     refresh,

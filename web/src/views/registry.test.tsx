@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
@@ -122,5 +122,56 @@ describe("a files tab's count", () => {
     await waitFor(() => {
       expect(screen.getByTestId("count")).toHaveTextContent(/^3$/);
     });
+  });
+});
+
+describe("a files tab's count slower than the page's reads", () => {
+  it("lands once per walk, and walks one at a time", async () => {
+    const root = "artifacts/author/1/task";
+    // Ten folders of one file each, every listing answered after 20 ms.
+    const files: Record<string, string> = {};
+    for (let d = 0; d < 10; d++) files[`${root}/d${String(d)}/f.txt`] = "f";
+    const answer = fakeFiles(files);
+    let inFlight = 0;
+    let most = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        inFlight++;
+        most = Math.max(most, inFlight);
+        await new Promise((r) => setTimeout(r, 20));
+        inFlight--;
+        return answer(url);
+      }),
+    );
+    const task = { ...item("task", "files"), path: root, reason: null };
+    const shown = (refresh: number) => (
+      <RefreshContext value={refresh}>
+        <p data-testid="count">
+          <KindCount
+            kind="files"
+            project="sample"
+            attempt="counted/slowly"
+            item={task}
+            items={[task]}
+          />
+        </p>
+      </RefreshContext>
+    );
+    const { rerender } = render(shown(0));
+    await waitFor(() => {
+      expect(screen.getByTestId("count")).toHaveTextContent(/^10$/);
+    });
+    files[`${root}/new.txt`] = "new";
+    // A read every 50 ms, while a walk of 11 listings takes over 200 ms.
+    for (let refresh = 1; refresh <= 8; refresh++) {
+      await act(() => new Promise((r) => setTimeout(r, 50)));
+      rerender(shown(refresh));
+    }
+
+    await waitFor(() => {
+      expect(screen.getByTestId("count")).toHaveTextContent(/^11$/);
+    });
+    expect(most).toBe(1);
   });
 });

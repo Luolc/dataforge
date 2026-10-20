@@ -6,7 +6,9 @@ import { useParams, useSearchParams } from "react-router";
 import { Link } from "react-router";
 
 import {
+  type Failed,
   getJson,
+  nextGeneration,
   RefreshContext,
   urls,
   useJson,
@@ -28,8 +30,15 @@ import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
 import { CodeView } from "../../ui/code";
+import { time } from "../../ui/format";
 import { RunningIcon } from "../../ui/running";
-import { attemptStatus, liveStatus, stateTitle } from "../../ui/status";
+import {
+  attemptStatus,
+  liveStatus,
+  stateTitle,
+  toneGlyph,
+  toneText,
+} from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
@@ -43,7 +52,7 @@ export function AttemptPage() {
   const project = useProject(id);
   // Raised by each read again; what is open, chosen or panned on the page
   // stays, since what was read before stays shown until the new read lands.
-  const [refresh, setRefresh] = useState(0);
+  const [refresh, setRefresh] = useState(nextGeneration);
   const url =
     id !== undefined && attempt !== null ? urls.record(id, attempt) : null;
   const loaded = useLoaded(
@@ -65,9 +74,15 @@ export function AttemptPage() {
       loaded.data.shape === "record" &&
       attemptStatus(project.data, loaded.data.record) === null,
     () => {
-      setRefresh((r) => r + 1);
+      setRefresh(nextGeneration());
     },
   );
+  // Said only after two failed reads in a row, so that one read of a record
+  // caught half written stays quiet.
+  const failed =
+    [loaded, liveLoaded]
+      .map((l) => (l.state === "ok" ? l.failed : undefined))
+      .find((f) => f !== undefined && f.times >= 2) ?? null;
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
   const discarded = runOf(query.get("discarded"));
@@ -119,6 +134,7 @@ export function AttemptPage() {
         attempt={attempt}
         record={loaded.data.record}
         live={live}
+        failed={failed}
         tab={tab}
         run={run}
         discarded={discarded}
@@ -141,6 +157,7 @@ function Attempt({
   attempt,
   record,
   live: read,
+  failed,
   tab,
   run,
   discarded,
@@ -149,6 +166,8 @@ function Attempt({
   attempt: string;
   record: AttemptRecord;
   live: LiveInfo | null;
+  /** The reads again that failed, when they have; null else. */
+  failed: Failed | null;
   tab: string;
   run: number | null;
   discarded: number | null;
@@ -192,6 +211,7 @@ function Attempt({
       <Header attempt={attempt}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
+      {failed !== null && <ReadFailed failed={failed} />}
       <Tabs project={project} attempt={attempt} tabs={tabs} current={tab} />
       {tab === "runs" ? (
         <RunsView
@@ -236,6 +256,20 @@ function AttemptIcon({
   if (live?.live === "may have stopped")
     return <ToneIcon {...liveStatus["may have stopped"]} />;
   return <StatusIcon project={project} word={attemptStatus(project, record)} />;
+}
+
+/** That the page could not read the attempt again, so what it shows is older. */
+function ReadFailed({ failed }: { failed: Failed }) {
+  const Glyph = toneGlyph.warn;
+  return (
+    <p
+      role="status"
+      className={`flex items-center gap-1.5 px-7 pt-1 text-xs ${toneText.warn}`}
+    >
+      <Glyph className="size-3.5 flex-none" aria-hidden />
+      {`Could not read the attempt again (${failed.message}); what is shown was read at ${time(new Date(failed.read).toISOString())}.`}
+    </p>
+  );
 }
 
 interface Tab {

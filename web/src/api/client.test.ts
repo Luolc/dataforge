@@ -1,7 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useLoaded } from "./client";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 /** A promise and the functions that settle it. */
 function deferred<T>() {
@@ -61,6 +65,62 @@ describe("useLoaded read again", () => {
       // The hook's handler was attached first, so it has run by now.
       await reads[1]?.promise.catch(() => undefined);
     });
+    expect(hook.result.current).toMatchObject({
+      state: "ok",
+      data: "first",
+      failed: { message: "500: half written", times: 1 },
+    });
+  });
+
+  it("counts the reads again that fail in a row, until one lands", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const reads = [
+      deferred<string>(),
+      deferred<string>(),
+      deferred<string>(),
+      deferred<string>(),
+    ];
+    let n = 0;
+    const hook = renderHook(
+      ({ refresh }) =>
+        useLoaded("key", () => must(reads[n++]).promise, refresh),
+      { initialProps: { refresh: 0 } },
+    );
+    const settle = async (i: number, value: string | Error) => {
+      await act(async () => {
+        const read = must(reads[i]);
+        if (value instanceof Error) read.reject(value);
+        else read.resolve(value);
+        await read.promise.catch(() => undefined);
+      });
+    };
+    vi.setSystemTime(new Date("2026-03-02T09:00:00Z"));
+    await settle(0, "first");
     expect(hook.result.current).toEqual({ state: "ok", data: "first" });
+
+    vi.setSystemTime(new Date("2026-03-02T09:05:00Z"));
+    hook.rerender({ refresh: 1 });
+    await settle(1, new Error("502: gone"));
+    hook.rerender({ refresh: 2 });
+    await settle(2, new Error("502: gone again"));
+    // When the data shown was read: before either failure.
+    expect(hook.result.current).toEqual({
+      state: "ok",
+      data: "first",
+      failed: {
+        message: "502: gone again",
+        times: 2,
+        read: Date.parse("2026-03-02T09:00:00Z"),
+      },
+    });
+
+    hook.rerender({ refresh: 3 });
+    await settle(3, "second");
+    expect(hook.result.current).toEqual({ state: "ok", data: "second" });
   });
 });
+
+function must<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("missing");
+  return value;
+}

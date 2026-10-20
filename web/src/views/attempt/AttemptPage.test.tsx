@@ -23,6 +23,7 @@ import {
 import { POLL_MS } from "../../api/poll";
 import type { LiveInfo, Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
+import { fakeFiles } from "../files/fake-api";
 import { AttemptPage } from "./AttemptPage";
 
 const project: Project = {
@@ -238,16 +239,24 @@ describe("an attempt that runs", () => {
 describe("an attempt read again while it runs", () => {
   // Each read of the record and of /live answers with the next of reads, the
   // last one again once they run out.
-  function showReads(reads: { record: unknown; live: LiveInfo }[], at = "") {
+  // A read of "gone" fails both, as when the server has gone away.
+  function showReads(
+    reads: ({ record: unknown; live: LiveInfo } | "gone")[],
+    at = "",
+  ) {
     let n = 0;
     const fetch = vi.fn((url: string) => {
       const read = must(reads[Math.min(n, reads.length - 1)]);
       if (url.includes("/live?")) n++;
       return Promise.resolve(
-        new Response(
-          JSON.stringify(url.includes("/live?") ? read.live : read.record),
-          { status: 200 },
-        ),
+        read === "gone"
+          ? new Response(JSON.stringify({ reason: "Bad Gateway" }), {
+              status: 502,
+            })
+          : new Response(
+              JSON.stringify(url.includes("/live?") ? read.live : read.record),
+              { status: 200 },
+            ),
       );
     });
     vi.stubGlobal("fetch", fetch);
@@ -333,6 +342,38 @@ describe("an attempt read again while it runs", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("says when two reads again in a row fail, until one lands", async () => {
+    showReads([
+      { record: inReview, live: runningIn() },
+      "gone",
+      "gone",
+      reviewed,
+    ]);
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs5");
+    });
+    const said = () => screen.queryByText(/^Could not read the attempt again/);
+
+    await tick();
+    // Let the failed reads land.
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    // One failure may be a record caught half written: nothing yet.
+    expect(said()).toBeNull();
+    await tick();
+    await waitFor(() => {
+      expect(said()).toHaveTextContent(
+        "Could not read the attempt again (502: Bad Gateway); what is shown was read at",
+      );
+    });
+    expect(tabs()[0]).toHaveTextContent("Runs5");
+
+    await tick();
+    await waitFor(() => {
+      expect(tabs()[0]).toHaveTextContent("Runs6");
+    });
+    expect(said()).toBeNull();
+  });
+
   it("keeps the run chosen and the steps opened on it", async () => {
     showReads([{ record: inReview, live: runningIn() }, reviewed], "&run=3");
     const run = await screen.findByRole("region", { name: /run 4/ });
@@ -349,5 +390,49 @@ describe("an attempt read again while it runs", () => {
     });
     expect(screen.getByRole("region", { name: /run 4/ })).toBe(run);
     expect(step).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("a later visit of an attempt", () => {
+  it("counts its files again", async () => {
+    const root = "artifacts/author/2/task";
+    const files: Record<string, string> = { [`${root}/a.txt`]: "a" };
+    const answer = fakeFiles(files);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url.includes("/record?")
+          ? Promise.resolve(Response.json(records.passed))
+          : url.includes("/live?")
+            ? Promise.resolve(
+                Response.json({ live: null, held: null, current: null }),
+              )
+            : answer(url),
+      ),
+    );
+    const visit = () =>
+      render(
+        <ProjectsContext value={{ state: "ok", data: [project] }}>
+          <MemoryRouter
+            initialEntries={[`/${project.id}/attempt?id=later/visit`]}
+          >
+            <Routes>
+              <Route path=":project/attempt" element={<AttemptPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ProjectsContext>,
+      );
+    const first = visit();
+    await waitFor(() => {
+      expect(tabs()[1]).toHaveTextContent("Task1");
+    });
+    first.unmount();
+
+    files[`${root}/b.txt`] = "b";
+    visit();
+
+    await waitFor(() => {
+      expect(tabs()[1]).toHaveTextContent("Task2");
+    });
   });
 });
