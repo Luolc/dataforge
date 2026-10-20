@@ -273,6 +273,23 @@ class Call:
     given = {v["id"] for v in _verdicts(self.verdicts) or []}
     return all(c.id in given for c in rubric.criteria)
 
+  def passed(self, rubric: Rubric) -> bool:
+    """Return whether its answer passes a rubric, as judge_review judges it.
+
+    Args:
+      rubric: The review's rubric.
+
+    Returns:
+      Whether its answer has a verdict "pass" for each criterion of
+      severity "error"; one of severity "warning" may fail.
+    """
+    given = {v["id"]: v["verdict"] for v in _verdicts(self.verdicts) or []}
+    return all(
+      given.get(c.id) == "pass"
+      for c in rubric.criteria
+      if c.severity == "error"
+    )
+
   def to_json(self) -> Data:
     """Return the call as JSON data.
 

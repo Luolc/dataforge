@@ -828,7 +828,10 @@ class RubricState(_ActionState):
   and its resume prompt what rereview_prompt gives alone. With
   reuse_unchanged, a call whose blocks are those of the last call of the
   review that ran, when that call gave verdicts, runs nothing: it gives that
-  call's answer again, at no cost, and no session moves on. Each call gives
+  call's answer again, at no cost, and no session moves on; but when that
+  call did not pass (Call.passed) and a note has a version written since
+  it, the call runs, so the reviewer reads what the author answered. Each
+  call gives
   the review's notes written since the last review, or all for a first call.
   With cross_criteria, the whole prompt of each review also gives the
   criteria of the state's other reviews (others_text); a resume prompt does
@@ -968,6 +971,10 @@ class RubricState(_ActionState):
       and last is not None
       and ran[-1] is last
       and not call.changed
+      and (
+        last.passed(rubric)
+        or all(n <= last.notes.get(t, 0) for t, n in call.notes.items())
+      )
     ):
       reused = dataclasses.replace(
         call, verdicts=last.verdicts, ending=last.ending, reused=last.call
