@@ -1,0 +1,563 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 3,
+  "budget": {
+    "max_usd": 20.0,
+    "cost_usd": 5.3,
+    "stopped": null
+  },
+  "final": {
+    "author": {
+      "state": "author",
+      "visit": 3,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/3/task",
+            "instruction.md": "artifacts/author/3/task/instruction.md"
+          },
+          "started_at": "2026-03-04T12:06:00+00:00",
+          "ended_at": "2026-03-04T12:13:00+00:00",
+          "cost_usd": 1.5,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    "check": {
+      "state": "check",
+      "visit": 3,
+      "round": 3,
+      "outcome": "pass",
+      "data": {
+        "failed": 0,
+        "tests": 6
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "verdict.json": "artifacts/check/3/verdict.json"
+          },
+          "started_at": "2026-03-04T12:20:00+00:00",
+          "ended_at": "2026-03-04T12:27:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    "review": {
+      "state": "review",
+      "visit": 2,
+      "round": 3,
+      "outcome": "pass",
+      "data": {
+        "tests": {
+          "ending": "done",
+          "cost_usd": 0.55,
+          "passed": 3,
+          "failed": 0,
+          "warnings": 0,
+          "verdicts": [
+            {
+              "criterion": "accepts_other_fixes",
+              "passed": true
+            },
+            {
+              "criterion": "covers_the_change",
+              "passed": true
+            },
+            {
+              "criterion": "no_wording_checks",
+              "passed": true
+            }
+          ]
+        }
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-04T12:34:00+00:00",
+          "ended_at": "2026-03-04T12:41:00+00:00",
+          "cost_usd": 0.3,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-04T12:48:00+00:00",
+          "ended_at": "2026-03-04T12:55:00+00:00",
+          "cost_usd": 0.25,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "report",
+          "status": "ok",
+          "outputs": {
+            "rubric.json": "artifacts/review/2/rubric.json",
+            "report.md": "artifacts/review/2/report.md"
+          },
+          "started_at": "2026-03-04T13:02:00+00:00",
+          "ended_at": "2026-03-04T13:09:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    }
+  },
+  "visits": [
+    {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task",
+            "instruction.md": "artifacts/author/1/task/instruction.md"
+          },
+          "started_at": "2026-03-04T10:00:00+00:00",
+          "ended_at": "2026-03-04T10:07:00+00:00",
+          "cost_usd": 1.3,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "fail",
+      "data": {
+        "failed": 2,
+        "tests": 6
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "verdict.json": "artifacts/check/1/verdict.json"
+          },
+          "started_at": "2026-03-04T10:14:00+00:00",
+          "ended_at": "2026-03-04T10:21:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "report",
+          "status": "ok",
+          "outputs": {
+            "feedback": "artifacts/check/1/feedback.md"
+          },
+          "started_at": "2026-03-04T10:28:00+00:00",
+          "ended_at": "2026-03-04T10:35:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    {
+      "state": "author",
+      "visit": 2,
+      "round": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/2/task",
+            "instruction.md": "artifacts/author/2/task/instruction.md"
+          },
+          "started_at": "2026-03-04T10:42:00+00:00",
+          "ended_at": "2026-03-04T10:49:00+00:00",
+          "cost_usd": 1.4,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    {
+      "state": "check",
+      "visit": 2,
+      "round": 2,
+      "outcome": "pass",
+      "data": {
+        "failed": 0,
+        "tests": 6
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "verdict.json": "artifacts/check/2/verdict.json"
+          },
+          "started_at": "2026-03-04T10:56:00+00:00",
+          "ended_at": "2026-03-04T11:03:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    {
+      "state": "review",
+      "visit": 1,
+      "round": 2,
+      "outcome": "fail",
+      "data": {
+        "tests": {
+          "ending": "done",
+          "cost_usd": 0.55,
+          "passed": 2,
+          "failed": 1,
+          "warnings": 0,
+          "verdicts": [
+            {
+              "criterion": "accepts_other_fixes",
+              "passed": true
+            },
+            {
+              "criterion": "covers_the_change",
+              "passed": false
+            },
+            {
+              "criterion": "no_wording_checks",
+              "passed": true
+            }
+          ]
+        }
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-04T11:10:00+00:00",
+          "ended_at": "2026-03-04T11:17:00+00:00",
+          "cost_usd": 0.3,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-04T11:24:00+00:00",
+          "ended_at": "2026-03-04T11:31:00+00:00",
+          "cost_usd": 0.25,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "report",
+          "status": "ok",
+          "outputs": {
+            "rubric.json": "artifacts/review/1/rubric.json",
+            "report.md": "artifacts/review/1/report.md"
+          },
+          "started_at": "2026-03-04T11:38:00+00:00",
+          "ended_at": "2026-03-04T11:45:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "report",
+          "status": "ok",
+          "outputs": {
+            "feedback": "artifacts/review/1/feedback.md"
+          },
+          "started_at": "2026-03-04T11:52:00+00:00",
+          "ended_at": "2026-03-04T11:59:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    {
+      "state": "author",
+      "visit": 3,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/3/task",
+            "instruction.md": "artifacts/author/3/task/instruction.md"
+          },
+          "started_at": "2026-03-04T12:06:00+00:00",
+          "ended_at": "2026-03-04T12:13:00+00:00",
+          "cost_usd": 1.5,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    {
+      "state": "check",
+      "visit": 3,
+      "round": 3,
+      "outcome": "pass",
+      "data": {
+        "failed": 0,
+        "tests": 6
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "verdict.json": "artifacts/check/3/verdict.json"
+          },
+          "started_at": "2026-03-04T12:20:00+00:00",
+          "ended_at": "2026-03-04T12:27:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    },
+    {
+      "state": "review",
+      "visit": 2,
+      "round": 3,
+      "outcome": "pass",
+      "data": {
+        "tests": {
+          "ending": "done",
+          "cost_usd": 0.55,
+          "passed": 3,
+          "failed": 0,
+          "warnings": 0,
+          "verdicts": [
+            {
+              "criterion": "accepts_other_fixes",
+              "passed": true
+            },
+            {
+              "criterion": "covers_the_change",
+              "passed": true
+            },
+            {
+              "criterion": "no_wording_checks",
+              "passed": true
+            }
+          ]
+        }
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-04T12:34:00+00:00",
+          "ended_at": "2026-03-04T12:41:00+00:00",
+          "cost_usd": 0.3,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-04T12:48:00+00:00",
+          "ended_at": "2026-03-04T12:55:00+00:00",
+          "cost_usd": 0.25,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "report",
+          "status": "ok",
+          "outputs": {
+            "rubric.json": "artifacts/review/2/rubric.json",
+            "report.md": "artifacts/review/2/report.md"
+          },
+          "started_at": "2026-03-04T13:02:00+00:00",
+          "ended_at": "2026-03-04T13:09:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ],
+      "last": false
+    }
+  ],
+  "resumptions": [],
+  "deliverables": [
+    {
+      "name": "report",
+      "kind": "report",
+      "title": "Review",
+      "state": "review",
+      "output": "report.md",
+      "visit": 2,
+      "visit_index": 7,
+      "path": "artifacts/review/2/report.md",
+      "reason": null,
+      "table": null
+    }
+  ],
+  "graph": {
+    "start": "author",
+    "states": [
+      {
+        "name": "author",
+        "kind": "AgentState",
+        "max_visits": 3,
+        "on_exhausted": "failed",
+        "max_cost_usd": null
+      },
+      {
+        "name": "check",
+        "kind": "JudgeState",
+        "max_visits": 3,
+        "on_exhausted": "failed",
+        "max_cost_usd": null
+      },
+      {
+        "name": "review",
+        "kind": "RubricState",
+        "max_visits": 3,
+        "on_exhausted": "failed",
+        "max_cost_usd": null
+      }
+    ],
+    "edges": [
+      {
+        "from": "author",
+        "outcome": "done",
+        "to": "check",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "pass",
+        "to": "review",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "pass",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  }
+}

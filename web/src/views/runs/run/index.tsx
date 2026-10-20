@@ -1,6 +1,7 @@
 // One run: the visit's steps, folded, from what it was handed to what it
 // handed on (design-viz.md section 5, "Runs").
-import type { ReactNode } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { type ReactNode, useId, useState } from "react";
 import { Link } from "react-router";
 
 import type { Action, AttemptRecord, Project, Visit } from "../../../api/types";
@@ -22,6 +23,9 @@ import {
 } from "../../../ui/status";
 import { StatusLabel } from "../../../ui/status-mark";
 import { attemptHref } from "../../attempt/href";
+import { size, useFile } from "../../files/file";
+import { ReportMarkdown } from "../../report/markdown";
+import { markdownOf, type Output, reportsOf } from "./reports";
 import { Step } from "./Step";
 import { actionStatus, inputOf, isSession, startsOpen, traceOf } from "./steps";
 
@@ -81,8 +85,10 @@ export default function RunPage({
           {` · ${usd(visitCost(visit))}`}
         </p>
       </header>
+      <Reports project={project} attempt={attempt} visit={visit} />
       <InputStep
         project={project}
+        attempt={attempt}
         record={record}
         index={index}
         runLink={runLink}
@@ -126,12 +132,111 @@ function Field({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
-function Data({ data }: { data: Record<string, unknown> }) {
+/**
+ * A visit's data as indented JSON, behind a Raw data toggle that starts open
+ * only when no report of the visit shows it in words.
+ */
+function Data({
+  data,
+  open: startOpen,
+}: {
+  data: Record<string, unknown>;
+  open: boolean;
+}) {
+  const [open, setOpen] = useState(startOpen);
+  const bodyId = useId();
   if (Object.keys(data).length === 0) return <>none</>;
+  const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <pre className="overflow-x-auto rounded-row border border-line-subtle bg-code-bg px-3 py-2 font-mono text-xs whitespace-pre-wrap text-fg-2">
-      {JSON.stringify(data, null, 2)}
-    </pre>
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => {
+          setOpen(!open);
+        }}
+        className="inline-flex target items-center gap-1 rounded-row text-fg-2 hover:bg-hover"
+      >
+        <Chevron className="size-4 flex-none text-icon" aria-hidden />
+        Raw data
+      </button>
+      <pre
+        id={bodyId}
+        hidden={!open}
+        className="mt-1 overflow-x-auto rounded-row border border-line-subtle bg-code-bg px-3 py-2 font-mono text-xs whitespace-pre-wrap text-fg-2"
+      >
+        {open && JSON.stringify(data, null, 2)}
+      </pre>
+    </>
+  );
+}
+
+/** A Markdown output, read through the files API and rendered as a report. */
+function MarkdownFile({
+  project,
+  attempt,
+  output,
+}: {
+  project: Project;
+  attempt: string;
+  output: Output;
+}) {
+  const loaded = useFile(project.id, attempt, output.path);
+  const name = output.path.split("/").at(-1) ?? output.path;
+  let body;
+  if (loaded.state === "loading") body = "Loading…";
+  else if (loaded.state === "error") body = loaded.message;
+  else if (loaded.data.kind === "too-large") {
+    body = `Not shown: ${loaded.data.reason}`;
+  } else if (loaded.data.kind === "missing") {
+    body = loaded.data.reason;
+  } else if (loaded.data.kind === "binary") {
+    body = `Not shown: not UTF-8 text, ${size(loaded.data.size)}.`;
+  }
+  return (
+    <article aria-label={name} className="min-w-0">
+      <h3 className="mb-2 flex items-baseline gap-2 text-xs text-fg-3">
+        {output.name !== name && (
+          <span className="font-medium text-fg-2">{output.name}</span>
+        )}
+        <code className="font-mono">{name}</code>
+        {loaded.state === "ok" &&
+          loaded.data.kind === "text" &&
+          ` · ${size(loaded.data.size)}`}
+      </h3>
+      {loaded.state === "ok" && loaded.data.kind === "text" ? (
+        <ReportMarkdown project={project} text={loaded.data.text} />
+      ) : (
+        <p className="text-fg-3">{body}</p>
+      )}
+    </article>
+  );
+}
+
+/** The visit's own reports, at the top of its run, before its steps. */
+function Reports({
+  project,
+  attempt,
+  visit,
+}: {
+  project: Project;
+  attempt: string;
+  visit: Visit;
+}) {
+  const reports = reportsOf(visit);
+  if (reports.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-5 border-t border-line-subtle px-5 py-4">
+      {reports.map((output) => (
+        <MarkdownFile
+          key={output.path}
+          project={project}
+          attempt={attempt}
+          output={output}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -152,23 +257,26 @@ function Outputs({ outputs }: { outputs: Record<string, string> }) {
 
 function InputStep({
   project,
+  attempt,
   record,
   index,
   runLink,
 }: {
   project: Project;
+  attempt: string;
   record: AttemptRecord;
   index: number;
   runLink: (at: number) => ReactNode;
 }) {
   const input = inputOf(record, index);
   const before = input.kind === "report" ? record.visits[input.from] : null;
+  const handed = before ? reportsOf(before) : [];
   return (
     <Step
       name="Input"
       status={{ label: "Input", tone: "neutral" }}
       aside={input.kind === "report" ? "a report" : undefined}
-      open={false}
+      open={handed.length > 0}
     >
       {input.kind === "none" && (
         <p className="text-fg-3">The visit was handed no report.</p>
@@ -190,7 +298,7 @@ function InputStep({
             />
           </Field>
           <Field name="Data">
-            <Data data={before.data} />
+            <Data data={before.data} open={handed.length === 0} />
           </Field>
           <Field name="Files">
             <Outputs
@@ -200,6 +308,18 @@ function InputStep({
             />
           </Field>
         </dl>
+      )}
+      {handed.length > 0 && (
+        <div className="mt-3 flex flex-col gap-5">
+          {handed.map((output) => (
+            <MarkdownFile
+              key={output.path}
+              project={project}
+              attempt={attempt}
+              output={output}
+            />
+          ))}
+        </div>
       )}
       <p className="mt-2 text-xs text-fg-3">
         The record does not say which other files the visit read.
@@ -227,6 +347,8 @@ function ActionStep({
   const seconds = span(action.started_at, action.ended_at);
   const trace = traceOf(record, index, action);
   const names = Object.keys(action.outputs);
+  // A report action's Markdown already shows at the top of the run.
+  const markdown = action.kind === "report" ? [] : markdownOf(action);
   return (
     <Step
       name={
@@ -256,6 +378,11 @@ function ActionStep({
           <Markdown text={action.summary} />
         </div>
       )}
+      {markdown.map((output) => (
+        <div key={output.path} className="mt-3">
+          <MarkdownFile project={project} attempt={attempt} output={output} />
+        </div>
+      ))}
       {isSession(record, index, action) && (
         <div className="mt-3">
           {trace ? (
@@ -320,7 +447,7 @@ function OutputStep({
         </Field>
         <Field name="Mark">{visit.mark ?? "none"}</Field>
         <Field name="Data">
-          <Data data={visit.data} />
+          <Data data={visit.data} open={reportsOf(visit).length === 0} />
         </Field>
       </dl>
     </Step>
