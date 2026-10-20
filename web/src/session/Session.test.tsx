@@ -63,8 +63,13 @@ describe("the session view", () => {
       /^6 tool callsRead ×3, Grep ×1, Bash ×20 of 6 failed$/,
     );
     expect(group).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("button", { name: /^Grep / })).toBeNull();
+    const part = document.getElementById(
+      must(group.getAttribute("aria-controls")),
+    );
+    expect(part).not.toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Grepdef parse/ })).toBeNull();
     fireEvent.click(group);
+    expect(part).toBeVisible();
     expect(toolLine(/^Grepdef parse/)).toBeVisible();
   });
 
