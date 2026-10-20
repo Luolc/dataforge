@@ -15,6 +15,8 @@ from pathlib import Path
 import string
 import threading
 
+from dataforge.curation.graph import Graph, GraphEdge, GraphState
+
 type Data = Mapping[str, object]
 """Data a state or an action hands on; the dataset keeps it serializable as
 JSON."""
@@ -556,6 +558,33 @@ class Machine:
     if self._on_step is not None:
       self._on_step(attempt)
 
+  def graph(self) -> Graph:
+    """Return the states and their transitions as data.
+
+    It reads only each state's name, class, caps and transitions: it runs
+    nothing. The result is plain data that json.dumps takes as is, and that
+    dataforge.curation.mermaid renders.
+
+    Returns:
+      The graph; see Graph for its fields.
+    """
+    states: list[GraphState] = [
+      {
+        "name": state.name,
+        "kind": type(state).__name__,
+        "max_visits": state.max_visits,
+        "on_exhausted": state.on_exhausted,
+        "max_cost_usd": state.max_cost_usd,
+      }
+      for state in self.states
+    ]
+    edges = [
+      _edge(state.name, outcome, transition)
+      for state in self.states
+      for outcome, transition in state.transitions.items()
+    ]
+    return {"start": self.states[0].name, "states": states, "edges": edges}
+
   def run(self, root: Path) -> Attempt:
     """Run one attempt until an End, a cap or the guard ends it.
 
@@ -673,6 +702,28 @@ class Machine:
       _feedback(ctx, state, outcome)
       report = Report(state.name, outcome.name, outcome.data, record.outputs)
     return self._by_name[transition.state], report
+
+
+def _edge(state: str, outcome: str, transition: Goto | End) -> GraphEdge:
+  if isinstance(transition, End):
+    return {
+      "from": state,
+      "outcome": outcome,
+      "to": None,
+      "end": transition.status,
+      "report": False,
+      "mark": None,
+      "end_on_last_visit": False,
+    }
+  return {
+    "from": state,
+    "outcome": outcome,
+    "to": transition.state,
+    "end": None,
+    "report": transition.report,
+    "mark": transition.mark,
+    "end_on_last_visit": transition.end_on_last_visit,
+  }
 
 
 def _check_states(states: Sequence[State]) -> dict[str, State]:
