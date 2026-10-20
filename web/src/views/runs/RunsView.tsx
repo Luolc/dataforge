@@ -42,7 +42,6 @@ export function RunsView({
           key={`resumed-${index.toString()}-${i.toString()}`}
           project={project}
           placed={placed}
-          ended={ended}
           href={(n) => href({ discarded: n })}
           current={discarded}
           itemClass={item}

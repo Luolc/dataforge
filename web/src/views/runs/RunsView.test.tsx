@@ -135,6 +135,55 @@ describe("a resumed attempt in the Runs column", () => {
     expect(screen.getByRole("heading", { name: "Files kept" })).toBeVisible();
   });
 
+  it("a discarded run with no outcome has ended while its attempt runs", () => {
+    const first = must(records.resumed.resumptions?.[0]);
+    const running = {
+      ...records.resumed,
+      status: null,
+      resumptions: [
+        {
+          ...first,
+          discarded: first.discarded.map((v) => ({ ...v, outcome: null })),
+        },
+      ],
+    };
+    const runs = show(sampleProject, running);
+    const group = runs.getByRole("button", { name: /Discarded/ });
+
+    fireEvent.click(group);
+
+    const list = must(
+      document.getElementById(must(group.getAttribute("aria-controls"))),
+    );
+    expect(within(list).getByRole("img", { name: "No outcome" })).toBeVisible();
+    expect(within(list).queryByText(/Not ended/)).toBeNull();
+  });
+
+  it("opens the group when the page moves to one of its runs", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => undefined)),
+    );
+    const view = (discarded: number | null) => (
+      <MemoryRouter>
+        <RunsView
+          project={sampleProject}
+          attempt="batch-2/task-0005"
+          record={records.resumed}
+          run={null}
+          discarded={discarded}
+        />
+      </MemoryRouter>
+    );
+    const { rerender } = render(view(null));
+    const group = screen.getByRole("button", { name: /Discarded/ });
+    expect(group).toHaveAttribute("aria-expanded", "false");
+
+    rerender(view(0));
+
+    expect(group).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("a record with no resumptions has no Discarded group", () => {
     const runs = show(sampleProject, records.passed);
 

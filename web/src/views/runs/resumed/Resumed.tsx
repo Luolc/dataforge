@@ -14,19 +14,19 @@ import { discardedAt, type Placed } from "./resumed";
 
 /**
  * A resumption's rows: the folded group of the visits it discarded, then the
- * line where the attempt went on. current is the discarded visit shown.
+ * line where the attempt went on. current is the discarded visit shown. A
+ * discarded visit has ended, whether or not its attempt has, so one with no
+ * outcome is No outcome.
  */
 export function ResumedRows({
   project,
   placed,
-  ended,
   href,
   current,
   itemClass,
 }: {
   project: Project;
   placed: Placed;
-  ended: boolean;
   href: (n: number) => string;
   current: number | null;
   itemClass: string;
@@ -37,10 +37,16 @@ export function ResumedRows({
     current >= first &&
     current < first + resumption.discarded.length;
   const [open, setOpen] = useState(holdsCurrent);
+  // Opens when the page moves to one of its visits, not only when it mounts.
+  const [held, setHeld] = useState(holdsCurrent);
+  if (held !== holdsCurrent) {
+    setHeld(holdsCurrent);
+    if (holdsCurrent) setOpen(true);
+  }
   const listId = useId();
   const n = resumption.discarded.length;
   const k = resumption.discarded.filter((visit) => {
-    const { tone } = outcomeOf(project, visit.outcome, ended);
+    const { tone } = outcomeOf(project, visit.outcome, true);
     return tone === "bad" || tone === "warn";
   }).length;
   const Chevron = open ? ChevronDown : ChevronRight;
@@ -72,7 +78,7 @@ export function ResumedRows({
                   aria-current={current === first + i ? "page" : undefined}
                   className={`${itemClass} pl-6`}
                 >
-                  <VisitLine project={project} visit={visit} ended={ended} />
+                  <VisitLine project={project} visit={visit} ended />
                 </Link>
               ) : (
                 <div
@@ -80,7 +86,7 @@ export function ResumedRows({
                   className="px-2 py-1.5 pl-6 text-fg-2"
                 >
                   <div className="flex items-center gap-2">
-                    <VisitLine project={project} visit={visit} ended={ended} />
+                    <VisitLine project={project} visit={visit} ended />
                   </div>
                   {visit.reason !== null && (
                     <p className="mt-1 text-2xs text-fg-3">{visit.reason}</p>
@@ -127,6 +133,7 @@ export function DiscardedPage({
         </p>
       </Card>
       <FilesView
+        key={n}
         project={project}
         attempt={attempt}
         record={record}
