@@ -8,6 +8,7 @@ import { Link, NavLink, Outlet } from "react-router";
 import { useJson, urls } from "../api/client";
 import { projects as projectsSchema } from "../api/types";
 import { ProjectsContext } from "./projects";
+import { TemplateSwitch } from "../ui/template-switch";
 
 const navItem =
   "target flex min-h-row w-full items-center gap-2 rounded-row px-1.5 font-medium hover:bg-hover aria-[current=page]:bg-active";
@@ -111,6 +112,7 @@ export function Frame({
             </li>
           ))}
         </ol>
+        <TemplateSwitch />
       </nav>
       <div className="min-h-0 flex-auto overflow-auto">{children}</div>
     </div>

@@ -83,9 +83,34 @@ describe("parseTrace", () => {
       line: 6,
       text: "this line is not JSON",
     });
-    expect(parseTrace('[1]\n"x"\n').entries.map((e) => e.kind)).toEqual([
+    expect(session.preamble).toEqual([]);
+  });
+
+  it("keeps the lines before the first JSON object as the preamble", () => {
+    const session = parseTrace(
+      `Ignoring 2 entries: not trusted\n[1]\n\n${unsolved}`,
+    );
+
+    expect(session.preamble).toEqual([
+      { kind: "bad", line: 1, text: "Ignoring 2 entries: not trusted" },
+      { kind: "bad", line: 2, text: "[1]" },
+    ]);
+    expect(session.entries.map((e) => e.kind)).toEqual([
+      "message",
       "bad",
-      "bad",
+      "message",
+      "message",
+    ]);
+  });
+
+  it("keeps every line of a trace with no JSON object where it stood", () => {
+    const none = parseTrace('Error: no session\n[1]\n"x"\n');
+
+    expect(none.preamble).toEqual([]);
+    expect(none.entries).toEqual([
+      { kind: "bad", line: 1, text: "Error: no session" },
+      { kind: "bad", line: 2, text: "[1]" },
+      { kind: "bad", line: 3, text: '"x"' },
     ]);
   });
 

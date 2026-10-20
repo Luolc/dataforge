@@ -51,8 +51,8 @@ describe("the report view", () => {
     const passed = screen.getByText("Passed");
     const fail = screen.getByText("Fail");
     expect(passed.closest("td")).toHaveTextContent(/^Passed$/);
-    expect(passed).toHaveClass("text-good");
-    expect(fail).toHaveClass("text-bad");
+    expect(passed).toHaveClass("text-good-label-fg");
+    expect(fail).toHaveClass("text-bad-label-fg");
     expect(table).toHaveTextContent("not fail at all");
     expect(table).toHaveTextContent("maybe");
     expect(screen.getByText("fail", { selector: "code" })).toBeVisible();

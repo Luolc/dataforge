@@ -13,8 +13,8 @@ export function Card({
   flush?: boolean;
 }) {
   return (
-    <section className="rounded-panel border border-line bg-panel">
-      <header className="flex items-baseline justify-between gap-3 border-b border-line px-5 py-3.5">
+    <section className="overflow-hidden rounded-panel border border-line bg-card">
+      <header className="flex items-baseline justify-between gap-3 border-b border-line bg-head px-5 py-3.5">
         <h2 className="flex items-center gap-2 text-md font-semibold">
           {title}
         </h2>

@@ -36,14 +36,14 @@ export function CodeView({ name, text }: { name: string; text: string }) {
   const lines = text.endsWith("\n") ? text.slice(0, -1) : text;
   const count = lines.split("\n").length;
   return (
-    <div className="flex overflow-auto py-2.5 font-mono text-code tracking-normal">
+    <div className="flex overflow-auto bg-code-bg font-mono text-code tracking-normal">
       <pre
         aria-hidden
-        className="flex-none pr-4 pl-5 text-right text-faint select-none"
+        className="flex-none bg-code-gutter py-2.5 pr-4 pl-5 text-right text-faint select-none"
       >
         {Array.from({ length: count }, (_, i) => i + 1).join("\n")}
       </pre>
-      <pre className="pr-5">
+      <pre className="py-2.5 pr-5 pl-4">
         <code>
           <Highlighted text={lines} language={languageOf(name)} />
         </code>

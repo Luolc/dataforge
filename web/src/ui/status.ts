@@ -1,5 +1,5 @@
 // Statuses and outcomes: their words and tones, as the project file names them.
-import { Check, Minus, TriangleAlert, X } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleMinus, CircleX } from "lucide-react";
 
 import type { AttemptRecord, Live, Project, Tone } from "../api/types";
 
@@ -122,8 +122,8 @@ export const toneText: Record<Tone, string> = {
 
 /** Each tone's icon: no two tones share a shape (L39). */
 export const toneGlyph = {
-  good: Check,
-  bad: X,
-  warn: TriangleAlert,
-  neutral: Minus,
+  good: CircleCheck,
+  bad: CircleX,
+  warn: CircleAlert,
+  neutral: CircleMinus,
 };

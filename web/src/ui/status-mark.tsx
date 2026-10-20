@@ -3,17 +3,17 @@ import type { Project, Tone } from "../api/types";
 import { outcomeOf, toneGlyph } from "./status";
 
 const toneLabel: Record<Tone, string> = {
-  good: "bg-good-bg text-good",
-  bad: "bg-bad-bg text-bad",
-  warn: "bg-warn-bg text-warn",
-  neutral: "bg-neutral-bg text-fg-2",
+  good: "bg-good-label text-good-label-fg",
+  bad: "bg-bad-label text-bad-label-fg",
+  warn: "bg-warn-label text-warn-label-fg",
+  neutral: "bg-neutral-label text-neutral-label-fg",
 };
 
 const toneIcon: Record<Tone, string> = {
-  good: "bg-good",
-  bad: "bg-bad",
-  warn: "bg-warn",
-  neutral: "bg-neutral",
+  good: "text-good",
+  bad: "text-bad",
+  warn: "text-warn",
+  neutral: "text-neutral",
 };
 
 /**
@@ -30,18 +30,20 @@ export function StatusLabel({
   ended?: boolean;
 }) {
   const { label, tone } = outcomeOf(project, word, ended);
+  const Glyph = toneGlyph[tone];
   return (
     <span
-      className={`inline-flex h-5 items-center rounded-row px-2 text-xs font-medium ${toneLabel[tone]}`}
+      className={`inline-flex h-5 items-center gap-1 rounded-row px-2 text-xs font-medium ${toneLabel[tone]}`}
     >
+      <Glyph className="size-icon-sm" aria-hidden />
       {label}
     </span>
   );
 }
 
 /**
- * A filled circle with a glyph; its label is read out, not shown. ended is as
- * for StatusLabel.
+ * A status word as its tone's icon, in outline in the tone's colour; its
+ * label is read out, not shown. ended is as for StatusLabel.
  */
 export function StatusIcon({
   project,
@@ -52,16 +54,20 @@ export function StatusIcon({
   word: string | null;
   ended?: boolean;
 }) {
-  const { label, tone } = outcomeOf(project, word, ended);
+  return <ToneIcon {...outcomeOf(project, word, ended)} />;
+}
+
+/** A label and tone as the tone's icon; the label is read out, not shown. */
+export function ToneIcon({ label, tone }: { label: string; tone: Tone }) {
   const Glyph = toneGlyph[tone];
   return (
     <span
       role="img"
       aria-label={label}
       title={label}
-      className={`inline-grid size-4 flex-none place-items-center rounded-full ${toneIcon[tone]}`}
+      className={`inline-grid size-icon-md flex-none place-items-center ${toneIcon[tone]}`}
     >
-      <Glyph className="size-2.5 text-on-tone" strokeWidth={3} aria-hidden />
+      <Glyph className="size-icon-md" aria-hidden />
     </span>
   );
 }

@@ -1,0 +1,5 @@
+# For the home page's older records: `dataforge viz serve --config
+# web/fixtures/older/site.yaml --static web/dist`. The home sample, the
+# fixture with the most items, is here too.
+listen: { host: 127.0.0.1, port: 8850 }
+projects: [project.yaml, ../home/project.yaml]

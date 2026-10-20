@@ -63,6 +63,8 @@ export const attemptRow = z.looseObject({
     .nullable(),
   values: z.array(z.unknown()).nullable(),
   live: z.enum(LIVE).nullable().optional(),
+  // Whether the item's lock is held now; null when the project names none.
+  held: z.boolean().nullable().optional(),
   error: z.string().nullable(),
 });
 export type AttemptRow = z.infer<typeof attemptRow>;

@@ -1,0 +1,29 @@
+# Synthetic attempts for the home page's older records; they were made up and
+# ran nowhere. item-0403 never wrote a record, item-0404's record has no
+# status and no visit, and item-0405 has one of each beside an attempt that
+# ended.
+id: older
+name: Older records sample
+color: "#7fc8d6"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+not_ended: [running]
+states:
+  author: { title: Author }
+  check: { title: Check }
+  solve: { title: Pass@k }
+statuses:
+  passed: { label: Passed, tone: good }
+  too_easy: { label: Too easy, tone: warn }
+  too_hard: { label: Too hard, tone: warn }
+  exhausted: { label: Exhausted, tone: bad }
+  error: { label: Error, tone: bad }
+  done: { label: Done, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+  in_range: { label: In range, tone: good }
+  all_solved: { label: All solved, tone: warn }
+  none_solved: { label: None solved, tone: warn }
+item: { depth: 1, title: Item }
+columns: []
