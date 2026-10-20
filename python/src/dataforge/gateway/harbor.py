@@ -21,7 +21,9 @@ these read nothing there, and the trial's trace and cost come from
 # pyright: reportUntypedBaseClass=false, reportAny=false, reportExplicitAny=false
 
 from copy import deepcopy
+import json
 import os
+import shlex
 from typing import Any, override
 
 from harbor.agents.installed.claude_code import ClaudeCode as HarborClaudeCode
@@ -32,6 +34,7 @@ from harbor.models.agent.context import AgentContext
 
 from dataforge.gateway.hooks import ADDRESS, VERSION_VAR
 
+MODELS_DIR = "/tmp/harbor-pi-agent"
 # Pi's provider for ChatGPT subscriptions, pointed at the forwarder; the token
 # is the placeholder in CODEX_GATEWAY_TOKEN, which the proxy replaces.
 PI_MODELS = {
@@ -124,7 +127,19 @@ class Pi(HarborPi):
       environment: The trial's environment.
     """
     await _check_version(self, environment, "pi")
-    await self._write_custom_models_json(environment, deepcopy(PI_MODELS))
+    # Written by a command in the container, as the agent's user: Harbor's
+    # own writer copies the file in as the host's user and then chmods it as
+    # root, which a container without CAP_FOWNER refuses.
+    directory = shlex.quote(MODELS_DIR)
+    path = shlex.quote(f"{MODELS_DIR}/models.json")
+    text = shlex.quote(json.dumps(deepcopy(PI_MODELS), indent=2) + "\n")
+    await self.exec_as_agent(
+      environment,
+      command=(
+        f"mkdir -p {directory} && chmod 700 {directory} && "
+        f"printf %s {text} > {path} && chmod 600 {path}"
+      ),
+    )
 
   @override
   def populate_context_post_run(self, context: AgentContext) -> None:

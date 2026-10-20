@@ -31,9 +31,11 @@ from dataforge.gateway import (
   Client,
   CODEX_ENV,
   hooks,
+  Spend,
   start_forwarder,
   trial_setup,
 )
+from dataforge.gateway.session import holders
 from dataforge.runtime.claude import Runner
 from tests.gateway.fakes import (
   call,
@@ -44,6 +46,7 @@ from tests.gateway.fakes import (
   package,
   tarball,
   upstream,
+  wait_for,
 )
 
 type Serve = Callable[..., Callable[[], AbstractContextManager[object]]]
@@ -97,12 +100,13 @@ def test_a_gateway_agents_trial_gets_the_socket_forwarder_client_and_overlay(
       Limits(memory_gb=1),
       tmp_path,
     ) as found:
-      socket, forwarder, *client = found.mounts
-      assert (socket.target, socket.read_only) == (
-        "/run/dataforge/model.sock",
+      mount, forwarder, *client = found.mounts
+      assert (mount.target, mount.read_only) == (
+        "/run/dataforge",
         False,
       )
-      assert call(socket.source, ROUTE[channel])[0] == 200
+      socket = mount.source / "model.sock"
+      assert call(socket, ROUTE[channel])[0] == 200
       assert (forwarder.source, forwarder.target) == (
         hooks.FORWARDER,
         "/opt/dataforge/forward.py",
@@ -126,8 +130,35 @@ def test_a_gateway_agents_trial_gets_the_socket_forwarder_client_and_overlay(
       version = chosen[{"claude": "claude-code"}.get(command, command)].version
       env = CLAUDE_ENV if channel is Channel.CLAUDE else CODEX_ENV
       assert found.env == {**env, "DATAFORGE_CLIENT_VERSION": version}
-    assert not socket.source.exists()
+    assert not socket.exists()
   assert len(seen.requests) == 1
+
+
+def test_a_capped_trial_gets_the_403_through_the_mounted_directory(
+  launcher: Launcher,
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+):
+  # A container mounts the directory, so that the cap's replacement of the
+  # socket reaches it; a mounted socket file would still be the old one.
+  monkeypatch.setattr(hooks, "own_dir", lambda: tmp_path / "own")
+  setup = trial_setup(
+    clients={"pi": package(tmp_path)}, spend=Spend(prices={}, max_usd=1.0)
+  )
+  with upstream() as (base, _):
+    launcher.write(base)
+    with setup(
+      tmp_path,
+      {"import_path": "dataforge.gateway.harbor:Pi", "model": "m"},
+      Limits(memory_gb=1),
+      tmp_path,
+    ) as found:
+      socket = found.mounts[0].source / "model.sock"
+      assert (found.mounts[0].source.stat().st_mode & 0o777) == 0o711
+      # The reply has no usage, which caps the session.
+      assert call(socket, ROUTE[Channel.CODEX])[0] == 200
+      assert wait_for(lambda: not holders(socket))
+      assert call(socket, ROUTE[Channel.CODEX])[0] == 403
 
 
 @pytest.mark.parametrize(

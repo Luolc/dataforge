@@ -32,7 +32,8 @@ from dataforge.gateway.session import serve
 from dataforge.gateway.spend import Price, Spend
 
 ADDRESS = "http://127.0.0.1:8787"
-SOCKET = "/run/dataforge/model.sock"
+SOCKET_DIR = "/run/dataforge"
+SOCKET = f"{SOCKET_DIR}/model.sock"
 FORWARDER = Path(__file__).with_name("forward.py")
 FORWARDER_TARGET = "/opt/dataforge/forward.py"
 PLACEHOLDER = "dataforge-placeholder"
@@ -146,14 +147,17 @@ def trial_setup(
     with (
       tempfile.TemporaryDirectory(prefix="dataforge-gw-") as short,
       serve(
-        channel, Path(short) / "model.sock", spend=spend, ledger=ledger
+        channel,
+        _socket_dir(Path(short)) / "model.sock",
+        spend=spend,
+        ledger=ledger,
       ) as socket,
     ):
       overlay = Path(short) / "overlay.json"
       _ = overlay.write_text(json.dumps(OVERLAY, indent=2))
       yield TrialSetup(
         mounts=(
-          Mount(socket, SOCKET, read_only=False),
+          Mount(socket.parent, SOCKET_DIR, read_only=False),
           Mount(FORWARDER, FORWARDER_TARGET),
           *client_mounts,
         ),
@@ -162,6 +166,16 @@ def trial_setup(
       )
 
   return setup
+
+
+def _socket_dir(short: Path) -> Path:
+  # The container mounts the socket's directory, not the socket: the cap
+  # replaces the socket by another file, which a mounted file would not follow.
+  # Mode 0711 lets the container's user reach the socket in it.
+  directory = short / "socket"
+  directory.mkdir()
+  directory.chmod(0o711)
+  return directory
 
 
 OVERLAY = {"services": {"main": {"network_mode": "none", "command": COMMAND}}}

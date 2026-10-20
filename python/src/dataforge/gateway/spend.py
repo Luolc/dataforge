@@ -173,12 +173,15 @@ class Meter:
     Args:
       channel: The channel, which says where the usage is.
       content_type: The reply's `Content-Type`: `text/event-stream` for a
-        stream, else JSON.
+        stream, else JSON; with none, a reply that starts with `event:` or
+        `data:` is a stream.
       content_encoding: The reply's `Content-Encoding`; a reply compressed is
         not read, and `unreadable` says so.
     """
     self.channel: Channel = channel
-    self._stream: bool = content_type.startswith("text/event-stream")
+    self._stream: bool | None = (
+      content_type.startswith("text/event-stream") if content_type else None
+    )
     self._buffer: bytes = b""
     self.model: str | None = None
     self.usage: dict[str, object] = {}
@@ -195,6 +198,11 @@ class Meter:
     if self.unreadable is not None:
       return
     self._buffer += chunk
+    if self._stream is None:
+      head = self._buffer.lstrip()
+      if b"event:".startswith(head) or b"data:".startswith(head):
+        return
+      self._stream = head.startswith((b"event:", b"data:"))
     if not self._stream:
       return
     *lines, self._buffer = self._buffer.split(b"\n")
@@ -206,6 +214,8 @@ class Meter:
     """Read what is left once the reply has ended or was cut off."""
     if self.unreadable is not None:
       return
+    if self._stream is None:
+      self._stream = self._buffer.lstrip().startswith((b"event:", b"data:"))
     if not self._stream:
       self._message(_json(self._buffer))
     elif self._buffer.startswith(b"data:"):

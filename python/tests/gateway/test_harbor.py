@@ -12,6 +12,8 @@ the client's version is not the pinned one, and read nothing under `agent/`.
 import asyncio
 import json
 from pathlib import Path
+import stat
+import subprocess
 from typing import cast
 
 from harbor.environments.base import BaseEnvironment, ExecResult
@@ -78,7 +80,8 @@ def test_an_agent_installs_nothing_and_checks_the_pinned_version(
     raised = str(e)
   else:
     raised = None
-  run = " ".join(environment.commands)
+  # Pi's models.json holds the forwarder's URL, which is not a download.
+  run = " ".join(c for c in environment.commands if "models.json" not in c)
   for word in ("npm", "curl", "apt", "apk", "nvm", "install", "http"):
     assert word not in run
   if pinned is not None:
@@ -97,9 +100,20 @@ def test_pi_points_its_provider_at_the_forwarder(
   monkeypatch.setenv(VERSION, "1.2.0")
   environment = Environment("1.2.0")
   asyncio.run(make("pi", tmp_path).install(container(environment)))
-  assert {k: json.loads(v) for k, v in environment.uploads.items()} == {
-    "/tmp/harbor-pi-agent/models.json": PI_MODELS
-  }
+  # Nothing is copied in, which a container without CAP_FOWNER could not
+  # chmod; the file is written by one command that runs as the agent's user.
+  assert environment.uploads == {}
+  command = environment.commands[-1]
+  assert "docker" not in command
+  target = tmp_path / "pi-agent"
+  _ = subprocess.run(
+    ["bash", "-c", command.replace("/tmp/harbor-pi-agent", str(target))],
+    check=True,
+  )
+  models = target / "models.json"
+  assert json.loads(models.read_text()) == PI_MODELS
+  assert stat.S_IMODE(models.stat().st_mode) == 0o600
+  assert stat.S_IMODE(target.stat().st_mode) == 0o700
   assert PI_MODELS["providers"]["openai-codex"] == {
     "baseUrl": "http://127.0.0.1:8787/backend-api",
     "apiKey": "${CODEX_GATEWAY_TOKEN}",
