@@ -4,18 +4,21 @@
 import json
 from pathlib import Path
 import threading
-from typing import cast
+from typing import cast, override
 
 import pytest
 
 from dataforge.curation import (
+  ActionResult,
   Actions,
   AgentRun,
   AgentSpec,
   AgentTask,
+  Context,
   End,
   Env,
   Goto,
+  HOST,
   Machine,
   Outcome,
   Review,
@@ -71,10 +74,17 @@ class Reviewers:
 
   Args:
     answers: Each review's run status and answer, by its name.
+    endings: How each review's run ended, by its name; "success" for one
+      not named.
   """
 
-  def __init__(self, answers: dict[str, tuple[str, str]]) -> None:
+  def __init__(
+    self,
+    answers: dict[str, tuple[str, str]],
+    endings: dict[str, str] | None = None,
+  ) -> None:
     self.answers: dict[str, tuple[str, str]] = answers
+    self.endings: dict[str, str] = endings or {}
     self.specs: dict[str, AgentSpec] = {}
     self.prompts: dict[str, str] = {}
     self._lock: threading.Lock = threading.Lock()
@@ -85,7 +95,8 @@ class Reviewers:
       self.specs[spec.name] = spec
       self.prompts[spec.name] = task.prompt
     status, answer = self.answers[spec.name]
-    return AgentRun(None, status, 0.25, None, answer, "success", True)
+    ending = self.endings.get(spec.name, "success")
+    return AgentRun(None, status, 0.25, None, answer, ending, True)
 
   def resume(self, session: object, prompt: str) -> AgentRun:
     raise AssertionError("a review has no validator")
@@ -257,6 +268,55 @@ def test_a_review_whose_run_failed_is_an_error(
   )
   status, _ = run(rubric_state(tmp_path, reviewers, task), tmp_path / "a")
   assert status == "errored"
+
+
+class FailedWithVerdicts(Actions):
+  """Actions whose agent run fails and still gives passing verdicts."""
+
+  @override
+  def agent(
+    self, ctx: Context, spec: AgentSpec, env: Env = HOST
+  ) -> ActionResult:
+    run = AgentRun(None, "failed", 0.25, None, "", "error_during_execution")
+    value = cast(object, json.loads(verdicts(sound=PASS, tidy=PASS)))
+    return ActionResult("failed", {}, "", value, 0.25, run)
+
+
+def test_a_failed_run_is_an_error_even_with_passing_verdicts(
+  tmp_path: Path, task: Path
+) -> None:
+  state = rubric_state(tmp_path, Reviewers({}), task)
+  state.actions = FailedWithVerdicts()
+  status, _ = run(state, tmp_path / "a")
+  assert status == "errored"
+
+
+def test_an_error_gives_what_each_review_whose_run_failed_returned(
+  tmp_path: Path, task: Path
+) -> None:
+  fail = verdicts(sound=("fail", "it breaks", "mend it"), tidy=PASS)
+  for answers, details in [
+    (
+      {"tests": ("failed", ""), "docs": ("failed", "")},
+      "### tests\n\ntests returned no verdicts (error_during_execution).\n\n"
+      + "### docs\n\ndocs returned no verdicts (no result).",
+    ),
+    (
+      {"tests": ("failed", ""), "docs": ("ok", fail)},
+      "### tests\n\ntests returned no verdicts (error_during_execution).\n\n"
+      + "### docs\n\nsound: it breaks\nFix: mend it",
+    ),
+  ]:
+    reviewers = Reviewers(
+      answers, {"tests": "error_during_execution", "docs": "no result"}
+    )
+    state = rubric_state(tmp_path, reviewers, task, rename={"error": "fail"})
+    root = tmp_path / str(len(details))
+    status, outcome = run(state, root)
+    assert status == "sent back"
+    assert outcome is not None
+    assert outcome.name == "fail"
+    assert outcome.feedback == {"details": details}
 
 
 FATAL = '[[criteria]]\nid = "a"\nseverity = "fatal"\nquestion = "q"\n'
