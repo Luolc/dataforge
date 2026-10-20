@@ -27,6 +27,11 @@ const project = z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
   }),
   not_ended: z.array(z.string()).nullable().optional(),
+  deliverables: z
+    .array(
+      z.looseObject({ name: z.string(), kind: z.string(), title: z.string() }),
+    )
+    .optional(),
   // A trial's diff, relative to its directory.
   trials: z.looseObject({ diff: z.string() }).nullable().optional(),
 });
@@ -82,6 +87,11 @@ const action = z.looseObject({
   ended_at: z.string(),
   cost_usd: z.number(),
   summary: z.string().nullable().optional(),
+  trace: z
+    .looseObject({ path: z.string(), format: z.string().nullable() })
+    .nullable()
+    .optional(),
+  session: z.unknown().optional(),
 });
 export type Action = z.infer<typeof action>;
 
@@ -95,6 +105,23 @@ const visit = z.looseObject({
   actions: z.array(action),
 });
 export type Visit = z.infer<typeof visit>;
+
+// One time the engine went on with the attempt (design.md, "Resuming an
+// attempt"): the first kept visits came before it, and discarded holds the
+// visits it left out, each with where their outputs were kept.
+const resumption = z.looseObject({
+  at: z.string(),
+  kept: z.number(),
+  discarded: z.array(
+    visit.extend({
+      path: z.string().nullable(),
+      reason: z.string().nullable(),
+    }),
+  ),
+  carried_usd: z.number(),
+  reason: z.string().nullable(),
+});
+export type Resumption = z.infer<typeof resumption>;
 
 const graphState = z.looseObject({
   name: z.string(),
@@ -168,7 +195,8 @@ const deliverable = z.looseObject({
 export type Deliverable = z.infer<typeof deliverable>;
 
 // The keys Attempt.to_json() gained after its first version (round, budget,
-// a visit's round, an action's summary, deliverables, graph) are optional,
+// a visit's round, an action's summary, trace and session, deliverables,
+// graph, resumptions) are optional,
 // so a record an older dataforge wrote still loads (design-viz.md section 5,
 // "Older records"). visits comes first, so a record without it is reported
 // as having no visits, the key a page cannot be drawn without.
@@ -188,6 +216,7 @@ export const record = z.looseObject({
   final: z.record(z.string(), visit),
   deliverables: z.array(deliverable).optional(),
   graph: graph.nullable().optional(),
+  resumptions: z.array(resumption).optional(),
 });
 export type AttemptRecord = z.infer<typeof record>;
 

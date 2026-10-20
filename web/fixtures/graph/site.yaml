@@ -1,0 +1,4 @@
+# For the Summary's machine's screenshots: `dataforge viz serve --config
+# web/fixtures/graph/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8811 }
+projects: [project.yaml]

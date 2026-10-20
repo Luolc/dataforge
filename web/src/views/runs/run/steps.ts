@@ -49,14 +49,16 @@ export interface Trace {
 }
 
 /**
- * The trace of an action's session, from the trials the record's
- * deliverables list for this visit; the record names no other trace.
+ * The trace of an action's session: its own trace, else, as in a record
+ * written before actions had one, the trace of the trial the record's
+ * deliverables list for this visit and action.
  */
 export function traceOf(
   record: AttemptRecord,
   index: number,
   action: Action,
 ): Trace | null {
+  if (action.trace) return action.trace;
   const names = Object.keys(action.outputs);
   for (const item of deliverablesOf(record)) {
     if (item.visit_index !== index) continue;
