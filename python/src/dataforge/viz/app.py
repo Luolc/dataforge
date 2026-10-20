@@ -114,9 +114,15 @@ class _Api:
     project = self._project(p)
     rows = [_row(project, attempt)[0] for attempt in list_attempts(project)]
     _mark(project, rows)
-    for row in rows:
-      if row["live"] == live.RUNNING and row["started_at"] is None:
-        row["started_at"] = self._job_start(project, str(row["item"]))
+    unstarted = [
+      row
+      for row in rows
+      if row["live"] == live.RUNNING and row["started_at"] is None
+    ]
+    if unstarted:
+      starts = self._job_starts(project)
+      for row in unstarted:
+        row["started_at"] = starts.get(str(row["item"]))
     return JSONResponse(rows)
 
   def live_status(self, p: str, attempt: str | None = None) -> Response:
@@ -137,7 +143,7 @@ class _Api:
     running = row["live"] == live.RUNNING
     current = live.current(record) if running and record else None
     if current is not None and current["since"] is None:
-      current["since"] = self._job_start(project, item)
+      current["since"] = self._job_starts(project).get(item)
     return JSONResponse(
       {"live": row["live"], "held": row["held"], "current": current}
     )
@@ -324,24 +330,26 @@ class _Api:
       raise RefusedError(404, "the site names no queue")
     return self._site.queue
 
-  def _job_start(self, project: Project, item: str) -> str | None:
-    # When the job that runs an item started, as the record's own start is
-    # not there before an action of the attempt has ended; None when the site
-    # names no queue, it cannot be read or no running job carries the item.
+  def _job_starts(self, project: Project) -> dict[str, str]:
+    # When the running jobs of a project's items started, by item, as the
+    # record has no start before an action of the attempt has ended; empty
+    # when the site names no queue or it cannot be read. Labels are the
+    # job's own, so a job queued without them gives no start.
     if self._site.queue is None:
-      return None
+      return {}
     try:
       jobs = queue.jobs(self._site.queue, states={"running"})
     except sqlite3.Error, OSError:
-      return None
-    for job in jobs:
-      if (
-        job.labels.get("project") == project.id
-        and job.labels.get("item") == item
-        and job.started_at is not None
-      ):
-        return datetime.fromtimestamp(job.started_at, UTC).isoformat()
-    return None
+      return {}
+    return {
+      job.labels["item"]: datetime.fromtimestamp(
+        job.started_at, UTC
+      ).isoformat()
+      for job in reversed(jobs)
+      if job.labels.get("project") == project.id
+      and "item" in job.labels
+      and job.started_at is not None
+    }
 
   def _open_jobs(self) -> list[queue.Job]:
     try:

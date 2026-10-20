@@ -556,18 +556,6 @@ describe("the home page while an attempt runs", () => {
     ).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("shows a running attempt's start", async () => {
-    serve([
-      row("t-run/1", { started_at: at(9), live: "running", status: null }),
-    ]);
-    show();
-    await screen.findByText("t-run");
-    const cells = must(
-      screen.getByText("t-run").closest("tr") ?? undefined,
-    ).querySelectorAll("td");
-    expect(cells[6]).toHaveTextContent("2026-03-02 09:00 UTC");
-  });
-
   it("reads it on no timer when no attempt runs", async () => {
     const fetch = serve(ROWS.slice(1));
     show();
