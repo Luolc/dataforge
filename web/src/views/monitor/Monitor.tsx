@@ -297,8 +297,8 @@ function NoDatabase({ db }: { db: string }) {
       </p>
       <p>
         The project file names it{" "}
-        <code className="font-mono text-xs text-fg">{db}</code>, and there is no
-        file there.
+        <code className="font-mono text-xs break-all text-fg">{db}</code>, and
+        there is no file there.
       </p>
       <p>
         To fill this page, start a resource sampler that writes to that

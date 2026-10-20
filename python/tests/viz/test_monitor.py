@@ -193,6 +193,25 @@ def test_a_missing_database_is_a_state_of_its_own(
   }
 
 
+def test_a_database_that_cannot_be_reached_is_no_missing_one(
+  tree: Tree, tmp_path: Path
+) -> None:
+  # The path runs through a regular file: lstat fails with ENOTDIR, which
+  # says nothing of whether a sampler has written the database.
+  _ = (tree.root.parent / "file").write_text("")
+  _ = tree.project.write_text(
+    PROJECT + "monitor: {db: ../file/monitor.sqlite}\n"
+  )
+  static = tmp_path / "dist"
+  static.mkdir()
+  web = TestClient(create_app(load_site(tree.site), static))
+
+  response = web.get(f"{API}/runs")
+
+  assert response.status_code == 503
+  assert "db" not in response.json()
+
+
 @pytest.mark.parametrize("name", ["monitor.sqlite", "monitor.sqlite-shm"])
 def test_a_symlinked_database_or_shm_is_never_opened(
   db: Path, web: TestClient, name: str
