@@ -9,6 +9,7 @@ import sys
 from typing import cast
 
 from dataforge.curation.actions import Actions
+from dataforge.curation.graph import mermaid
 from dataforge.curation.loader import load, SpecError
 
 
@@ -18,7 +19,9 @@ def main(argv: Sequence[str] | None = None) -> int:
   "dataforge check <file> --inputs <json file> [--bindings <module>:<name>]"
   reads a machine's declaration and checks it as loading does, with the
   inputs in the JSON file and the bindings the dataset registers; it starts
-  nothing.
+  nothing. "dataforge graph" takes the same arguments and "--format json" or
+  "--format mermaid", loads the declaration as check does and prints the
+  machine's graph: its JSON, or a Mermaid flowchart.
 
   Args:
     argv: The arguments; None for the command line's.
@@ -32,29 +35,46 @@ def main(argv: Sequence[str] | None = None) -> int:
   check = commands.add_parser(
     "check", help="check a machine's declaration without running it"
   )
-  _ = check.add_argument("file", type=Path, help="the declaration (YAML)")
-  _ = check.add_argument(
-    "--inputs", type=Path, help="a JSON file of the inputs, by name"
+  graph = commands.add_parser(
+    "graph",
+    help="print a machine's states and transitions from its declaration",
   )
-  _ = check.add_argument(
-    "--bindings",
-    metavar="MODULE:NAME",
-    help="the dataset's bindings, a mapping importable as MODULE:NAME",
+  for sub in (check, graph):
+    _ = sub.add_argument("file", type=Path, help="the declaration (YAML)")
+    _ = sub.add_argument(
+      "--inputs", type=Path, help="a JSON file of the inputs, by name"
+    )
+    _ = sub.add_argument(
+      "--bindings",
+      metavar="MODULE:NAME",
+      help="the dataset's bindings, a mapping importable as MODULE:NAME",
+    )
+  _ = graph.add_argument(
+    "--format",
+    choices=("json", "mermaid"),
+    default="json",
+    help="the graph's JSON (the default) or a Mermaid flowchart",
   )
   args = parser.parse_args(argv)
+  command = cast(str, args.command)
   file = cast(Path, args.file)
   try:
     inputs = _inputs(cast(Path | None, args.inputs))
     bindings = _bindings(cast(str | None, args.bindings))
   except (OSError, ValueError, ImportError, AttributeError) as error:
-    print(f"dataforge check: {error}", file=sys.stderr)
+    print(f"dataforge {command}: {error}", file=sys.stderr)
     return 2
   try:
     machine = load(file, inputs=inputs, actions=Actions(), bindings=bindings)
   except (SpecError, OSError) as error:
     print(f"{file}: {error}", file=sys.stderr)
     return 1
-  print(f"{file}: ok, {len(machine.states)} states")
+  if command == "check":
+    print(f"{file}: ok, {len(machine.states)} states")
+  elif cast(str, args.format) == "json":
+    print(json.dumps(machine.graph(), indent=2))
+  else:
+    print(mermaid(machine.graph()), end="")
   return 0
 
 
