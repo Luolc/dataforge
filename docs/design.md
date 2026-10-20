@@ -9,6 +9,7 @@ dataforge is the shared part of a "data machine": a small multi-agent workshop t
 - the machine setup that turns a fresh Ubuntu 24.04 machine into a data machine;
 - the files every agent on the machine gets (the base `AGENTS.md`; section 6);
 - a Python package, `dataforge` in `python/`, that dataset repos install; its module `dataforge.curation` holds the state machine that runs an attempt at one data item, the states and actions it ships, and a Harbor trial runner (section 5); its module `dataforge.runtime` runs coding agents headless, Claude Code through `dataforge.runtime.claude` (section 5, "The Claude Code runner").
+- planned, not built: viz, a read-only web viewer of attempts, made of the module `dataforge.viz` and a frontend in `web/`; its design is [`design-viz.md`](design-viz.md).
 
 Starting agents, carrying messages between them, tracking who owes work and flagging stuck agents belong to Agent Fleet, a separate project. The setup installs its `fleet` binary and the tools it calls (fednet, atb, statute), each at its latest release (invariant 2); configuring and running them is the machine's own provisioning (section 4).
 

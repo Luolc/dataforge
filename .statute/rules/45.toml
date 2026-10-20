@@ -1,0 +1,29 @@
+id = 45
+slug = "frontend-say-what-filters-hide"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["decency.no-hallucination"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Say how many items a filter hides"
+
+[text.statement]
+en = "When a filter hides items of a list, say at the list how many items it hides."
+
+[text.reason]
+en = '''
+A filtered list that does not say so reads as the whole list, and a reader takes the missing rows for rows that never existed.
+'''
+
+[text.verification]
+en = '''
+Violated when a list with an active filter hides items without showing their number at the list.
+'''
