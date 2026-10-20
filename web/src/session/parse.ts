@@ -1,8 +1,8 @@
 // A Claude Code stream-json trace (`claude -p --output-format stream-json`),
 // parsed into what the session view draws. The trace is untrusted: every
 // field is checked for its type, and a line that is not a JSON object is kept
-// as text: before the first JSON object as the preamble, after it where it
-// stood.
+// as text: before the first JSON object as the preamble, after it, or in a
+// trace with no JSON object at all, where it stood.
 
 /** One tool call, with its result once one arrived. */
 export interface ToolCall {
@@ -210,8 +210,8 @@ export function parseTrace(text: string): Session {
       tokensOut: usage === null ? null : num(usage["output_tokens"]),
       model: str(init?.["model"]),
     },
-    preamble,
-    entries,
+    preamble: begun ? preamble : [],
+    entries: begun ? entries : preamble,
     tools: all.length,
     failed: all.filter((call) => call.failed).length,
     thinking: countThinking(entries),

@@ -171,6 +171,17 @@ describe("the session view", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  it("shows a trace with no JSON object line by line, not folded", () => {
+    show("Error: no session\nsecond line\n");
+
+    expect(screen.queryByRole("button", { name: /^Error/ })).toBeNull();
+    expect(
+      screen.getByText("Line 1 is not JSON, shown as it is:"),
+    ).toBeVisible();
+    expect(screen.getByText("Error: no session")).toBeVisible();
+    expect(screen.getByText("second line")).toBeVisible();
+  });
+
   it("shows a line that is not JSON as text", () => {
     show(unsolved);
 

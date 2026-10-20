@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import older from "../../fixtures/oldrec/attempts/older/task-0301/record.json";
 import passed from "../../fixtures/attempts/batch-1/task-0001/record.json";
-import resumed from "../../fixtures/attempts/resumeviz/task-0401/record.json";
+import resumed from "../../fixtures/attempts/resume/task-0401/record.json";
 import { attemptRow, readRecord } from "./types";
 
 const row = {

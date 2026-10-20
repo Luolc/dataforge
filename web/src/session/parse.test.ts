@@ -101,7 +101,17 @@ describe("parseTrace", () => {
       "message",
       "message",
     ]);
-    expect(parseTrace('[1]\n"x"\n').entries).toEqual([]);
+  });
+
+  it("keeps every line of a trace with no JSON object where it stood", () => {
+    const none = parseTrace('Error: no session\n[1]\n"x"\n');
+
+    expect(none.preamble).toEqual([]);
+    expect(none.entries).toEqual([
+      { kind: "bad", line: 1, text: "Error: no session" },
+      { kind: "bad", line: 2, text: "[1]" },
+      { kind: "bad", line: 3, text: '"x"' },
+    ]);
   });
 
   it("gives no totals when the trace has no result", () => {
