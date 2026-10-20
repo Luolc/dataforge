@@ -738,3 +738,55 @@ def test_a_sessions_repr_leaves_out_its_env() -> None:
   )
   assert "model='m'" in repr(session)
   assert "s3cret" not in repr(session)
+
+
+def test_a_restored_runner_goes_on_with_the_session_and_its_numbers(
+  tmp_path: Path,
+) -> None:
+  # The second run is killed: it prints no result, and nothing checkpoints
+  # it, so the session's total stays at the first run's.
+  fake = Fake(
+    tmp_path,
+    [
+      {"lines": [result(session_id="s1", total_cost_usd=1)]},
+      {"lines": []},
+      {"lines": [result(session_id="s1", total_cost_usd=1.3)]},
+    ],
+  )
+  runs = tmp_path / "runs"
+  files = claude.numbered(runs, "session")
+  spec = AgentSpec("Write.", tmp_path)
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  first = claude.Runner(fake.session, files, continue_session=True)
+  point = first.checkpoint(first.start(spec, task, HOST).session)
+  _ = first.start(spec, task, HOST)
+  spent: list[float] = []
+  second = claude.Runner(
+    fake.session, files, continue_session=True, spent=spent.append
+  )
+  second.restore([json.loads(json.dumps(point))])
+
+  found = second.start(spec, task, HOST)
+
+  assert spent == [pytest.approx(0.3)]
+  assert option(fake.argv(3), "--resume") == ["s1"]
+  assert fake.calls()[2]["cwd"] == str(runs / "session-1")
+  assert len(fake.calls()) == 3
+  assert found.trace == runs / "session-2.trace.jsonl"
+  assert found.trace_format == "claude-code-stream-json"
+
+
+def test_a_restored_runner_numbers_on_after_its_last_start(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(tmp_path, [{"lines": [result()]}])
+  runs = tmp_path / "runs"
+  runner = claude.Runner(fake.session, claude.numbered(runs, "review"))
+  point = {"id": None, "total_usd": 0.0, "on_host": True, "cwd": str(runs)}
+  runner.restore([point | {"number": 4}, point | {"number": 2}])
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  _ = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert (runs / "review-5.trace.jsonl").exists()
+  assert runner.current is None
+  with pytest.raises(ValueError, match="not a checkpoint"):
+    runner.restore([point])
