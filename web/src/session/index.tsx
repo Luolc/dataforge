@@ -1,4 +1,4 @@
-/** The session view of a trace: until it is built, the trace's path. */
+/** The session view of a trace; until it is built, the trace's path. */
 export function SessionView({
   path,
   format,

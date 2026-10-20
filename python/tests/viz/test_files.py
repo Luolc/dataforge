@@ -94,8 +94,8 @@ def test_a_symlinked_record_is_never_read(tree: Tree) -> None:
   [row] = cast(list[dict[str, object]], web.get(f"{API}/attempts").json())
 
   assert response.status_code == 404
-  assert row["values"] == [None, None, None]
-  assert "symlink" in str(row["reason"])
+  assert row["values"] is None
+  assert "symlink" in str(row["error"])
 
 
 def test_a_symlinked_attempt_is_not_listed_or_opened(tree: Tree) -> None:
@@ -141,3 +141,4 @@ def test_a_file_over_the_limit_is_refused(
 
   assert (four.status_code, four.content) == (200, b"1234")
   assert five.status_code == 413
+  assert "5 bytes" in five.json()["reason"]

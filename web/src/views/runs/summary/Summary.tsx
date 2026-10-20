@@ -13,7 +13,13 @@ import {
   visitStart,
 } from "../../../ui/format";
 import { Markdown } from "../../../ui/markdown";
-import { NOT_RUN, stateTitle, statusOf, toneText } from "../../../ui/status";
+import {
+  attemptStatus,
+  NOT_RUN,
+  stateTitle,
+  statusOf,
+  toneText,
+} from "../../../ui/status";
 import { attemptHref } from "../../attempt/href";
 import { kindOf } from "../../registry";
 import { Graph } from "./Graph";
@@ -64,7 +70,7 @@ function TopRow({
   const ended = last ? visitEnd(last) : undefined;
   const seconds =
     started !== undefined && ended !== undefined ? span(started, ended) : null;
-  const status = statusOf(project, record.status);
+  const status = statusOf(project, attemptStatus(record));
   const { max_usd: cap, cost_usd: cost } = record.budget;
   const items = [
     { key: "Started", value: started === undefined ? "—" : time(started) },

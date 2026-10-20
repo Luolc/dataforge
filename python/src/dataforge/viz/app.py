@@ -141,26 +141,81 @@ def _error(status: int, reason: str) -> Response:
 
 
 def _row(project: Project, attempt: str) -> dict[str, object]:
-  values: list[object] = [None] * len(project.columns)
   row: dict[str, object] = {
     "id": attempt,
+    "item": "/".join(attempt.split("/")[: project.item.depth]),
     "modified": None,
-    "values": values,
+    "status": None,
     "reason": None,
+    "cost_usd": None,
+    "started_at": None,
+    "ended_at": None,
+    "rounds": None,
+    "values": None,
+    "error": None,
   }
   try:
     with open_attempt(project, attempt) as fd:
       read = read_record(project, fd)
   except RefusedError as error:
-    return row | {"reason": f"the record: {error.reason}"}
+    return row | {"error": f"the record: {error.reason}"}
   row["modified"] = datetime.fromtimestamp(read.mtime, UTC).isoformat()
   try:
     record = cast(object, json.loads(read.data))
   except ValueError, RecursionError:
-    return row | {"reason": "the record is not JSON"}
-  for i, column in enumerate(project.columns):
-    values[i] = _field(record, column.field)
-  return row
+    return row | {"error": "the record is not JSON"}
+  if not isinstance(record, dict):
+    return row | {"error": "the record is not a JSON object"}
+  data = cast(dict[str, object], record)
+  # The record is the file as an attempt left it: each value is checked
+  # before it is used, and one of another type reads as missing.
+  visits = [
+    cast(dict[str, object], v)
+    for v in _list(_field(data, ("visits",)))
+    if isinstance(v, dict)
+  ]
+  actions = [
+    cast(dict[str, object], a)
+    for v in visits
+    for a in _list(v.get("actions"))
+    if isinstance(a, dict)
+  ]
+  return row | {
+    "status": _str(_field(data, ("status",))),
+    "reason": _str(_field(data, ("reason",))),
+    "cost_usd": _number(_field(data, ("budget", "cost_usd"))),
+    "started_at": _str(actions[0].get("started_at")) if actions else None,
+    "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
+    "rounds": _rounds(visits),
+    "values": [_field(data, c.field) for c in project.columns],
+  }
+
+
+def _rounds(visits: list[dict[str, object]]) -> list[dict[str, object]]:
+  last: dict[int, dict[str, object]] = {}
+  for visit in visits:
+    round_ = visit.get("round")
+    if isinstance(round_, int) and not isinstance(round_, bool):
+      last[round_] = {
+        "round": round_,
+        "state": _str(visit.get("state")),
+        "outcome": _str(visit.get("outcome")),
+      }
+  return [last[r] for r in sorted(last)]
+
+
+def _list(value: object) -> list[object]:
+  return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _str(value: object) -> str | None:
+  return value if isinstance(value, str) else None
+
+
+def _number(value: object) -> float | None:
+  if isinstance(value, bool) or not isinstance(value, int | float):
+    return None
+  return value
 
 
 def _field(record: object, field: tuple[str, ...]) -> object:

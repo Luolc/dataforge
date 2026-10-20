@@ -10,9 +10,10 @@ PROJECT = """\
 id: example
 name: Example
 color: "#e5a54b"
-root: attempts
+attempts_dir: attempts
 attempts: "*/*"
 record: record.json
+item: {depth: 1, title: Batch}
 statuses:
   passed: {label: Passed, tone: good}
 columns:

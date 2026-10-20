@@ -5,6 +5,7 @@ import passed from "./attempts/batch-1/task-0001/record.json";
 import tooEasy from "./attempts/batch-1/task-0002/record.json";
 import exhausted from "./attempts/batch-1/task-0003/record.json";
 import running from "./attempts/batch-2/task-0005/record.json";
+import raised from "./attempts/batch-2/task-0006/record.json";
 
 export const sampleProject: Project = {
   id: "sample",
@@ -16,7 +17,8 @@ export const sampleProject: Project = {
     exhausted: { label: "Exhausted", tone: "bad" },
     fail: { label: "Fail", tone: "bad" },
   },
-  columns: [{ title: "Status", field: ["status"], format: "text" }],
+  item: { depth: 2, title: "Task" },
+  columns: [],
   session: { thinking: "collapsed" },
 };
 
@@ -31,4 +33,5 @@ export const records = {
   tooEasy: record.parse(tooEasy),
   exhausted: record.parse(exhausted),
   running: record.parse(running),
+  raised: record.parse(raised),
 } satisfies Record<string, AttemptRecord>;

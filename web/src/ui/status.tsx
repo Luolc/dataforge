@@ -1,22 +1,39 @@
 // Statuses and outcomes drawn by their tone, as the project file names them.
 import { Check, Minus, TriangleAlert, X } from "lucide-react";
 
-import type { Project, Tone } from "../api/types";
+import type { AttemptRecord, Project, Tone } from "../api/types";
 
 // The words the viewer itself gives a status; every other word comes from the
 // project file.
-/** An attempt or a visit with no status or outcome yet. */
-export const RUNNING = "Running";
+/**
+ * An attempt with no status whose last visit did not raise, or a visit with
+ * no outcome: running, or its process died, which the record cannot tell.
+ */
+export const NOT_ENDED = "Not ended";
 /** A state, a deliverable or the end that the attempt never reached. */
 export const NOT_RUN = "Not run";
+/** The engine's outcome of a visit whose state raised (design.md). */
+export const RAISED = "raised";
 
-/** A word's label and tone; a word with no entry is itself, neutral. */
+/**
+ * A word's label and tone. A word the project file has no entry for is
+ * itself, neutral; but raised, the engine's own word for an exception, is
+ * bad, and no status (null) is Not ended, neutral.
+ */
 export function statusOf(
   project: Project,
   word: string | null,
 ): { label: string; tone: Tone } {
-  if (word === null) return { label: RUNNING, tone: "neutral" };
-  return project.statuses[word] ?? { label: word, tone: "neutral" };
+  if (word === null) return { label: NOT_ENDED, tone: "neutral" };
+  const entry = project.statuses[word];
+  if (entry) return entry;
+  return { label: word, tone: word === RAISED ? "bad" : "neutral" };
+}
+
+/** An attempt's status word: null until it ends, raised when a state did. */
+export function attemptStatus(record: AttemptRecord): string | null {
+  if (record.status !== null) return record.status;
+  return record.visits.at(-1)?.outcome === RAISED ? RAISED : null;
 }
 
 /** A state's title, else its name. */

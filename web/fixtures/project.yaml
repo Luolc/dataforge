@@ -1,9 +1,10 @@
 # A synthetic dataset for developing the viewer and taking screenshots; its
-# attempts were made up and ran nowhere.
+# attempts were made up and ran nowhere. raised has no entry, so it shows as
+# the viewer's own default.
 id: sample
 name: Sample dataset
 color: "#e5a54b"
-root: attempts
+attempts_dir: attempts
 attempts: "*/*"
 record: record.json
 states:
@@ -20,11 +21,9 @@ statuses:
   done: { label: Done, tone: good }
   pass: { label: Pass, tone: good }
   fail: { label: Fail, tone: bad }
-  raised: { label: Raised, tone: bad }
   in_range: { label: In range, tone: good }
   all_solved: { label: All solved, tone: warn }
   none_solved: { label: None solved, tone: warn }
+item: { depth: 2, title: Task }
 columns:
-  - { title: Status, field: [status] }
-  - { title: Rounds, field: [round], format: number }
-  - { title: Cost, field: [budget, cost_usd], format: usd }
+  - { title: Cap, field: [budget, max_usd], format: usd }

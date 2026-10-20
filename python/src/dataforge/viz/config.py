@@ -10,7 +10,6 @@ import ipaddress
 import os
 from pathlib import Path
 import re
-import stat
 from typing import cast
 
 import yaml
@@ -61,6 +60,19 @@ class Column:
 
 
 @dataclass(frozen=True, slots=True)
+class Item:
+  """How attempts group into data items.
+
+  Attributes:
+    depth: How many leading components of an attempt ID name its item.
+    title: The heading of the item column.
+  """
+
+  depth: int
+  title: str
+
+
+@dataclass(frozen=True, slots=True)
 class Project:
   """A dataset's project file, as loaded.
 
@@ -68,24 +80,26 @@ class Project:
     id: The project's ID, in URLs.
     name: Its name, in the sidebar and the breadcrumb.
     color: Its colour, #rrggbb.
-    root: The directory its attempts are under.
-    attempts: The pattern of an attempt's directory under root, plain and
-      "*" components.
+    attempts_dir: The directory its attempts are under.
+    attempts: The pattern of an attempt's directory under attempts_dir, plain
+      and "*" components.
     record: The record file's path in an attempt's directory.
     states: Each state's title, by name.
     statuses: Each status's label and tone, by name.
-    columns: The attempt table's columns after the ID.
+    item: How its attempts group into data items.
+    columns: The home page's extra columns.
     thinking: How a session view first shows thinking, one of THINKING.
   """
 
   id: str
   name: str
   color: str
-  root: Path
+  attempts_dir: Path
   attempts: tuple[str, ...]
   record: tuple[str, ...]
   states: dict[str, dict[str, str]]
   statuses: dict[str, dict[str, str]]
+  item: Item
   columns: tuple[Column, ...]
   thinking: str
 
@@ -93,7 +107,7 @@ class Project:
     """Return what the frontend reads: all but where the files are.
 
     Returns:
-      The project as JSON data, without root, attempts and record.
+      The project as JSON data, without attempts_dir, attempts and record.
     """
     return {
       "id": self.id,
@@ -101,6 +115,7 @@ class Project:
       "color": self.color,
       "states": self.states,
       "statuses": self.statuses,
+      "item": {"depth": self.item.depth, "title": self.item.title},
       "columns": [
         {"title": c.title, "field": list(c.field), "format": c.format}
         for c in self.columns
@@ -185,7 +200,15 @@ def load_project(path: Path) -> Project:
     path,
     "",
     data,
-    required={"id", "name", "color", "root", "attempts", "record"},
+    required={
+      "id",
+      "name",
+      "color",
+      "attempts_dir",
+      "attempts",
+      "record",
+      "item",
+    },
     optional={"states", "statuses", "columns", "session"},
   )
   id_ = _str(path, "id", data["id"])
@@ -194,15 +217,18 @@ def load_project(path: Path) -> Project:
   color = _str(path, "color", data["color"])
   if not _COLOR.fullmatch(color):
     raise ConfigError(f"{path}: color: {color!r} is not #rrggbb")
+  attempts = _attempts(path, _str(path, "attempts", data["attempts"]))
+  dir_ = _str(path, "attempts_dir", data["attempts_dir"])
   return Project(
     id=id_,
     name=_str(path, "name", data["name"]),
     color=color,
-    root=_root(path, _str(path, "root", data["root"])),
-    attempts=_attempts(path, _str(path, "attempts", data["attempts"])),
+    attempts_dir=_attempts_dir(path, dir_),
+    attempts=attempts,
     record=_relative(path, "record", _str(path, "record", data["record"])),
     states=_entries(path, "states", data.get("states"), {"title"}),
     statuses=_statuses(path, data.get("statuses")),
+    item=_item(path, data["item"], len(attempts)),
     columns=_columns(path, data.get("columns")),
     thinking=_thinking(path, data.get("session")),
   )
@@ -288,18 +314,24 @@ def _str(path: Path, key: str, value: object) -> str:
   return value
 
 
-def _root(path: Path, value: str) -> Path:
-  # Absolute, so that it does not depend on the working directory later;
-  # abspath, unlike resolve, follows no symlink.
-  root = Path(os.path.abspath(path.parent / value))
-  try:
-    status = os.lstat(root)
-  except OSError as error:
-    raise ConfigError(f"{path}: root: {error}") from None
-  # A symlinked root could point the viewer anywhere on the machine.
-  if not stat.S_ISDIR(status.st_mode):
-    raise ConfigError(f"{path}: root: {root} is not a directory")
-  return root
+def _attempts_dir(path: Path, value: str) -> Path:
+  # Absolute, so that it does not depend on the working directory later. It
+  # is configuration: opened as given, a symlink in it included.
+  found = Path(os.path.abspath(path.parent / value))
+  if not found.is_dir():
+    raise ConfigError(f"{path}: attempts_dir: {found} is not a directory")
+  return found
+
+
+def _item(path: Path, value: object, most: int) -> Item:
+  item = _mapping(path, "item", value)
+  _keys(path, "item", item, required={"depth", "title"}, optional=set())
+  depth = item["depth"]
+  if not isinstance(depth, int) or isinstance(depth, bool):
+    raise ConfigError(f"{path}: item.depth: not an integer")
+  if not 1 <= depth <= most:
+    raise ConfigError(f"{path}: item.depth: {depth} is not from 1 to {most}")
+  return Item(depth, _str(path, "item.title", item["title"]))
 
 
 def _attempts(path: Path, value: str) -> tuple[str, ...]:

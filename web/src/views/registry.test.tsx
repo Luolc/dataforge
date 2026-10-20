@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
 import type { Deliverable } from "../api/types";
-import { KindView } from "./registry";
+import { KindTab } from "./registry";
 
 const item = (name: string, kind: string): Deliverable => ({
   name,
@@ -19,7 +19,7 @@ const item = (name: string, kind: string): Deliverable => ({
 
 function show(kind: string, items: Deliverable[]) {
   return render(
-    <KindView
+    <KindTab
       kind={kind}
       project={sampleProject}
       attempt="a/b"
@@ -45,5 +45,22 @@ describe("the kind registry", () => {
     expect(screen.getByText("dataset-card")).toBeVisible();
     expect(screen.getByText("author was never visited")).toBeVisible();
     expect(screen.queryByText(/not built yet/)).toBeNull();
+  });
+
+  it("reports stack; files show one, chosen from a menu", () => {
+    const { unmount } = show("report", [
+      item("one", "report"),
+      item("two", "report"),
+    ]);
+    expect(screen.getAllByRole("heading")).toHaveLength(2);
+    unmount();
+
+    show("files", [item("one", "files"), item("two", "files")]);
+    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual([
+      "Title of one",
+    ]);
+    expect(
+      screen.getByRole("button", { name: "Title of one" }),
+    ).toHaveAttribute("aria-haspopup", "menu");
   });
 });

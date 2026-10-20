@@ -6,7 +6,8 @@ import type { AttemptRecord, Project } from "../../api/types";
 import { duration, usd, visitCost, visitSeconds } from "../../ui/format";
 import { stateTitle, statusOf, StatusIcon } from "../../ui/status";
 import { attemptHref } from "../attempt/href";
-import { RunPage } from "./run/RunPage";
+import { Note } from "../../ui/card";
+import RunPage from "./run";
 import { Summary } from "./summary/Summary";
 
 const item =
@@ -66,8 +67,16 @@ export function RunsView({
       </nav>
       {run === null ? (
         <Summary project={project} attempt={attempt} record={record} />
+      ) : record.visits[run] ? (
+        <RunPage
+          project={project}
+          attempt={attempt}
+          record={record}
+          visit={record.visits[run]}
+          index={run}
+        />
       ) : (
-        <RunPage project={project} record={record} index={run} />
+        <Note>The record has no run {run + 1}.</Note>
       )}
     </div>
   );

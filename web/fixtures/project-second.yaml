@@ -2,8 +2,7 @@
 id: second
 name: Second sample
 color: "#7fb5f5"
-root: attempts
+attempts_dir: attempts
 attempts: "batch-2/*"
 record: record.json
-columns:
-  - { title: Status, field: [status] }
+item: { depth: 1, title: Batch }

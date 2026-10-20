@@ -8,8 +8,8 @@ import { type AttemptRecord, type Project, record } from "../../api/types";
 import { Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
-import { StatusIcon } from "../../ui/status";
-import { kindOf, KindView } from "../registry";
+import { attemptStatus, StatusIcon } from "../../ui/status";
+import { kindOf, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
 import { attemptHref } from "./href";
 
@@ -75,18 +75,25 @@ function Attempt({
     ...kinds.map((kind) => {
       const items = itemsOf(kind);
       const { Count } = kindOf(kind);
-      const props = { project, attempt, record, items };
+      const first = items[0];
       return {
         key: kind,
-        title: items[0]?.title ?? kind,
-        count: <Count {...props} />,
+        title: first?.title ?? kind,
+        count: first && (
+          <Count
+            project={project.id}
+            attempt={attempt}
+            item={first}
+            items={items}
+          />
+        ),
       };
     }),
   ];
   return (
     <>
       <div className="flex items-center gap-2 px-7 pt-5">
-        <StatusIcon project={project} word={record.status} />
+        <StatusIcon project={project} word={attemptStatus(record)} />
         <h1 className="text-xl font-semibold tracking-tight">
           Attempt{" "}
           <span className="font-mono text-lg font-normal tracking-normal text-fg-3">
@@ -120,7 +127,8 @@ function Attempt({
           run={run}
         />
       ) : kinds.includes(tab) ? (
-        <KindView
+        <KindTab
+          key={tab}
           kind={tab}
           project={project}
           attempt={attempt}

@@ -6,7 +6,7 @@ import { ProjectsContext } from "./shell/projects";
 import { Note } from "./ui/card";
 import { AttemptPage } from "./views/attempt/AttemptPage";
 import { Monitor } from "./views/monitor/Monitor";
-import { AttemptTable } from "./views/table/AttemptTable";
+import { HomePage } from "./views/HomePage";
 
 export function App() {
   return (
@@ -14,7 +14,7 @@ export function App() {
       <Route element={<Shell />}>
         <Route index element={<Home />} />
         <Route path="monitor" element={<Monitor />} />
-        <Route path=":project" element={<AttemptTable />} />
+        <Route path=":project" element={<HomePage />} />
         <Route path=":project/attempt" element={<AttemptPage />} />
         <Route
           path="*"

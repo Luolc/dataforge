@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import cast
@@ -123,6 +124,7 @@ def test_projects_leave_out_where_the_files_are(
     "color": "#e5a54b",
     "states": {},
     "statuses": {"passed": {"label": "Passed", "tone": "good"}},
+    "item": {"depth": 1, "title": "Batch"},
     "columns": [
       {"title": "Status", "field": ["status"], "format": "text"},
       {"title": "Cost", "field": ["budget", "cost_usd"], "format": "usd"},
@@ -137,7 +139,7 @@ def test_attempts_are_newest_first_with_their_values(
 ) -> None:
   newer = tree.root / "batch-2" / "task-9"
   newer.mkdir(parents=True)
-  _ = (newer / "record.json").write_text('{"status": "too_easy"}')
+  _ = (newer / "record.json").write_text('{"status": 3, "visits": "no"}')
   os.utime(tree.attempt / "record.json", (1_000_000_000, 1_000_000_000))
   (tree.root / "batch-2" / "task-8").mkdir()
   bad = tree.root / "batch-2" / "task-7"
@@ -156,12 +158,35 @@ def test_attempts_are_newest_first_with_their_values(
     "batch-1/task-1",
     "batch-2/task-8",
   ]
-  assert rows[0]["values"] == ["too_easy", None, None]
-  assert rows[1]["reason"] == "the record is not JSON"
-  assert rows[2]["values"] == ["passed", 0.42, None]
-  assert rows[2]["modified"] == "2001-09-09T01:46:40+00:00"
+  assert rows[0] | {"modified": None} == {
+    "id": "batch-2/task-9",
+    "item": "batch-2",
+    "modified": None,
+    "status": None,
+    "reason": None,
+    "cost_usd": None,
+    "started_at": None,
+    "ended_at": None,
+    "rounds": [],
+    "values": [3, None, None],
+    "error": None,
+  }
+  assert rows[1]["error"] == "the record is not JSON"
+  assert rows[2] == {
+    "id": "batch-1/task-1",
+    "item": "batch-1",
+    "modified": "2001-09-09T01:46:40+00:00",
+    "status": "passed",
+    "reason": None,
+    "cost_usd": 0.42,
+    "started_at": "2026-01-02T03:04:05+00:00",
+    "ended_at": "2026-01-02T03:14:05+00:00",
+    "rounds": [{"round": 1, "state": "write", "outcome": "done"}],
+    "values": ["passed", 0.42, None],
+    "error": None,
+  }
   assert rows[3]["modified"] is None
-  assert "No such file" in str(rows[3]["reason"])
+  assert "No such file" in str(rows[3]["error"])
 
 
 @pytest.mark.parametrize(
@@ -192,3 +217,28 @@ def test_other_paths_serve_the_frontend(tree: Tree, static: Path) -> None:
   assert "javascript" in script.headers["content-type"]
   assert page.text.startswith("<!doctype html>")
   assert outside.text.startswith("<!doctype html>")
+
+
+def test_rounds_are_the_last_visit_of_each_round(
+  tree: Tree, static: Path
+) -> None:
+  visits = [
+    {"state": "write", "round": 1, "outcome": "done"},
+    {"state": "check", "round": 1, "outcome": "fail"},
+    {"state": "write", "round": 2, "outcome": "done"},
+    {"state": "check", "round": 2, "outcome": "pass"},
+    {"state": "solve", "round": 2, "outcome": None},
+  ]
+  _ = (tree.attempt / "record.json").write_text(
+    json.dumps({"status": None, "visits": visits})
+  )
+
+  [row] = cast(
+    list[dict[str, object]],
+    client(tree, static).get(f"{API}/attempts").json(),
+  )
+
+  assert row["rounds"] == [
+    {"round": 1, "state": "check", "outcome": "fail"},
+    {"round": 2, "state": "solve", "outcome": None},
+  ]

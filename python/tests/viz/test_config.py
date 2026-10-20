@@ -19,7 +19,7 @@ def test_a_valid_site_loads(tree: Tree) -> None:
   assert (site.listen.host, site.listen.port) == ("127.0.0.1", 8800)
   [project] = site.projects
   assert project.id == "example"
-  assert project.root == tree.root
+  assert project.attempts_dir == tree.root
   assert project.attempts == ("*", "*")
   assert project.thinking == "collapsed"
   assert [c.format for c in project.columns] == ["text", "usd", "text"]
@@ -65,7 +65,10 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (("record: record.json", "record: ../record.json"), "record"),
     (('attempts: "*/*"', 'attempts: "batch-*/*"'), "attempts"),
     (('attempts: "*/*"', 'attempts: "/*"'), "attempts"),
-    (("root: attempts", "root: missing"), "root"),
+    (("attempts_dir: attempts", "attempts_dir: missing"), "attempts_dir"),
+    (("depth: 1", "depth: 3"), r"item\.depth"),
+    (("depth: 1", "depth: 0"), r"item\.depth"),
+    (("item: {depth: 1, title: Batch}\n", ""), "item: missing"),
     (("tone: good", "tone: green"), "statuses.passed.tone"),
     (("format: usd", "format: euro"), r"columns\[1\]\.format"),
     (("field: [status]", "field: status"), r"columns\[0\]\.field"),
@@ -87,13 +90,14 @@ def test_a_project_file_that_breaks_a_rule_is_refused(
   assert str(tree.project) in str(error.value)
 
 
-def test_a_symlinked_root_is_refused(tree: Tree) -> None:
+def test_attempts_dir_is_opened_as_given(tree: Tree) -> None:
   real = tree.root.parent / "real"
   _ = tree.root.rename(real)
   tree.root.symlink_to(real)
 
-  with pytest.raises(ConfigError, match="root"):
-    _ = load_site(tree.site)
+  [project] = load_site(tree.site).projects
+
+  assert project.attempts_dir == tree.root
 
 
 def test_a_repeated_project_id_is_refused(tree: Tree) -> None:
@@ -113,5 +117,5 @@ def test_paths_are_relative_to_their_file(
 
   [project] = load_site(Path("site.yaml")).projects
 
-  assert project.root == tree.root
-  assert project.root.is_absolute()
+  assert project.attempts_dir == tree.root
+  assert project.attempts_dir.is_absolute()

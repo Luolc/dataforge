@@ -1,8 +1,9 @@
 """Opening an attempt's directory and the paths in it.
 
 What an attempt holds was written by agents, the code under test and
-containers. A path is opened one component at a time from the project's root
-with O_NOFOLLOW, so no symlink is followed and no read leaves the root.
+containers. A path is opened one component at a time from the project's
+attempts_dir with O_NOFOLLOW, so no symlink under it is followed and no read
+leaves the attempt's directory.
 """
 
 from collections.abc import Generator
@@ -73,7 +74,7 @@ def attempt_parts(project: Project, attempt: str) -> tuple[str, ...]:
 
   Args:
     project: The project.
-    attempt: The attempt's ID, its path relative to the root.
+    attempt: The attempt's ID, its path relative to attempts_dir.
 
   Returns:
     The ID's components.
@@ -103,8 +104,8 @@ def list_attempts(project: Project) -> list[str]:
     The attempt IDs, sorted.
   """
   found: list[str] = []
-  with _open_root(project) as root:
-    _walk(root, project.attempts, (), found)
+  with _open_attempts_dir(project) as top:
+    _walk(top, project.attempts, (), found)
   return sorted(found)
 
 
@@ -123,7 +124,7 @@ def open_attempt(project: Project, attempt: str) -> Generator[int]:
     RefusedError: When the ID is refused or its directory cannot be opened.
   """  # noqa: DOC502
   parts = attempt_parts(project, attempt)
-  with _open_root(project) as root, _open_at(root, parts, _DIR) as fd:
+  with _open_attempts_dir(project) as top, _open_at(top, parts, _DIR) as fd:
     yield fd
 
 
@@ -185,14 +186,14 @@ def read_regular(fd: int, limit: int) -> Read:
   if not stat.S_ISREG(status.st_mode):
     raise RefusedError(404, "not a regular file")
   if status.st_size > limit:
-    raise RefusedError(413, f"over {limit} bytes")
+    raise RefusedError(413, f"{status.st_size} bytes, over {limit}")
   chunks: list[bytes] = []
   size = 0
   while chunk := os.read(fd, min(1 << 20, limit + 1 - size)):
     chunks.append(chunk)
     size += len(chunk)
     if size > limit:
-      raise RefusedError(413, f"over {limit} bytes")
+      raise RefusedError(413, f"over {limit} bytes, grown while read")
   return Read(b"".join(chunks), status.st_mtime)
 
 
@@ -237,11 +238,15 @@ def _matches(pattern: str, part: str) -> bool:
 
 
 @contextmanager
-def _open_root(project: Project) -> Generator[int]:
+def _open_attempts_dir(project: Project) -> Generator[int]:
+  # attempts_dir is configuration, opened as given; only what is under it
+  # is opened component by component.
   try:
-    fd = os.open(project.root, _DIR)
+    fd = os.open(
+      project.attempts_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    )
   except OSError as error:
-    raise RefusedError(404, f"the project's root: {error.strerror}") from None
+    raise RefusedError(404, f"attempts_dir: {error.strerror}") from None
   try:
     yield fd
   finally:

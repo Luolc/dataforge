@@ -53,3 +53,14 @@ describe("Summary", () => {
     expect(screen.getByText("Not run: solve was never visited")).toBeVisible();
   });
 });
+
+describe("an attempt's status", () => {
+  it("is raised when a state raised, else Not ended until it ends", () => {
+    const { unmount } = show("raised");
+    expect(screen.getByText("raised")).toBeVisible();
+    unmount();
+
+    show("running");
+    expect(screen.getByText("Not ended")).toBeVisible();
+  });
+});

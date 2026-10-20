@@ -15,6 +15,7 @@ export const project = z.looseObject({
     z.string(),
     z.looseObject({ label: z.string(), tone: z.enum(TONES) }),
   ),
+  item: z.looseObject({ depth: z.number(), title: z.string() }),
   columns: z.array(
     z.looseObject({
       title: z.string(),
@@ -32,9 +33,24 @@ export const projects = z.array(project);
 
 export const attemptRow = z.looseObject({
   id: z.string(),
+  item: z.string(),
   modified: z.string().nullable(),
-  values: z.array(z.unknown()),
+  status: z.string().nullable(),
   reason: z.string().nullable(),
+  cost_usd: z.number().nullable(),
+  started_at: z.string().nullable(),
+  ended_at: z.string().nullable(),
+  rounds: z
+    .array(
+      z.looseObject({
+        round: z.number(),
+        state: z.string().nullable(),
+        outcome: z.string().nullable(),
+      }),
+    )
+    .nullable(),
+  values: z.array(z.unknown()).nullable(),
+  error: z.string().nullable(),
 });
 export type AttemptRow = z.infer<typeof attemptRow>;
 export const attemptRows = z.array(attemptRow);
