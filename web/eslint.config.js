@@ -47,17 +47,14 @@ export default defineConfig([
       "react-hooks/globals": "error",
       "react-hooks/immutability": "error",
       "react-hooks/refs": "error",
+      // The conflict preset turns this one off too, for @eslint-react's
+      // static-components, which is off below; this one does not report
+      // the registry's lookups by kind.
+      "react-hooks/static-components": "error",
       // A deliverable kind's View, Count and Line are components declared
       // once in src/views/registry.tsx and looked up by kind while
       // rendering, which this rule reports at every lookup.
-      // no-nested-component-definitions still reports a component declared
-      // inside another.
       "@eslint-react/static-components": "off",
-      // Every list keyed by its index is a read-only record drawn in its
-      // own order and never reordered or filtered in place: a file's lines,
-      // a session's messages, an attempt's runs, where the index is the
-      // run's number.
-      "@eslint-react/no-array-index-key": "off",
       "@typescript-eslint/switch-exhaustiveness-check": [
         "error",
         { considerDefaultExhaustiveForUnions: false },
@@ -79,6 +76,20 @@ export default defineConfig([
     // Node, not the browser, runs these.
     files: ["vite.config.ts", "fixtures/**"],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // Each list here keyed by its index is a read-only record drawn in its
+    // own order and never reordered or filtered in place: a file's lines, a
+    // session's messages, an attempt's runs, where the index is the run's
+    // number, and the breadcrumb.
+    files: [
+      "src/session/Session.tsx",
+      "src/shell/Shell.tsx",
+      "src/views/files/Preview.tsx",
+      "src/views/runs/RunsView.tsx",
+      "src/views/runs/run/index.tsx",
+    ],
+    rules: { "@eslint-react/no-array-index-key": "off" },
   },
   {
     files: ["**/*.test.{ts,tsx}"],
