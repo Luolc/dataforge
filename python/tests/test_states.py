@@ -27,6 +27,7 @@ from dataforge.curation import (
   Machine,
   Outcome,
   PassAtKState,
+  Report,
   Review,
   RubricState,
   ScriptSpec,
@@ -297,6 +298,162 @@ def test_last_if_unresumable_closes_the_state(tmp_path: Path) -> None:
     for status in ["ok", "failed"]:
       result = ActionResult(status, {}, "", run=run_of(resumable=resumable))
       assert agent_outcome(tmp_path, result, flag).last is last
+
+
+class Writer:
+  """An agent runner that writes the files it is told on each call.
+
+  Args:
+    calls: What each call, a start or a resume in turn, writes into the
+      outdir, by file name.
+  """
+
+  def __init__(self, calls: list[dict[str, str]]) -> None:
+    self.calls: list[dict[str, str]] = calls
+    self.prompts: list[tuple[str, str]] = []
+
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    return self._write("start", task.outdir, task.prompt)
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    assert isinstance(session, str)
+    return self._write("resume", session, prompt)
+
+  def _write(self, kind: str, outdir: str, prompt: str) -> AgentRun:
+    self.prompts.append((kind, prompt))
+    for name, text in self.calls.pop(0).items():
+      _ = (Path(outdir) / name).write_text(text)
+    return AgentRun(outdir, "ok", 0.0, None, "done")
+
+
+def run_reporting(
+  tmp_path: Path,
+  calls: list[dict[str, str]],
+  visits: int,
+  validator: Path | None = None,
+) -> tuple[Attempt, Writer]:
+  """Run an agent that goes back to itself with a report, visits times.
+
+  Args:
+    tmp_path: The test's directory.
+    calls: What each call of the agent writes.
+    visits: How many visits the attempt has.
+    validator: The agent's validator, if any.
+
+  Returns:
+    The attempt and the runner.
+  """
+  writer = Writer(calls)
+  state = AgentState(
+    "author",
+    {
+      "ok": Goto("author", end_on_last_visit=True),
+      "failed": End("failed"),
+      "error": End("error"),
+    },
+    visits,
+    on_exhausted="done",
+    actions=Actions(agent_runner=writer),
+    spec=AgentSpec(
+      "Write.", tmp_path, outputs=["out"], validator=validator, max_fixes=1
+    ),
+    report_outputs=["changes.md"],
+    feedback="${details}",
+  )
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert not writer.calls
+  return attempt, writer
+
+
+def kinds(writer: Writer) -> list[str]:
+  return [kind for kind, _ in writer.prompts]
+
+
+def test_report_outputs_are_not_required_without_a_report(
+  tmp_path: Path,
+) -> None:
+  attempt, writer = run_reporting(tmp_path, [{"out": "1"}], 1)
+  assert attempt.status == "done"
+  assert [visit.outcome for visit in attempt.visits] == ["ok"]
+  assert sorted(attempt.visits[0].outputs) == ["out"]
+  assert kinds(writer) == ["start"]
+  assert "changes.md" not in writer.prompts[0][1]
+
+
+def test_a_missing_report_output_resumes_the_session(tmp_path: Path) -> None:
+  calls = [{"out": "1"}, {"out": "2"}, {"changes.md": "fixed out"}]
+  attempt, writer = run_reporting(tmp_path, calls, 2)
+  assert attempt.status == "done"
+  assert [visit.outcome for visit in attempt.visits] == ["ok", "ok"]
+  assert kinds(writer) == ["start", "start", "resume"]
+  assert "anew this time" in writer.prompts[1][1]
+  assert "changes.md is missing" in writer.prompts[2][1]
+  assert attempt.visits[1].data["fixes"] == 1
+  outputs = attempt.visits[1].outputs
+  assert outputs["changes.md"].read_text() == "fixed out"
+
+
+def test_an_unchanged_report_output_resumes_the_session(
+  tmp_path: Path,
+) -> None:
+  calls = [
+    {"out": "1"},
+    {"out": "2", "changes.md": "fixed out"},
+    {"out": "3", "changes.md": "fixed out"},
+    {"changes.md": "fixed out again"},
+  ]
+  attempt, writer = run_reporting(tmp_path, calls, 3)
+  assert attempt.status == "done"
+  assert kinds(writer) == ["start", "start", "start", "resume"]
+  assert "changes.md is unchanged from its last version" in writer.prompts[3][1]
+  assert attempt.visits[2].data["fixes"] == 1
+
+
+def test_a_rewritten_report_output_passes_without_a_resume(
+  tmp_path: Path,
+) -> None:
+  calls = [
+    {"out": "1"},
+    {"out": "2", "changes.md": "fixed out"},
+    {"out": "3", "changes.md": "fixed out again"},
+  ]
+  attempt, writer = run_reporting(tmp_path, calls, 3)
+  assert attempt.status == "done"
+  assert kinds(writer) == ["start"] * 3
+  assert [visit.data["fixes"] for visit in attempt.visits] == [0, 0, 0]
+
+
+def test_a_report_output_still_not_written_fails_the_visit(
+  tmp_path: Path,
+) -> None:
+  writer = Writer([{"out": "1"}, {"out": "2"}])
+  state = AgentState(
+    "author",
+    {},
+    actions=Actions(agent_runner=writer),
+    spec=AgentSpec("Write.", tmp_path, outputs=["out"], max_fixes=1),
+    report_outputs=["changes.md"],
+  )
+  report = Report("check", "fail", {}, {})
+  ctx = Context(Attempt(tmp_path), Artifacts(), Visit("author", 2), report)
+  outcome = state.run(ctx)
+  assert kinds(writer) == ["start", "resume"]
+  assert outcome.name == "failed"
+  assert outcome.feedback is not None
+  assert "outputs not written anew after 1 fixes: changes.md is missing" in str(
+    outcome.feedback["details"]
+  )
+
+
+def test_report_outputs_and_the_validator_share_max_fixes(
+  tmp_path: Path,
+) -> None:
+  calls = [{"out": "good"}, {"out": "bad"}, {"changes.md": "fixed out"}]
+  attempt, writer = run_reporting(tmp_path, calls, 2, checker(tmp_path))
+  assert attempt.status == "failed"
+  assert kinds(writer) == ["start", "start", "resume"]
+  assert "changes.md is missing" in writer.prompts[2][1]
+  assert attempt.visits[1].data["fixes"] == 1
 
 
 def test_script_state_runs_the_spec_it_is_given(tmp_path: Path) -> None:

@@ -892,6 +892,11 @@ class AgentSpec:
     name: The agent's name, which a runner may use, such as in the names of
       its files.
     optional_inputs: More inputs, each left out when it does not exist yet.
+    fresh_outputs: Outputs, each also in outputs, that this run must write
+      anew: after the outputs are copied out, each must exist and differ in
+      its bytes from the artifact's last version, if it has one. While one
+      does not, the session is resumed and told which, and these resumes
+      count against max_fixes too.
   """
 
   prompt: str
@@ -904,6 +909,7 @@ class AgentSpec:
   tools: Sequence[str] | None = None
   name: str | None = None
   optional_inputs: Sequence[Input] = ()
+  fresh_outputs: Sequence[str] = ()
 
 
 @dataclass(frozen=True)
@@ -1151,7 +1157,7 @@ class Actions:
   def agent(
     self, ctx: Context, spec: AgentSpec, env: Env = HOST
   ) -> ActionResult:
-    """Run an agent, and resume it while its validator fails.
+    """Run an agent, and resume it while its outputs or validator fail.
 
     Args:
       ctx: The visit's context.
@@ -1181,21 +1187,23 @@ class Actions:
         AgentTask(prompt, staged.inputs, staged.outdir, staged.validator),
         env,
       )
-      cost, log, fixes, check = run.cost_usd, [run.result], 0, None
+      cost, log, fixes = run.cost_usd, [run.result], 0
+      check: CommandResult | None = None
+      stale: list[str] = []
       first = run
       try:
         while True:
           note = env.collect(staged, ctx.outdir)
           if note:
             log.append(note)
-          if run.status != "ok" or spec.validator is None:
+          stale = []
+          if run.status != "ok":
             break
-          argv = [spec.validator, ctx.outdir, *inputs.values()]
-          check = HOST.exec([str(arg) for arg in argv], {})
-          if check.exit_code == 0 or fixes == spec.max_fixes:
+          fix, check, stale = _check_outputs(ctx, spec, inputs)
+          if fix is None or fixes == spec.max_fixes:
             break
           fixes += 1
-          run = runner.resume(run.session, _fix_prompt(check.log))
+          run = runner.resume(run.session, fix)
           cost += run.cost_usd
           log.append(run.result)
         # Only once every run of the action has returned.
@@ -1207,9 +1215,9 @@ class Actions:
     finally:
       env.stop()
     trace = _trace_inside(ctx.attempt.root, first)
-    passed = run.status == "ok" and (check is None or check.exit_code == 0)
-    if check is not None and check.exit_code != 0:
-      log.append(f"validator failed after {fixes} fixes:\n{check.log}")
+    failures = _failures(fixes, check, stale)
+    log.extend(failures)
+    passed = run.status == "ok" and not failures
     value: object = None
     if passed and spec.output_schema is not None:
       try:
@@ -1768,6 +1776,12 @@ def _agent_prompt(spec: AgentSpec, staged: Staged) -> str:
   if spec.outputs:
     names = ", ".join(spec.outputs)
     parts.append(f"Write your outputs into {staged.outdir}, named: {names}.")
+  if spec.fresh_outputs:
+    names = ", ".join(spec.fresh_outputs)
+    parts.append(
+      "Write these anew this time; an unchanged copy of the last version"
+      + f" does not count: {names}."
+    )
   if staged.validator is not None:
     command = shlex.join(
       [staged.validator, staged.outdir, *staged.inputs.values()]
@@ -1778,6 +1792,76 @@ def _agent_prompt(spec: AgentSpec, staged: Staged) -> str:
       + " after you finish."
     )
   return "\n\n".join(parts)
+
+
+def _check_outputs(
+  ctx: Context, spec: AgentSpec, inputs: Mapping[str, Path]
+) -> tuple[str | None, CommandResult | None, list[str]]:
+  """Check an agent's collected outputs.
+
+  Args:
+    ctx: The visit's context.
+    spec: The agent.
+    inputs: Its input paths on the host, by name.
+
+  Returns:
+    The prompt that asks for a fix, None when they pass; the validator's
+    result, if it ran; and what of fresh_outputs is not written anew, in
+    which case the validator does not run.
+  """
+  stale = _stale(ctx, spec.fresh_outputs)
+  if stale:
+    return _fresh_prompt(stale), None, stale
+  if spec.validator is None:
+    return None, None, []
+  argv = [spec.validator, ctx.outdir, *inputs.values()]
+  check = HOST.exec([str(arg) for arg in argv], {})
+  fix = None if check.exit_code == 0 else _fix_prompt(check.log)
+  return fix, check, []
+
+
+def _failures(
+  fixes: int, check: CommandResult | None, stale: Sequence[str]
+) -> list[str]:
+  failures: list[str] = []
+  if stale:
+    failures.append(
+      f"outputs not written anew after {fixes} fixes: {'; '.join(stale)}"
+    )
+  if check is not None and check.exit_code != 0:
+    failures.append(f"validator failed after {fixes} fixes:\n{check.log}")
+  return failures
+
+
+def _stale(ctx: Context, names: Sequence[str]) -> list[str]:
+  stale: list[str] = []
+  for name in names:
+    path = ctx.outdir / name
+    versions = ctx.artifacts.history(name)
+    if not path.exists():
+      stale.append(f"{name} is missing")
+    elif versions and _same_bytes(path, versions[-1].path):
+      stale.append(f"{name} is unchanged from its last version")
+  return stale
+
+
+def _same_bytes(a: Path, b: Path) -> bool:
+  if a.is_dir() and b.is_dir():
+    names = sorted(path.name for path in a.iterdir())
+    if names != sorted(path.name for path in b.iterdir()):
+      return False
+    return all(_same_bytes(a / name, b / name) for name in names)
+  if a.is_file() and b.is_file():
+    return a.read_bytes() == b.read_bytes()
+  return False
+
+
+def _fresh_prompt(stale: Sequence[str]) -> str:
+  lines = "\n".join(f"- {item}" for item in stale)
+  return (
+    "These outputs must be written anew in this run, and are not:\n\n"
+    + f"{lines}\n\nWrite them."
+  )
 
 
 def _fix_prompt(output: str) -> str:
