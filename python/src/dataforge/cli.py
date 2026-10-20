@@ -2,6 +2,7 @@
 
 import argparse
 from collections.abc import Sequence
+from contextlib import ExitStack
 import importlib
 import json
 from pathlib import Path
@@ -50,7 +51,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"dataforge check: {error}", file=sys.stderr)
     return 2
   try:
-    machine = load(file, inputs=inputs, actions=Actions(), bindings=bindings)
+    # Closing the stack removes the Docker environments, none of which ran.
+    with ExitStack() as stack:
+      machine = load(
+        file,
+        inputs=inputs,
+        actions=Actions(),
+        bindings=bindings,
+        stack=stack,
+      )
   except (SpecError, OSError) as error:
     print(f"{file}: {error}", file=sys.stderr)
     return 1

@@ -413,6 +413,9 @@ class Docker:
     user: The user it runs as.
     workdir: Its working directory.
     env: Variables set at create.
+    pass_env: Variables set at create from the docker command's own
+      environment, by name, so that their values are not on its command
+      line; one unset there is left unset.
     pre_start: Run on the host before each docker start.
     post_start: Run on the host after each docker start and before the action,
       such as to start a process in the container with exec.
@@ -434,6 +437,7 @@ class Docker:
   user: str | None = None
   workdir: str | None = None
   env: Mapping[str, str] = field(default_factory=dict[str, str])
+  pass_env: Sequence[str] = ()
   pre_start: Callable[[Docker], None] | None = None
   post_start: Callable[[Docker], None] | None = None
   cli: Callable[[Sequence[str]], CommandResult] = run_docker
@@ -505,6 +509,8 @@ class Docker:
       args += ["--volume", f"{mount.source.resolve()}:{mount.target}{suffix}"]
     for key, value in self.env.items():
       args += ["--env", f"{key}={value}"]
+    for name in self.pass_env:
+      args += ["--env", name]
     return args
 
   def start(self, pool: ResourcePool | None) -> None:
