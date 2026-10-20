@@ -270,6 +270,7 @@ def test_docker_create_args(tmp_path: Path) -> None:
     user="1000:1000",
     workdir="/app",
     env={"PROXY": "http://gateway.example.test"},
+    pass_env=["GATEWAY_TOKEN"],
   )
   assert env.create_args() == [
     "create", "--init",
@@ -286,6 +287,7 @@ def test_docker_create_args(tmp_path: Path) -> None:
     "--workdir", "/app",
     "--volume", f"{tmp_path}/cache:/cache",
     "--env", "PROXY=http://gateway.example.test",
+    "--env", "GATEWAY_TOKEN",
     "solver:1", "sleep", "infinity",
   ]  # fmt: skip
 
