@@ -119,7 +119,10 @@ export function takenCounts(
 export function lanes(spans: [number, number][]): number[] {
   const byLength = spans
     .map((s, i) => ({ s, i }))
-    .sort((a, b) => a.s[1] - a.s[0] - (b.s[1] - b.s[0]) || a.s[0] - b.s[0]);
+    .sort((a, b) => {
+      const byLength = a.s[1] - a.s[0] - (b.s[1] - b.s[0]);
+      return byLength !== 0 ? byLength : a.s[0] - b.s[0];
+    });
   const taken: [number, number][][] = [];
   const lane = new Array<number>(spans.length).fill(0);
   for (const { s, i } of byLength) {

@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -50,7 +51,7 @@ export function Graph({
   runHref: (index: number) => string;
 }) {
   const id = useId();
-  const frame = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
   const [view, setView] = useState<View | null>(null);
@@ -91,7 +92,7 @@ export function Graph({
   );
 
   useLayoutEffect(() => {
-    const el = frame.current;
+    const el = frameRef.current;
     if (!el) return;
     const measure = () => {
       const w = el.clientWidth;
@@ -102,24 +103,31 @@ export function Graph({
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
     const onChange = () => {
-      setFull(document.fullscreenElement === frame.current);
+      setFull(document.fullscreenElement === frameRef.current);
       setView(null);
     };
     document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+    };
   }, []);
 
   // The frame's height outside full screen: the graph at its starting scale.
   const startK = fit(size.w, 0, false).k;
   // Room below for the buttons.
   const height = full ? undefined : Math.ceil(layout.height * startK) + 48;
-  const shown =
-    view ?? (size.w > 0 ? fit(size.w, size.h, full) : { k: 1, x: 0, y: 0 });
+  const shown = useMemo(
+    () =>
+      view ?? (size.w > 0 ? fit(size.w, size.h, full) : { k: 1, x: 0, y: 0 }),
+    [view, size, fit, full],
+  );
 
   const zoomAt = useCallback(
     (factor: number, cx: number, cy: number) => {
@@ -136,7 +144,7 @@ export function Graph({
   // Ctrl or Cmd and the wheel zoom at the pointer; a sideways wheel pans. A
   // plain wheel scrolls the page.
   useEffect(() => {
-    const el = frame.current;
+    const el = frameRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -155,32 +163,38 @@ export function Graph({
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+    };
   }, [zoomAt, bound, shown]);
 
-  const drag = useRef<{ x: number; y: number; from: View; moved: boolean }>(
+  const dragRef = useRef<{ x: number; y: number; from: View; moved: boolean }>(
     null,
   );
   const onPointerDown = (e: ReactPointerEvent) => {
-    if (e.button !== 0 || (e.target as Element).closest("button")) return;
-    drag.current = { x: e.clientX, y: e.clientY, from: shown, moved: false };
+    if (
+      e.button !== 0 ||
+      (e.target instanceof Element && e.target.closest("button") !== null)
+    )
+      return;
+    dragRef.current = { x: e.clientX, y: e.clientY, from: shown, moved: false };
   };
   const onPointerMove = (e: ReactPointerEvent) => {
-    const d = drag.current;
+    const d = dragRef.current;
     if (!d) return;
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
     if (!d.moved && Math.hypot(dx, dy) < DRAG) return;
-    if (!d.moved) frame.current?.setPointerCapture(e.pointerId);
+    if (!d.moved) frameRef.current?.setPointerCapture(e.pointerId);
     d.moved = true;
     setView(bound({ k: d.from.k, x: d.from.x + dx, y: d.from.y + dy }));
   };
   const onPointerUp = () => {
-    const d = drag.current;
-    drag.current = null;
+    const d = dragRef.current;
+    dragRef.current = null;
     // A drag that ends on a state does not open it.
-    if (d?.moved) {
-      frame.current?.addEventListener(
+    if (d?.moved === true) {
+      frameRef.current?.addEventListener(
         "click",
         (c) => {
           c.preventDefault();
@@ -214,20 +228,20 @@ export function Graph({
   const dim = (key: string) => active !== null && !near.has(key);
   // Taken edges over the rest, so that a lane they share stays solid only
   // where an edge was taken, then lit edges over unlit ones.
-  const edges = [...layout.edges].sort(
-    (a, b) =>
-      Number(a.taken) - Number(b.taken) || Number(lit(a)) - Number(lit(b)),
-  );
+  const edges = [...layout.edges].sort((a, b) => {
+    const byTaken = Number(a.taken) - Number(b.taken);
+    return byTaken !== 0 ? byTaken : Number(lit(a)) - Number(lit(b));
+  });
 
   const toggleFull = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
-    else void frame.current?.requestFullscreen();
+    else void frameRef.current?.requestFullscreen();
   };
   const center = () => [size.w / 2, size.h / 2] as const;
 
   return (
     <div
-      ref={frame}
+      ref={frameRef}
       style={height === undefined ? undefined : { height }}
       className={`relative touch-pan-y overflow-hidden bg-app select-none ${full ? "h-full w-full" : "rounded-b-panel"}`}
       onPointerDown={onPointerDown}
@@ -274,13 +288,19 @@ export function Graph({
               />
             );
             const events = {
-              onPointerEnter: () => setHovered(node.key),
-              onPointerLeave: () => setHovered(null),
+              onPointerEnter: () => {
+                setHovered(node.key);
+              },
+              onPointerLeave: () => {
+                setHovered(null);
+              },
               onFocus: () => {
                 setFocused(node.key);
                 reveal(node);
               },
-              onBlur: () => setFocused(null),
+              onBlur: () => {
+                setFocused(null);
+              },
             };
             return node.lastVisit === null ? (
               <g key={node.key} data-node={node.key} {...events}>
@@ -312,7 +332,9 @@ export function Graph({
         <div className="flex">
           <ControlButton
             label="Zoom out"
-            onClick={() => zoomAt(1 / STEP, ...center())}
+            onClick={() => {
+              zoomAt(1 / STEP, ...center());
+            }}
             disabled={shown.k <= MIN}
             joined="left"
           >
@@ -320,7 +342,9 @@ export function Graph({
           </ControlButton>
           <ControlButton
             label="Zoom in"
-            onClick={() => zoomAt(STEP, ...center())}
+            onClick={() => {
+              zoomAt(STEP, ...center());
+            }}
             disabled={shown.k >= MAX}
             joined="right"
           >
