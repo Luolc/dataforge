@@ -23,10 +23,12 @@ the sidecar after ours, and that file sets none of these. A task directory's own
 compose file, which Harbor reads before ours, can take the same limits from
 DATAFORGE_SIDECAR_CPUS and DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment.
 After the run, whatever happened, the trial's files are given back to this user
-and everything with the label is removed. Then, as the containers wrote into the
-trial's directory, each symlink there that resolves, or may, outside it is
-removed and named in `harbor.log`, before run gives the trial to any reader;
-when the cleanup fails, run raises and gives no trial.
+and everything with the label is removed, and so is every container, labelled
+or not, that mounts from under the trial's output directory. Then, as the
+containers wrote into the trial's directory, each symlink there that resolves,
+or may, outside it, and each entry that is no regular file, directory or
+symlink, is removed and named in `harbor.log`, before run gives the trial to any
+reader; when the cleanup fails, run raises and gives no trial.
 
 A trial reserves from the pool the task's memory plus the sidecar's limit
 (`memory_gb`), whether or not the task has a sidecar; image builds and the
@@ -51,6 +53,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import time
 import tomllib
@@ -267,18 +270,26 @@ class HarborRunner:
       error = self._harbor(args, log)
     finally:
       try:
-        self._chown(outdir, label)
+        held = release(outdir, self.docker)
       finally:
-        left = cleanup(f"{LABEL}={label}", self.docker)
+        try:
+          self._chown(outdir, label)
+        finally:
+          left = cleanup(f"{LABEL}={label}", self.docker)
+    if held:
+      raise RuntimeError(f"containers still mount {outdir}: {held}")
     if any(left.values()):
       raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
-    # The trial's containers wrote into it and are gone now, so no link can
-    # change after it was checked.
+    # No container can reach the trial now, so nothing in it changes after it
+    # was checked.
     notes = [
       note
       for trial in sorted((outdir / "job").glob("*/"))
       if not trial.is_symlink()
-      for note in drop_escaping_links(trial, f"trial {trial.name}")
+      for note in (
+        *drop_escaping_links(trial, f"trial {trial.name}"),
+        *_drop_special_files(trial, f"trial {trial.name}"),
+      )
     ]
     if notes:
       with log.open("a") as out:
@@ -443,6 +454,104 @@ def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
   return {
     kind: len(ids(kind)) for kind in ("container", "image", "network", "volume")
   }
+
+
+def release(path: Path, docker: str = "docker") -> list[str]:
+  """Remove every container, whatever its labels, that mounts from under path.
+
+  Harbor starts some containers, such as a separate verifier's, without the
+  trial's label, and may leave one when it is stopped or its own cleanup
+  fails.
+
+  Args:
+    path: A directory on the host.
+    docker: The docker command.
+
+  Returns:
+    The containers that still mount from under path.
+  """
+  if found := _mounting(path, docker):
+    _ = subprocess.run(
+      [docker, "container", "rm", "-f", *found],
+      env=_passed(),
+      capture_output=True,
+      timeout=120,
+      check=False,
+    )
+  return _mounting(path, docker)
+
+
+def _mounting(path: Path, docker: str) -> list[str]:
+  def run(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+      [docker, "container", *args],
+      env=_passed(),
+      capture_output=True,
+      text=True,
+      timeout=120,
+      check=False,
+    )
+
+  listed = run("ls", "-a", "-q", "--no-trunc")
+  if listed.returncode != 0:
+    raise RuntimeError(f"docker container ls failed: {listed.stderr.strip()}")
+  if not (ids := listed.stdout.split()):
+    return []
+  inspected = run("inspect", *ids)
+  # Another job's container may go between the two commands; any other error
+  # could hide a container.
+  errors = [
+    line
+    for line in inspected.stderr.splitlines()
+    if line.strip() and "No such container" not in line
+  ]
+  if errors or (inspected.returncode != 0 and not inspected.stderr.strip()):
+    raise RuntimeError(f"docker container inspect failed: {errors}")
+  root = path.resolve()
+  containers = cast(
+    list[Mapping[str, object]], json.loads(inspected.stdout or "[]")
+  )
+  return sorted(
+    str(container["Id"])
+    for container in containers
+    if any(
+      Path(str(mount.get("Source", ""))).is_relative_to(root)
+      for mount in cast(
+        list[Mapping[str, object]], container.get("Mounts") or []
+      )
+    )
+  )
+
+
+def _drop_special_files(root: Path, what: str) -> list[str]:
+  """Remove each entry under root that is no file, directory or symlink.
+
+  A FIFO, a socket or a device would hang or mislead a reader that opens it
+  as a file.
+
+  Args:
+    root: The tree.
+    what: What the tree is, for the notes.
+
+  Returns:
+    A line for each entry removed.
+  """
+  notes: list[str] = []
+  for top, dirs, files in os.walk(root, onerror=_fail):
+    for name in [*dirs, *files]:
+      path = Path(top, name)
+      mode = path.lstat().st_mode
+      if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
+        path.unlink()
+        notes.append(
+          f"{what}: removed {path.relative_to(root)}: not a regular file"
+        )
+  return notes
+
+
+def _fail(error: OSError) -> None:
+  # A directory the walk cannot read could hide an entry from the check.
+  raise error
 
 
 def _passed() -> dict[str, str]:

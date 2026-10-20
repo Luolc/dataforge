@@ -36,7 +36,8 @@ from dataforge.curation.harbor import (
 # agent's cost is FAKE_COST, 0.25 by default and null for "none"; with
 # FAKE_TRACE, the agent directory gets a Claude Code trace whose last result
 # event costs that much. FAKE_LINKS, a JSON object, gives symlinks to make in
-# the trial's directory, by path inside it, and FAKE_FILES files to write there.
+# the trial's directory, by path inside it, FAKE_FILES files to write there and
+# FAKE_FIFO a FIFO to make there.
 FAKE_HARBOR = """\
 import json, os, pathlib, subprocess, sys, time
 argv = sys.argv[1:]
@@ -85,16 +86,22 @@ if "FAKE_TRACE" in os.environ:
 for name, text in json.loads(os.environ.get("FAKE_FILES", "{}")).items():
     (trial / name).parent.mkdir(parents=True, exist_ok=True)
     (trial / name).write_text(text)
+if "FAKE_FIFO" in os.environ:
+    (trial / os.environ["FAKE_FIFO"]).parent.mkdir(parents=True, exist_ok=True)
+    os.mkfifo(trial / os.environ["FAKE_FIFO"])
 for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
     (trial / name).parent.mkdir(parents=True, exist_ok=True)
     (trial / name).symlink_to(to)
 (trial / "result.json").write_text(json.dumps(result))
 """
 
-# The fake docker appends its argv to calls.jsonl next to it. `<kind> ls` prints
-# the ids in <kind>.ids; `rm` and `rmi` remove them unless a file "stuck" is
-# there. `compose` goes to the real docker on PATH, which only reads compose
-# files here.
+# The fake docker appends its argv to calls.jsonl next to it. `<kind> ls` with a
+# label filter prints the ids in <kind>.ids; `rm` and `rmi` remove them unless a
+# file "stuck" is there. mounts.json maps the ids of containers without the
+# label to their mounts' sources: `container ls` without a filter prints those
+# ids, `container inspect` gives their mounts, and `container rm` removes them
+# unless "stuck" is there. `compose` goes to the real docker on PATH, which only
+# reads compose files here.
 FAKE_DOCKER = """\
 import json, os, pathlib, sys
 here = pathlib.Path(__file__).parent
@@ -103,6 +110,22 @@ with (here / "calls.jsonl").open("a") as f:
     f.write(json.dumps(argv) + "\\n")
 if argv[0] == "compose":
     os.execvp("docker", ["docker", *argv])
+mounts_file = here / "mounts.json"
+mounts = json.loads(mounts_file.read_text()) if mounts_file.exists() else {}
+if argv[0] == "container" and "--filter" not in argv:
+    if argv[1] == "ls":
+        print(" ".join(mounts))
+        sys.exit(0)
+    if argv[1] == "inspect":
+        print(json.dumps([
+            {"Id": i, "Mounts": [{"Source": s} for s in mounts[i]]}
+            for i in argv[2:] if i in mounts
+        ]))
+        sys.exit(0)
+    if argv[1] == "rm" and not (here / "stuck").exists():
+        for i in argv[3:]:
+            mounts.pop(i, None)
+        mounts_file.write_text(json.dumps(mounts))
 if argv[0] in ("container", "image", "network", "volume"):
     ids = here / f"{argv[0]}.ids"
     if argv[1] == "ls":
@@ -521,11 +544,15 @@ def test_the_cleanup_chowns_and_removes_what_has_the_label(
     "labels"
   ][LABEL]
   calls = docker_calls(fakes)
-  assert calls[0][:3] == ["run", "--rm", f"--label={LABEL}={label}"]
-  assert f"--volume={out.resolve()}:/trial" in calls[0]
+  chown = next(call for call in calls if call[0] == "run")
+  assert chown[:3] == ["run", "--rm", f"--label={LABEL}={label}"]
+  assert f"--volume={out.resolve()}:/trial" in chown
   assert ["container", "rm", "-f", "c1", "c2"] in calls
+  release = ["container", "ls", "-a", "-q", "--no-trunc"]
   assert all(
-    f"label={LABEL}={label}" in call for call in calls[1:] if "ls" in call
+    f"label={LABEL}={label}" in call
+    for call in calls
+    if "ls" in call and call != release
   )
 
 
@@ -731,6 +758,41 @@ def test_a_symlink_in_place_of_a_trials_directory_is_not_given(
   )
   assert "verifier" not in result.artifacts
   assert "agent" in result.artifacts
+
+
+def test_containers_that_mount_the_trial_are_removed_whatever_their_labels(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  trial = out.resolve() / "job" / "task__abc"
+  mounts = {"verifier": [str(trial / "verifier")], "other": [str(tmp_path)]}
+  _ = (fakes[1].parent / "mounts.json").write_text(json.dumps(mounts))
+  _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  assert ["container", "rm", "-f", "verifier"] in docker_calls(fakes)
+  left = json.loads((fakes[1].parent / "mounts.json").read_text())
+  assert set(left) == {"other"}
+
+
+def test_a_container_that_still_mounts_the_trial_is_an_error(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  source = str(out.resolve() / "job" / "task__abc" / "verifier")
+  _ = (fakes[1].parent / "mounts.json").write_text(json.dumps({"v": [source]}))
+  _ = (fakes[1].parent / "stuck").write_text("")
+  with pytest.raises(RuntimeError, match="containers still mount"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+
+
+def test_an_entry_of_a_trial_that_is_no_file_directory_or_link_is_removed(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  env = {"FAKE_FIFO": "verifier/tests.json"}
+  result = runner(fakes, env=env).run(task(tmp_path), "oracle", Limits(2), out)
+  trial = cast(Path, result.path)
+  assert not os.path.lexists(trial / "verifier" / "tests.json")
+  assert "removed verifier/tests.json" in (out / "harbor.log").read_text()
 
 
 def _read(path: Path) -> str | None:
