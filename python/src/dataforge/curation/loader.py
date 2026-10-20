@@ -16,13 +16,41 @@ The schema, version 1:
   inputs: {<name>: string | integer | number | boolean | path}
   vars: {<name>: <string>}            # each may use the inputs and earlier vars
   max_cost_usd: <number>
+  environments:
+    <name>:                           # a Docker, its fields as data
+      image: <string>
+      mounts: [{source: <path> | <hook>, target: <string>,
+                read_only: <boolean>}]
+      outputs: <mount>
+      cpus, memory_gb, memory_swap_gb: <number>
+      cpu_shares, pids: <integer>
+      network: <boolean>
+      labels: {<name>: <string>}
+      security, cap_drop: [<string>]
+      user, workdir: <string>
+      env: {binding: <name>}          # a mapping the dataset registers,
+                                      # set as --env K=V on docker's
+                                      # command line: no credentials
+      pass_env: [<variable>]          # passed from docker's own environment
+      pre_start, post_start, cli: <hook>
+  runners:
+    <name>:
+      uses: claude-code | harbor | <binding>   # <binding>: a factory
+      with: {...}                     # the factory's arguments, or:
+        # claude-code: model, effort, max_budget_usd, files ({numbered: {dir,
+        #   prefix}} | <hook>), command ({binding: <name>}, a list of
+        #   strings), timeout, env, pass_env, tools, add_dirs,
+        #   continue_session, min_fix_usd, serve, spent
+        # harbor: harbor, cpus, cpu_shares, pids, sidecar {cpus, memory_mb},
+        #   timeout, mounts, env, pass_env, compose_overlay [<path> | <hook>],
+        #   setup, docker
   states:
     <name>:
       uses: agent | script | judge | trial | pass-at-k | trials | rubric
             | <binding>               # a State subclass the dataset registers
       with: {...}                     # the state's own arguments
-      env: <binding>                  # agent, script, rubric
-      runner: <binding>               # agent and rubric: an AgentRunner;
+      env: <environment> | <binding>  # agent, script, rubric
+      runner: <runner> | <binding>    # agent and rubric: an AgentRunner;
                                       # trial, pass-at-k, trials: TrialRunner
       max_visits: <integer>
       on_exhausted: <string>
@@ -40,27 +68,37 @@ doubled, so that the engine's output holds it as given; vars are template
 text, inserted as written, and feedback must be a valid template. In other
 fields "$$" is passed on as it is.
 
-"environments" and "runners" are reserved for declaring them as data; this
-version rejects them. Relative paths (prompt and rubric files, validators,
-{path: ...} inputs) are against the base directory.
+A hook, what can only be Python, is {binding: <name>}, the object the
+dataset registers, or {uses: <name>, with: {...}}, what the factory it
+registers returns when loading calls it with the with's data. Environment
+variables are only named in a declaration, their values taken from the
+environment (pass_env) or a binding (env), and a runner's command is a
+binding; a hook's with and labels are plain data, which holds no credential.
+Relative paths
+(prompt and rubric files, validators, mount sources, {path: ...} inputs) are
+against the base directory.
 """
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import ExitStack
 import dataclasses
 from dataclasses import dataclass
+import os
 from pathlib import Path, PurePath
 import re
 import string
-from typing import cast
+from typing import cast, TYPE_CHECKING
 
 import yaml
 
 from dataforge.curation.actions import (
   Actions,
   AgentSpec,
+  Docker,
   Env,
   Judge,
   Limits,
+  Mount,
   ScriptSpec,
   TrialAgent,
 )
@@ -73,6 +111,7 @@ from dataforge.curation.engine import (
   Machine,
   State,
 )
+from dataforge.curation.harbor import HarborRunner, Sidecar
 from dataforge.curation.rubric import Review
 from dataforge.curation.states import (
   AgentState,
@@ -83,6 +122,10 @@ from dataforge.curation.states import (
   TrialsState,
   TrialState,
 )
+
+if TYPE_CHECKING:
+  from dataforge.runtime import claude
+
 
 SCHEMA_VERSION = 1
 """The version of the schema this module reads."""
@@ -126,11 +169,14 @@ def load(
   base_dir: Path | None = None,
   guard: Guard | None = None,
   on_step: Callable[[Attempt], None] | None = None,
+  stack: ExitStack | None = None,
 ) -> Machine:
   """Read a declaration into a machine, checking it strictly.
 
-  Nothing runs: the states are only made, and a rubric state reads its rubric
-  files.
+  Nothing runs: the states, environments and runners are only made, a rubric
+  state reads its rubric files, and each hook's factory is called. Each
+  Docker environment is entered into stack, so that closing it, when the
+  attempt ends, removes the environment's container.
 
   Args:
     source: The declaration's YAML text, or a Path to its file.
@@ -143,6 +189,8 @@ def load(
       the current directory for text.
     guard: The machine's guard, if any.
     on_step: The machine's on_step, if any.
+    stack: Where the Docker environments are entered; needed when the
+      declaration has any.
 
   Returns:
     The machine, its start state first.
@@ -163,7 +211,12 @@ def load(
   except yaml.YAMLError as error:
     raise SpecError("", f"not valid YAML: {error}") from error
   loader = _Loader(dict(bindings or {}), actions, root)
-  return loader.machine(data, inputs, guard, on_step)
+  machine = loader.machine(data, inputs, guard, on_step)
+  if loader.environments and stack is None:
+    raise SpecError("environments", "load needs a stack to enter them in")
+  for docker in loader.environments.values():
+    _ = cast(ExitStack, stack).enter_context(docker)
+  return machine
 
 
 _MERGE = "tag:yaml.org,2002:merge"
@@ -221,6 +274,8 @@ class _Loader:
     self.base_dir: Path = base_dir
     self.inputs: dict[str, tuple[str, object]] = {}
     self.vars: dict[str, str] = {}
+    self.environments: dict[str, Docker] = {}
+    self.runners: dict[str, object] = {}
 
   def machine(
     self,
@@ -238,15 +293,6 @@ class _Loader:
     version = top["dataforge"]
     if type(version) is not int or version != SCHEMA_VERSION:
       raise SpecError("dataforge", "the schema version must be 1")
-    for reserved in ("environments", "runners"):
-      if reserved in top:
-        raise SpecError(
-          reserved,
-          (
-            "not supported in schema version 1; register the object as a"
-            " binding and name it"
-          ),
-        )
     self.inputs = _inputs(top.get("inputs", {}), inputs)
     _ = self.string(top["name"], "name")
     self.vars = {}
@@ -264,6 +310,14 @@ class _Loader:
     cap = None
     if "max_cost_usd" in top:
       cap = self.number(top["max_cost_usd"], "max_cost_usd", minimum=0)
+    for name, spec in _mapping(
+      top.get("environments", {}), "environments"
+    ).items():
+      self.environments[name] = self.docker(
+        spec, self.declared(name, "environments")
+      )
+    for name, spec in _mapping(top.get("runners", {}), "runners").items():
+      self.runners[name] = self.runner(spec, self.declared(name, "runners"))
     specs = _mapping(top["states"], "states")
     if not specs:
       raise SpecError("states", "no states")
@@ -328,12 +382,12 @@ class _Loader:
     if "env" in fields:
       if not kind.env:
         raise SpecError(f"{at}.env", f"not taken by uses: {uses}")
-      env = self.binding(fields["env"], f"{at}.env", "env")
+      env = self.named(fields["env"], f"{at}.env", "env")
       args["env"] = cast(Env, env)
     if "runner" in fields:
       if kind.runner is None:
         raise SpecError(f"{at}.runner", f"not taken by uses: {uses}")
-      runner = self.binding(fields["runner"], f"{at}.runner", kind.runner)
+      runner = self.named(fields["runner"], f"{at}.runner", kind.runner)
       field = f"{kind.runner}_runner"
       args["actions"] = dataclasses.replace(self.actions, **{field: runner})
     return self.make(cls, args, at)
@@ -400,15 +454,142 @@ class _Loader:
       for name, new in _mapping(value, at).items()
     }
 
-  def binding(self, value: object, at: str, protocol: str) -> object:
+  def named(self, value: object, at: str, protocol: str) -> object:
     name = self.string(value, at)
+    declared = self.environments if protocol == "env" else self.runners
+    found = declared[name] if name in declared else self.bound(name, at)
+    what, methods = _PROTOCOLS[protocol]
+    if not all(callable(getattr(found, m, None)) for m in methods):
+      raise SpecError(at, f"{name!r} is not {what}")
+    return found
+
+  def bound(self, name: str, at: str) -> object:
     if name not in self.bindings:
       raise SpecError(at, f"no binding named {name!r}")
-    bound = self.bindings[name]
-    what, methods = _PROTOCOLS[protocol]
-    if not all(callable(getattr(bound, m, None)) for m in methods):
-      raise SpecError(at, f"the binding {name!r} is not {what}")
-    return bound
+    return self.bindings[name]
+
+  def declared(self, name: str, where: str) -> str:
+    at = f"{where}.{name}"
+    if not _STATE_NAME.fullmatch(name):
+      raise SpecError(at, "a name is letters, digits, _ and -")
+    if name in self.bindings:
+      raise SpecError(at, "a binding has this name too")
+    return at
+
+  def hook(self, value: object, at: str) -> object:
+    fields = _mapping(value, at)
+    if "binding" in fields:
+      fields = _fields(fields, at, required={"binding"}, optional=set())
+      return self.bound(self.string(fields["binding"], f"{at}.binding"), at)
+    fields = _fields(fields, at, required={"uses"}, optional={"with"})
+    name = self.string(fields["uses"], f"{at}.uses")
+    factory = self.bound(name, f"{at}.uses")
+    if not callable(factory):
+      raise SpecError(f"{at}.uses", f"the binding {name!r} is not callable")
+    args = _mapping(
+      self.data(fields.get("with", {}), f"{at}.with"), f"{at}.with"
+    )
+    try:
+      return factory(**args)
+    except (TypeError, ValueError) as error:
+      raise SpecError(f"{at}.with", str(error)) from error
+
+  def callable_hook(self, value: object, at: str) -> Callable[..., object]:
+    found = self.hook(value, at)
+    if not callable(found):
+      raise SpecError(at, "the hook is not callable")
+    return found
+
+  def path(self, value: object, at: str) -> Path:
+    if not _is_mapping(value):
+      return self.base_dir / self.string(value, at)
+    found = self.hook(value, at)
+    if not isinstance(found, str | PurePath):
+      raise SpecError(at, "the hook gives no path")
+    return self.base_dir / found
+
+  def mount(self, value: object, at: str) -> Mount:
+    fields = _fields(
+      value, at, required={"source", "target"}, optional={"read_only"}
+    )
+    return Mount(
+      self.path(fields["source"], f"{at}.source"),
+      self.string(fields["target"], f"{at}.target"),
+      self.boolean(fields.get("read_only", True), f"{at}.read_only"),
+    )
+
+  def mounts(self, value: object, at: str) -> tuple[Mount, ...]:
+    return tuple(
+      self.mount(v, f"{at}[{i}]") for i, v in enumerate(_list(value, at))
+    )
+
+  def env_vars(self, fields: Mapping[str, object], at: str) -> dict[str, str]:
+    # A variable's value comes from this process's environment (pass_env) or
+    # a mapping the dataset registers (env), never from the declaration.
+    found: dict[str, str] = {}
+    for name in self.names(fields.get("pass_env", []), f"{at}.pass_env"):
+      if name in os.environ:
+        found[name] = os.environ[name]
+    if "env" in fields:
+      found.update(self.env_binding(fields["env"], f"{at}.env"))
+    return found
+
+  def env_binding(self, value: object, at: str) -> dict[str, str]:
+    fields = _fields(value, at, required={"binding"}, optional=set())
+    name = self.string(fields["binding"], f"{at}.binding")
+    env = self.bound(name, f"{at}.binding")
+    if not _is_mapping(env) or not all(
+      isinstance(k, str) and isinstance(v, str)
+      for k, v in cast(Mapping[object, object], env).items()
+    ):
+      raise SpecError(at, f"the binding {name!r} is not a mapping of strings")
+    return dict(cast(Mapping[str, str], env))
+
+  def command(self, value: object, at: str) -> tuple[str, ...]:
+    # A command may set variables (env NAME=value claude), so the declaration
+    # names a command the dataset registers instead of holding one.
+    fields = _fields(value, at, required={"binding"}, optional=set())
+    name = self.string(fields["binding"], f"{at}.binding")
+    command = self.bound(name, f"{at}.binding")
+    if not isinstance(command, list | tuple) or not all(
+      isinstance(item, str) for item in cast(Sequence[object], command)
+    ):
+      raise SpecError(at, f"the binding {name!r} is not a list of strings")
+    return tuple(cast(Sequence[str], command))
+
+  def names(self, value: object, at: str) -> tuple[str, ...]:
+    found = self.strings(value, at)
+    for i, name in enumerate(found):
+      if not _NAME.fullmatch(name):
+        raise SpecError(f"{at}[{i}]", "not the name of a variable")
+    return found
+
+  def docker(self, value: object, at: str) -> Docker:
+    fields = _fields(
+      value, at, required={"image"}, optional={*_DOCKER, "env", "pass_env"}
+    )
+    args = _read(self, fields, _DOCKER, at)
+    args["image"] = self.string(fields["image"], f"{at}.image")
+    if "env" in fields:
+      args["env"] = self.env_binding(fields["env"], f"{at}.env")
+    if "pass_env" in fields:
+      args["pass_env"] = self.names(fields["pass_env"], f"{at}.pass_env")
+    try:
+      return Docker(**args)  # pyright: ignore[reportArgumentType]
+    except (TypeError, ValueError) as error:
+      raise SpecError(at, str(error)) from error
+
+  def runner(self, value: object, at: str) -> object:
+    fields = _fields(value, at, required={"uses"}, optional={"with"})
+    uses = self.string(fields["uses"], f"{at}.uses")
+    with_ = _mapping(fields.get("with", {}), f"{at}.with")
+    if uses in {"claude-code", "harbor"} and uses in self.bindings:
+      raise SpecError(f"{at}.uses", f"the binding {uses!r} has a runner's name")
+    if uses == "claude-code":
+      return _claude_code(self, with_, f"{at}.with")
+    if uses == "harbor":
+      return _harbor(self, with_, f"{at}.with")
+    return self.hook(fields, at)
 
   def substitute(self, text: str, at: str, template: bool) -> str:
     # In a template, a text the engine renders again, an input's value has
@@ -781,6 +962,164 @@ _KINDS: dict[str, _Kind] = {
   "rubric": _Kind(RubricState, _rubric, env=True, runner="agent"),
 }
 """What uses names, a subclass before its base (pass-at-k before trial)."""
+
+
+type _Read = Callable[[_Loader, object, str], object]
+
+_DOCKER: dict[str, _Read] = {
+  "mounts": _Loader.mounts,
+  "outputs": _Loader.mount,
+  "cpus": lambda r, v, at: r.number(v, at, minimum=0),
+  "cpu_shares": lambda r, v, at: r.integer(v, at, minimum=0),
+  "memory_gb": lambda r, v, at: r.number(v, at, minimum=0),
+  "memory_swap_gb": lambda r, v, at: r.number(v, at, minimum=0),
+  "pids": lambda r, v, at: r.integer(v, at, minimum=1),
+  "network": _Loader.boolean,
+  "labels": lambda r, v, at: r.renames(v, at),
+  "security": _Loader.strings,
+  "cap_drop": _Loader.strings,
+  "user": _Loader.string,
+  "workdir": _Loader.string,
+  "pre_start": _Loader.callable_hook,
+  "post_start": _Loader.callable_hook,
+  "cli": _Loader.callable_hook,
+}
+"""The Docker fields read as data or hooks; env and pass_env are read apart."""
+
+
+def _claude_code(
+  loader: _Loader, value: Mapping[str, object], at: str
+) -> object:
+  # Imported as a module: dataforge.runtime.claude imports this package.
+  from dataforge.runtime import claude
+
+  fields = _fields(
+    value,
+    at,
+    required={"model", "effort", "max_budget_usd", "files"},
+    optional={
+      "command",
+      "timeout",
+      "env",
+      "pass_env",
+      "tools",
+      "add_dirs",
+      "continue_session",
+      "min_fix_usd",
+      "serve",
+      "spent",
+    },
+  )
+  get = fields.get
+  session: dict[str, object] = {
+    "model": loader.string(fields["model"], f"{at}.model"),
+    "effort": loader.string(fields["effort"], f"{at}.effort"),
+    "max_budget_usd": loader.number(
+      fields["max_budget_usd"], f"{at}.max_budget_usd", minimum=0
+    ),
+  }
+  if "command" in fields:
+    session["command"] = loader.command(fields["command"], f"{at}.command")
+  if "timeout" in fields:
+    session["timeout"] = loader.number(
+      fields["timeout"], f"{at}.timeout", minimum=0
+    )
+  if "env" in fields or "pass_env" in fields:
+    session["env"] = loader.env_vars(fields, at)
+  runner: dict[str, object] = {}
+  for key in ("tools", "add_dirs"):
+    if key in fields:
+      runner[key] = loader.strings(fields[key], f"{at}.{key}")
+  if "continue_session" in fields:
+    runner["continue_session"] = loader.boolean(
+      fields["continue_session"], f"{at}.continue_session"
+    )
+  if "min_fix_usd" in fields:
+    runner["min_fix_usd"] = loader.number(
+      fields["min_fix_usd"], f"{at}.min_fix_usd", minimum=0
+    )
+  for key in ("serve", "spent"):
+    if get(key) is not None:
+      runner[key] = loader.callable_hook(fields[key], f"{at}.{key}")
+  return claude.Runner(
+    claude.Session(**session),  # pyright: ignore[reportArgumentType]
+    _files(loader, fields["files"], f"{at}.files"),
+    **runner,  # pyright: ignore[reportArgumentType]
+  )
+
+
+def _files(loader: _Loader, value: object, at: str) -> claude.Files:
+  from dataforge.runtime import claude
+
+  fields = _mapping(value, at)
+  if "numbered" not in fields:
+    return cast("claude.Files", loader.callable_hook(value, at))
+  fields = _fields(fields, at, required={"numbered"}, optional=set())
+  numbered = _fields(
+    fields["numbered"], f"{at}.numbered", required={"dir"}, optional={"prefix"}
+  )
+  run_dir = loader.path(numbered["dir"], f"{at}.numbered.dir")
+  if "prefix" not in numbered:
+    return claude.numbered(run_dir)
+  prefix = loader.string(numbered["prefix"], f"{at}.numbered.prefix")
+  return claude.numbered(run_dir, prefix)
+
+
+def _overlays(loader: _Loader, value: object, at: str) -> tuple[Path, ...]:
+  return tuple(
+    loader.path(v, f"{at}[{i}]") for i, v in enumerate(_list(value, at))
+  )
+
+
+def _sidecar(loader: _Loader, value: object, at: str) -> Sidecar:
+  fields = _fields(value, at, required=set(), optional=set(_SIDECAR))
+  return Sidecar(**_read(loader, fields, _SIDECAR, at))  # pyright: ignore[reportArgumentType]
+
+
+_SIDECAR: dict[str, _Read] = {
+  "cpus": lambda r, v, at: r.number(v, at, minimum=0),
+  "memory_mb": lambda r, v, at: r.integer(v, at, minimum=1),
+}
+
+_HARBOR: dict[str, _Read] = {
+  "cpus": lambda r, v, at: r.number(v, at, minimum=0),
+  "cpu_shares": lambda r, v, at: r.integer(v, at, minimum=0),
+  "pids": lambda r, v, at: r.integer(v, at, minimum=1),
+  "sidecar": _sidecar,
+  "timeout": lambda r, v, at: r.number(v, at, minimum=0),
+  "mounts": _Loader.mounts,
+  "compose_overlay": _overlays,
+  "setup": _Loader.callable_hook,
+  "docker": _Loader.string,
+}
+"""HarborRunner's fields besides harbor, env and pass_env."""
+
+
+def _harbor(loader: _Loader, value: Mapping[str, object], at: str) -> object:
+  fields = _fields(
+    value,
+    at,
+    required={"harbor"},
+    optional={*_HARBOR, "env", "pass_env"},
+  )
+  args = _read(loader, fields, _HARBOR, at)
+  args["harbor"] = loader.path(fields["harbor"], f"{at}.harbor")
+  if "env" in fields or "pass_env" in fields:
+    args["env"] = loader.env_vars(fields, at)
+  return HarborRunner(**args)  # pyright: ignore[reportArgumentType]
+
+
+def _read(
+  loader: _Loader,
+  fields: Mapping[str, object],
+  table: Mapping[str, _Read],
+  at: str,
+) -> dict[str, object]:
+  return {
+    key: read(loader, fields[key], f"{at}.{key}")
+    for key, read in table.items()
+    if key in fields
+  }
 
 
 def _check_graph(states: Mapping[str, State], start: str) -> None:

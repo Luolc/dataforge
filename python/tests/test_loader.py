@@ -200,13 +200,6 @@ def drop(path: str) -> Callable[[Doc], None]:
     ),
     (put("start", "nowhere"), "start: no state named 'nowhere'"),
     (
-      put("environments", {"box": {}}),
-      (
-        "environments: not supported in schema version 1; register the object"
-        " as a binding and name it"
-      ),
-    ),
-    (
       put("inputs.round", "integer"),
       "inputs.round: 'round' is a variable the engine renders",
     ),
@@ -1121,12 +1114,10 @@ def test_env_and_runner_bindings_must_be_of_their_kind(tmp_path: Path) -> None:
   bindings: dict[str, object] = {"box": 42, "agents": Agents()}
   with pytest.raises(SpecError) as raised:
     _ = load_doc(doc, {}, bindings=bindings, base_dir=tmp_path)
-  assert (
-    str(raised.value) == "states.write.env: the binding 'box' is not an Env"
-  )
+  assert str(raised.value) == "states.write.env: 'box' is not an Env"
   bindings = {"box": HOST, "agents": Trials()}
   with pytest.raises(SpecError) as raised:
     _ = load_doc(doc, {}, bindings=bindings, base_dir=tmp_path)
   assert str(raised.value) == (
-    "states.write.runner: the binding 'agents' is not an AgentRunner"
+    "states.write.runner: 'agents' is not an AgentRunner"
   )
