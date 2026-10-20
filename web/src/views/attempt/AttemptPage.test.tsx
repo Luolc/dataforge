@@ -87,6 +87,12 @@ describe("a resumed record", () => {
     expect(
       screen.getByText(/^Left out when the attempt was resumed/),
     ).toBeVisible();
+    expect(
+      within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole(
+        "link",
+        { name: "older/task-0301" },
+      ),
+    ).toHaveAttribute("href", "/sample/attempt?id=older%2Ftask-0301");
   });
 });
 
