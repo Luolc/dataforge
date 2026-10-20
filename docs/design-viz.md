@@ -34,7 +34,7 @@ Not in scope:
 
 ## 3. Invariants
 
-None is tested yet: each names the test that the phase in section 6 adds, in `python/tests/viz/` or next to the frontend module in `web/src/`.
+Only invariant 8 is tested yet: each other one names the test that the phase in section 6 adds, in `python/tests/viz/` or next to the frontend module in `web/src/`.
 
 1. Read-only: no route writes, creates, moves or deletes anything, under an attempt's root or elsewhere; every route is a `GET` (a `HEAD` aside), and any other method gets 405. Untested (P1 adds `test_app.py`: `test_every_route_is_a_get_and_writes_nothing`).
 2. No symlink is followed and no read leaves the attempt's root: an attempt ID or a path is refused (404 with a reason) when it is absolute or holds a `..` or empty component, and an attempt ID also when it does not match `attempts`; and it is opened one component at a time from the root with `O_NOFOLLOW`; a symlink in a listing is shown as a `symlink` entry with no target and is never opened, nor is the record or a project file's `root` when it is reached through one. Untested (P1 adds `test_files.py`: `test_a_path_out_of_the_root_is_refused`, `test_a_symlink_is_listed_and_never_opened`, `test_a_symlinked_record_is_never_read`).
@@ -43,7 +43,7 @@ None is tested yet: each names the test that the phase in section 6 adds, in `py
 5. The frontend chooses a view only by `kind`: no module under `web/src/` holds a state, output or deliverable name, and a deliverable of a kind it does not know shows as a card with its name, kind, path and reason. Untested (P1 adds `web/src/views/registry.test.tsx`: `a view is chosen by kind only`, `an unknown kind falls back to a card`; the rest is for review).
 6. A site or project file loads only when it passes every check: no unknown or repeated key, each value of its type, project IDs unique and of `[a-z0-9-]`, each tone one of section 4's, `root` an existing directory and `attempts` a pattern of plain and `*` components only; one that fails stops the start with the file and the key that is wrong. Untested (P1 adds `test_config.py`: `test_a_project_file_that_breaks_a_rule_is_refused`).
 7. The record is served as the file holds it, never reshaped: `GET .../record` returns the JSON of `Attempt.to_json()` as written, and the frontend reads its types from design.md section 5, ["The record"](design.md#the-record), not from a schema of its own. Untested (P1 adds `test_app.py`: `test_the_record_is_the_file_as_written`).
-8. This file has at most 200 lines; the same check as design.md's invariant 8 guards it.
+8. This file has at most 200 lines. [`design-length.test.sh`](../.github/scripts/design-length.test.sh).
 
 ## 4. Interfaces
 
