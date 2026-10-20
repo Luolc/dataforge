@@ -13,9 +13,10 @@
 
 @theme {
   --font-sans:
-    "Geist Variable", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    "Mona Sans Variable", ui-sans-serif, system-ui, "Segoe UI", Roboto,
+    sans-serif;
   --font-mono:
-    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+    "Fira Code Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --text-2xs: 11px;
   --text-xs: 12px;
@@ -41,52 +42,55 @@
   --spacing-target: 24px;
   --spacing-target-coarse: 44px;
 
-  --radius-row: 6px;
-  --radius-panel: 8px;
+  --radius-row: 4px;
+  --radius-panel: 6px;
   --radius-code: 4px;
 
-  --shadow-current: inset 2px 0 0 var(--color-fg-2);
+  --shadow-current: inset 2px 0 0 var(--color-accent);
 
   --opacity-idle: 0.45;
   --stroke-taken: 1.5px;
   --dash-not-taken: 3 3;
 
-  --color-app: #09090a;
-  --color-panel: #121213;
-  --color-hover: #19191b;
-  --color-active: #1e1e21;
-  --color-line: #212224;
-  --color-line-subtle: #1c1c1e;
-  --color-fg: #e3e4e6;
-  --color-fg-2: #a1a2a6;
-  --color-fg-3: #6f7076;
-  --color-faint: #4a4b50;
-  --color-icon: #8a8b90;
-  --color-accent: #e5a54b;
-  --color-focus: #5e6ad2;
-  --color-code-bg: #0d0d0e;
+  --color-app: #d1dcc8;
+  --color-panel: #dde6d5;
+  --color-hover: #e5ecde;
+  --color-active: #eef2e9;
+  --color-line: #b5c4aa;
+  --color-line-subtle: #d3dccb;
+  --color-fg: #23301f;
+  --color-fg-2: #46533f;
+  --color-fg-3: #55624f;
+  --color-faint: #7d8a77;
+  --color-icon: #5a6754;
+  --color-accent: #7d3a1e;
+  --color-focus: var(--color-accent);
+  --color-code-bg: #f3f6ef;
 
-  --color-good: #4cb782;
-  --color-good-bg: #4cb7821f;
-  --color-bad: #eb5757;
-  --color-bad-bg: #eb57571f;
-  --color-warn: #f2c94c;
-  --color-warn-bg: #f2c94c1f;
-  --color-neutral: #8a8b90;
-  --color-neutral-bg: #8a8b901f;
+  /* Each tone's text is at least 4.5:1 on panel, hover, active, code-bg and
+     its own -bg (theme.test.ts); on-tone is the glyph drawn on a tone's fill. */
+  --color-good: #2f6b2a;
+  --color-good-bg: #d5e4cd;
+  --color-bad: #a8323c;
+  --color-bad-bg: #f1d9d6;
+  --color-warn: #875a05;
+  --color-warn-bg: #efe2c2;
+  --color-neutral: #655f55;
+  --color-neutral-bg: #e3e0d7;
+  --color-on-tone: #ffffff;
 
-  --color-syn-comment: #6f7076;
-  --color-syn-string: #9ccf8f;
-  --color-syn-keyword: #c49bf0;
-  --color-syn-number: #e9a970;
-  --color-syn-function: #7fb5f5;
-  --color-syn-variable: #e48b8b;
-  --color-syn-key: #7fc8d6;
+  --color-syn-comment: #6b7566;
+  --color-syn-string: #2f6b2a;
+  --color-syn-keyword: #7d3a1e;
+  --color-syn-number: #875a05;
+  --color-syn-function: #2b5a85;
+  --color-syn-variable: #a8323c;
+  --color-syn-key: #2f6461;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
     background: var(--color-app);
     color: var(--color-fg);
     font-family: var(--font-sans);

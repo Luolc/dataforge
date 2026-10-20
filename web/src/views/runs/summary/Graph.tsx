@@ -134,7 +134,7 @@ function ToneMark({ tone }: { tone: Tone }) {
         width="9"
         height="9"
         strokeWidth={3.5}
-        className="text-panel"
+        className="text-on-tone"
         aria-hidden
       />
     </>

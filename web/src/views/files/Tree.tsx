@@ -88,7 +88,7 @@ function EntryRow({
         to={{ search: next.toString() }}
         aria-current={path === props.selected ? "page" : undefined}
         style={indent(depth)}
-        className={`${row} text-fg-2 hover:bg-hover hover:text-fg aria-[current=page]:bg-active aria-[current=page]:text-fg`}
+        className={`${row} text-fg-2 hover:bg-hover hover:text-fg aria-[current=page]:bg-active aria-[current=page]:text-fg aria-[current=page]:shadow-current`}
       >
         <File className="size-3.5 flex-none text-icon" aria-hidden />
         {entry.name}

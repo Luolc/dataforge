@@ -52,7 +52,7 @@ export function Step({
             className={`inline-grid size-4 flex-none place-items-center rounded-full ${toneIcon[status.tone]}`}
           >
             <Glyph
-              className="size-2.5 text-panel"
+              className="size-2.5 text-on-tone"
               strokeWidth={3}
               aria-hidden
             />
