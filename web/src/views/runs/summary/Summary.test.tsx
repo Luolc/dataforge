@@ -1,8 +1,16 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { records, sampleProject } from "../../../../fixtures/sample";
+import {
+  inReview,
+  mayHaveStopped,
+  must,
+  records,
+  runningIn,
+  sampleProject,
+} from "../../../../fixtures/sample";
+import type { LiveInfo } from "../../../api/types";
 import { Summary } from "./Summary";
 
 function show(name: keyof typeof records, project = sampleProject) {
@@ -81,5 +89,82 @@ describe("an attempt's status", () => {
     show("passed", { ...sampleProject, not_ended: ["passed"] });
 
     expect(screen.getByText("Not ended")).toBeVisible();
+  });
+});
+
+describe("the Summary of a running attempt", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-02T09:45:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function showLive(live: LiveInfo) {
+    render(
+      <MemoryRouter>
+        <Summary
+          project={sampleProject}
+          attempt="batch-1/task-0001"
+          record={inReview}
+          live={live}
+        />
+      </MemoryRouter>,
+    );
+    const item = (key: string) =>
+      must(screen.getByText(key).nextElementSibling);
+    return {
+      item,
+      graph: screen.getByRole("group", { name: "State machine" }),
+    };
+  }
+
+  it("says Running and its total goes on from its start", () => {
+    const { item } = showLive(runningIn());
+
+    expect(item("Status")).toHaveTextContent("Running");
+    expect(item("Total duration")).toHaveTextContent("30m 0s");
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(item("Total duration")).toHaveTextContent("30m 2s");
+    // The cost is the record's, and does not go on.
+    expect(item("Cost")).toHaveTextContent("$");
+  });
+
+  it("draws the state it runs as running, the transition into it taken", () => {
+    const { graph } = showLive(runningIn());
+    const review = must(
+      graph.querySelector<HTMLElement>('[data-node="review"]'),
+    );
+    const into = [...graph.querySelectorAll("[data-edge]")].find(
+      (g) => g.getAttribute("data-edge") === "check\0review",
+    );
+
+    expect(
+      within(review).getByRole("img", { name: "Running" }),
+    ).toBeInTheDocument();
+    expect(review).toHaveTextContent("1 run · Running");
+    expect(review.querySelector("rect")).toHaveClass("stroke-accent");
+    expect(into).toHaveAttribute("data-taken", "true");
+    expect(review).toHaveTextContent("1m 21s");
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(review).toHaveTextContent("1m 25s");
+  });
+
+  it("stops the total at the record's when it may have stopped", () => {
+    const { item, graph } = showLive(mayHaveStopped);
+
+    expect(item("Status")).toHaveTextContent("May have stopped");
+    expect(item("Total duration")).toHaveTextContent("28m 39s");
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(item("Total duration")).toHaveTextContent("28m 39s");
+    expect(within(graph).queryByRole("img", { name: "Running" })).toBeNull();
   });
 });

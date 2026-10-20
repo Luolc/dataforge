@@ -1,0 +1,37 @@
+# Synthetic attempts that have not ended, on the machine of graph/: in each,
+# check passed, so it is in review, which its record does not hold yet. A
+# process holding batch-1/.lock makes task-0501 running; batch-2's lock is
+# free, so task-0502 may have stopped. They were made up and ran nowhere.
+id: running-sample
+name: Running sample
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+lock: .lock
+states:
+  draft: { title: Draft }
+  build: { title: Build }
+  smoke: { title: Smoke test }
+  check: { title: Check }
+  regrade: { title: Regrade }
+  recheck: { title: Regrade check }
+  review: { title: Review }
+  polish: { title: Polish }
+  solve: { title: Pass@k }
+  audit: { title: Audit }
+statuses:
+  passed: { label: Passed, tone: good }
+  exhausted: { label: Exhausted, tone: bad }
+  error: { label: Error, tone: bad }
+  done: { label: Done, tone: good }
+  ok: { label: OK, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+  invalid: { label: Invalid, tone: bad }
+  regrade: { label: Regrade, tone: warn }
+  revise: { label: Revise, tone: warn }
+  in_range: { label: In range, tone: good }
+  none_solved: { label: None solved, tone: bad }
+item: { depth: 1, title: Batch }
+columns: []

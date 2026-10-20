@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { must, records, sampleProject } from "../../../fixtures/sample";
-import type { AttemptRecord, Project } from "../../api/types";
+import {
+  inReview,
+  mayHaveStopped,
+  must,
+  records,
+  runningIn,
+  sampleProject,
+} from "../../../fixtures/sample";
+import type { AttemptRecord, LiveInfo, Project } from "../../api/types";
 import { RunsView } from "./RunsView";
 
 function show(
@@ -197,5 +204,68 @@ describe("a resumed attempt in the Runs column", () => {
 
     expect(runs.queryByRole("button", { name: /Discarded/ })).toBeNull();
     expect(runs.queryByText(/^Resumed/)).toBeNull();
+  });
+});
+
+describe("a running attempt in the Runs column", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-02T09:45:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function showLive(live: LiveInfo, record: AttemptRecord = inReview) {
+    render(
+      <MemoryRouter>
+        <RunsView
+          project={sampleProject}
+          attempt="batch-1/task-0001"
+          record={record}
+          live={live}
+          run={null}
+        />
+      </MemoryRouter>,
+    );
+    return within(screen.getByRole("navigation", { name: "Runs" }));
+  }
+
+  it("ends with the run it is in, Running, its time going on", () => {
+    const runs = showLive(runningIn());
+    const last = must(runs.getByText("review").closest("div"));
+
+    expect(runs.getByText("Runs · 5")).toBeVisible();
+    expect(last.closest("a")).toBeNull();
+    expect(within(last).getByRole("img", { name: "Running" })).toBeVisible();
+    expect(last).toHaveTextContent("Running · 1m 21s5");
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(last).toHaveTextContent("Running · 1m 24s5");
+  });
+
+  it("shows a run its record holds with no outcome as Running", () => {
+    const live = runningIn({
+      state: "check",
+      index: 1,
+      recorded: true,
+      since: "2026-03-02T09:26:12+00:00",
+    });
+    const runs = showLive(live, records.running);
+
+    expect(runs.getByText("Runs · 2")).toBeVisible();
+    expect(runs.getByRole("img", { name: "Running" })).toBeVisible();
+    expect(runs.getByText(/^Running · 18m 48s/)).toBeVisible();
+    expect(runs.queryByText(/Not ended/)).toBeNull();
+  });
+
+  it("shows no run it is in when it may have stopped", () => {
+    const runs = showLive(mayHaveStopped);
+
+    expect(runs.getByText("Runs · 4")).toBeVisible();
+    expect(runs.queryByRole("img", { name: "Running" })).toBeNull();
+    expect(runs.queryByText("review")).toBeNull();
   });
 });

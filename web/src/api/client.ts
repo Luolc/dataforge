@@ -26,6 +26,8 @@ export const urls = {
   attempts: (p: string) => `${api(p)}/attempts`,
   record: (p: string, attempt: string) =>
     `${api(p)}/record?${new URLSearchParams({ attempt }).toString()}`,
+  live: (p: string, attempt: string) =>
+    `${api(p)}/live?${new URLSearchParams({ attempt }).toString()}`,
   files: (p: string, attempt: string, path: string) =>
     `${api(p)}/files?${new URLSearchParams({ attempt, path }).toString()}`,
 };

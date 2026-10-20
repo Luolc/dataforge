@@ -4,12 +4,15 @@ import type { ReactNode } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { Link } from "react-router";
 
-import { getJson, urls, useLoaded } from "../../api/client";
+import { getJson, urls, useJson, useLoaded } from "../../api/client";
 import { z } from "zod";
 
 import {
   type AttemptRecord,
+  currentOf,
   deliverablesOf,
+  type LiveInfo,
+  liveInfo,
   type Project,
   readRecord,
 } from "../../api/types";
@@ -17,8 +20,9 @@ import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
 import { CodeView } from "../../ui/code";
-import { attemptStatus, stateTitle } from "../../ui/status";
-import { StatusIcon } from "../../ui/status-mark";
+import { RunningIcon } from "../../ui/running";
+import { attemptStatus, liveStatus, stateTitle } from "../../ui/status";
+import { StatusIcon, ToneIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
 import { declaredMissing, tabKinds } from "./declared";
@@ -34,6 +38,12 @@ export function AttemptPage() {
   const loaded = useLoaded(url, (signal) =>
     getJson(url ?? "", z.unknown(), signal).then(readRecord),
   );
+  // How the attempt stands now; a page that cannot read it shows the record
+  // alone, as for a project with no lock.
+  const liveUrl =
+    id !== undefined && attempt !== null ? urls.live(id, attempt) : null;
+  const liveLoaded = useJson(liveUrl, liveInfo);
+  const live = liveLoaded.state === "ok" ? liveLoaded.data : null;
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
   const discarded = runOf(query.get("discarded"));
@@ -63,7 +73,11 @@ export function AttemptPage() {
   if (attempt === null) body = <Note>No attempt is named.</Note>;
   else if (project.state === "error") body = <Note>{project.message}</Note>;
   else if (loaded.state === "error") body = <Note>{loaded.message}</Note>;
-  else if (project.state === "loading" || loaded.state === "loading")
+  else if (
+    project.state === "loading" ||
+    loaded.state === "loading" ||
+    liveLoaded.state === "loading"
+  )
     body = <Note>Loading…</Note>;
   else if (loaded.data.shape === "other")
     body = (
@@ -80,6 +94,7 @@ export function AttemptPage() {
         project={project.data}
         attempt={attempt}
         record={loaded.data.record}
+        live={live}
         tab={tab}
         run={run}
         discarded={discarded}
@@ -97,6 +112,7 @@ function Attempt({
   project,
   attempt,
   record,
+  live,
   tab,
   run,
   discarded,
@@ -104,6 +120,7 @@ function Attempt({
   project: Project;
   attempt: string;
   record: AttemptRecord;
+  live: LiveInfo | null;
   tab: string;
   run: number | null;
   discarded: number | null;
@@ -112,8 +129,10 @@ function Attempt({
   const deliverables = [...recorded, ...declaredMissing(project, record)];
   const kinds = tabKinds(project, deliverables);
   const itemsOf = (kind: string) => deliverables.filter((d) => d.kind === kind);
+  const current = currentOf(record, live);
+  const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   const tabs = [
-    { key: "runs", title: "Runs", count: <>{record.visits.length}</> },
+    { key: "runs", title: "Runs", count: <>{runs}</> },
     ...kinds.map((kind) => {
       const items = itemsOf(kind);
       const first = items[0];
@@ -140,7 +159,7 @@ function Attempt({
   return (
     <>
       <Header attempt={attempt}>
-        <StatusIcon project={project} word={attemptStatus(project, record)} />
+        <AttemptIcon project={project} record={record} live={live} />
       </Header>
       <Tabs project={project} attempt={attempt} tabs={tabs} current={tab} />
       {tab === "runs" ? (
@@ -148,6 +167,7 @@ function Attempt({
           project={project}
           attempt={attempt}
           record={record}
+          live={live}
           run={run}
           discarded={discarded}
         />
@@ -165,6 +185,25 @@ function Attempt({
       )}
     </>
   );
+}
+
+/**
+ * The attempt's status as an icon: turning while it runs, May have stopped
+ * when /live says so, else its status word as the record has it.
+ */
+function AttemptIcon({
+  project,
+  record,
+  live,
+}: {
+  project: Project;
+  record: AttemptRecord;
+  live: LiveInfo | null;
+}) {
+  if (live?.live === "running") return <RunningIcon />;
+  if (live?.live === "may have stopped")
+    return <ToneIcon {...liveStatus["may have stopped"]} />;
+  return <StatusIcon project={project} word={attemptStatus(project, record)} />;
 }
 
 interface Tab {
