@@ -99,8 +99,23 @@ const unknown: Kind = {
 };
 
 /** What shows deliverables of a kind; an unknown kind shows as cards. */
-export function kindOf(kind: string): Kind {
+function kindOf(kind: string): Kind {
   return kinds[kind] ?? unknown;
+}
+
+/** The count on a kind's tab. */
+export function KindCount({
+  kind,
+  ...props
+}: ItemProps & { items: Deliverable[]; kind: string }) {
+  const { Count } = kindOf(kind);
+  return <Count {...props} />;
+}
+
+/** A deliverable's line on its card in the Summary. */
+export function KindLine({ item, ...props }: ItemProps) {
+  const { Line } = kindOf(item.kind);
+  return <Line item={item} {...props} />;
 }
 
 /** A kind's tab: its deliverables stacked, or one chosen from a menu. */
@@ -139,7 +154,7 @@ function Menu({
 }) {
   return (
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="target flex items-center gap-1.5 self-start rounded-row border border-line px-2.5 font-medium hover:bg-hover">
+      <DropdownMenu.Trigger className="flex target items-center gap-1.5 self-start rounded-row border border-line px-2.5 font-medium hover:bg-hover">
         {chosen?.title}
         <ChevronDown className="size-3 text-icon" aria-hidden />
       </DropdownMenu.Trigger>
@@ -155,7 +170,7 @@ function Menu({
               onSelect={() => {
                 onChoose(item.name);
               }}
-              className="target flex cursor-default items-center rounded-row px-2 outline-none data-highlighted:bg-hover"
+              className="flex target cursor-default items-center rounded-row px-2 outline-none data-highlighted:bg-hover"
             >
               {item.title}
             </DropdownMenu.Item>

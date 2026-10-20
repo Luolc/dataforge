@@ -29,7 +29,7 @@ export function Step({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(startOpen);
-  const body = useId();
+  const bodyId = useId();
   const Glyph = toneGlyph[status.tone];
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
@@ -38,11 +38,11 @@ export function Step({
         <button
           type="button"
           aria-expanded={open}
-          aria-controls={body}
+          aria-controls={bodyId}
           onClick={() => {
             setOpen(!open);
           }}
-          className="target flex w-full items-center gap-2 px-5 py-2.5 text-left hover:bg-hover"
+          className="flex target w-full items-center gap-2 px-5 py-2.5 text-left hover:bg-hover"
         >
           <Chevron className="size-4 flex-none text-icon" aria-hidden />
           <span
@@ -67,7 +67,7 @@ export function Step({
           )}
         </button>
       </h3>
-      <div id={body} hidden={!open} className="px-5 pt-1 pb-4 pl-15">
+      <div id={bodyId} hidden={!open} className="px-5 pt-1 pb-4 pl-15">
         {open && children}
       </div>
     </section>

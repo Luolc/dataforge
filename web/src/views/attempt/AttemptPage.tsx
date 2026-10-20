@@ -8,8 +8,9 @@ import { type AttemptRecord, type Project, record } from "../../api/types";
 import { Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
-import { attemptStatus, StatusIcon } from "../../ui/status";
-import { kindOf, KindTab } from "../registry";
+import { attemptStatus } from "../../ui/status";
+import { StatusIcon } from "../../ui/status-mark";
+import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
 import { attemptHref } from "./href";
 
@@ -74,13 +75,13 @@ function Attempt({
     { key: "runs", title: "Runs", count: <>{record.visits.length}</> },
     ...kinds.map((kind) => {
       const items = itemsOf(kind);
-      const { Count } = kindOf(kind);
       const first = items[0];
       return {
         key: kind,
         title: first?.title ?? kind,
         count: first && (
-          <Count
+          <KindCount
+            kind={kind}
             project={project.id}
             attempt={attempt}
             item={first}
@@ -110,7 +111,7 @@ function Attempt({
             key={t.key}
             to={attemptHref(project.id, attempt, { tab: t.key })}
             aria-current={t.key === tab ? "page" : undefined}
-            className="target relative flex items-center gap-2 px-3 font-medium text-fg-2 hover:text-fg aria-[current=page]:text-fg aria-[current=page]:after:absolute aria-[current=page]:after:inset-x-1.5 aria-[current=page]:after:-bottom-px aria-[current=page]:after:h-0.5 aria-[current=page]:after:rounded-full aria-[current=page]:after:bg-accent"
+            className="relative flex target items-center gap-2 px-3 font-medium text-fg-2 hover:text-fg aria-[current=page]:text-fg aria-[current=page]:after:absolute aria-[current=page]:after:inset-x-1.5 aria-[current=page]:after:-bottom-px aria-[current=page]:after:h-0.5 aria-[current=page]:after:rounded-full aria-[current=page]:after:bg-accent"
           >
             {t.title}
             <span className="min-w-5 rounded-full bg-active px-1.5 py-px text-center text-2xs text-fg-2 tabular-nums">

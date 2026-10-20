@@ -8,8 +8,9 @@ import { useLoaded } from "../../api/client";
 import { Card, Note } from "../../ui/card";
 import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
+import { firstFile } from "./entries";
 import { Preview } from "./Preview";
-import { firstFile, Tree } from "./Tree";
+import { Tree } from "./Tree";
 
 /** The files view, for a deliverable of kind files. */
 export default function FilesView({
@@ -22,7 +23,7 @@ export default function FilesView({
     <Card title={deliverable.title} flush={root !== null}>
       {root === null ? (
         <p className="text-fg-3">
-          {`${NOT_RUN}${deliverable.reason ? `: ${deliverable.reason}` : ""}`}
+          {`${NOT_RUN}${deliverable.reason !== null && deliverable.reason !== "" ? `: ${deliverable.reason}` : ""}`}
         </p>
       ) : (
         <Files project={project.id} attempt={attempt} root={root} />
@@ -42,7 +43,7 @@ function Files({
 }) {
   const [query] = useSearchParams();
   const asked = query.get("file");
-  const chosen = asked?.startsWith(`${root}/`) ? asked : null;
+  const chosen = asked?.startsWith(`${root}/`) === true ? asked : null;
   const first = useLoaded(
     chosen === null ? JSON.stringify([project, attempt, root]) : null,
     (signal) => firstFile(project, attempt, root, signal),

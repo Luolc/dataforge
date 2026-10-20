@@ -89,9 +89,11 @@ jobs:
       # The gitleaks hook scans the staged diff, which is empty in CI, so it
       # would do nothing but build its environment (Go source build on a cold
       # cache). The gitleaks step above does the work, so skip the hook.
+      # web-prettier needs web/node_modules, which the web checks install
+      # later; their `npm run lint` runs the same check.
       - run: pre-commit run --all-files
         env:
-          SKIP: gitleaks
+          SKIP: gitleaks,web-prettier
 
       - name: Design length test
         run: .github/scripts/design-length.test.sh

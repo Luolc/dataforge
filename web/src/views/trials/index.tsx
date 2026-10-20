@@ -7,7 +7,8 @@ import type { Action, Tone, Trial } from "../../api/types";
 import { SessionView } from "../../session";
 import { Note } from "../../ui/card";
 import { duration, span, usd } from "../../ui/format";
-import { StatusLabel, toneGlyph, toneText } from "../../ui/status";
+import { toneGlyph, toneText } from "../../ui/status";
+import { StatusLabel } from "../../ui/status-mark";
 import { DeliverableCard } from "../DeliverableCard";
 import type { DeliverableProps } from "../kind";
 
@@ -21,7 +22,7 @@ const NO_REWARD = "no reward";
  * A trial's status: solved when its reward is at least 1.0, as the default
  * `solved` accepts; an exception before anything else.
  */
-export function trialStatus(trial: Trial): { word: string; tone: Tone } {
+function trialStatus(trial: Trial): { word: string; tone: Tone } {
   const { reward, exception } = trial.result;
   if (exception !== null) return { word: EXCEPTION, tone: "warn" };
   if (reward === null) return { word: NO_REWARD, tone: "neutral" };
@@ -106,7 +107,7 @@ export default function TrialsView({
                 onClick={() => {
                   setChosen(t.id);
                 }}
-                className="target flex w-full items-center justify-between gap-2 rounded-row px-2 text-left aria-pressed:bg-active hover:bg-hover"
+                className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
               >
                 <span className="min-w-0 font-mono text-xs break-all">
                   {t.id}

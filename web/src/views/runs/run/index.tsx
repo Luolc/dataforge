@@ -19,8 +19,8 @@ import {
   NOT_ENDED,
   stateTitle,
   statusOf,
-  StatusLabel,
 } from "../../../ui/status";
+import { StatusLabel } from "../../../ui/status-mark";
 import { attemptHref } from "../../attempt/href";
 import { Step } from "./Step";
 import { actionStatus, inputOf, isSession, startsOpen, traceOf } from "./steps";
@@ -48,7 +48,7 @@ export default function RunPage({
     return (
       <Link
         to={runHref(at)}
-        className="target inline-flex items-center underline decoration-faint underline-offset-3"
+        className="inline-flex target items-center underline decoration-faint underline-offset-3"
       >
         {target ? stateTitle(project, target.state) : "Run"} · run {at + 1}
       </Link>
@@ -124,7 +124,7 @@ function Field({ name, children }: { name: string; children: ReactNode }) {
 function Data({ data }: { data: Record<string, unknown> }) {
   if (Object.keys(data).length === 0) return <>none</>;
   return (
-    <pre className="overflow-x-auto rounded-row border border-line-subtle bg-code px-3 py-2 font-mono text-xs whitespace-pre-wrap text-fg-2">
+    <pre className="overflow-x-auto rounded-row border border-line-subtle bg-code-bg px-3 py-2 font-mono text-xs whitespace-pre-wrap text-fg-2">
       {JSON.stringify(data, null, 2)}
     </pre>
   );

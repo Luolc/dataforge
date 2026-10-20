@@ -72,7 +72,7 @@ type LineKind = "add" | "remove" | "hunk" | "head" | "context";
  * so inside one a line is told by its first character alone, even a removed
  * "--" or an added "++"; outside one, a line is a file header.
  */
-export function diffKinds(lines: string[]): LineKind[] {
+function diffKinds(lines: string[]): LineKind[] {
   let old = 0;
   let added = 0;
   return lines.map((line) => {
@@ -107,7 +107,7 @@ const lineClass = {
 };
 
 /** A unified diff, each line with its number and a background by its kind. */
-export function DiffView({ text }: { text: string }) {
+function DiffView({ text }: { text: string }) {
   const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n");
   const kinds = diffKinds(lines);
   return (

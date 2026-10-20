@@ -4,7 +4,8 @@ import { Link } from "react-router";
 
 import type { AttemptRecord, Project } from "../../api/types";
 import { duration, usd, visitCost, visitSeconds } from "../../ui/format";
-import { stateTitle, statusOf, StatusIcon } from "../../ui/status";
+import { stateTitle, statusOf } from "../../ui/status";
+import { StatusIcon } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import { Note } from "../../ui/card";
 import RunPage from "./run";

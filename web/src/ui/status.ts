@@ -1,4 +1,4 @@
-// Statuses and outcomes drawn by their tone, as the project file names them.
+// Statuses and outcomes: their words and tones, as the project file names them.
 import { Check, Minus, TriangleAlert, X } from "lucide-react";
 
 import type { AttemptRecord, Live, Project, Tone } from "../api/types";
@@ -16,9 +16,9 @@ export const NOT_RUN = "Not run";
  * An attempt that ended with no status word: its status is null and the
  * project names its own words for not ended (design-viz.md section 4).
  */
-export const NO_STATUS = "No status";
+const NO_STATUS = "No status";
 /** An attempt whose record cannot be read: the listing's error. */
-export const UNREADABLE = "Unreadable";
+const UNREADABLE = "Unreadable";
 /** The engine's outcome of a visit whose state raised (design.md). */
 export const RAISED = "raised";
 
@@ -41,7 +41,7 @@ export function statusOf(
 // words (design-viz.md section 4).
 function endStatus(project: Project, record: AttemptRecord): string | null {
   const status = record.status;
-  return status !== null && !project.not_ended?.includes(status)
+  return status !== null && project.not_ended?.includes(status) !== true
     ? status
     : null;
 }
@@ -99,20 +99,6 @@ export const toneText: Record<Tone, string> = {
   neutral: "text-neutral",
 };
 
-const toneLabel: Record<Tone, string> = {
-  good: "bg-good-bg text-good",
-  bad: "bg-bad-bg text-bad",
-  warn: "bg-warn-bg text-warn",
-  neutral: "bg-neutral-bg text-fg-2",
-};
-
-const toneIcon: Record<Tone, string> = {
-  good: "bg-good",
-  bad: "bg-bad",
-  warn: "bg-warn",
-  neutral: "bg-neutral",
-};
-
 /** Each tone's icon: no two tones share a shape (L39). */
 export const toneGlyph = {
   good: Check,
@@ -120,43 +106,3 @@ export const toneGlyph = {
   warn: TriangleAlert,
   neutral: Minus,
 };
-
-/** A word as a tone-coloured label. */
-export function StatusLabel({
-  project,
-  word,
-}: {
-  project: Project;
-  word: string | null;
-}) {
-  const { label, tone } = statusOf(project, word);
-  return (
-    <span
-      className={`inline-flex h-5 items-center rounded-row px-2 text-xs font-medium ${toneLabel[tone]}`}
-    >
-      {label}
-    </span>
-  );
-}
-
-/** A filled circle with a glyph; its label is read out, not shown. */
-export function StatusIcon({
-  project,
-  word,
-}: {
-  project: Project;
-  word: string | null;
-}) {
-  const { label, tone } = statusOf(project, word);
-  const Glyph = toneGlyph[tone];
-  return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      className={`inline-grid size-4 flex-none place-items-center rounded-full ${toneIcon[tone]}`}
-    >
-      <Glyph className="size-2.5 text-panel" strokeWidth={3} aria-hidden />
-    </span>
-  );
-}

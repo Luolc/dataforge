@@ -3,10 +3,10 @@
 // Objects keep keys these schemas do not name, so a newer record still loads.
 import { z } from "zod";
 
-export const TONES = ["good", "bad", "warn", "neutral"] as const;
+const TONES = ["good", "bad", "warn", "neutral"] as const;
 export type Tone = (typeof TONES)[number];
 
-export const project = z.looseObject({
+const project = z.looseObject({
   id: z.string(),
   name: z.string(),
   color: z.string(),
@@ -33,7 +33,7 @@ export type Column = Project["columns"][number];
 export const projects = z.array(project);
 
 /** How an attempt that has not ended stands; null once it has ended. */
-export const LIVE = ["running", "may have stopped", "not ended"] as const;
+const LIVE = ["running", "may have stopped", "not ended"] as const;
 export type Live = (typeof LIVE)[number];
 
 export const attemptRow = z.looseObject({
@@ -111,14 +111,12 @@ const graphEdge = z.looseObject({
   mark: z.string().nullable(),
   end_on_last_visit: z.boolean(),
 });
-export type GraphEdge = z.infer<typeof graphEdge>;
 
 const graph = z.looseObject({
   start: z.string(),
   states: z.array(graphState),
   edges: z.array(graphEdge),
 });
-export type Graph = z.infer<typeof graph>;
 
 const source = {
   state: z.string(),
