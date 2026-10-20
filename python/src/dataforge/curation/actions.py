@@ -15,6 +15,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
+import errno
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -281,12 +282,16 @@ class Env(Protocol):
     """
     ...
 
-  def collect(self, staged: Staged, outdir: Path) -> None:
+  def collect(self, staged: Staged, outdir: Path) -> str:
     """Copy an action's outputs into the visit's outputs on the host.
 
     Args:
       staged: The action's paths in the env.
       outdir: The visit's output directory.
+
+    Returns:
+      What the action's log should say of the copy, such as what it left
+      out; empty when nothing.
     """
     ...
 
@@ -366,14 +371,18 @@ class Host:
     )
     return CommandResult(done.returncode, done.stdout + done.stderr)
 
-  def collect(self, staged: Staged, outdir: Path) -> None:
+  def collect(self, staged: Staged, outdir: Path) -> str:
     """Do nothing: the outputs are already in place.
 
     Args:
       staged: Unused.
       outdir: Unused.
+
+    Returns:
+      Nothing to log.
     """
     _ = staged, outdir
+    return ""
 
 
 HOST = Host()
@@ -695,28 +704,36 @@ class Docker:
     ]
     return self.cli(["exec", *variables, cast(str, self._id), *argv])
 
-  def collect(self, staged: Staged, outdir: Path) -> None:
+  def collect(self, staged: Staged, outdir: Path) -> str:
     """Copy the action's outputs out of the container, or the outputs mount.
 
-    Also copy its summary out to its summary_path.
+    Also copy its summary out to its summary_path. What is copied keeps the
+    symlinks that resolve inside the tree they were copied in, the summary's
+    directory or the outputs, and loses the others.
 
     Args:
       staged: The action's paths in the container.
       outdir: The visit's output directory.
+
+    Returns:
+      A line for each symlink removed and each file left out, joined.
     """
+    notes: list[str] = []
     if staged.summary is not None:
       with self._lock:
         summary = self._summaries[staged.summary]
       inside = str(PurePosixPath(staged.summary).parent)
       _ = self._docker(["cp", f"{self._id}:{inside}/.", str(summary.parent)])
+      notes += _drop_escaping_links(summary.parent, "summary")
     fresh = Path(tempfile.mkdtemp(prefix=f".{outdir.name}.", dir=outdir.parent))
     try:
+      # The copy is checked only once it is somewhere the container cannot
+      # reach, so that no link can change after it was checked.
       if self.outputs is None:
         _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(fresh)])
       else:
-        _ = shutil.copytree(
-          self.outputs.source, fresh, symlinks=True, dirs_exist_ok=True
-        )
+        notes += _copy_untrusted(self.outputs.source, fresh)
+      notes += _drop_escaping_links(fresh, "outputs")
       names = {path.name for path in fresh.iterdir()}
       with self._lock:
         key = (staged.outdir, outdir)
@@ -727,6 +744,7 @@ class Docker:
         self._collected[key] = names
     finally:
       shutil.rmtree(fresh)
+    return "\n".join(notes)
 
   def _exec_ok(self, argv: Sequence[str], root: bool = True) -> str:
     """Run a command in the container and require exit 0.
@@ -1065,7 +1083,9 @@ class Actions:
       cost, log, fixes, check = run.cost_usd, [run.result], 0, None
       try:
         while True:
-          env.collect(staged, ctx.outdir)
+          note = env.collect(staged, ctx.outdir)
+          if note:
+            log.append(note)
           if run.status != "ok" or spec.validator is None:
             break
           argv = [spec.validator, ctx.outdir, *inputs.values()]
@@ -1208,7 +1228,10 @@ class Actions:
           variables["DATAFORGE_SUMMARY"] = staged.summary
           summary_path(ctx, index).parent.mkdir(parents=True, exist_ok=True)
         done = env.exec([*spec.argv, *staged.inputs.values()], variables)
-        env.collect(staged, ctx.outdir)
+        note = env.collect(staged, ctx.outdir)
+        if note:
+          lines = filter(None, [done.log.rstrip("\n"), note])
+          done = CommandResult(done.exit_code, "\n".join(lines))
       finally:
         env.stop()
     summary = None
@@ -1294,6 +1317,167 @@ def fan_out[T](calls: Sequence[Callable[[], T]]) -> list[T]:
   with ThreadPoolExecutor(max_workers=len(calls)) as executor:
     futures = [executor.submit(call) for call in calls]
     return [future.result() for future in futures]
+
+
+_MAX_LINKS = 40
+"""The most symlinks resolving one symlink may pass, as Linux allows."""
+
+
+def _copy_untrusted(source: Path, target: Path) -> list[str]:
+  """Copy a tree that untrusted code may still be changing into target.
+
+  Nothing is followed but the directories it opens one by one, each opened
+  without following a symlink, so that no change made while it copies can
+  lead it out of source; symlinks are copied as symlinks.
+
+  Args:
+    source: The tree; it is trusted itself, but not what is in it.
+    target: An existing directory to copy it into.
+
+  Returns:
+    A line for each file left out: a FIFO, socket or device, or one that
+    changed while it was copied.
+  """
+  notes: list[str] = []
+  fd = os.open(source, os.O_RDONLY | os.O_DIRECTORY)
+  try:
+    _copy_dir(fd, target, PurePosixPath(), notes)
+  finally:
+    os.close(fd)
+  return notes
+
+
+def _copy_dir(
+  fd: int, target: Path, where: PurePosixPath, notes: list[str]
+) -> None:
+  for name in sorted(os.listdir(fd)):
+    path, into = where / name, target / name
+    try:
+      mode = os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode
+      if stat.S_ISLNK(mode):
+        os.symlink(os.readlink(name, dir_fd=fd), into)
+      elif stat.S_ISDIR(mode):
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        child = os.open(name, flags, dir_fd=fd)
+        try:
+          into.mkdir()
+          _copy_dir(child, into, path, notes)
+          _copy_status(child, into)
+        finally:
+          os.close(child)
+      elif not (stat.S_ISREG(mode) and _copy_file(fd, name, into)):
+        notes.append(f"outputs: left out {path}: not a regular file")
+    except OSError as error:
+      if error.errno not in _CHANGED:
+        raise
+      notes.append(f"outputs: left out {path}: it changed while copied")
+
+
+_CHANGED = {errno.ENOENT, errno.ENOTDIR, errno.ELOOP, errno.EINVAL}
+"""The errors of a stat, open or readlink of a file that something else
+removed or replaced since the directory was listed or the file was stat'd."""
+
+
+def _copy_file(fd: int, name: str, into: Path) -> bool:
+  # False, copying nothing, when name is no longer a regular file.
+  flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+  with os.fdopen(os.open(name, flags, dir_fd=fd), "rb") as file:
+    if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+      return False
+    with into.open("xb") as copy:
+      shutil.copyfileobj(file, copy)
+    _copy_status(file.fileno(), into)
+  return True
+
+
+def _copy_status(fd: int, into: Path) -> None:
+  status = os.fstat(fd)
+  os.utime(into, ns=(status.st_atime_ns, status.st_mtime_ns))
+  into.chmod(stat.S_IMODE(status.st_mode))
+
+
+def _drop_escaping_links(root: Path, what: str) -> list[str]:
+  """Remove each symlink under root that resolves, or may, outside root.
+
+  root must be out of reach of whoever wrote it, so that nothing changes
+  while it is checked, and owned by this process: each directory in it is
+  first given its owner's rwx, so that none can hide a link from the check
+  or the copy's cleanup. A link is kept only when resolving it, through any
+  link it passes, never leaves root; one that passes a missing name is
+  judged as if that name were a directory there, so that what is put there
+  later, itself checked the same way, cannot lead out either.
+
+  Args:
+    root: The tree.
+    what: What the tree is, for the notes.
+
+  Returns:
+    A line for each symlink removed.
+  """
+  _let_owner_in(root)
+  links = [
+    Path(top, name)
+    for top, dirs, files in os.walk(root, onerror=_fail)
+    for name in [*dirs, *files]
+    if Path(top, name).is_symlink()
+  ]
+  escaping = {
+    link: os.readlink(link) for link in links if not _confined(root, link)
+  }
+  for link in escaping:
+    link.unlink()
+  return [
+    f"{what}: removed symlink {link.relative_to(root)} -> {to}: it leads out"
+    for link, to in escaping.items()
+  ]
+
+
+def _let_owner_in(path: Path) -> None:
+  path.chmod(stat.S_IMODE(path.lstat().st_mode) | stat.S_IRWXU)
+  with os.scandir(path) as entries:
+    for entry in entries:
+      if entry.is_dir(follow_symlinks=False):
+        _let_owner_in(Path(entry.path))
+
+
+def _fail(error: OSError) -> None:
+  # A directory the walk cannot read could hide a link from the check.
+  raise error
+
+
+def _confined(root: Path, link: Path) -> bool:
+  hops = 0
+
+  def resolve(at: Sequence[str], to: str) -> list[str] | None:
+    # Gives where to leads from the directory at, as names under root, or
+    # None when it leaves root on the way.
+    nonlocal hops
+    if to.startswith("/"):
+      return None
+    names = list(at)
+    for name in to.split("/"):
+      if name in {"", "."}:
+        continue
+      if name == "..":
+        if not names:
+          return None
+        _ = names.pop()
+        continue
+      path = root.joinpath(*names, name)
+      if not path.is_symlink():
+        names.append(name)
+        continue
+      hops += 1
+      if hops > _MAX_LINKS:
+        return None
+      resolved = resolve(names, os.readlink(path))
+      if resolved is None:
+        return None
+      names = resolved
+    return names
+
+  at = link.parent.relative_to(root).parts
+  return resolve(at, os.readlink(link)) is not None
 
 
 def _remove(path: Path) -> None:
