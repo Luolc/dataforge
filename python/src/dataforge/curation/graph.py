@@ -69,8 +69,8 @@ def mermaid(graph: Graph) -> str:
   gives is one node e0, e1, ... in the order of the edges that first give it.
   A state's label shows its max_visits when that is above 1; an edge's label
   shows its outcome, then its mark, "no report" and "ends on last visit"
-  where they apply. Labels are quoted, with ", #, < and > escaped as Mermaid
-  entities.
+  where they apply. Labels are quoted, with #, &, ", <, > and ` escaped as
+  Mermaid entities, so that a label shows its text as given.
 
   Args:
     graph: The graph, as Machine.graph returns it.
@@ -105,8 +105,17 @@ def mermaid(graph: Graph) -> str:
   return "\n".join(lines + arrows) + "\n"
 
 
-# "#" first, since the other entities hold it.
-_ENTITIES = (("#", "#35;"), ('"', "#quot;"), ("<", "#lt;"), (">", "#gt;"))
+# "#" first, since the other entities hold it. Mermaid turns each #<code>;
+# into the HTML entity &<code>;, so a raw & would start an entity of its own,
+# and a label wrapped in backticks would be read as Markdown.
+_ENTITIES = (
+  ("#", "#35;"),
+  ("&", "#38;"),
+  ('"', "#quot;"),
+  ("<", "#lt;"),
+  (">", "#gt;"),
+  ("`", "#96;"),
+)
 
 
 def _edge_label(edge: GraphEdge) -> str:
