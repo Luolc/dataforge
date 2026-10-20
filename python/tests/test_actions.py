@@ -1215,6 +1215,13 @@ def inspected(tmp_path: Path) -> dict[str, dict[str, object]]:
       "Memory": 512 * 2**20,
       "MemorySwap": 512 * 2**20,
       "PidsLimit": 256,
+      "PidMode": "",
+      "IpcMode": "shareable",
+      "UTSMode": "",
+      "UsernsMode": "",
+      "CgroupnsMode": "private",
+      "Mounts": [],
+      "VolumesFrom": None,
     },
   }
 
@@ -1259,7 +1266,31 @@ def test_an_adopted_container_is_started_without_a_create(
     ("HostConfig", "CapAdd", ["SYS_ADMIN"], "cap_add"),
     ("HostConfig", "Devices", [{"PathOnHost": "/dev/fuse"}], "devices"),
     ("HostConfig", "PidMode", "host", "pid_mode"),
+    ("HostConfig", "PidMode", "container:x", "pid_mode"),
     ("HostConfig", "IpcMode", "host", "ipc_mode"),
+    ("HostConfig", "IpcMode", "container:x", "ipc_mode"),
+    (
+      "HostConfig",
+      "SecurityOpt",
+      ["no-new-privileges", "seccomp=unconfined"],
+      "security",
+    ),
+    (
+      "HostConfig",
+      "SecurityOpt",
+      ["no-new-privileges", "apparmor=unconfined"],
+      "security",
+    ),
+    (
+      "HostConfig",
+      "Mounts",
+      [{"Type": "bind", "Source": "/", "Target": "/host"}],
+      "other_mounts",
+    ),
+    ("HostConfig", "VolumesFrom", ["other"], "volumes_from"),
+    ("HostConfig", "UTSMode", "host", "uts_mode"),
+    ("HostConfig", "UsernsMode", "host", "userns_mode"),
+    ("HostConfig", "CgroupnsMode", "host", "cgroupns_mode"),
   ],
 )
 def test_a_container_unlike_the_env_is_not_adopted(
@@ -1271,6 +1302,25 @@ def test_a_container_unlike_the_env_is_not_adopted(
   with pytest.raises(ValueError, match=f"c1 differs in {item}$"):
     env.adopt("c1")
   assert env.container is None
+
+
+@pytest.mark.parametrize(
+  ("ipc", "security"),
+  [("", None), ("private", []), ("shareable", None)],
+)
+def test_a_container_in_dockers_default_namespaces_is_adopted(
+  tmp_path: Path, ipc: str, security: list[str] | None
+) -> None:
+  # What a daemon gives a container run with no --ipc, --pid or
+  # --security-opt depends on its configuration and version.
+  host = {"NetworkMode": "none", "PidMode": "", "IpcMode": ipc}
+  found = {
+    "Config": {"Image": "solver:1"},
+    "HostConfig": host | {"SecurityOpt": security},
+  }
+  env = Docker("solver:1", cli=InspectDocker(tmp_path, found))
+  env.adopt("c1")
+  assert env.container == "c1"
 
 
 def test_a_container_is_checked_only_for_what_the_env_sets(

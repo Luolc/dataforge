@@ -515,13 +515,17 @@ class Docker:
     checks what `docker inspect` gives against what create_args would set:
     the image, each of labels (the container may have more, from its image),
     the network (none without network, any but the host's with it), and the
-    user, the working directory, the bind mounts, and each of cap_drop and
-    security (the container may have more), cpus, cpu_shares, memory_gb,
-    memory_swap_gb and pids that this env sets. It also refuses a container
-    isolated less than create_args leaves one: privileged, with a capability
-    added, a device or the host's PID or IPC namespace. The rest of what the
-    env leaves to docker's defaults is not checked, nor is env or pass_env,
-    whose values inspect would show.
+    user, the working directory, the bind mounts, the security options
+    (exactly security), and each of cap_drop (the container may drop more),
+    cpus, cpu_shares, memory_gb, memory_swap_gb and pids that this env sets.
+    It also refuses a container isolated less than create_args leaves one:
+    privileged, with a capability added, a device, a mount other than the
+    env's bind mounts or volumes from another container, a PID or IPC
+    namespace other than docker's default, or the host's UTS, user or cgroup
+    namespace; where docker's default cgroup namespace is the host's, as
+    under cgroup v1, no container is adopted. The rest of what the env leaves
+    to docker's defaults is not checked, nor is env or pass_env, whose
+    values inspect would show.
 
     Args:
       container: The container's ID or name.
@@ -573,7 +577,7 @@ class Docker:
       "user": _same(config.get("User"), self.user),
       "workdir": _same(config.get("WorkingDir"), self.workdir),
       "cap_drop": caps >= _capabilities(self.cap_drop),
-      "security": set(_strings(host.get("SecurityOpt"))) >= set(self.security),
+      "security": set(_strings(host.get("SecurityOpt"))) == set(self.security),
       "cpus": _same(
         host.get("NanoCpus"),
         None if self.cpus is None else round(self.cpus * 1e9),
@@ -588,8 +592,13 @@ class Docker:
       "privileged": host.get("Privileged") is not True,
       "cap_add": not host.get("CapAdd"),
       "devices": not host.get("Devices"),
-      "pid_mode": host.get("PidMode") != "host",
-      "ipc_mode": host.get("IpcMode") != "host",
+      "other_mounts": not host.get("Mounts"),
+      "volumes_from": not host.get("VolumesFrom"),
+      "pid_mode": not _shared(host.get("PidMode")),
+      "ipc_mode": not _shared(host.get("IpcMode")),
+      "uts_mode": host.get("UTSMode") != "host",
+      "userns_mode": host.get("UsernsMode") != "host",
+      "cgroupns_mode": host.get("CgroupnsMode") != "host",
     }
     return [name for name, same in checks.items() if same is False]
 
@@ -1616,6 +1625,11 @@ def _trace_inside(root: Path, run: AgentRun) -> Path | None:
   # The record names paths relative to the attempt's root.
   trace = run.trace
   return trace if trace is not None and trace.is_relative_to(root) else None
+
+
+def _shared(mode: object) -> bool:
+  # The daemon's default, such as "", "private" or "shareable", is not.
+  return mode == "host" or str(mode).startswith("container:")
 
 
 def _same(found: object, wanted: object) -> bool | None:
