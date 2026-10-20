@@ -821,7 +821,7 @@ class RubricState(_ActionState):
   Each visit calls each review once. A call compares its blocks with those
   of the last call of the review in this state that gave verdicts, which
   rereview_prompt calls the last review. With resume, each review's agent
-  has the session key of its name and a call after such a one is a
+  has the session key "<state>/<review>" and a call after such a one is a
   re-review: its prompt is the whole prompt with what rereview_prompt adds,
   and its resume prompt what rereview_prompt gives alone. With
   reuse_unchanged, a call whose blocks are those of the last call of the
@@ -979,7 +979,13 @@ class RubricState(_ActionState):
           notes,
           rereview_prompt(last, blocks, notes, whole=True),
         ),
-        rereview_prompt(last, blocks, notes, whole=False),
+        rereview_prompt(
+          last,
+          blocks,
+          notes,
+          whole=False,
+          later=None if ran[-1] is last else ran[-1].blocks,
+        ),
       )
     return lambda: self._run(ctx, spec, call)
 
@@ -996,7 +1002,7 @@ class RubricState(_ActionState):
       output_schema=VERDICTS_SCHEMA,
       tools=(),
       name=review.name,
-      session=review.name if self.resume else None,
+      session=f"{self.name}/{review.name}" if self.resume else None,
       resume_prompt=resume_prompt,
     )
 

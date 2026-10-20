@@ -437,7 +437,12 @@ def review_prompt(
 
 
 def rereview_prompt(
-  last: Call, blocks: Mapping[str, str], notes: str, *, whole: bool
+  last: Call,
+  blocks: Mapping[str, str],
+  notes: str,
+  *,
+  whole: bool,
+  later: Mapping[str, str] | None = None,
 ) -> str:
   """Return what a re-review gives after the reviewer's last verdicts.
 
@@ -448,12 +453,16 @@ def rereview_prompt(
     notes: The author's notes since that call, as notes_text gives them.
     whole: True for the part review_prompt adds to the whole prompt, which
       already has the blocks and the notes; False for the prompt of a
-      session that goes on from that call, which gives also each changed
-      block whole, and the notes.
+      session that goes on, which gives also each changed block whole, and
+      the notes.
+    later: The blocks of the last call that ran after that call and gave no
+      verdicts, if one did: the session may have read them last.
 
   Returns:
     The last verdicts, a diff of each changed block, the tags of those that
-    did not change, then REREVIEW, and for whole=False also ANSWER.
+    did not change, then REREVIEW, and for whole=False also ANSWER; for
+    whole=False, an unchanged block that later read otherwise is given whole
+    too.
   """
   parts = [
     f"Your verdicts in your last review, call {last.call}:",
@@ -475,10 +484,20 @@ def rereview_prompt(
     parts.append(f'<diff block="{tag}">\n' + "\n".join(diff) + "\n</diff>")
     if not whole:
       parts.append(f"<{tag}>\n{text}\n</{tag}>")
-  if unchanged:
-    which = ", ".join(unchanged)
+  later = {} if whole or later is None else later
+  read = [
+    tag for tag in unchanged if later.get(tag, blocks[tag]) == blocks[tag]
+  ]
+  if read:
     seen = "" if whole else ", as you read them then"
-    parts.append(f"Unchanged since your last review{seen}: {which}.")
+    parts.append(f"Unchanged since your last review{seen}: {', '.join(read)}.")
+  if other := [tag for tag in unchanged if tag not in read]:
+    which = ", ".join(other)
+    parts.append(
+      "Unchanged since your last review, but not as your later call, which"
+      + f" gave no verdicts, read them: {which}. As they are now:"
+    )
+    parts += [f"<{tag}>\n{blocks[tag]}\n</{tag}>" for tag in other]
   if not whole and notes:
     parts.append(notes)
   parts.append(REREVIEW)
