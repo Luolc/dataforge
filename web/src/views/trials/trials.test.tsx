@@ -324,7 +324,9 @@ describe("the trials view's Diff tab", () => {
     expect(await screen.findByText("Hide thinking")).toBeVisible();
     const reads = vi
       .mocked(fetch)
-      .mock.calls.filter(([url]) => String(url).includes("trace.jsonl"));
+      .mock.calls.filter(
+        ([url]) => typeof url === "string" && url.includes("trace.jsonl"),
+      );
     expect(reads).toHaveLength(1);
   });
 });
