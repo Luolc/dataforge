@@ -5,7 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import older from "../../../fixtures/oldrec/attempts/older/task-0301/record.json";
 import other from "../../../fixtures/oldrec/attempts/older/task-0302/record.json";
 import resumed from "../../../fixtures/attempts/resume/task-0401/record.json";
-import { sampleProject } from "../../../fixtures/sample";
+import {
+  inReview,
+  mayHaveStopped,
+  must,
+  records,
+  runningIn,
+  sampleProject,
+} from "../../../fixtures/sample";
 import type { Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
 import { AttemptPage } from "./AttemptPage";
@@ -131,5 +138,91 @@ describe("a record that is not a JSON object", () => {
       await screen.findByText("The record is not a JSON object."),
     ).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Attempt" })).toBeNull();
+  });
+});
+
+describe("an attempt that runs", () => {
+  function showLive(live: unknown, status = 200, rec: unknown = inReview) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes("/live?")
+            ? new Response(JSON.stringify(live), { status })
+            : new Response(JSON.stringify(rec), { status: 200 }),
+        ),
+      ),
+    );
+    render(
+      <ProjectsContext value={{ state: "ok", data: [project] }}>
+        <MemoryRouter initialEntries={[`/${project.id}/attempt?id=b/t`]}>
+          <Routes>
+            <Route path=":project/attempt" element={<AttemptPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ProjectsContext>,
+    );
+  }
+
+  it("turns its icon and counts the run it is in", async () => {
+    showLive(runningIn());
+
+    expect(
+      await screen.findByRole("heading", { name: /Attempt/ }),
+    ).toBeVisible();
+    const header = must(
+      screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+    );
+    expect(within(header).getByRole("img", { name: "Running" })).toBeVisible();
+    expect(tabs()[0]).toHaveTextContent("Runs5");
+  });
+
+  it("marks one that may have stopped as such, with no run it is in", async () => {
+    showLive(mayHaveStopped);
+
+    expect(
+      await screen.findByRole("heading", { name: /Attempt/ }),
+    ).toBeVisible();
+    const header = must(
+      screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+    );
+    expect(
+      within(header).getByRole("img", { name: "May have stopped" }),
+    ).toBeVisible();
+    expect(tabs()[0]).toHaveTextContent("Runs4");
+  });
+
+  it("shows a record that has ended alone over a /live read before", async () => {
+    // /live read while the attempt ran, the record once it had ended.
+    const visits = records.passed.visits.length;
+    showLive(runningIn({ index: visits }), 200, records.passed);
+
+    expect(
+      await screen.findByRole("heading", { name: /Attempt/ }),
+    ).toBeVisible();
+    const header = must(
+      screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+    );
+    expect(within(header).getByRole("img", { name: "Passed" })).toBeVisible();
+    expect(tabs()[0]).toHaveTextContent(`Runs${String(visits)}`);
+    expect(screen.queryByRole("img", { name: "Running" })).toBeNull();
+    expect(
+      screen.getByText(`${String(visits)} runs`, { exact: false }),
+    ).toBeVisible();
+  });
+
+  it("shows the record alone when /live cannot be read", async () => {
+    showLive({ error: "not found", reason: "no route" }, 404);
+
+    expect(
+      await screen.findByRole("heading", { name: /Attempt/ }),
+    ).toBeVisible();
+    const header = must(
+      screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+    );
+    expect(
+      within(header).getByRole("img", { name: "Not ended" }),
+    ).toBeVisible();
+    expect(tabs()[0]).toHaveTextContent("Runs4");
   });
 });

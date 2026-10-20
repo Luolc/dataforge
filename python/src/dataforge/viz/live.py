@@ -6,11 +6,14 @@ item's attempts runs. The viewer learns whether that lock is held only from
 that tried to take it at that moment would find it busy and fail.
 """
 
+from collections.abc import Callable
+from datetime import datetime
 import logging
 import os
 from pathlib import Path
 import re
 import stat
+from typing import cast
 
 from dataforge.viz.config import Project
 from dataforge.viz.paths import stat_lock
@@ -136,3 +139,107 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
     if row["live"] is None:
       continue
     row["live"] = RUNNING if newest and locked[item] else MAY_HAVE_STOPPED
+
+
+def current(record: dict[str, object]) -> dict[str, object] | None:
+  """Find the visit a running attempt is in, from its record alone.
+
+  A record whose last visit has no outcome holds the visit that runs, as
+  the engine writes one at each step of a visit; a record written only after
+  each visit, as older engines wrote it, does not, and the visit that runs is
+  the one the last visit's transition goes to. Each value is checked before
+  it is used, as for the listing.
+
+  Args:
+    record: The record, as the attempt wrote it.
+
+  Returns:
+    {state, visit, index, recorded, since}: the state, its visit number from
+    1, its place in visits, whether the record holds it and when it began,
+    null when that is not known; None when the record does not say, as when
+    the last visit's transition ends the attempt or the record has no graph.
+  """
+  visits = [
+    cast(dict[str, object], v)
+    for v in _list(record.get("visits"))
+    if isinstance(v, dict)
+  ]
+  graph = record.get("graph")
+  graph = cast(dict[str, object], graph) if isinstance(graph, dict) else {}
+  last = visits[-1] if visits else None
+  if last is not None and last.get("outcome") is None:
+    state = last.get("state")
+    if not isinstance(state, str):
+      return None
+    actions = _actions(last)
+    since = _first([_str(a.get("started_at")) for a in actions], min)
+    if since is None and len(visits) > 1:
+      since = _ended(visits[-2])
+    return _visit(state, visits[:-1], True, since)
+  if last is None:
+    start = graph.get("start")
+    return (
+      None if not isinstance(start, str) else _visit(start, [], False, None)
+    )
+  edge = next(
+    (
+      cast(dict[str, object], e)
+      for e in _list(graph.get("edges"))
+      if isinstance(e, dict)
+      and cast(dict[str, object], e).get("from") == last.get("state")
+      and cast(dict[str, object], e).get("outcome") == last.get("outcome")
+    ),
+    None,
+  )
+  to = None if edge is None else edge.get("to")
+  if not isinstance(to, str):
+    return None
+  return _visit(to, visits, False, _ended(last))
+
+
+def _visit(
+  state: str, before: list[dict[str, object]], recorded: bool, since: str | None
+) -> dict[str, object]:
+  return {
+    "state": state,
+    "visit": sum(v.get("state") == state for v in before) + 1,
+    "index": len(before),
+    "recorded": recorded,
+    "since": since,
+  }
+
+
+def _ended(visit: dict[str, object]) -> str | None:
+  return _first([_str(a.get("ended_at")) for a in _actions(visit)], max)
+
+
+def _first(
+  times: list[str | None], pick: Callable[[list[datetime]], datetime]
+) -> str | None:
+  # The time pick chooses, as written; one that does not parse, or has no
+  # offset, is left out.
+  parsed: dict[datetime, str] = {}
+  for text in times:
+    try:
+      when = datetime.fromisoformat(text or "")
+    except ValueError:
+      continue
+    if when.tzinfo is not None:
+      _ = parsed.setdefault(when, text or "")
+  return parsed[pick(list(parsed))] if parsed else None
+
+
+def _actions(visit: dict[str, object]) -> list[dict[str, object]]:
+  return [
+    cast(dict[str, object], a)
+    for a in _list(visit.get("actions"))
+    if isinstance(a, dict)
+  ]
+
+
+def _list(value: object) -> list[object]:
+  return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _str(value: object) -> str | None:
+  return value if isinstance(value, str) else None

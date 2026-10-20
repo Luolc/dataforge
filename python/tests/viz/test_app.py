@@ -53,6 +53,7 @@ def test_every_route_is_a_get_and_writes_nothing(
     "/api/projects",
     f"{API}/attempts",
     f"{API}/record?attempt=batch-1/task-1",
+    f"{API}/live?attempt=batch-1/task-1",
     f"{API}/files?attempt=batch-1/task-1&path=artifacts",
     "/index.html",
   ]
@@ -108,6 +109,7 @@ def test_every_response_has_the_csp(tree: Tree, static: Path) -> None:
   urls = [
     "/api/projects",
     f"{API}/record?attempt=batch-1/task-1",
+    f"{API}/live?attempt=batch-1/task-1",
     f"{API}/record",
     f"{API}/record?attempt=..",
     "/api/nothing",

@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import older from "../../fixtures/oldrec/attempts/older/task-0301/record.json";
 import passed from "../../fixtures/attempts/batch-1/task-0001/record.json";
 import resumed from "../../fixtures/attempts/resume/task-0401/record.json";
-import { attemptRow, readRecord } from "./types";
+import {
+  inReview,
+  mayHaveStopped,
+  records,
+  runningIn,
+} from "../../fixtures/sample";
+import { attemptRow, currentOf, readRecord } from "./types";
 
 const row = {
   id: "batch-1/task-1",
@@ -74,5 +80,29 @@ describe("reading a record file", () => {
   it("refuses what is not a JSON object", () => {
     for (const raw of [null, [], "record", 1])
       expect(() => readRecord(raw)).toThrow("The record is not a JSON object.");
+  });
+});
+
+describe("currentOf", () => {
+  it("takes the visit after the record's last when the record fits", () => {
+    expect(currentOf(inReview, runningIn())).toMatchObject({ state: "review" });
+  });
+
+  it("takes none for a record read before or after /live", () => {
+    const older = { ...inReview, visits: inReview.visits.slice(0, 3) };
+
+    expect(currentOf(older, runningIn())).toBeNull();
+    expect(currentOf(inReview, runningIn({ recorded: true }))).toBeNull();
+  });
+
+  it("takes the record's last visit when it holds it with no outcome", () => {
+    const live = runningIn({ state: "check", index: 1, recorded: true });
+
+    expect(currentOf(records.running, live)).toMatchObject({ state: "check" });
+  });
+
+  it("takes none when /live has none", () => {
+    expect(currentOf(inReview, mayHaveStopped)).toBeNull();
+    expect(currentOf(inReview, null)).toBeNull();
   });
 });

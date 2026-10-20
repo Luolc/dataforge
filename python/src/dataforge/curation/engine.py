@@ -318,6 +318,8 @@ class Visit:
     round: How many times the attempt's first state had been entered when
       this visit began, this visit included.
     last: Whether the outcome had last=True.
+    running: The outputs of its trials that have started and are not recorded
+      yet; not part of the record's visit.
   """
 
   state: str
@@ -328,6 +330,7 @@ class Visit:
   actions: list[ActionRecord] = field(default_factory=list[ActionRecord])
   round: int = 1
   last: bool = False
+  running: list[str] = field(default_factory=list[str])
 
   @property
   def outputs(self) -> dict[str, Path]:
@@ -376,9 +379,9 @@ class Attempt:
     max_cost_usd: What the attempt may spend, in US dollars; None for no cap.
     stopped: The reason, when the cost cap ended the attempt.
     graph: The machine's graph when the attempt began.
-    deliverables: The machine's deliverables as the attempt's end resolved
-      them, one entry each, in their order. Empty until it ends, and when a
-      state's run raised.
+    deliverables: The machine's deliverables, one entry each, in their order,
+      as the attempt's end resolved them, or while it runs as it would end
+      then. Empty before the first step, and when a state's run raised.
     resumptions: Each time Machine.resume went on with it, in order.
   """
 
@@ -547,6 +550,8 @@ class Context:
     artifacts: Artifacts,
     record: Visit,
     report: Report | None,
+    *,
+    changed: Callable[[], None] | None = None,
   ) -> None:
     """Make the context of one visit.
 
@@ -555,11 +560,14 @@ class Context:
       artifacts: The attempt's artifacts so far.
       record: The visit's record.
       report: The report the state got, if any.
+      changed: Called after each claim and each record, one call at a time,
+        while no other action can change the visit, if given.
     """
     self._attempt: Attempt = attempt
     self._artifacts: Artifacts = artifacts
     self._record: Visit = record
     self._report: Report | None = report
+    self._changed: Callable[[], None] | None = changed
     self._lock: threading.Lock = threading.Lock()
     self._claimed: set[str] = set()
     self._actions: int = 0
@@ -599,11 +607,13 @@ class Context:
     """Where this visit's actions write their outputs, one name per output."""
     return self._attempt.root / "artifacts" / self.state / str(self.visit)
 
-  def claim(self, outputs: Sequence[str]) -> int:
+  def claim(self, outputs: Sequence[str], *, trial: bool = False) -> int:
     """Reserve output names for an action, create outdir, number the action.
 
     Args:
       outputs: The names of the action's outputs.
+      trial: Whether the action is a trial, which the visit then lists as
+        running until it is recorded.
 
     Returns:
       The action's number in the visit, from 1.
@@ -622,6 +632,11 @@ class Context:
       self._actions += 1
       index = self._actions
     self.outdir.mkdir(parents=True, exist_ok=True)
+    with self._lock:
+      if trial:
+        self._record.running.extend(outputs)
+      if self._changed is not None:
+        self._changed()
     return index
 
   def resolve(
@@ -676,6 +691,10 @@ class Context:
     """
     with self._lock:
       self._record.actions.append(action)
+      running = self._record.running
+      running[:] = [name for name in running if name not in action.outputs]
+      if self._changed is not None:
+        self._changed()
     for name, path in action.outputs.items():
       self._artifacts._add(name, Version(self.state, self.visit, path))  # pyright: ignore[reportPrivateUsage]
 
@@ -684,9 +703,11 @@ class Machine:
   """Runs attempts over a list of states; the first state is the start.
 
   Before each state is entered, the cost cap and then guard may block it,
-  which ends the attempt. on_step gets the attempt after each visit and when it
-  ends. A subclass may override either method instead of passing it. One
-  machine may run several attempts at once, each with its own root.
+  which ends the attempt. on_step gets the attempt when a visit begins, after
+  each claim and record of its actions, after the visit and when the attempt
+  ends, one call at a time. A subclass may override either method instead of
+  passing it. One machine may run several attempts at once, each with its own
+  root.
   """
 
   def __init__(
@@ -703,12 +724,13 @@ class Machine:
     Args:
       states: The states; the first is the start.
       guard: The guard, if any.
-      on_step: Gets the attempt after each visit and when it ends, if given.
+      on_step: Gets the attempt at each step (see Machine), if given.
       max_cost_usd: What one attempt may spend, in US dollars; None for no
         cap. A state is not entered when what the attempt's actions cost so
         far and the state's max_cost_usd together would pass it.
       deliverables: What an attempt delivers, by name, in the order its
-        record lists them; each attempt's end resolves them.
+        record lists them; each step resolves them as the attempt would end
+        then, and its end as it ends.
 
     Raises:
       ValueError: When a deliverable is not well formed or names an unknown
@@ -735,7 +757,7 @@ class Machine:
     return None if self._guard is None else self._guard(ctx, state)
 
   def on_step(self, attempt: Attempt) -> None:
-    """Get the attempt after each visit and when it ends.
+    """Get the attempt at each step (see Machine).
 
     Args:
       attempt: The attempt.
@@ -960,40 +982,61 @@ class Machine:
     report: Report | None,
   ) -> Attempt:
     first = self.states[0].name
+
+    # A visit's actions call it one at a time (Context); the loop calls it
+    # only while none runs.
+    def step(*, resolve: bool = True) -> None:
+      if resolve:
+        self._resolve(attempt)
+      self.on_step(attempt)
+
     while True:
       visit = visits[state.name] + 1
       round_ = visit if state.name == first else visits[first]
       record = Visit(state.name, visit, round=round_)
-      ctx = Context(attempt, artifacts, record, report)
+      ctx = Context(attempt, artifacts, record, report, changed=step)
       if (blocked := self._blocked(ctx, state, closed)) is not None:
         _stop(attempt, *blocked)
-        self._resolve(attempt)
-        self.on_step(attempt)
+        step()
         return attempt
       visits[state.name] = visit
       attempt.visits.append(record)
+      try:
+        step()
+      except BaseException:
+        _ = attempt.visits.pop()
+        raise
       try:
         outcome = state.run(ctx)
       except BaseException as error:
         record.outcome = "raised"
         record.data = {"error": f"{type(error).__name__}: {error}"}
-        self.on_step(attempt)
+        attempt.deliverables = []
+        step(resolve=False)
         raise
       record.outcome, record.data = outcome.name, outcome.data
       record.last = outcome.last
       if outcome.last:
         closed.add(state.name)
-      step = self._go(ctx, record, state, outcome, visits, closed)
-      if step is None:
-        self._resolve(attempt)
-      self.on_step(attempt)
-      if step is None:
+      next_ = self._go(ctx, record, state, outcome, visits, closed)
+      step()
+      if next_ is None:
         return attempt
-      state, report = step
+      state, report = next_
 
   def _resolve(self, attempt: Attempt) -> None:
+    # While a visit runs, deliverables are taken from the visits before it,
+    # as an attempt that ended now would leave them, but trials, which list
+    # those of the running visit that have started.
+    running = bool(attempt.visits) and attempt.visits[-1].outcome is None
+    whole = (
+      dataclasses.replace(attempt, visits=attempt.visits[:-1])
+      if running
+      else attempt
+    )
     attempt.deliverables = [
-      _entry(name, item, attempt) for name, item in self.deliverables.items()
+      _entry(name, item, attempt if item.kind == "trials" else whole)
+      for name, item in self.deliverables.items()
     ]
 
   def _blocked(
@@ -1200,6 +1243,20 @@ def _trials(visit: Visit, root: Path) -> list[dict[str, object]]:
             "rewards": dict(trial.rewards),
             "exception": trial.exception,
           },
+        },
+      )
+    )
+  for output in visit.running:
+    path = root / "artifacts" / visit.state / str(visit.visit) / output
+    trials.append(
+      (
+        _order(output),
+        {
+          "id": None,
+          "output": output,
+          "path": str(path.relative_to(root)),
+          "trace": None,
+          "result": None,
         },
       )
     )

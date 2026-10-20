@@ -2,7 +2,13 @@
 // transitions taken, the summaries its actions wrote and its deliverables.
 import { Link } from "react-router";
 
-import type { AttemptRecord, Project } from "../../../api/types";
+import {
+  type AttemptRecord,
+  currentOf,
+  type Deliverable,
+  type LiveInfo,
+  type Project,
+} from "../../../api/types";
 import { Card } from "../../../ui/card";
 import {
   duration,
@@ -13,8 +19,10 @@ import {
   visitStart,
 } from "../../../ui/format";
 import { Markdown } from "../../../ui/markdown";
+import { Elapsed } from "../../../ui/running";
 import {
   attemptStatus,
+  liveStatus,
   NOT_RUN,
   stateTitle,
   statusOf,
@@ -33,16 +41,26 @@ interface Props {
   record: AttemptRecord;
 }
 
-export function Summary({ project, attempt, record }: Props) {
+export function Summary({
+  project,
+  attempt,
+  record,
+  live = null,
+}: Props & {
+  /** How the attempt stands now; null when that is not known. */
+  live?: LiveInfo | null;
+}) {
   const runHref = (index: number) =>
     attemptHref(project.id, attempt, { tab: "runs", run: index });
-  const machine = layout(record, project);
+  const current = currentOf(record, live);
+  const machine = layout(record, project, current);
+  const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <TopRow project={project} record={record} />
+      <TopRow project={project} record={record} live={live} />
       <Card
         title="State machine"
-        aside={`${record.visits.length} runs · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
+        aside={`${runs.toString()} runs · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
         flush
       >
         {machine ? (
@@ -62,9 +80,11 @@ export function Summary({ project, attempt, record }: Props) {
 function TopRow({
   project,
   record,
+  live,
 }: {
   project: Project;
   record: AttemptRecord;
+  live: LiveInfo | null;
 }) {
   const first = record.visits[0];
   const last = record.visits.at(-1);
@@ -72,7 +92,16 @@ function TopRow({
   const ended = last ? visitEnd(last) : undefined;
   const seconds =
     started !== undefined && ended !== undefined ? span(started, ended) : null;
-  const status = statusOf(project, attemptStatus(project, record));
+  // While it runs, the total goes on from its start; once it has stopped,
+  // or may have, it is the record's. A record read after the attempt ended
+  // is the record's, whatever /live read before.
+  const over = attemptStatus(project, record) !== null;
+  const word = over ? null : (live?.live ?? null);
+  const running = word === "running";
+  const status =
+    word !== null
+      ? liveStatus[word]
+      : statusOf(project, attemptStatus(project, record));
   const budget = record.budget;
   const missing = declaredMissing(project, record);
   const carry = carried(record);
@@ -84,7 +113,14 @@ function TopRow({
     },
     {
       key: "Total duration",
-      value: seconds === null ? "—" : duration(seconds),
+      value:
+        running && started !== undefined ? (
+          <Elapsed since={started} />
+        ) : seconds === null ? (
+          "—"
+        ) : (
+          duration(seconds)
+        ),
     },
     {
       key: "Cost",
@@ -105,12 +141,7 @@ function TopRow({
     },
     {
       key: "Deliverables",
-      value:
-        record.deliverables === undefined
-          ? "—"
-          : missing.length === 0
-            ? record.deliverables.length
-            : `${String(record.deliverables.length)} of ${String(record.deliverables.length + missing.length)}`,
+      value: deliveredOf(record.deliverables, missing.length),
     },
   ];
   return (
@@ -183,6 +214,23 @@ function Summaries({
       </div>
     </Card>
   );
+}
+
+/**
+ * The top row's Deliverables: how many of the record's deliverables have a
+ * path, of all of them and those the project declares that it lacks, when
+ * the two differ.
+ */
+function deliveredOf(
+  recorded: Deliverable[] | undefined,
+  missing: number,
+): string {
+  if (recorded === undefined) return "—";
+  const reached = recorded.filter((item) => item.path !== null).length;
+  const all = recorded.length + missing;
+  return reached === all
+    ? String(reached)
+    : `${String(reached)} of ${String(all)}`;
 }
 
 function Deliverables({ project, attempt, record }: Props) {

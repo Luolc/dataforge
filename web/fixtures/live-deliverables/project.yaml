@@ -1,0 +1,26 @@
+# A synthetic attempt caught while its pass@4 runs: its task and reviews are
+# made, two trials have ended and two still run. Made with dataforge's own
+# engine and a fake trial runner; it ran nowhere. The attempt is running only
+# while something holds attempts/task-0301/.lock, as the screenshots do with
+# `flock web/fixtures/live-deliverables/attempts/task-0301/.lock sleep 600`;
+# else it may have stopped.
+id: live
+name: Running samples
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+lock: .lock
+states:
+  build: { title: Build }
+  review: { title: Review }
+  solve: { title: pass@4 }
+statuses:
+  passed: { label: Passed, tone: good }
+  pass: { label: Pass, tone: good }
+item: { depth: 1, title: Task }
+columns: []
+deliverables:
+  - { name: task, kind: files, title: Task }
+  - { name: pass_at_k, kind: trials, title: pass@4 }
+  - { name: reviews, kind: report, title: Reviews }

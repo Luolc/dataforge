@@ -8,6 +8,7 @@ from datetime import datetime, UTC
 import json
 from pathlib import Path
 import sys
+import time
 from typing import cast, Literal, override
 
 import pytest
@@ -385,15 +386,48 @@ def test_on_step_sees_each_visit_and_the_end(
   tmp_path: Path, validator: Path
 ) -> None:
   script = Script(tasks=["valid"], verdicts=[True], solved=[1])
-  seen: list[tuple[int, str | None]] = []
-  attempt = run(
-    tmp_path,
-    validator,
-    script,
-    on_step=lambda a: seen.append((len(a.visits), a.status)),
-  )
-  assert seen == [(1, None), (2, None), (3, "passed")]
+  seen: list[tuple[int, str | None, int, str | None]] = []
+
+  def on_step(a: Attempt) -> None:
+    last = a.visits[-1]
+    seen.append((len(a.visits), last.outcome, len(last.actions), a.status))
+
+  attempt = run(tmp_path, validator, script, on_step=on_step)
+  # A visit is seen as it begins, after each of its actions and as it ends.
+  assert [step for step in seen if step[0] < 3] == [
+    (1, None, 0, None),
+    (1, None, 0, None),
+    (1, None, 1, None),
+    (1, "ok", 1, None),
+    (2, None, 0, None),
+    (2, None, 0, None),
+    (2, None, 1, None),
+    (2, "pass", 1, None),
+  ]
+  # pass@k's trials run at once, so only their count is fixed.
+  trials = [step for step in seen if step[0] == 3]
+  assert trials[0] == (3, None, 0, None)
+  assert trials[-1] == (3, "in_range", K, "passed")
+  assert len(trials) == 2 + 2 * K
   assert attempt.to_json()["status"] == "passed"
+
+
+def test_on_step_is_called_one_at_a_time(
+  tmp_path: Path, validator: Path
+) -> None:
+  script = Script(tasks=["valid"], verdicts=[True], solved=[1])
+  inside: list[int] = []
+  most: list[int] = [0]
+
+  def on_step(attempt: Attempt) -> None:
+    _ = attempt
+    inside.append(1)
+    most[0] = max(most[0], len(inside))
+    time.sleep(0.02)
+    del inside[-1]
+
+  _ = run(tmp_path, validator, script, on_step=on_step)
+  assert most == [1]
 
 
 def test_to_json_is_json(tmp_path: Path, validator: Path) -> None:
@@ -497,7 +531,7 @@ def test_a_raising_state_is_recorded_and_raised(tmp_path: Path) -> None:
   )
   with pytest.raises(OSError, match="disk full"):
     _ = machine.run(tmp_path)
-  assert seen == ["raised"]
+  assert seen == [None, "raised"]
 
 
 def test_a_raising_guard_or_on_step_adds_nothing_to_the_record(
@@ -520,7 +554,16 @@ def test_a_raising_guard_or_on_step_adds_nothing_to_the_record(
 
   with pytest.raises(RuntimeError, match="on_step broke"):
     _ = Machine(states, on_step=on_step).run(tmp_path)
-  assert [(visit.state, visit.outcome) for visit in attempts[1].visits] == [
+  assert attempts[1].visits == []
+
+  def on_step_at_the_end(attempt: Attempt) -> None:
+    attempts.append(attempt)
+    if attempt.visits[-1].outcome is not None:
+      raise RuntimeError("on_step broke")
+
+  with pytest.raises(RuntimeError, match="on_step broke"):
+    _ = Machine(states, on_step=on_step_at_the_end).run(tmp_path)
+  assert [(visit.state, visit.outcome) for visit in attempts[-1].visits] == [
     ("a", "x")
   ]
 
@@ -946,7 +989,8 @@ def test_deliverables_take_the_kept_last_or_nth_visit(tmp_path: Path) -> None:
   ]
   assert attempt.to_json()["deliverables"] == expected
   assert seen[-1] == expected
-  assert all(entries == [] for entries in seen[:-1])
+  first = cast(list[dict[str, object]], seen[0])
+  assert [entry["path"] for entry in first] == [None] * len(expected)
   assert attempt.to_json()["graph"] == machine.graph()
 
 
@@ -967,20 +1011,71 @@ def test_an_end_resolves_deliverables_before_the_last_on_step(
     },
   ).run(tmp_path)
   assert attempt.status == "passed"
+  # Begun, claimed, recorded: while the visit runs it is not taken.
+  unreached = {
+    "name": "task",
+    "kind": "files",
+    "title": "Task",
+    "state": "build",
+    "output": "task",
+    "visit": None,
+    "visit_index": None,
+    "path": None,
+    "reason": "build was never visited",
+  }
   assert seen == [
+    [unreached],
+    [unreached],
+    [unreached],
     [
-      {
-        "name": "task",
-        "kind": "files",
-        "title": "Task",
-        "state": "build",
-        "output": "task",
+      unreached
+      | {
         "visit": 1,
         "visit_index": 0,
         "path": "artifacts/build/1/task",
         "reason": None,
       }
-    ]
+    ],
+  ]
+
+
+def test_a_running_attempt_delivers_what_its_ended_visits_made(
+  tmp_path: Path,
+) -> None:
+  seen: list[tuple[str, int, str | None, object]] = []
+
+  def on_step(attempt: Attempt) -> None:
+    last = attempt.visits[-1]
+    [entry] = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
+    seen.append((last.state, last.visit, last.outcome, entry["path"]))
+
+  machine = build_and_judge(
+    {"task": Deliverable("files", "task", Source("build", "task", "last"))},
+    on_step,
+  )
+  attempt = machine.run(tmp_path)
+  assert attempt.status == "too_easy"
+  task = "artifacts/build/{}/task".format
+  assert seen == [
+    ("build", 1, None, None),
+    ("build", 1, None, None),
+    ("build", 1, None, None),
+    ("build", 1, "done", task(1)),
+    ("judge", 1, None, task(1)),
+    ("judge", 1, "easy", task(1)),
+    # While build runs again, the task is the one its last visit made.
+    ("build", 2, None, task(1)),
+    ("build", 2, None, task(1)),
+    ("build", 2, None, task(1)),
+    ("build", 2, "done", task(2)),
+    ("judge", 2, None, task(2)),
+    ("judge", 2, "hard", task(2)),
+    ("build", 3, None, task(2)),
+    ("build", 3, None, task(2)),
+    ("build", 3, None, task(2)),
+    ("build", 3, "done", task(3)),
+    # judge's cap ends the attempt before its third visit.
+    ("build", 3, "done", task(3)),
   ]
 
 
@@ -1050,7 +1145,7 @@ def test_trials_list_each_trial_with_its_id_trace_and_result(
     },
   ).run(tmp_path / "attempt")
   entries = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
-  assert seen == [entries]
+  assert seen[-1] == entries
   first = entries[0]
   assert {key: first[key] for key in ("path", "reason", "k")} == {
     "path": "artifacts/solve/1",
@@ -1100,6 +1195,58 @@ def test_trials_list_each_trial_with_its_id_trace_and_result(
       "reason": "verdict.json has no key k",
     },
   ]
+
+
+def test_a_running_visit_lists_the_trials_that_have_started(
+  tmp_path: Path,
+) -> None:
+  actions = Actions(trial_runner=NamedTrials())
+
+  def solve(ctx: Context) -> Outcome:
+    for i in (0, 1):
+      _ = actions.trial(ctx, f"trial-{i}", tmp_path, "oracle", Limits(1))
+    return Outcome("done", {"solved": 1})
+
+  seen: list[tuple[object, list[dict[str, object]]]] = []
+  keys: list[set[str]] = []
+
+  def on_step(attempt: Attempt) -> None:
+    record = attempt.to_json()
+    [entry] = cast(list[dict[str, object]], record["deliverables"])
+    seen.append((entry["k"], cast(list[dict[str, object]], entry["trials"])))
+    keys.append(set(visits_of(record)[-1]))
+
+  attempt = Machine(
+    [Step("solve", solve, {"done": End("passed")})],
+    on_step=on_step,
+    deliverables={
+      "pass_at_k": Deliverable(
+        "trials", "pass@k", Source("solve"), value=Value(["solved"])
+      )
+    },
+  ).run(tmp_path / "attempt")
+  assert attempt.status == "passed"
+  results = [
+    (k, [(trial["output"], trial["result"] is None) for trial in trials])
+    for k, trials in seen
+  ]
+  assert results == [
+    (0, []),
+    (1, [("trial-0", True)]),
+    (1, [("trial-0", False)]),
+    (2, [("trial-0", False), ("trial-1", True)]),
+    (2, [("trial-0", False), ("trial-1", False)]),
+    (2, [("trial-0", False), ("trial-1", False)]),
+  ]
+  assert seen[3][1][1] == {
+    "id": None,
+    "output": "trial-1",
+    "path": "artifacts/solve/1/trial-1",
+    "trace": None,
+    "result": None,
+  }
+  # Which trials run is for the deliverables only, not part of a visit.
+  assert all("running" not in visit for visit in keys)
 
 
 def test_a_value_from_json_nested_too_deep_has_a_reason(tmp_path: Path) -> None:
@@ -1300,8 +1447,8 @@ def killed_and_resumed(
     at: The visit to kill.
     carried_usd: What the resume carries.
     step: Which record on_step saw to resume from: -1 for the one with the
-      killed visit, -2 for the one before, as a process killed outright
-      leaves.
+      killed visit, -2 for the one as it began, -3 for the one before, as a
+      process killed outright leaves.
 
   Returns:
     The Resumable, and the attempt as the resume ended it.
@@ -1358,20 +1505,30 @@ def test_a_killed_attempt_resumes_where_it_stopped(
   assert feedback == ["report"]
 
 
+@pytest.mark.parametrize(
+  ("step", "discarded"),
+  [
+    pytest.param(-2, [("judge", 2, None)], id="as-the-visit-began"),
+    pytest.param(-3, [], id="after-the-visit-before"),
+  ],
+)
 def test_an_attempt_killed_outright_resumes_after_its_last_whole_visit(
-  tmp_path: Path,
+  tmp_path: Path, step: int, discarded: list[tuple[object, ...]]
 ) -> None:
   reference = (
     Resumable(tmp_path / "reference").machine().run(tmp_path / "reference")
   )
   fake, resumed = killed_and_resumed(
-    tmp_path / "attempt", ("judge", 2), step=-2
+    tmp_path / "attempt", ("judge", 2), step=step
   )
   assert sequence(resumed) == sequence(reference)
   visits = [(v.state, v.visit) for v in resumed.visits]
   assert fake.calls == {v: 2 if v == ("judge", 2) else 1 for v in visits}
   [resumption] = resumed.resumptions
-  assert (resumption.kept, resumption.discarded) == (7, [])
+  assert resumption.kept == 7
+  assert [
+    (d["state"], d["visit"], d["outcome"]) for d in resumption.discarded
+  ] == discarded
 
 
 def test_resume_hands_each_runner_the_sessions_of_its_states(

@@ -5,11 +5,12 @@
 // in one lane for all the edges back to its state; an edge to its own state
 // is a loop over the card.
 
-import type { AttemptRecord, Project, Tone } from "../../../api/types";
+import type { AttemptRecord, Current, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
 import {
   attemptStatus,
   endWord,
+  liveStatus,
   NOT_RUN,
   outcomeOf,
   stateTitle,
@@ -22,7 +23,10 @@ const W = 168;
 const H = 56;
 const GAP = 88;
 const X0 = 32;
-const LANE = 26;
+/** How far apart the lanes above and below the row run. */
+const LANE = 36;
+/** How far the lane nearest the row runs from the cards. */
+const NEAR = 22;
 /** The radius of an edge's corners. */
 const R = 8;
 /** The width of a character of a card's title, for its card's width. */
@@ -52,6 +56,11 @@ interface Node {
   idle: boolean;
   /** The index in visits of the state's last visit; null for none. */
   lastVisit: number | null;
+  /**
+   * The state the attempt runs now: when its visit began, null when that is
+   * not known, and the seconds of its visits before it; null for any other.
+   */
+  running: { since: string | null; before: number } | null;
 }
 
 interface LabelPart {
@@ -86,19 +95,24 @@ export interface Layout {
 
 /**
  * How many times the attempt took each transition, by "from\0outcome": a
- * visit took it when the next visit is of the state it goes to, or, for the
- * last visit, when it goes to the end and the attempt has ended with a
+ * visit took it when the next visit is of the state it goes to, the visit
+ * the attempt runs now that its record does not hold yet included, or, for
+ * the last visit, when it goes to the end and the attempt has ended with a
  * status.
  */
 export function takenCounts(
   record: AttemptRecord,
   project: Project,
+  current: Current | null = null,
 ): Map<string, number> {
   const ended = endWord(project, record) !== null;
   const counts = new Map<string, number>();
   const edges = record.graph?.edges ?? [];
+  const pending = current !== null && !current.recorded ? current : null;
   record.visits.forEach((visit, i) => {
-    const next = record.visits[i + 1];
+    const next =
+      record.visits[i + 1] ??
+      (pending && i === record.visits.length - 1 ? pending : undefined);
     const edge = edges.find(
       (e) => e.from === visit.state && e.outcome === visit.outcome,
     );
@@ -154,13 +168,20 @@ function rounded(points: [number, number][]): string {
   return d;
 }
 
-/** Lay out the record's graph; null when the record has none. */
-export function layout(record: AttemptRecord, project: Project): Layout | null {
+/**
+ * Lay out the record's graph, with current, the visit a running attempt is
+ * in (currentOf), drawn as running; null when the record has none.
+ */
+export function layout(
+  record: AttemptRecord,
+  project: Project,
+  current: Current | null = null,
+): Layout | null {
   const graph = record.graph;
   if (!graph) return null;
   const order = [...graph.states.map((s) => s.name), END];
   const at = (key: string) => order.indexOf(key);
-  const taken = takenCounts(record, project);
+  const taken = takenCounts(record, project, current);
   const attemptEnded = attemptStatus(project, record) !== null;
 
   const nodes = order.map((key): Node => {
@@ -179,11 +200,35 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
         status: ended ? status : null,
         idle: !ended,
         lastVisit: null,
+        running: null,
       };
     }
     const mine = record.visits.filter((v) => v.state === key);
     const last = mine.at(-1);
     const seconds = mine.reduce((sum, v) => sum + (visitSeconds(v) ?? 0), 0);
+    if (current?.state === key) {
+      const done = current.recorded ? mine.slice(0, -1) : mine;
+      const runs = done.length + 1;
+      return {
+        ...box,
+        title: stateTitle(project, key),
+        sub: `${runs.toString()} run${runs > 1 ? "s" : ""} · ${liveStatus.running.label}`,
+        time: null,
+        word: null,
+        ended: false,
+        status: liveStatus.running,
+        idle: false,
+        lastVisit: current.recorded
+          ? current.index
+          : last
+            ? record.visits.lastIndexOf(last)
+            : null,
+        running: {
+          since: current.since,
+          before: done.reduce((sum, v) => sum + (visitSeconds(v) ?? 0), 0),
+        },
+      };
+    }
     return {
       ...box,
       title: stateTitle(project, key),
@@ -197,6 +242,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
       status: last ? outcomeOf(project, last.outcome, attemptEnded) : null,
       idle: mine.length === 0,
       lastVisit: last ? record.visits.lastIndexOf(last) : null,
+      running: null,
     };
   });
   let left = X0;
@@ -246,7 +292,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
   const backCount = Math.max(0, ...[...backLane.values()].map((l) => l + 1));
 
   const loops = all.some((g) => g.span === 0);
-  const top = 24 + Math.max(aheadCount * LANE, loops ? 34 : 0) + 18;
+  const top = 24 + Math.max(aheadCount * LANE, loops ? 34 : 0) + NEAR;
   const row = top + H / 2;
   const bottom = top + H;
   const height = bottom + backCount * LANE + 28;
@@ -312,7 +358,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
     }
     if (g.span > 1) {
       const lane = aheadLane[ahead.indexOf(g)] ?? 0;
-      const y1 = top - 18 - lane * LANE;
+      const y1 = top - NEAR - lane * LANE;
       const outs = ahead
         .filter((o) => o.from === g.from)
         .map((o) => ({ key: o.key, lane: aheadLane[ahead.indexOf(o)] ?? 0 }));
@@ -340,7 +386,7 @@ export function layout(record: AttemptRecord, project: Project): Layout | null {
       };
     }
     const lane = backLane.get(g.to) ?? 0;
-    const y1 = bottom + 16 + lane * LANE;
+    const y1 = bottom + NEAR + lane * LANE;
     const outs = back
       .filter((o) => o.from === g.from)
       .map((o) => ({ key: o.key, lane: backLane.get(o.to) ?? 0 }));

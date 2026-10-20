@@ -282,3 +282,61 @@ describe("what was not run or not taken, at rest", () => {
       expect(contrast(hex(c), hex("app"))).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("a running attempt's machine", () => {
+  const smoke = {
+    state: "smoke",
+    visit: 1,
+    index: 2,
+    recorded: true,
+    since: "2026-03-09T13:16:40+00:00",
+  };
+
+  function showRunning() {
+    const drawn = must(layout(record.parse(early), project, smoke));
+    render(
+      <MemoryRouter>
+        <Graph project={project} layout={drawn} runHref={() => "/run"} />
+      </MemoryRouter>,
+    );
+    const graph = screen.getByRole("group", { name: "State machine" });
+    const x = Number(
+      /translate\((-?[\d.]+)/.exec(
+        must(graph.querySelector("g")).getAttribute("transform") ?? "",
+      )?.[1],
+    );
+    return { drawn, graph, x };
+  }
+
+  it("opens with the state it runs in the middle of the frame", () => {
+    frameOf(600, 300);
+    const { drawn, x } = showRunning();
+    const node = must(drawn.nodes.find((n) => n.key === "smoke"));
+
+    expect(x).toBeLessThan(0);
+    expect(x + (node.x + node.width / 2)).toBeCloseTo(300);
+  });
+
+  it("opens at its left end when no state runs", () => {
+    frameOf(600, 300);
+    const { graph } = show(early);
+
+    expect(must(graph.querySelector("g")).getAttribute("transform")).toMatch(
+      /^translate\(0 0\)/,
+    );
+  });
+
+  it("turns the running state's icon, standing still for reduced motion", () => {
+    frameOf(600, 300);
+    const { graph } = showRunning();
+    const node = must(graph.querySelector<HTMLElement>('[data-node="smoke"]'));
+    const icon = within(node).getByRole("img", {
+      name: "Running",
+    });
+
+    expect(icon.querySelector("svg")).toHaveClass(
+      "animate-spin",
+      "motion-reduce:animate-none",
+    );
+  });
+});
