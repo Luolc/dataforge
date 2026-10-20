@@ -826,6 +826,34 @@ def test_a_script_in_docker_writes_its_summary(tmp_path: Path) -> None:
   assert inside.stat().st_mode & 0o777 == 0o777
 
 
+def test_a_script_in_a_mount_copies_out_only_its_summary(
+  tmp_path: Path,
+) -> None:
+  source = tmp_path / "out"
+  source.mkdir()
+  docker = SummaryDocker(tmp_path / "container")
+  with Docker(
+    "builder:1", outputs=Mount(source, "/out", read_only=False), cli=docker
+  ) as env:
+
+    def body(ctx: Context) -> Outcome:
+      _ = (source / "built").write_text("in the mount")
+      spec = ScriptSpec(["true"], outputs=["built"])
+      return Outcome(Actions().script(ctx, spec, env).status)
+
+    attempt = Machine([Once(body)]).run(tmp_path / "attempt")
+  visit = attempt.visits[0]
+  assert visit.actions[0].summary == "in docker\n"
+  assert visit.outputs["built"].read_text() == "in the mount"
+  copied_out = [
+    call
+    for call in docker.calls
+    if call[0] == "cp" and call[1].startswith("c1:")
+  ]
+  summaries = tmp_path / "attempt" / "summaries" / "a" / "1" / "1"
+  assert copied_out == [["cp", "c1:/dataforge/a/1/1/summary/.", str(summaries)]]
+
+
 def test_a_summary_that_is_a_symlink_is_never_read(tmp_path: Path) -> None:
   secret = tmp_path / "host-only.txt"
   _ = secret.write_text("host-only text")
