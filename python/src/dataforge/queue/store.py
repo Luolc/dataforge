@@ -325,10 +325,8 @@ def jobs(
     ValueError: When a state is not one of STATES, or by is neither.
     FileNotFoundError: When the database does not exist yet.
   """  # noqa: DOC503
-  orders = {
-    "id": "id DESC",
-    "ended_at": "ended_at IS NULL, ended_at DESC, id DESC",
-  }
+  # SQLite sorts NULL first, so a job not ended comes last in DESC.
+  orders = {"id": "id DESC", "ended_at": "ended_at DESC, id DESC"}
   if by not in orders:
     raise ValueError(f"unknown order {by}")
   where, params = _where(queue, states)
