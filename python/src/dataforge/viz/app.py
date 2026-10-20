@@ -107,7 +107,7 @@ class _Api:
     return Response(data, media_type="application/octet-stream")
 
   def monitor_runs(self, p: str) -> Response:
-    return JSONResponse(monitor.runs(self._monitor(p)))
+    return self._monitor(p, monitor.runs)
 
   def monitor_window(
     self,
@@ -116,14 +116,14 @@ class _Api:
     t0: str | None = None,
     t1: str | None = None,
   ) -> Response:
-    db = self._monitor(p)
-    return JSONResponse(
-      monitor.window(
+    return self._monitor(
+      p,
+      lambda db: monitor.window(
         db,
         _integer("run", run),
         None if t0 is None else _seconds("t0", t0),
         None if t1 is None else _seconds("t1", t1),
-      )
+      ),
     )
 
   def monitor_curve(
@@ -135,16 +135,16 @@ class _Api:
     attempt: str | None = None,
     container: str | None = None,
   ) -> Response:
-    db = self._monitor(p)
-    return JSONResponse(
-      monitor.curve(
+    return self._monitor(
+      p,
+      lambda db: monitor.curve(
         db,
         _integer("run", run),
         _seconds("t0", t0),
         _seconds("t1", t1),
         attempt,
         container,
-      )
+      ),
     )
 
   def no_route(self, rest: str) -> Response:
@@ -158,11 +158,23 @@ class _Api:
       raise RefusedError(404, f"no project {p!r}")
     return self._projects[p]
 
-  def _monitor(self, p: str) -> Path:
-    db = self._project(p).monitor
-    if db is None:
+  def _monitor(self, p: str, read: Callable[[Path], object]) -> Response:
+    project = self._project(p)
+    if project.monitor is None:
       raise RefusedError(404, f"the project {p!r} names no monitor database")
-    return db
+    try:
+      return JSONResponse(read(project.monitor))
+    except monitor.MissingError as missing:
+      # Not an error to show but a state of its own: the page tells how to
+      # start, naming the database as the project file does.
+      return JSONResponse(
+        {
+          "error": "no database",
+          "reason": missing.reason,
+          "db": project.monitor_shown,
+        },
+        status_code=404,
+      )
 
 
 def _attempt(value: str | None) -> str:

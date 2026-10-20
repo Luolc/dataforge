@@ -177,11 +177,39 @@ def test_a_project_with_no_monitor_says_so(tree: Tree, tmp_path: Path) -> None:
   assert "names no monitor database" in response.json()["reason"]
 
 
-def test_a_missing_database_is_a_reason_not_a_crash(web: TestClient) -> None:
+@pytest.mark.parametrize(
+  "query", ["runs", "window?run=1", "curve?run=1&t0=0&t1=1&attempt=a"]
+)
+def test_a_missing_database_is_a_state_of_its_own(
+  web: TestClient, query: str
+) -> None:
+  response = web.get(f"{API}/{query}")
+
+  assert response.status_code == 404
+  assert response.json() == {
+    "error": "no database",
+    "reason": "no sampler has written the monitor database yet",
+    "db": "../monitor.sqlite",
+  }
+
+
+def test_a_database_that_cannot_be_reached_is_no_missing_one(
+  tree: Tree, tmp_path: Path
+) -> None:
+  # The path runs through a regular file: lstat fails with ENOTDIR, which
+  # says nothing of whether a sampler has written the database.
+  _ = (tree.root.parent / "file").write_text("")
+  _ = tree.project.write_text(
+    PROJECT + "monitor: {db: ../file/monitor.sqlite}\n"
+  )
+  static = tmp_path / "dist"
+  static.mkdir()
+  web = TestClient(create_app(load_site(tree.site), static))
+
   response = web.get(f"{API}/runs")
 
   assert response.status_code == 503
-  assert response.json()["reason"] == "the monitor database does not exist"
+  assert "db" not in response.json()
 
 
 @pytest.mark.parametrize("name", ["monitor.sqlite", "monitor.sqlite-shm"])
