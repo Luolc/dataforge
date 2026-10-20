@@ -1,0 +1,29 @@
+id = 47
+slug = "frontend-screenshot-largest-fixture"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["evidence.grounds"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Also screenshot each changed page with its largest fixture"
+
+[text.statement]
+en = "Attach to a pull request that changes how a page looks, besides the screenshots {@rule:R244} asks for, one of each page it changes loaded with the fixture that holds the most items for that page."
+
+[text.reason]
+en = '''
+A page that reads well with three rows can break with three hundred: folding, truncation and row height show their worth only on the largest data the page will get.
+'''
+
+[text.verification]
+en = '''
+Violated when such a pull request lacks, for a page it changes, a screenshot with the fixture that holds the most items for it.
+'''

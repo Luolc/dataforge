@@ -1,0 +1,31 @@
+id = 46
+slug = "frontend-cut-text-opens-whole"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["decency.no-hallucination"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Never cut a text without a way to show the whole"
+
+[text.statement]
+en = "Never cut a text on a page without a control with it that shows the whole text."
+
+[text.reason]
+en = '''
+Long tool outputs, prompts and logs are cut to keep a page readable; the reader must still be able to read all of it, since the line that matters is often in the part cut out.
+'''
+
+[text.verification]
+en = '''
+A one-line summary that opens into the whole text when clicked has such a control.
+
+Violated when a page shows part of a text with no control with it that shows the whole.
+'''

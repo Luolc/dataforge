@@ -363,6 +363,30 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - R342 Run the formatter, linter and docstring checker that a Python project configures, and the check that its lock file is current, in the repository's commit hooks.
 - R343 Run every check that a Python project configures, its type check and tests among them, in CI on every change.
 
+### Frontend
+
+- R241 In a page's styles, name a design token for every color, font size, font weight, spacing, corner radius, shadow, duration and easing, and write the value itself only where the tokens are defined.
+- R242 Take every icon on a repository's pages from the one icon library the repository has chosen; draw none by hand, and use no character or emoji as an icon.
+- R243 When the reader's system asks for reduced motion (`prefers-reduced-motion: reduce`), let nothing on a page move or change size, and keep only the fades that show a change of state.
+- R244 Attach to a pull request that changes how a page looks screenshots of each page it changes, in each theme and each language the site has, made with the repository's screenshot script where it has one.
+- R245 When you review a change to how a page looks, go through the repository's frontend design against it point by point, and name in the verdict each point the change breaks.
+- R246 Make every element on a page that can be clicked or tapped at least 24px by 24px, its padding counted, and at least 44px by 44px where the pointer is coarse (`pointer: coarse`, a touch screen).
+- R247 Give every control on a page that opens or folds another part of it `aria-expanded`, saying whether that part is open, and `aria-controls`, naming that part.
+- R248 Put every hover style of a page under the media query `(hover: hover) and (pointer: fine)`, so that it applies only where there is a fine pointer that can hover.
+- L36 Keep out of this repository's frontend code every status word, label and route that only one dataset has, and take each as configuration from the project that uses the frontend.
+- L37 Define the status words of each kind of object in one place, and take every status word a page shows from there.
+- L38 Color every status on a page with the tokens of one of four tones, `good`, `bad`, `warn` and `neutral`, and with no other color.
+- L39 Show every status with its word or with an icon whose shape no status of another tone (L38) uses, never by color alone or by a single letter.
+- L40 Show a state or a deliverable that an attempt never reached as not run, never as failed or passed.
+- L41 Right-align every column of numbers in a table on a page.
+- L42 Set every column of numbers in a table on a page with tabular figures (`font-variant-numeric: tabular-nums`).
+- L43 Format every cost, duration and point in time a page shows through the frontend's one formatter for each, never in the component that shows it.
+- L44 Write in the row of every folded group how many items it holds and how many of them have a status of tone `bad` or `warn` (L38), as in `2 of 4 failed`.
+- L45 When a filter hides items of a list, say at the list how many items it hides.
+- L46 Never cut a text on a page without a control with it that shows the whole text.
+- L47 Attach to a pull request that changes how a page looks, besides the screenshots R244 asks for, one of each page it changes loaded with the fixture that holds the most items for that page.
+- L48 Make every fixture that the frontend's tests, demos and screenshots load synthetic: no real person's name, no real repository owner, and no identifier of a real run, machine or private resource.
+
 ### Shared Resources
 
 - R335 When you share a resource whose capacity is limited with other tasks, such as a machine's processors and memory, an API account with a shared quota or a service with a rate limit, use only your fair share of it, and never take so much at once that it slows or stops the other tasks.
