@@ -1,0 +1,4 @@
+# For the run page's Markdown screenshots: `dataforge viz serve --config
+# web/fixtures/runmd/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8807 }
+projects: [project.yaml]
