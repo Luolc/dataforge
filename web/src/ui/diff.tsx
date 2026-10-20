@@ -45,7 +45,7 @@ export function DiffView({ text }: { text: string }) {
   const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n");
   const kinds = diffKinds(lines);
   return (
-    <div className="overflow-auto py-2.5 font-mono text-code tracking-normal">
+    <div className="overflow-auto bg-code-bg py-2.5 font-mono text-code tracking-normal">
       <pre className="min-w-fit">
         {lines.map((line, i) => {
           const kind = kinds[i] ?? "context";

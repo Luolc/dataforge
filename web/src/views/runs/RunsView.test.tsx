@@ -30,6 +30,14 @@ afterEach(() => {
 });
 
 describe("the Runs column", () => {
+  it("stands each run's icon on its title's line, not between the two lines", () => {
+    const runs = show({ ...sampleProject, not_ended: ["running"] });
+
+    // A box one line high at the top of the entry: centred on the title.
+    const box = runs.getByRole("img", { name: "No outcome" }).parentElement;
+    expect(box).toHaveClass("h-lh", "self-start", "items-center");
+  });
+
   it("shows a run with no outcome as No outcome once its attempt ended", () => {
     const runs = show({ ...sampleProject, not_ended: ["running"] });
 

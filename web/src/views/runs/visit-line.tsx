@@ -16,7 +16,11 @@ export function VisitLine({
   const seconds = visitSeconds(visit);
   return (
     <>
-      <StatusIcon project={project} word={visit.outcome} ended={ended} />
+      {/* A box one line of the title high, so the icon stands on its first
+          line rather than between the two. */}
+      <span className="flex h-lh flex-none items-center self-start">
+        <StatusIcon project={project} word={visit.outcome} ended={ended} />
+      </span>
       <span className="min-w-0 flex-auto">
         <span className="block break-words">
           {stateTitle(project, visit.state)}

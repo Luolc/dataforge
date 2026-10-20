@@ -51,7 +51,7 @@ function Files({
   const selected = chosen ?? (first.state === "ok" ? first.data : null);
   return (
     <div className="grid grid-cols-[minmax(calc(var(--spacing)*48),calc(var(--spacing)*64))_1fr]">
-      <div className="border-r border-line">
+      <div className="border-r border-line bg-tree">
         {/* The tree opens the folders above the file first shown. */}
         {(chosen !== null || first.state !== "loading") && (
           <Tree

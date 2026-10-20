@@ -79,7 +79,7 @@ function itemsOf(title: string): string[] {
     heading.getAttribute("aria-controls") ?? "",
   );
   if (!body) throw new Error(`no body for ${title}`);
-  return [...body.querySelectorAll("tr:not([hidden]) td:first-child a")].map(
+  return [...body.querySelectorAll("tr:not([hidden]) td:nth-child(2) a")].map(
     (a) => a.textContent,
   );
 }
@@ -299,6 +299,41 @@ describe("the home page", () => {
       ROWS[3] = { ...must(ROWS[3]), values: [] };
     }
   });
+
+  it("shows each row's status as an icon first, a spinner while it runs", async () => {
+    // With older records shown, so the unreadable one has its row too.
+    show("/sample?older=1");
+    await screen.findByText("t-run");
+
+    const first = (id: string) =>
+      must(
+        screen.getByText(id).closest("tr")?.querySelector("td") ?? undefined,
+      );
+    const running = within(first("t-run")).getByRole("img", {
+      name: "Running",
+    });
+    const spinner = must(running.querySelector("svg") ?? undefined);
+    expect(spinner).toHaveClass("lucide-loader-circle", "animate-spin");
+    // It stands still when the reader asks for reduced motion (R243).
+    expect(spinner).toHaveClass("motion-reduce:animate-none");
+
+    const icon = (id: string, name: string) =>
+      must(
+        within(first(id)).getByRole("img", { name }).querySelector("svg") ??
+          undefined,
+      );
+    expect(icon("t-new", "Too easy")).toHaveClass("lucide-circle-alert");
+    expect(icon("t-old", "Passed")).toHaveClass("lucide-circle-check");
+    expect(icon("t-bad", "Unreadable")).toHaveClass("lucide-circle-x");
+    // The icon's box is the same target box as the item's link beside it,
+    // so the two stand centred on one line.
+    expect(running.parentElement).toHaveClass("target", "items-center");
+    expect(
+      within(
+        screen.getByText("t-run").closest("tr") ?? document.body,
+      ).getByRole("link", { name: "t-run" }),
+    ).toHaveClass("target", "items-center");
+  });
 });
 
 describe("the home page's empty attempts", () => {
@@ -328,7 +363,8 @@ describe("the home page's empty attempts", () => {
   });
 
   const ids = () =>
-    [...document.querySelectorAll("tbody td:first-child a")].map(
+    // The item is in the second cell: the first holds its status icon.
+    [...document.querySelectorAll("tbody td:nth-child(2) a")].map(
       (a) => a.textContent,
     );
 

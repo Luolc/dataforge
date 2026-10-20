@@ -29,7 +29,7 @@ export function Preview({
   const content = loaded.state === "ok" ? loaded.data : null;
   return (
     <div className="min-w-0">
-      <header className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-2.5">
+      <header className="flex items-baseline justify-between gap-3 border-b border-line bg-head px-4 py-2.5">
         <h3 className="font-mono text-xs break-all">{name}</h3>
         {content?.kind === "text" && (
           <span className="flex-none text-xs text-fg-3 tabular-nums">

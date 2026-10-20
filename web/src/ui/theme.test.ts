@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { TEMPLATES } from "./template";
+
 // Tests run from web/.
 const theme = readFileSync("src/ui/theme.css", "utf8");
 const main = readFileSync("src/main.tsx", "utf8");
@@ -17,12 +19,6 @@ const names = (prefix: string) =>
 const value = (token: string) =>
   new RegExp(`--${token}:\\s*([^;]+);`).exec(theme)?.[1]?.trim() ?? "";
 
-const color = (name: string) => {
-  const hex = value(`color-${name}`);
-  expect(hex).toMatch(/^#[0-9a-f]{6}$/);
-  return hex;
-};
-
 // WCAG 2 contrast ratio of two opaque colours.
 const contrast = (a: string, b: string) => {
   const luminance = (hex: string) => {
@@ -36,7 +32,59 @@ const contrast = (a: string, b: string) => {
   return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
 };
 
-const tones = ["good", "bad", "warn", "neutral"];
+const tones = ["good", "bad", "warn", "neutral"] as const;
+
+// Each template's colour tokens: the default's in @theme, every other's in
+// its own html[data-template] block.
+const colours = (block: string) =>
+  new Map(
+    [...block.matchAll(/--color-([a-z0-9-]+):\s*([^;]+);/g)].map((m) => [
+      m[1] ?? "",
+      (m[2] ?? "").trim(),
+    ]),
+  );
+const themeBlock = /@theme \{([\s\S]*?)\n\}/.exec(theme)?.[1] ?? "";
+const templateIds: string[] = TEMPLATES.map((t) => t.id);
+const blocks = new Map(
+  templateIds.map((id) => [
+    id,
+    id === "contrast"
+      ? colours(themeBlock)
+      : colours(
+          new RegExp(`html\\[data-template="${id}"\\] \\{([^}]*)\\}`).exec(
+            theme,
+          )?.[1] ?? "",
+        ),
+  ]),
+);
+
+// A token's colour in a template, following var(--color-...) within it.
+const colour = (id: string, name: string): string => {
+  const v = blocks.get(id)?.get(name) ?? "";
+  const ref = /^var\(--color-([a-z0-9-]+)\)$/.exec(v);
+  if (ref) return colour(id, ref[1] ?? "");
+  expect(`${id}: --color-${name}: ${v}`).toMatch(/: #[0-9a-f]{6}$/);
+  return v;
+};
+
+// [template, text token, surface token, the least ratio]
+const pairs = (
+  texts: string[],
+  surfaces: string[],
+  least: number,
+): [string, string, string, number][] =>
+  templateIds.flatMap((id) =>
+    texts.flatMap((t) =>
+      surfaces.map((bg): [string, string, string, number] => [
+        id,
+        t,
+        bg,
+        least,
+      ]),
+    ),
+  );
+
+const surfaces = ["panel", "card", "head", "hover", "active"];
 
 describe("the theme's tokens", () => {
   // Tailwind reads text-<name> as a colour when --color-<name> exists, so a
@@ -64,35 +112,90 @@ describe("the theme's tokens", () => {
     expect(theme).not.toMatch(/font-variant-ligatures/);
   });
 
-  it.each(
-    tones.flatMap((tone) =>
-      ["panel", "hover", "active", "code-bg", `${tone}-bg`].map((bg) => [
+  it("draw the dark template in a dark colour scheme", () => {
+    expect(theme).toMatch(
+      /html\[data-template="dark"\] \{\s*color-scheme: dark;/,
+    );
+  });
+
+  it.each(templateIds)("%s: list each colour token the default has", (id) => {
+    const names = [...(blocks.get("contrast")?.keys() ?? [])];
+    expect(names.length).toBeGreaterThan(40);
+    expect([...(blocks.get(id)?.keys() ?? [])]).toEqual(names);
+  });
+
+  it.each([
+    ...pairs([...tones], [...surfaces, "neutral-bg"], 7),
+    ...tones.flatMap((tone) =>
+      templateIds.map((id): [string, string, string, number] => [
+        id,
         tone,
-        bg,
+        `${tone}-bg`,
+        7,
       ]),
     ),
-  )("give %s text at least 4.5:1 on %s", (tone = "", bg = "") => {
-    expect(contrast(color(tone), color(bg))).toBeGreaterThanOrEqual(4.5);
+    ...tones.flatMap((tone) =>
+      templateIds.map((id): [string, string, string, number] => [
+        id,
+        `${tone}-label-fg`,
+        `${tone}-label`,
+        7,
+      ]),
+    ),
+    ...pairs(
+      ["fg"],
+      [...surfaces, "app", "group", "tree", "code-bg", "chip"],
+      7,
+    ),
+    ...pairs(["fg-2"], [...surfaces, "group", "tree", "chip"], 7),
+    ...pairs(["fg-3"], ["panel", "card", "head", "tree", "chip"], 7),
+    ...pairs(["chip-on-fg", "chip-on-count"], ["chip-on"], 7),
+    ...pairs(["accent"], ["panel", "hover", "active"], 4.5),
+    ...pairs(
+      ["faint"],
+      [...surfaces, "app", "group", "tree", "code-bg", "code-gutter"],
+      4.5,
+    ),
+    ...pairs(
+      [
+        "syn-comment",
+        "syn-string",
+        "syn-keyword",
+        "syn-number",
+        "syn-function",
+        "syn-variable",
+        "syn-key",
+      ],
+      ["code-bg"],
+      4.5,
+    ),
+    ...pairs(["chip-line", "icon"], ["panel", "card", "tree"], 3),
+    ...pairs([...tones], ["tree", "group"], 3),
+  ])("%s: %s on %s at least %d:1", (id, text, bg, least) => {
+    expect(contrast(colour(id, text), colour(id, bg))).toBeGreaterThanOrEqual(
+      least,
+    );
   });
 
-  it.each(["app", "panel", "hover", "active"])(
-    "give the faintest body text, fg-3, at least 4.5:1 on %s",
-    (bg) => {
-      expect(contrast(color("fg-3"), color(bg))).toBeGreaterThanOrEqual(4.5);
+  it.each(templateIds)(
+    "%s: give the surfaces their steps, with code apart from the card",
+    (id) => {
+      expect(colour(id, "code-bg")).not.toBe(colour(id, "card"));
+      expect(colour(id, "head")).not.toBe(colour(id, "card"));
+      expect(colour(id, "group")).not.toBe(colour(id, "panel"));
     },
   );
 
-  it.each(tones)("draw the on-tone glyph at least 3:1 on a %s fill", (tone) => {
-    expect(contrast(color("on-tone"), color(tone))).toBeGreaterThanOrEqual(3);
+  it("give a link the accent through its utility", () => {
+    expect(theme).toMatch(/@utility link \{\s*color: var\(--color-accent\);/);
   });
 
-  it.each(["panel", "hover", "active"])(
-    "give a link, in the accent, at least 4.5:1 on %s",
-    (bg) => {
-      expect(theme).toMatch(/@utility link \{\s*color: var\(--color-accent\);/);
-      expect(contrast(color("accent"), color(bg))).toBeGreaterThanOrEqual(4.5);
-    },
-  );
+  it("draw every Lucide icon at the one stroke width", () => {
+    expect(theme).toMatch(
+      /svg\.lucide \{\s*stroke-width: var\(--icon-stroke\);/,
+    );
+    expect(theme).toMatch(/--icon-stroke: 1\.75;/);
+  });
 
   it("ring focus in the accent", () => {
     expect(value("color-focus")).toBe("var(--color-accent)");
