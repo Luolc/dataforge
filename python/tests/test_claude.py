@@ -743,11 +743,14 @@ def test_a_sessions_repr_leaves_out_its_env() -> None:
 def test_a_restored_runner_goes_on_with_the_session_and_its_numbers(
   tmp_path: Path,
 ) -> None:
+  # The second run is killed: it prints no result, and nothing checkpoints
+  # it, so the session's total stays at the first run's.
   fake = Fake(
     tmp_path,
     [
       {"lines": [result(session_id="s1", total_cost_usd=1)]},
-      {"lines": [result(session_id="s1", total_cost_usd=1.5)]},
+      {"lines": []},
+      {"lines": [result(session_id="s1", total_cost_usd=1.3)]},
     ],
   )
   runs = tmp_path / "runs"
@@ -756,6 +759,7 @@ def test_a_restored_runner_goes_on_with_the_session_and_its_numbers(
   task = AgentTask("Go.", {}, str(tmp_path), None)
   first = claude.Runner(fake.session, files, continue_session=True)
   point = first.checkpoint(first.start(spec, task, HOST).session)
+  _ = first.start(spec, task, HOST)
   spent: list[float] = []
   second = claude.Runner(
     fake.session, files, continue_session=True, spent=spent.append
@@ -764,10 +768,11 @@ def test_a_restored_runner_goes_on_with_the_session_and_its_numbers(
 
   found = second.start(spec, task, HOST)
 
-  assert spent == [pytest.approx(0.5)]
-  assert option(fake.argv(2), "--resume") == ["s1"]
-  assert fake.calls()[1]["cwd"] == str(runs / "session-1")
-  assert (runs / "session-2.trace.jsonl").exists()
+  assert spent == [pytest.approx(0.3)]
+  assert option(fake.argv(3), "--resume") == ["s1"]
+  assert fake.calls()[2]["cwd"] == str(runs / "session-1")
+  assert len(fake.calls()) == 3
+  assert found.trace == runs / "session-2.trace.jsonl"
   assert found.trace_format == "claude-code-stream-json"
 
 

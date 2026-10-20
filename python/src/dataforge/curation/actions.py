@@ -1137,8 +1137,9 @@ class Actions:
           run = runner.resume(run.session, _fix_prompt(check.log))
           cost += run.cost_usd
           log.append(run.result)
-      finally:
+        # Only once every run of the action has returned.
         session = _checkpoint(runner, run.session)
+      finally:
         close = getattr(runner, "close", None)
         if callable(close):
           _ = close(run.session)

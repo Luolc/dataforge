@@ -776,9 +776,12 @@ class Runner:
     """Go on as the runner whose runs checkpoint gave points would.
 
     Starts are numbered on after the highest start number of points, so that
-    no run's files are written over. With `continue_session`, `current`
-    becomes the session of that start, so that the next start resumes it and
-    counts as its cost only what the session's total grows by.
+    no checkpointed run's files are written over; the files of a later run,
+    such as one killed before it ended, are, unless the caller moves them.
+    With `continue_session`, `current` becomes the session of that start,
+    with the total it had then, so that the next start resumes it and counts
+    as its cost only what the session's total grows by: a run killed before
+    its result added nothing to that total.
 
     Args:
       points: What checkpoint gave, for the runs of an attempt.
