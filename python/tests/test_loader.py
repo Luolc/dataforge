@@ -1196,6 +1196,42 @@ def test_an_inputs_value_reaches_the_engines_templates_as_given(
   )
 
 
+def test_report_outputs_load_as_a_list_of_names(tmp_path: Path) -> None:
+  files(tmp_path)
+  doc = agent_doc()
+  put("states.write.with.report_outputs", ["changes.md"])(doc)
+  state = load_doc(doc, {}, base_dir=tmp_path).states[0]
+  assert isinstance(state, AgentState)
+  assert state.report_outputs == ("changes.md",)
+  default = load_doc(agent_doc(), {}, base_dir=tmp_path).states[0]
+  assert isinstance(default, AgentState)
+  assert default.report_outputs == ()
+
+
+@pytest.mark.parametrize(
+  ("value", "error"),
+  [
+    (
+      "changes.md",
+      "states.write.with.report_outputs: expected a list, got a string",
+    ),
+    (
+      [7],
+      "states.write.with.report_outputs[0]: expected a string, got an integer",
+    ),
+  ],
+)
+def test_report_outputs_of_the_wrong_type_name_the_field(
+  tmp_path: Path, value: object, error: str
+) -> None:
+  files(tmp_path)
+  doc = agent_doc()
+  put("states.write.with.report_outputs", value)(doc)
+  with pytest.raises(SpecError) as raised:
+    _ = load_doc(doc, {}, base_dir=tmp_path)
+  assert str(raised.value) == error
+
+
 def test_an_input_outside_a_template_is_inserted_as_given() -> None:
   doc = base()
   machine = load_doc(doc, {**INPUTS, "item": "$5"})
