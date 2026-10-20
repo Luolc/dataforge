@@ -31,6 +31,8 @@ export default function ReportView({
   else if (loaded.state === "error") body = loaded.message;
   else if (loaded.data.kind === "too-large") {
     body = `Not shown: ${loaded.data.reason}`;
+  } else if (loaded.data.kind === "missing") {
+    body = loaded.data.reason;
   } else if (loaded.data.kind === "binary") {
     body = `Not shown: not UTF-8 text, ${size(loaded.data.size)}.`;
   }
