@@ -10,8 +10,9 @@ process that started it ends, killed or not.
 
 With a `Spend`, it prices each reply as it passes it on and, once the session
 has cost `max_usd` or a reply could not be priced, refuses every later request
-with 403, lets the replies under way finish, and exits with `CAPPED`, which ends
-the session. With a ledger, it writes each reply down (`spend.record`).
+with 403, lets the replies under way finish and then prints `DRAINED`, on which
+`serve` takes the socket over and ends the session. With a ledger, it writes
+each reply down (`spend.record`).
 
 Run as `python -I -m dataforge.gateway.proxy --channel <channel> --socket
 <path> --parent <pid>` with `--pause`, `--ledger` and `--spend` as given.
@@ -34,14 +35,11 @@ import threading
 from typing import cast, final, override
 import urllib.parse
 
-from dataforge.gateway.channels import BILLED, Channel, ROUTES
+from dataforge.gateway import channels
+from dataforge.gateway.channels import BILLED, Channel, DRAINED, ROUTES
 from dataforge.gateway.pause import Pause
 from dataforge.gateway.spend import Meter, now, price, record, Spend
 
-# The proxy's exit status once its cap ended the session.
-CAPPED = 9
-# The largest request body the proxy reads, chunked or not.
-MAX_BODY = 64 * 2**20
 # How long the proxy waits for the gateway's answer to one request.
 UPSTREAM_TIMEOUT = 600
 # Request headers the proxy sets itself, that carry a credential, or that
@@ -115,7 +113,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
       raise _BadRequestError(400) from None
     if length < 0:
       raise _BadRequestError(400)
-    if length > MAX_BODY:
+    if length > channels.MAX_BODY:
       raise _BadRequestError(413)
     return self.rfile.read(length)
 
@@ -133,7 +131,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
       if length == 0:
         break
       size += length
-      if size > MAX_BODY:
+      if size > channels.MAX_BODY:
         raise _BadRequestError(413)
       chunk = self.rfile.read(length)
       if len(chunk) < length or self.rfile.readline(1024) != b"\r\n":
@@ -257,7 +255,7 @@ class _Server(socketserver.ThreadingUnixStreamServer):
   @contextlib.contextmanager
   def flight(self) -> Generator[bool]:
     # Whether a request may go to the gateway, counted while it does; once
-    # the cap has come and the last one ends, the proxy stops.
+    # the cap has come and the last one ends, the proxy says so.
     with self._lock:
       allowed = self.capped is None
       if allowed:
@@ -270,7 +268,7 @@ class _Server(socketserver.ThreadingUnixStreamServer):
           self._flying -= 1
           done = self.capped is not None and self._flying == 0
         if done:
-          threading.Thread(target=self.shutdown, daemon=True).start()
+          _ = sys.stderr.write(f"{DRAINED}\n")
 
   def meter(
     self, path: str, response: http.client.HTTPResponse
@@ -407,8 +405,6 @@ def main(argv: list[str] | None = None) -> None:
   Args:
     argv: The arguments, else this process's.
 
-  Raises:
-    SystemExit: `CAPPED` once the cap ended the session, else 0.
   """
   parser = argparse.ArgumentParser(description=__doc__)
   _ = parser.add_argument("--channel", type=Channel, required=True)
@@ -438,7 +434,6 @@ def main(argv: list[str] | None = None) -> None:
     spend=None if spend is None else Spend.from_json(spend),
   ) as server:
     server.serve_forever()
-  raise SystemExit(CAPPED if server.capped is not None else 0)
 
 
 if __name__ == "__main__":

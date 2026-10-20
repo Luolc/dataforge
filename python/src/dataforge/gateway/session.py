@@ -28,7 +28,7 @@ import threading
 import time
 from typing import final, IO, override
 
-from dataforge.gateway.channels import Channel
+from dataforge.gateway.channels import Channel, DRAINED, MAX_BODY
 from dataforge.gateway.pause import (
   active,
   check_cut,
@@ -40,7 +40,6 @@ from dataforge.gateway.pause import (
 from dataforge.gateway.pause import (
   slots as channel_slots,
 )
-from dataforge.gateway.proxy import CAPPED, MAX_BODY
 from dataforge.gateway.spend import Spend
 
 LAUNCHER = (
@@ -294,16 +293,15 @@ class _Launch:
     return process, _Stderr(process.stderr)
 
   def _watching(self) -> None:
-    # Once the cap ends the session, this process takes the socket over and
-    # refuses what comes.
-    process = self.process
-    assert process is not None
+    # Once the cap came and no reply is under way, this process takes the
+    # socket over, so that what comes next is refused without a gap, and ends
+    # the launcher, and with it the session.
+    assert self.stderr is not None
     while not self._ended.is_set():
-      if process.poll() is not None:
-        if process.returncode == CAPPED and not self._ended.is_set():
-          self._refuser = _Refuser(self.socket)
+      if self.stderr.drained.wait(0.1):
+        self._refuser = _Refuser(self.socket)
+        self._stop()
         return
-      _ = self._ended.wait(0.1)
 
   def end(self) -> None:
     # Ends the launcher and its proxy, waits for their last lines of stderr,
@@ -315,17 +313,9 @@ class _Launch:
     if self._refuser is not None:
       self._refuser.close()
       self._refuser = None
-    process = self.process
-    if process is None:
+    if self.process is None:
       return
-    if process.poll() is None:
-      # The launcher passes SIGTERM to its client and then ends the session.
-      process.send_signal(signal.SIGTERM)
-      try:
-        _ = process.wait(timeout=END_S)
-      except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        _ = process.wait()
+    self._stop()
     if self.stderr is not None:
       self.stderr.join(5)
     self.socket.unlink(missing_ok=True)
@@ -334,6 +324,18 @@ class _Launch:
         with contextlib.suppress(ProcessLookupError):
           os.kill(pid, signal.SIGKILL)
       raise RuntimeError(f"model proxy left processes {left}, killed")
+
+  def _stop(self) -> None:
+    process = self.process
+    if process is None or process.poll() is not None:
+      return
+    # The launcher passes SIGTERM to its client and then ends the session.
+    process.send_signal(signal.SIGTERM)
+    try:
+      _ = process.wait(timeout=END_S)
+    except subprocess.TimeoutExpired:
+      os.killpg(process.pid, signal.SIGKILL)
+      _ = process.wait()
 
 
 @final
@@ -345,6 +347,7 @@ class _Stderr(threading.Thread):
     super().__init__(daemon=True)
     self.stream = stream
     self.refusal: str | None = None
+    self.drained = threading.Event()
     self.start()
 
   @override
@@ -355,6 +358,8 @@ class _Stderr(threading.Thread):
         _ = sys.stderr.write(text)
         if text.startswith(QUOTA_REFUSAL):
           self.refusal = text.strip()
+        elif text.startswith(DRAINED):
+          self.drained.set()
 
 
 @final
