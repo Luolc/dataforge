@@ -2,8 +2,8 @@ import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AttemptRow } from "../../api/types";
 import Home from "./index";
-import type { AttemptRow } from "./items";
 import { project, row, unreadable } from "./rows.test-data";
 
 const at = (hour: number) =>
@@ -88,7 +88,7 @@ describe("the home page", () => {
     expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
     expect(itemsOf("Unreadable record")).toEqual(["t-bad"]);
     expect(screen.getByRole("button", { name: /^Ended/ })).toHaveTextContent(
-      "Ended2, 1 of 2 bad or warn",
+      "Ended1 of 2 bad or warn",
     );
     expect(screen.getByText("t-run").closest("tr")).toHaveTextContent(
       "Running",
@@ -134,18 +134,20 @@ describe("the home page", () => {
     const open = await screen.findByRole("button", {
       name: "2 attempts of t-old",
     });
-    expect(screen.getByText("t-old/2")).not.toBeVisible();
+    const sub = (id: string) =>
+      document.querySelector(
+        `tr[id] a[href="/sample/attempt?id=${encodeURIComponent(id)}"]`,
+      );
+    expect(sub("t-old/2")).not.toBeVisible();
 
     act(() => {
       open.click();
     });
 
     expect(open).toHaveAttribute("aria-expanded", "true");
-    expect(itemsOf("Ended")).toEqual(["t-new", "t-old", "t-old/2", "t-old/1"]);
-    expect(screen.getByText("t-old/1").closest("a")).toHaveAttribute(
-      "href",
-      "/sample/attempt?id=t-old%2F1",
-    );
+    expect(itemsOf("Ended")).toEqual(["t-new", "t-old", "2", "1"]);
+    expect(sub("t-old/2")).toBeVisible();
+    expect(sub("t-old/1")).toHaveTextContent("1");
     // The item sums its attempts; a sub-row shows its own cost.
     const item = screen.getByText("t-old").closest("tr");
     expect(item).toHaveTextContent("$3.50");

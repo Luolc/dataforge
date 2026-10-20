@@ -28,7 +28,7 @@ import {
 } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import type { Column, Project } from "../../api/types";
+import type { AttemptRow, Column, Project } from "../../api/types";
 import { duration, time, usd } from "../../ui/format";
 import {
   StatusLabel,
@@ -39,7 +39,6 @@ import {
 } from "../../ui/status";
 import { attemptHref } from "../attempt/href";
 import {
-  type AttemptRow,
   filterItems,
   flagged,
   GROUPS,
@@ -94,6 +93,12 @@ const compare: SortFn<typeof features, Item> = (a, b, id) => {
   return String(x).localeCompare(String(y), undefined, { numeric: true });
 };
 
+/** An attempt's ID below its item's row: the part after the item's ID. */
+function attemptName(item: Item, row: AttemptRow): string {
+  const prefix = `${item.id}/`;
+  return row.id.startsWith(prefix) ? row.id.slice(prefix.length) : row.id;
+}
+
 const itemLine = (item: Item): Line => ({
   item,
   row: item.newest,
@@ -132,7 +137,7 @@ function specs(project: Project): Spec[] {
       cell: (l) => (
         <span className={l.sub ? "block pl-4" : ""}>
           <AttemptLink href={attemptHref(project.id, l.row.id)}>
-            {l.sub ? l.row.id : l.item.id}
+            {l.sub ? attemptName(l.item, l.row) : l.item.id}
           </AttemptLink>
         </span>
       ),
@@ -265,7 +270,7 @@ function AttemptLink({ href, children }: { href: string; children: string }) {
   return (
     <Link
       to={href}
-      className="target inline-flex items-center font-mono text-xs break-all underline decoration-faint underline-offset-3"
+      className="target inline-flex items-center font-mono text-xs break-words underline decoration-faint underline-offset-3"
     >
       {children}
     </Link>
@@ -374,7 +379,7 @@ export function HomeTable({
   };
 
   const cellClass = (s: Spec) =>
-    `px-3 py-1.5 align-top ${s.numeric ? "text-right tabular-nums" : ""}`;
+    `px-3 py-1.5 align-top ${s.numeric ? "text-right whitespace-nowrap tabular-nums" : ""} ${s.id === "status" ? "whitespace-nowrap" : ""}`;
 
   const lineRow = (
     line: Line,
@@ -570,7 +575,7 @@ export function HomeTable({
             );
             const summary =
               k > 0
-                ? `${n.toString()}, ${k.toString()} of ${n.toString()} bad or warn`
+                ? `${k.toString()} of ${n.toString()} bad or warn`
                 : n.toString();
             return (
               <Group

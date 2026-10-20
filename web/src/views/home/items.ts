@@ -1,20 +1,13 @@
 // The home page's model: attempt rows grouped into data items, the items
 // split into the page's groups, and what search and the status chips keep.
-import { z } from "zod";
+import type { AttemptRow, Live, Project } from "../../api/types";
+import { liveStatus, NOT_ENDED, RAISED, statusOf } from "../../ui/status";
 
-import { attemptRow, type Project } from "../../api/types";
-import { NOT_ENDED, RAISED, statusOf } from "../../ui/status";
-
-// The listing's live (design-viz.md section 4, "The API"): null once an
-// attempt has ended; a listing without it reads as null.
-export const homeRow = attemptRow.extend({
-  live: z.string().nullable().catch(null),
-});
-export type AttemptRow = z.infer<typeof homeRow>;
-export const homeRows = z.array(homeRow);
-
-/** The words live can take, as status words of the home page. */
-const LIVE: Record<string, string | null> = {
+/**
+ * Each live word as a status word of the home page; not ended is null, the
+ * word of a record with no status, so the two share the Not ended chip.
+ */
+const LIVE_WORD: Record<Live, string | null> = {
   running: "~running",
   "may have stopped": "~may-have-stopped",
   "not ended": null,
@@ -47,7 +40,7 @@ export interface Item {
  * (design-viz.md section 5, "Home page").
  */
 export const notEnded = (row: AttemptRow): boolean =>
-  row.error === null && row.live !== null;
+  row.error === null && (row.live ?? null) !== null;
 
 /**
  * An attempt's status word: UNREADABLE when its record cannot be read; while
@@ -56,10 +49,7 @@ export const notEnded = (row: AttemptRow): boolean =>
  */
 export function rowStatus(row: AttemptRow): string | null {
   if (row.error !== null) return UNREADABLE;
-  if (row.live !== null) {
-    const word = LIVE[row.live];
-    return word === undefined ? row.live : word;
-  }
+  if (row.live !== null && row.live !== undefined) return LIVE_WORD[row.live];
   if (row.status !== null) return row.status;
   return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : null;
 }
@@ -147,8 +137,8 @@ export function withHomeStatuses(project: Project): Project {
     ...project,
     statuses: {
       ...project.statuses,
-      "~running": { label: "Running", tone: "neutral" },
-      "~may-have-stopped": { label: "May have stopped", tone: "warn" },
+      "~running": liveStatus.running,
+      "~may-have-stopped": liveStatus["may have stopped"],
       [UNREADABLE]: { label: "Unreadable", tone: "bad" },
     },
   };

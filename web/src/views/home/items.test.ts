@@ -4,7 +4,6 @@ import { attemptRow } from "../../api/types";
 import {
   filterItems,
   flagged,
-  homeRow,
   NOT_ENDED_KEY,
   notEnded,
   toItems,
@@ -31,7 +30,7 @@ describe("whether an attempt has not ended", () => {
     const old: Partial<ReturnType<typeof row>> = row("a/1", { status: null });
     delete old.live;
     expect(attemptRow.parse(old)).not.toHaveProperty("live");
-    expect(notEnded(homeRow.parse(old))).toBe(false);
+    expect(notEnded(attemptRow.parse(old))).toBe(false);
   });
 });
 

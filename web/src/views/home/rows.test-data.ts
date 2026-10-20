@@ -1,6 +1,5 @@
 // Synthetic listing rows for the home page's tests.
-import type { Project } from "../../api/types";
-import type { AttemptRow } from "./items";
+import type { AttemptRow, Project } from "../../api/types";
 
 /** A readable, ended attempt of an item, with fields to change. */
 export function row(id: string, fields: Partial<AttemptRow> = {}): AttemptRow {
