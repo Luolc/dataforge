@@ -8,6 +8,10 @@ import { TEMPLATES } from "./template";
 // Tests run from web/.
 const theme = readFileSync("src/ui/theme.css", "utf8");
 const main = readFileSync("src/main.tsx", "utf8");
+const fileIconsSource = readFileSync(
+  "src/views/files/icons/material.tsx",
+  "utf8",
+);
 
 const names = (prefix: string) =>
   new Set(
@@ -68,6 +72,24 @@ const colour = (id: string, name: string): string => {
 };
 
 // [template, text token, surface token, the least ratio]
+// The colours of the file tree's icons, views/files/icons/material.tsx.
+const fileIcons = [
+  "python",
+  "python-2",
+  "shell",
+  "yaml",
+  "toml",
+  "toml-2",
+  "json",
+  "docker",
+  "markdown",
+  "diff",
+  "text",
+  "log",
+  "other",
+  "folder",
+].map((name) => `file-${name}`);
+
 const pairs = (
   texts: string[],
   surfaces: string[],
@@ -110,6 +132,13 @@ describe("the theme's tokens", () => {
 
   it("leave ligatures on", () => {
     expect(theme).not.toMatch(/font-variant-ligatures/);
+  });
+
+  it("check the contrast of every colour the file tree's icons draw", () => {
+    const drawn = new Set(
+      [...fileIconsSource.matchAll(/fill-(file-[a-z0-9-]+)/g)].map((m) => m[1]),
+    );
+    expect([...drawn].sort()).toEqual([...fileIcons].sort());
   });
 
   it("draw the dark template in a dark colour scheme", () => {
@@ -171,6 +200,7 @@ describe("the theme's tokens", () => {
     ),
     ...pairs(["chip-line", "icon"], ["panel", "card", "tree"], 3),
     ...pairs([...tones], ["tree", "group"], 3),
+    ...pairs(fileIcons, ["tree", "hover", "active"], 3),
   ])("%s: %s on %s at least %d:1", (id, text, bg, least) => {
     expect(contrast(colour(id, text), colour(id, bg))).toBeGreaterThanOrEqual(
       least,
