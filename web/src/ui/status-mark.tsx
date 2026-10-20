@@ -1,6 +1,6 @@
 // A status word drawn as a label or an icon in its tone.
 import type { Project, Tone } from "../api/types";
-import { statusOf, toneGlyph } from "./status";
+import { outcomeOf, toneGlyph } from "./status";
 
 const toneLabel: Record<Tone, string> = {
   good: "bg-good-bg text-good",
@@ -16,15 +16,20 @@ const toneIcon: Record<Tone, string> = {
   neutral: "bg-neutral",
 };
 
-/** A word as a tone-coloured label. */
+/**
+ * A word as a tone-coloured label. With ended, the word is a visit's outcome
+ * in an attempt that has ended, so a null word is No outcome.
+ */
 export function StatusLabel({
   project,
   word,
+  ended = false,
 }: {
   project: Project;
   word: string | null;
+  ended?: boolean;
 }) {
-  const { label, tone } = statusOf(project, word);
+  const { label, tone } = outcomeOf(project, word, ended);
   return (
     <span
       className={`inline-flex h-5 items-center rounded-row px-2 text-xs font-medium ${toneLabel[tone]}`}
@@ -34,15 +39,20 @@ export function StatusLabel({
   );
 }
 
-/** A filled circle with a glyph; its label is read out, not shown. */
+/**
+ * A filled circle with a glyph; its label is read out, not shown. ended is as
+ * for StatusLabel.
+ */
 export function StatusIcon({
   project,
   word,
+  ended = false,
 }: {
   project: Project;
   word: string | null;
+  ended?: boolean;
 }) {
-  const { label, tone } = statusOf(project, word);
+  const { label, tone } = outcomeOf(project, word, ended);
   const Glyph = toneGlyph[tone];
   return (
     <span

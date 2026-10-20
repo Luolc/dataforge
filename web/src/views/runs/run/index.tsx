@@ -18,7 +18,7 @@ import {
   attemptStatus,
   NOT_ENDED,
   stateTitle,
-  statusOf,
+  outcomeOf,
 } from "../../../ui/status";
 import { StatusLabel } from "../../../ui/status-mark";
 import { attemptHref } from "../../attempt/href";
@@ -67,7 +67,11 @@ export default function RunPage({
       <header className="px-5 py-3.5">
         <h2 className="flex items-center gap-2 text-md font-semibold">
           {title}
-          <StatusLabel project={project} word={visit.outcome} />
+          <StatusLabel
+            project={project}
+            word={visit.outcome}
+            ended={attemptStatus(project, record) !== null}
+          />
         </h2>
         <p className="mt-1 text-xs text-fg-3 tabular-nums">
           Run {index + 1} of {record.visits.length} · visit {visit.visit} of{" "}
@@ -178,7 +182,11 @@ function InputStep({
         <dl className={fields}>
           <Field name="Report from">{runLink(input.from)}</Field>
           <Field name="Outcome">
-            <StatusLabel project={project} word={before.outcome} />
+            <StatusLabel
+              project={project}
+              word={before.outcome}
+              ended={attemptStatus(project, record) !== null}
+            />
           </Field>
           <Field name="Data">
             <Data data={before.data} />
@@ -285,10 +293,18 @@ function OutputStep({
   const last = index === record.visits.length - 1;
   const end = attemptStatus(project, record);
   return (
-    <Step name="Output" status={statusOf(project, visit.outcome)} open={open}>
+    <Step
+      name="Output"
+      status={outcomeOf(project, visit.outcome, end !== null)}
+      open={open}
+    >
       <dl className={fields}>
         <Field name="Outcome">
-          <StatusLabel project={project} word={visit.outcome} />
+          <StatusLabel
+            project={project}
+            word={visit.outcome}
+            ended={end !== null}
+          />
         </Field>
         <Field name="Next">
           {!last ? (

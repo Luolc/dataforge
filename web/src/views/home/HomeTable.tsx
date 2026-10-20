@@ -30,19 +30,26 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import type { AttemptRow, Column, Project } from "../../api/types";
 import { duration, time, usd } from "../../ui/format";
-import { stateTitle, statusOf, toneGlyph, toneText } from "../../ui/status";
+import {
+  outcomeOf,
+  stateTitle,
+  statusOf,
+  toneGlyph,
+  toneText,
+} from "../../ui/status";
 import { StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import {
   filterItems,
   flagged,
   GROUPS,
-  type Item,
   keyWord,
+  notEnded,
   rowSeconds,
   rowStatus,
   spent,
   toItems,
+  type Item,
   withHomeStatuses,
 } from "./items";
 
@@ -245,7 +252,7 @@ function RoundsCell({ project, row }: { project: Project; row: AttemptRow }) {
   return (
     <ol className="flex flex-wrap gap-1">
       {row.rounds.map((r) => {
-        const outcome = statusOf(project, r.outcome);
+        const outcome = outcomeOf(project, r.outcome, !notEnded(row));
         return (
           <li
             key={r.round}

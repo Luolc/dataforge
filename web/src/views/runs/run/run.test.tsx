@@ -216,6 +216,22 @@ describe("the input and the output", () => {
 
     expect(step(/^Output/)).toHaveTextContent("NextNot ended");
   });
+
+  it("a visit with no outcome is No outcome once its attempt has ended", () => {
+    const ended = { ...project, not_ended: ["running"] };
+    show(records.running, 1, ended);
+    fireEvent.click(within(step(/^Output/)).getByRole("button"));
+
+    expect(step(/^Output/)).toHaveTextContent("OutcomeNo outcome");
+    expect(screen.queryByText("Not ended")).toBeNull();
+  });
+
+  it("a visit with no outcome is Not ended while its attempt runs", () => {
+    show(records.running, 1);
+    fireEvent.click(within(step(/^Output/)).getByRole("button"));
+
+    expect(step(/^Output/)).toHaveTextContent("OutcomeNot ended");
+  });
 });
 
 describe("what the record does not have", () => {

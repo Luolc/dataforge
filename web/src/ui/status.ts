@@ -7,7 +7,8 @@ import type { AttemptRecord, Live, Project, Tone } from "../api/types";
 // project file.
 /**
  * An attempt with no status whose last visit did not raise, or a visit with
- * no outcome: running, or its process died, which the record cannot tell.
+ * no outcome in such an attempt: running, or its process died, which the
+ * record cannot tell.
  */
 export const NOT_ENDED = "Not ended";
 /** A state, a deliverable or the end that the attempt never reached. */
@@ -17,6 +18,8 @@ export const NOT_RUN = "Not run";
  * project names its own words for not ended (design-viz.md section 4).
  */
 const NO_STATUS = "No status";
+/** A visit with no outcome in an attempt that has ended. */
+const NO_OUTCOME = "No outcome";
 /** An attempt whose record cannot be read: the listing's error. */
 const UNREADABLE = "Unreadable";
 /** The engine's outcome of a visit whose state raised (design.md). */
@@ -77,8 +80,23 @@ export function endWord(
 /** The label and tone of the viewer's other words for an attempt. */
 export const viewerStatus = {
   noStatus: { label: NO_STATUS, tone: "neutral" },
+  noOutcome: { label: NO_OUTCOME, tone: "neutral" },
   unreadable: { label: UNREADABLE, tone: "bad" },
 } as const satisfies Record<string, { label: string; tone: Tone }>;
+
+/**
+ * A visit's outcome: as statusOf, but No outcome when there is none and its
+ * attempt has ended (design-viz.md section 4).
+ */
+export function outcomeOf(
+  project: Project,
+  outcome: string | null,
+  ended: boolean,
+): { label: string; tone: Tone } {
+  return outcome === null && ended
+    ? viewerStatus.noOutcome
+    : statusOf(project, outcome);
+}
 
 /** The label and tone of the listing's live (design-viz.md section 4). */
 export const liveStatus: Record<Live, { label: string; tone: Tone }> = {

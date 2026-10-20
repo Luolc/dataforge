@@ -254,6 +254,26 @@ describe("the home page", () => {
     expect(round).toHaveTextContent("Pass@kPass");
   });
 
+  it("shows a round with no outcome as No outcome once its attempt ended", async () => {
+    const open = [{ round: 1, state: "solve", outcome: null }];
+    const rows = [
+      row("t-done/1", { status: null, rounds: open }),
+      row("t-live/1", { status: null, rounds: open, live: "running" }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show();
+    const roundOf = async (id: string) =>
+      (await screen.findByText(id)).closest("tr")?.querySelector("ol li");
+
+    expect(await roundOf("t-done")).toHaveTextContent("Pass@kNo outcome");
+    expect(await roundOf("t-live")).toHaveTextContent("Pass@kNot ended");
+  });
+
   it("draws the project's columns in their formats", async () => {
     const withColumns: Project = {
       ...project,
