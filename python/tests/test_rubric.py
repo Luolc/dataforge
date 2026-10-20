@@ -591,7 +591,7 @@ def rounds(
   tmp_path: Path,
   judges: Judges,
   writes: Sequence[Mapping[str, str]],
-  notes: Sequence[str],
+  notes: Sequence[str | None],
   *,
   resume: bool = False,
   reuse_unchanged: bool = False,
@@ -604,7 +604,7 @@ def rounds(
     tmp_path: Where the rubric and the attempt go.
     judges: The runner.
     writes: What author writes on each visit.
-    notes: What polish writes as changes.md on each visit.
+    notes: What polish writes as changes.md on each visit; None for none.
     resume: The RubricState's resume.
     reuse_unchanged: Its reuse_unchanged.
     cross_criteria: Its cross_criteria.
@@ -636,7 +636,11 @@ def rounds(
     reuse_unchanged=reuse_unchanged,
     cross_criteria=cross_criteria,
   )
-  polish = Writer("polish", "rubric", [{"changes.md": n} for n in notes])
+  polish = Writer(
+    "polish",
+    "rubric",
+    [{} if n is None else {"changes.md": n} for n in notes],
+  )
   return Machine([Writer("author", "polish", writes), polish, state]).run(
     tmp_path / "a"
   )
@@ -824,6 +828,87 @@ def test_a_review_whose_blocks_did_not_change_gives_its_answer_again(
     assert f'<version state="{state}" visit="{visit}">\n{text}\n' in again
   assert "Polished." not in again
   assert table(attempt, 3)["tests"]["call"] == 3
+
+
+def test_a_failed_review_with_new_notes_runs_again(tmp_path: Path) -> None:
+  judges = Judges(
+    {
+      "tests": [
+        ("ok", verdicts(sound=FAIL, tidy=PASS)),
+        ("ok", verdicts(sound=PASS, tidy=PASS)),
+      ],
+      "docs": [("ok", verdicts(sound=PASS, tidy=PASS))],
+    }
+  )
+  attempt = rounds(
+    tmp_path,
+    judges,
+    [DRAFT, DRAFT | {"changes.md": "Kept: it holds, since it exits 0.\n"}],
+    ["Polished.\n", None],
+    resume=True,
+    reuse_unchanged=True,
+  )
+  assert attempt.status == "passed"
+  _, (_, task) = judges.starts["tests"]
+  again = task.resume_prompt
+  assert again is not None
+  assert (
+    '<version state="author" visit="2">\nKept: it holds, since it exits 0.\n'
+  ) in again
+  rows = table(attempt, 2)
+  assert (rows["tests"]["reused"], rows["tests"]["changed"]) == (None, [])
+  assert rows["docs"]["reused"] == 1
+
+
+def test_a_review_that_failed_only_a_warning_is_reused_with_new_notes(
+  tmp_path: Path,
+) -> None:
+  judges = Judges(
+    {
+      "tests": [("ok", verdicts(sound=PASS, tidy=FAIL))],
+      "docs": [("ok", verdicts(sound=FAIL)), ("ok", verdicts(sound=PASS))],
+    }
+  )
+  attempt = rounds(
+    tmp_path,
+    judges,
+    [DRAFT, DRAFT | {"docs.md": "Read.\n", "changes.md": "Tidied.\n"}],
+    ["Polished.\n", "Again.\n"],
+    resume=True,
+    reuse_unchanged=True,
+  )
+  assert attempt.status == "passed"
+  assert len(judges.starts["tests"]) == 1
+  assert table(attempt, 2)["tests"]["reused"] == 1
+
+
+def test_a_failed_review_without_new_notes_gives_its_answer_again(
+  tmp_path: Path,
+) -> None:
+  judges = Judges(
+    {
+      "tests": [
+        ("ok", verdicts(sound=FAIL, tidy=PASS)),
+        ("ok", verdicts(sound=PASS, tidy=PASS)),
+      ],
+      "docs": [("ok", verdicts(sound=PASS, tidy=PASS))],
+    }
+  )
+  same = {k: v for k, v in DRAFT.items() if k != "changes.md"}
+  attempt = rounds(
+    tmp_path,
+    judges,
+    [DRAFT, same, same | {"tests.md": "exit 1\n"}],
+    ["Polished.\n", None, None],
+    resume=True,
+    reuse_unchanged=True,
+  )
+  assert attempt.status == "passed"
+  assert len(judges.starts["tests"]) == 2
+  rubric = [v for v in attempt.visits if v.state == "rubric"]
+  reused = cast(dict[str, object], rubric[1].data["tests"])
+  assert (reused["cost_usd"], reused["passed"]) == (0.0, False)
+  assert table(attempt, 2)["tests"]["reused"] == 1
 
 
 @pytest.mark.parametrize(
