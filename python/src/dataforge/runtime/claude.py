@@ -158,6 +158,7 @@ class Result:
     rejected: The input of the last `StructuredOutput` call the session
       rejected against the schema, or None when it rejected none.
     paths: The files the session wrote: its prompt, trace, stderr and usage.
+    turns: The turns the session took, if the result event gives them.
   """
 
   subtype: str
@@ -167,6 +168,7 @@ class Result:
   text: str | None
   rejected: object
   paths: tuple[Path, ...]
+  turns: int | None = None
 
   @property
   def trace(self) -> Path:
@@ -405,6 +407,7 @@ class Session:
       text=trace.text,
       rejected=trace.rejected,
       paths=tuple(paths),
+      turns=trace.num_turns,
     )
 
 
@@ -530,6 +533,7 @@ class Conversation:
     spec: The agent of the last start.
     task: The task of the last start.
     last: How its last run ended, once one ran.
+    key: The `AgentSpec.session` it is kept under, or None when it has none.
   """
 
   cwd: Path
@@ -548,6 +552,7 @@ class Conversation:
   spec: AgentSpec | None = None
   task: AgentTask | None = None
   last: Result | None = None
+  key: str | None = None
 
   @property
   def resumable(self) -> bool:
@@ -617,6 +622,18 @@ class Runner:
   printed an ID, and starts a new one when it did not. `current` is that
   session; leave a runner of this kind to one attempt, whose states run it
   one at a time.
+
+  A start whose spec has a `session` key goes on with the session kept under
+  that key, whatever `continue_session` says, and leaves `current` alone:
+  each key has a session of its own, so that starts with different keys may
+  run at the same time; give one key one start at a time. A start resumes
+  the session of its key when that session's last run ended in `success`
+  with an ID, and asks the task's `resume_prompt`, when it has one, in place
+  of its prompt. Otherwise it removes what that session left on this machine
+  and starts a new one with the full prompt; so too when `claude` no longer
+  has the session it resumes, such as one kept in a container since
+  replaced, and that run's files are written over. `close` keeps a keyed
+  session and `end` removes them all.
   """
 
   def __init__(
@@ -655,6 +672,7 @@ class Runner:
     self.min_fix_usd: float = min_fix_usd
     self.current: Conversation | None = None
     self.last: Result | None = None
+    self._keyed: dict[str, Conversation] = {}
     self._serve: Callable[[], AbstractContextManager[object]] = (
       serve or nullcontext
     )
@@ -663,7 +681,7 @@ class Runner:
     self._starts: int = 0
 
   def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
-    """Start a session, or resume the current one with `continue_session`.
+    """Start a session, or resume the one of its key or `continue_session`.
 
     It raises `TypeError` when env is neither `Host` nor `Docker`, and
     `RuntimeError` when the `Docker` container has not been created.
@@ -687,29 +705,50 @@ class Runner:
       relative := [p for p in paths if not Path(p).is_absolute()]
     ):
       raise ValueError(f"an agent on the host needs absolute paths: {relative}")
+    key = spec.session
     with self._lock:
       self._starts += 1
       number = self._starts
-      conversation = self.current if self.continue_session else None
       path = self.files(spec, task, number, 0)
-      if conversation is None or conversation.id is None:
-        if conversation is not None and conversation.on_host:
-          remove_project_dir(conversation.cwd, self.session.env)
-        conversation = Conversation(cwd=path, on_host=on_host)
-        if self.continue_session:
-          self.current = conversation
+      if key is not None:
+        conversation = self._keyed.get(key)
+        if conversation is None or not conversation.resumable:
+          self._remove(conversation)
+          conversation = Conversation(cwd=path, on_host=on_host, key=key)
+          self._keyed[key] = conversation
+      else:
+        conversation = self.current if self.continue_session else None
+        if conversation is None or conversation.id is None:
+          self._remove(conversation)
+          conversation = Conversation(cwd=path, on_host=on_host)
+          if self.continue_session:
+            self.current = conversation
     tools = self.tools if spec.tools is None else tuple(spec.tools)
-    conversation.command = command
-    conversation.tools = tools
-    conversation.allow = tuple(_allow(tools, dirs))
-    conversation.add_dirs = tuple(dict.fromkeys(paths))
-    conversation.schema = spec.output_schema
-    conversation.number, conversation.fixes = number, 0
-    conversation.start_usd = 0.0
-    conversation.spec, conversation.task = spec, task
-    return self._run(
-      conversation, path, task.prompt, self.session.max_budget_usd
-    )
+
+    def run(conversation: Conversation) -> AgentRun:
+      conversation.command = command
+      conversation.tools = tools
+      conversation.allow = tuple(_allow(tools, dirs))
+      conversation.add_dirs = tuple(dict.fromkeys(paths))
+      conversation.schema = spec.output_schema
+      conversation.number, conversation.fixes = number, 0
+      conversation.start_usd = 0.0
+      conversation.spec, conversation.task = spec, task
+      prompt = task.prompt
+      if conversation.id is not None and task.resume_prompt is not None:
+        prompt = task.resume_prompt
+      return self._run(conversation, path, prompt, self.session.max_budget_usd)
+
+    resumed = conversation.id
+    found = run(conversation)
+    if key is None or resumed is None or not _lost(conversation.last):
+      return found
+    _log.warning("claude has no session %s; starting %s anew", resumed, key)
+    with self._lock:
+      self._remove(conversation)
+      conversation = Conversation(cwd=path, on_host=on_host, key=key)
+      self._keyed[key] = conversation
+    return run(conversation)
 
   def resume(self, session: object, prompt: str) -> AgentRun:
     """Resume a session to fix what the validator found.
@@ -757,20 +796,24 @@ class Runner:
 
     Returns:
       The session's ID, what it has cost, the number of its start, whether
-      it runs on this machine and its working directory there.
+      it runs on this machine and its working directory there; for a session
+      with a key, also the key and how its last run ended.
 
     Raises:
       TypeError: When session is not a `Conversation`.
     """
     if not isinstance(session, Conversation):
       raise TypeError(f"not a session this runner started: {session!r}")
-    return {
+    point: dict[str, object] = {
       "id": session.id,
       "total_usd": session.total_usd,
       "number": session.number,
       "on_host": session.on_host,
       "cwd": str(session.cwd),
     }
+    if session.key is not None:
+      point |= {"session": session.key, "subtype": session.subtype}
+    return point
 
   def restore(self, points: Sequence[Data]) -> None:
     """Go on as the runner whose runs checkpoint gave points would.
@@ -778,39 +821,53 @@ class Runner:
     Starts are numbered on after the highest start number of points; the
     files of a later run, which no point covers, are written over unless the
     caller moves them. With `continue_session`, `current` becomes the session
-    of that start, with the total it had then, so that the next start resumes
-    it and counts as its cost what the session's total grew by since.
+    of the latest start without a key, with the total it had then, so that
+    the next start resumes it and counts as its cost what the session's total
+    grew by since. Each key's session becomes that of the latest start with
+    the key, in the same way.
 
     Args:
       points: What checkpoint gave, for the runs of an attempt.
     """
     if not points:
       return
-    latest = max((_conversation(point) for point in points), key=_number)
+    conversations = sorted(map(_conversation, points), key=_number)
+    keyed = {c.key: c for c in conversations if c.key is not None}
+    plain = [c for c in conversations if c.key is None]
     with self._lock:
-      self._starts = max(self._starts, latest.number)
-      if self.continue_session:
-        self.current = latest
+      self._starts = max(self._starts, conversations[-1].number)
+      if self.continue_session and plain:
+        self.current = max(plain, key=_number)
+      self._keyed.update(keyed)
 
   def close(self, session: object) -> None:
     """Remove what a session left on this machine, unless it goes on.
+
+    A session goes on when it has a key or the runner has `continue_session`.
 
     Args:
       session: The `Conversation` of the action's last run.
     """
     if (
       isinstance(session, Conversation)
-      and session.on_host
+      and session.key is None
       and not self.continue_session
     ):
-      remove_project_dir(session.cwd, self.session.env)
+      self._remove(session)
 
   def end(self) -> None:
-    """Remove what the current session left on this machine."""
+    """Remove what the current session and each keyed one left here."""
     with self._lock:
       current, self.current = self.current, None
-    if current is not None and current.on_host:
-      remove_project_dir(current.cwd, self.session.env)
+      keyed = list(self._keyed.values())
+      self._keyed.clear()
+    for conversation in (current, *keyed):
+      self._remove(conversation)
+
+  def _remove(self, conversation: Conversation | None) -> None:
+    # What a session left under the config on this machine, if it ran here.
+    if conversation is not None and conversation.on_host:
+      remove_project_dir(conversation.cwd, self.session.env)
 
   def _command(self, spec: AgentSpec, env: Env) -> tuple[tuple[str, ...], bool]:
     # The command that runs `claude` in env, and whether that is here.
@@ -894,8 +951,11 @@ def _conversation(point: Data) -> Conversation:
     point.get("number"),
   )
   on_host, cwd = point.get("on_host"), point.get("cwd")
+  key, subtype = point.get("session"), point.get("subtype")
   if (
     not (id_ is None or isinstance(id_, str))
+    or not (key is None or isinstance(key, str))
+    or not (subtype is None or isinstance(subtype, str))
     or isinstance(total, bool)
     or not isinstance(total, int | float)
     or isinstance(number, bool)
@@ -905,12 +965,30 @@ def _conversation(point: Data) -> Conversation:
   ):
     raise ValueError(f"not a checkpoint of a claude.Runner: {point!r}")
   return Conversation(
-    cwd=Path(cwd), on_host=on_host, id=id_, total_usd=total, number=number
+    cwd=Path(cwd),
+    on_host=on_host,
+    id=id_,
+    subtype=subtype,
+    total_usd=total,
+    number=number,
+    key=key,
   )
 
 
 def _number(conversation: Conversation) -> int:
   return conversation.number
+
+
+def _lost(result: Result | None) -> bool:
+  # How Claude Code 2.1.292 ends `--resume` of a session it does not have,
+  # before any turn: exit 1 and a result event with this subtype, `num_turns`
+  # 0, cost 0, the ID it was given and `No conversation found with session
+  # ID: <id>` in `errors`. Read on 2026-10-20.
+  return (
+    result is not None
+    and result.subtype == "error_during_execution"
+    and result.turns == 0
+  )
 
 
 def _allow(tools: Sequence[str], dirs: Sequence[str]) -> list[str]:

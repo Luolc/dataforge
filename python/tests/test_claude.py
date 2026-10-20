@@ -10,7 +10,10 @@ as `call-<n>.json` in `$FAKE_LOG`. An entry gives the stream-json `lines` it
 prints (objects as JSON, strings as they are), `write`, files it writes into
 the output directory the first prompt named, `project`, whether it fills its
 working directory's directory under `$CLAUDE_CONFIG_DIR/projects`, and
-`hang`, whether it starts a child, writes its pid and sleeps.
+`hang`, whether it starts a child, writes its pid and sleeps, and `echo`,
+whether it ends in success with the ID of the session it resumes, or of a
+new one, `s-` and the prompt's first word. Calls are numbered in the order
+they start, also when several run at once.
 """
 
 import argparse
@@ -22,6 +25,7 @@ from pathlib import Path
 import re
 import signal
 import sys
+import threading
 import time
 from typing import cast, override
 
@@ -46,12 +50,17 @@ from dataforge.runtime import claude
 FAKE_CLAUDE = """\
 import json, os, pathlib, re, subprocess, sys, time
 log = pathlib.Path(os.environ["FAKE_LOG"])
-n = len(list(log.glob("call-*.json"))) + 1
 prompt = sys.stdin.read()
 cwd = os.getcwd()
-(log / f"call-{n}.json").write_text(
-  json.dumps({"argv": sys.argv[1:], "cwd": cwd, "prompt": prompt})
-)
+n = 1
+while True:
+  try:
+    fd = os.open(log / f"call-{n}.json", os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    break
+  except FileExistsError:
+    n += 1
+with os.fdopen(fd, "w") as call:
+  call.write(json.dumps({"argv": sys.argv[1:], "cwd": cwd, "prompt": prompt}))
 step = json.loads(pathlib.Path(os.environ["FAKE_PLAN"]).read_text())[n - 1]
 found = re.search(r"Write your outputs into (\\S+), named", prompt)
 if found:
@@ -65,6 +74,12 @@ if step.get("project"):
   (project / "session.jsonl").write_text("{}")
 for line in step.get("lines", []):
   print(line if isinstance(line, str) else json.dumps(line), flush=True)
+if step.get("echo"):
+  args = sys.argv[1:]
+  resumed = args[args.index("--resume") + 1] if "--resume" in args else None
+  session = resumed or "s-" + prompt.split()[0]
+  ended = {"type": "result", "subtype": "success", "session_id": session}
+  print(json.dumps(ended), flush=True)
 if step.get("hang"):
   child = subprocess.Popen(["sleep", "60"])
   (log / "pids").write_text(f"{child.pid}")
@@ -790,3 +805,222 @@ def test_a_restored_runner_numbers_on_after_its_last_start(
   assert runner.current is None
   with pytest.raises(ValueError, match="not a checkpoint"):
     runner.restore([point])
+
+
+def test_a_keyed_start_resumes_its_session_with_the_resume_prompt(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(
+    tmp_path,
+    [
+      {"project": True, "lines": [result(session_id="s1", total_cost_usd=1)]},
+      {"lines": [result(session_id="s1", total_cost_usd=1.25)]},
+      {"lines": [result(session_id="s2")]},
+    ],
+  )
+  runs = tmp_path / "runs"
+  runner = claude.Runner(
+    fake.session, claude.numbered(runs), continue_session=True
+  )
+  check = tmp_path / "ok.sh"
+  _ = check.write_text("#!/bin/sh\nexit 0\n")
+  check.chmod(0o755)
+  keyed = AgentSpec(
+    "Judge.",
+    tmp_path,
+    validator=check,
+    name="review",
+    session="review",
+    resume_prompt="Judge again.",
+  )
+
+  def body(ctx: Context) -> ActionResult:
+    actions = Actions(runner)
+    _ = actions.agent(ctx, keyed, HOST)
+    return actions.agent(ctx, keyed, HOST)
+
+  found = act(tmp_path / "attempt", body)
+
+  assert found.cost_usd == pytest.approx(0.25)
+  calls = fake.calls()
+  first, second = str(calls[0]["prompt"]), str(calls[1]["prompt"])
+  assert first.startswith("Judge.\n\nBefore you finish, run `")
+  assert second.startswith("Judge again.\n\nBefore you finish, run `")
+  assert option(fake.argv(1), "--resume") == []
+  assert option(fake.argv(2), "--resume") == ["s1"]
+  assert calls[1]["cwd"] == str(runs / "review-1")
+  # close kept the keyed session, and it is not the one continue_session
+  # drives.
+  assert len(fake.projects()) == 1
+  assert runner.current is None
+  task = AgentTask("Go.", {}, str(tmp_path), None, "Go on.")
+  plain = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert option(fake.argv(3), "--resume") == []
+  assert fake.calls()[2]["prompt"] == "Go."
+  assert runner.current is plain.session
+  runner.end()
+  assert fake.projects() == []
+
+
+def test_keys_started_at_once_each_resume_their_own_session(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(tmp_path, [{"echo": True}] * 8)
+  runner = claude.Runner(fake.session, claude.numbered(tmp_path / "runs"))
+  keys = ("a", "b")
+  barrier = threading.Barrier(len(keys))
+  failures: list[BaseException] = []
+
+  def start(key: str, prompt: str) -> None:
+    spec = AgentSpec(prompt, tmp_path, name=key, session=key)
+    task = AgentTask(prompt, {}, str(tmp_path), None, f"{key}-again")
+    try:
+      _ = barrier.wait(timeout=10)
+      assert runner.start(spec, task, HOST).status == "ok"
+    except BaseException as error:  # noqa: BLE001
+      failures.append(error)
+
+  for round_ in range(4):
+    threads = [
+      threading.Thread(target=start, args=(key, f"{key}-{round_}"))
+      for key in keys
+    ]
+    for thread in threads:
+      thread.start()
+    for thread in threads:
+      thread.join()
+  assert failures == []
+
+  calls = fake.calls()
+  assert len(calls) == 8
+  for n, call in enumerate(calls, 1):
+    prompt = str(call["prompt"])
+    resume = option(fake.argv(n), "--resume")
+    key = prompt[0]
+    if prompt.endswith("-0"):
+      assert resume == []
+    else:
+      assert prompt == f"{key}-again"
+      assert resume == [f"s-{key}-0"]
+
+
+def test_a_keyed_session_that_cannot_go_on_is_replaced_and_removed(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(
+    tmp_path,
+    [
+      {
+        "project": True,
+        "lines": [{**result(session_id="s1"), "subtype": "error_max_turns"}],
+      },
+      {"lines": [result(session_id="s2")]},
+    ],
+  )
+  runs = tmp_path / "runs"
+  runner = claude.Runner(fake.session, claude.numbered(runs))
+  spec = AgentSpec("Go.", tmp_path, session="k")
+  task = AgentTask("Go.", {}, str(tmp_path), None, "Go on.")
+  first = runner.start(spec, task, HOST)
+  assert first.status == "ok" and first.resumable is False
+  assert len(fake.projects()) == 1
+  _ = runner.start(spec, task, HOST)
+  assert option(fake.argv(2), "--resume") == []
+  assert fake.calls()[1]["prompt"] == "Go."
+  assert fake.calls()[1]["cwd"] == str(runs / "agent-2")
+  assert fake.projects() == []
+
+
+def test_a_keyed_session_claude_no_longer_has_starts_anew(
+  tmp_path: Path,
+) -> None:
+  lost = {
+    "type": "result",
+    "subtype": "error_during_execution",
+    "is_error": True,
+    "num_turns": 0,
+    "total_cost_usd": 0,
+    "session_id": "s1",
+    "errors": ["No conversation found with session ID: s1"],
+  }
+  fake = Fake(
+    tmp_path,
+    [
+      {"lines": [result(session_id="s1", total_cost_usd=0.5, num_turns=2)]},
+      {"lines": [lost]},
+      {"lines": [result(session_id="s2", total_cost_usd=0.25, num_turns=1)]},
+    ],
+  )
+  runs = tmp_path / "runs"
+  spent: list[float] = []
+  runner = claude.Runner(
+    fake.session, claude.numbered(runs), spent=spent.append
+  )
+  spec = AgentSpec("Go.", tmp_path, session="k")
+  task = AgentTask("Go.", {}, str(tmp_path), None, "Go on.")
+  _ = runner.start(spec, task, HOST)
+
+  found = runner.start(spec, task, HOST)
+
+  assert (found.status, found.ending, found.resumable) == (
+    "ok",
+    "success",
+    True,
+  )
+  assert option(fake.argv(2), "--resume") == ["s1"]
+  assert fake.calls()[1]["prompt"] == "Go on."
+  assert option(fake.argv(3), "--resume") == []
+  assert fake.calls()[2]["prompt"] == "Go."
+  assert fake.calls()[2]["cwd"] == str(runs / "agent-2")
+  assert found.cost_usd == pytest.approx(0.25)
+  assert spent == [pytest.approx(0.5), 0.0, pytest.approx(0.25)]
+  assert runner.checkpoint(found.session)["id"] == "s2"
+
+
+def test_a_restored_runner_goes_on_with_each_keys_session(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(
+    tmp_path,
+    [
+      {"lines": [result(session_id="sa", total_cost_usd=1)]},
+      {"lines": [result(session_id="sb", total_cost_usd=1)]},
+      {"lines": [result(session_id="sa", total_cost_usd=1.5)]},
+      {"lines": [result(session_id="sb", total_cost_usd=1.25)]},
+      {"lines": [result(session_id="sa", total_cost_usd=1.75)]},
+    ],
+  )
+  runs = tmp_path / "runs"
+  files = claude.numbered(runs)
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  specs = {
+    key: AgentSpec("Go.", tmp_path, name=key, session=key) for key in "ab"
+  }
+  first = claude.Runner(fake.session, files)
+  points = [
+    first.checkpoint(first.start(specs[key], task, HOST).session)
+    for key in "aba"
+  ]
+  spent: list[float] = []
+  second = claude.Runner(fake.session, files, spent=spent.append)
+  second.restore([json.loads(json.dumps(point)) for point in points])
+
+  found_b = second.start(specs["b"], task, HOST)
+  found_a = second.start(specs["a"], task, HOST)
+
+  assert option(fake.argv(4), "--resume") == ["sb"]
+  assert fake.calls()[3]["cwd"] == str(runs / "b-2")
+  assert option(fake.argv(5), "--resume") == ["sa"]
+  assert fake.calls()[4]["cwd"] == str(runs / "a-1")
+  assert found_b.trace == runs / "b-4.trace.jsonl"
+  assert found_a.trace == runs / "a-5.trace.jsonl"
+  assert spent == [pytest.approx(0.25), pytest.approx(0.25)]
+  assert points[2] == {
+    "id": "sa",
+    "total_usd": 1.5,
+    "number": 3,
+    "on_host": True,
+    "cwd": str(runs / "a-1"),
+    "session": "a",
+    "subtype": "success",
+  }
