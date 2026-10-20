@@ -1,0 +1,181 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 10.0,
+    "cost_usd": 1.55,
+    "stopped": null
+  },
+  "final": {},
+  "visits": [
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {
+        "solved": 3,
+        "errors": 1,
+        "k": 5
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-02T09:46:00+00:00",
+          "ended_at": "2026-03-02T09:55:03+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-03-02T09:55:12+00:00",
+          "ended_at": "2026-03-02T10:04:15+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "error",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-03-02T10:04:24+00:00",
+          "ended_at": "2026-03-02T10:13:27+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-4": "artifacts/solve/1/trial-4"
+          },
+          "started_at": "2026-03-02T10:13:36+00:00",
+          "ended_at": "2026-03-02T10:22:39+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-5": "artifacts/solve/1/trial-5"
+          },
+          "started_at": "2026-03-02T10:22:48+00:00",
+          "ended_at": "2026-03-02T10:31:51+00:00",
+          "cost_usd": 0.31,
+          "summary": null
+        }
+      ]
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "state": "solve",
+      "output": null,
+      "visit": 1,
+      "visit_index": 0,
+      "path": "artifacts/solve/1",
+      "reason": null,
+      "k": 5,
+      "value": {
+        "output": null,
+        "field": ["solved"],
+        "value": 3,
+        "reason": null
+      },
+      "trials": [
+        {
+          "id": "tinyparse-fold__p3a1",
+          "output": "trial-1",
+          "path": "artifacts/solve/1/trial-1",
+          "trace": {
+            "path": "artifacts/solve/1/trial-1/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__p3b2",
+          "output": "trial-2",
+          "path": "artifacts/solve/1/trial-2",
+          "trace": {
+            "path": "artifacts/solve/1/trial-2/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__p3c3",
+          "output": "trial-3",
+          "path": "artifacts/solve/1/trial-3",
+          "trace": null,
+          "result": {
+            "reward": null,
+            "rewards": {},
+            "exception": "AgentTimeoutError: the agent ran past its 1800s limit"
+          }
+        },
+        {
+          "id": "tinyparse-fold__p3d4",
+          "output": "trial-4",
+          "path": "artifacts/solve/1/trial-4",
+          "trace": {
+            "path": "artifacts/solve/1/trial-4/agent.log",
+            "format": "plain-text-log"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__p3e5",
+          "output": "trial-5",
+          "path": "artifacts/solve/1/trial-5",
+          "trace": {
+            "path": "artifacts/solve/1/trial-5/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        }
+      ]
+    }
+  ],
+  "graph": null
+}

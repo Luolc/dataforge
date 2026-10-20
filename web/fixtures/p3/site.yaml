@@ -1,0 +1,4 @@
+# For the session and trials views: `dataforge viz serve --config
+# web/fixtures/p3/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8830 }
+projects: [project.yaml, project-expanded.yaml]
