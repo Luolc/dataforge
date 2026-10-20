@@ -30,7 +30,6 @@ from dataforge.curation.actions import (
   TrialRunner,
   Verdict,
 )
-from dataforge.curation.deliverables import Deliverable, Source, Value
 from dataforge.curation.engine import (
   ActionRecord,
   Artifacts,
@@ -45,7 +44,6 @@ from dataforge.curation.engine import (
   Outcome,
   Report,
   State,
-  TrialRecord,
   Version,
   Visit,
 )
@@ -79,7 +77,6 @@ __all__ = [
   "CommandResult",
   "Context",
   "Data",
-  "Deliverable",
   "Docker",
   "End",
   "Env",
@@ -105,18 +102,15 @@ __all__ = [
   "RubricState",
   "ScriptSpec",
   "ScriptState",
-  "Source",
   "SpecError",
   "Staged",
   "State",
   "TrialAgent",
-  "TrialRecord",
   "TrialResult",
   "TrialRunner",
   "TrialSetup",
   "TrialState",
   "TrialsState",
-  "Value",
   "Verdict",
   "Version",
   "Visit",
