@@ -671,6 +671,18 @@ def test_the_options_give_the_session() -> None:
   assert claude.Session.from_args(shim).timeout == 9
 
 
+def test_the_effort_option_takes_only_a_known_level(
+  capsys: pytest.CaptureFixture[str],
+) -> None:
+  parser = argparse.ArgumentParser()
+  claude.add_arguments(parser, model="m", effort="low", max_budget_usd=0.5)
+  for level in claude.EFFORTS:
+    assert parser.parse_args(["--effort", level]).effort == level
+  with pytest.raises(SystemExit):
+    _ = parser.parse_args(["--effort", "bogus"])
+  assert "invalid choice: 'bogus'" in capsys.readouterr().err
+
+
 def projects_in(tmp_path: Path) -> tuple[Path, dict[str, str]]:
   """Make a config whose projects hold one other session's directory.
 

@@ -4,12 +4,12 @@ import { attemptRow } from "../../api/types";
 import {
   filterItems,
   flagged,
-  NO_STATUS,
+  NO_STATUS_KEY,
   NOT_ENDED_KEY,
   notEnded,
   rowStatus,
   toItems,
-  UNREADABLE,
+  UNREADABLE_KEY,
   withHomeStatuses,
 } from "./items";
 import { project, row, unreadable } from "./rows.test-data";
@@ -38,7 +38,9 @@ describe("whether an attempt has not ended", () => {
 
 describe("rowStatus", () => {
   it("is No status for an ended attempt with no status word", () => {
-    expect(rowStatus(row("a/1", { status: null, live: null }))).toBe(NO_STATUS);
+    expect(rowStatus(row("a/1", { status: null, live: null }))).toBe(
+      NO_STATUS_KEY,
+    );
     expect(rowStatus(row("a/1", { status: null, live: "not ended" }))).toBe(
       null,
     );
@@ -126,7 +128,7 @@ describe("filterItems", () => {
       { key: "passed", count: 1 },
       { key: "too_easy", count: 1 },
       { key: "raised", count: 1 },
-      { key: UNREADABLE, count: 1 },
+      { key: UNREADABLE_KEY, count: 1 },
     ]);
     expect(filterItems(full, items, "alpha", null).chips).toEqual([
       { key: "~running", count: 1 },
@@ -155,9 +157,9 @@ describe("filterItems", () => {
     ]);
     expect(filterItems(full, more, "", null).chips).toEqual([
       { key: NOT_ENDED_KEY, count: 1 },
-      { key: NO_STATUS, count: 1 },
+      { key: NO_STATUS_KEY, count: 1 },
     ]);
-    expect(full.statuses[NO_STATUS]).toEqual({
+    expect(full.statuses[NO_STATUS_KEY]).toEqual({
       label: "No status",
       tone: "neutral",
     });
