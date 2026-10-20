@@ -1,7 +1,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CodeView, languageOf } from "./code";
+import { CodeView } from "./code";
+import { languageOf } from "./language";
 
 describe("CodeView", () => {
   it("highlights by the file's extension, with line numbers", () => {

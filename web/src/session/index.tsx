@@ -7,13 +7,10 @@ import type { Project } from "../api/types";
 import { parseTrace } from "./parse";
 import { SessionBody } from "./Session";
 
-export const STREAM_JSON = "claude-code-stream-json";
+const STREAM_JSON = "claude-code-stream-json";
 
 /** A file's text; a refusal, such as a 413 for a file over FILE_LIMIT, is an ApiError with its reason. */
-export async function getText(
-  url: string,
-  signal?: AbortSignal,
-): Promise<string> {
+async function getText(url: string, signal?: AbortSignal): Promise<string> {
   const response = await fetch(url, signal ? { signal } : {});
   if (response.ok) return response.text();
   const body: unknown = await response.json().catch(() => null);

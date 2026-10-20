@@ -122,17 +122,17 @@ export function toItems(rows: AttemptRow[]): Item[] {
   const rank = (g: Group) => GROUPS.findIndex((x) => x.group === g);
   const time = (i: Item) =>
     i.group === "open" ? startMs(i.newest) : ms(i.newest.ended_at);
-  return items.sort(
-    (a, b) =>
-      rank(a.group) - rank(b.group) ||
-      (a.group === "unreadable"
-        ? a.id.localeCompare(b.id)
-        : newestFirst(time(a), time(b))),
-  );
+  return items.sort((a, b) => {
+    const byGroup = rank(a.group) - rank(b.group);
+    if (byGroup !== 0) return byGroup;
+    return a.group === "unreadable"
+      ? a.id.localeCompare(b.id)
+      : newestFirst(time(a), time(b));
+  });
 }
 
 /** The key of an item's status chip. */
-export function filterKey(item: Item): string {
+function filterKey(item: Item): string {
   return rowStatus(item.newest) ?? NOT_ENDED_KEY;
 }
 
@@ -158,7 +158,7 @@ export const keyWord = (key: string): string | null =>
   key === NOT_ENDED_KEY ? null : key;
 
 /** Whether an item's ID holds the search text, ignoring case. */
-export function matches(item: Item, q: string): boolean {
+function matches(item: Item, q: string): boolean {
   return item.id.toLowerCase().includes(q.trim().toLowerCase());
 }
 
@@ -204,7 +204,14 @@ export function filterItems(
           : declared.length;
   const chips = [...counts]
     .map(([key, count]) => ({ key, count }))
-    .sort((a, b) => order(a.key) - order(b.key) || a.key.localeCompare(b.key));
+    .sort((a, b) => {
+      const byOrder = order(a.key) - order(b.key);
+      // Two unreadable keys give Infinity - Infinity, NaN; they are the
+      // same key, so the name comparison settles them.
+      return byOrder !== 0 && !Number.isNaN(byOrder)
+        ? byOrder
+        : a.key.localeCompare(b.key);
+    });
   const shown =
     chosen === null
       ? searched

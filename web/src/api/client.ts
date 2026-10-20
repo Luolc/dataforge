@@ -39,7 +39,7 @@ export async function getJson<T>(
     const issue = parsed.error.issues[0];
     const where = issue?.path.join(".") ?? "";
     throw new ApiError(
-      `unexpected data at ${where || "the top"}: ${issue?.message ?? ""}`,
+      `unexpected data at ${where !== "" ? where : "the top"}: ${issue?.message ?? ""}`,
     );
   }
   return parsed.data;
@@ -78,7 +78,7 @@ export function useLoaded<T>(
       controller.abort();
     };
     // load is a new function on each render, and key names what it loads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line @eslint-react/exhaustive-deps
   }, [key]);
   // A result for another key is stale: the new one is still loading.
   return loaded?.key === key ? loaded.value : { state: "loading" };
@@ -100,7 +100,7 @@ const MAX_DIRS = 200;
  * Count the regular files under a path of an attempt, walking at most
  * MAX_DIRS directories; complete is false when it stopped there.
  */
-export async function countFiles(
+async function countFiles(
   p: string,
   attempt: string,
   path: string,

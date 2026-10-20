@@ -7,7 +7,8 @@ import type { ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { fenceLanguage, Highlighted } from "./code";
+import { Highlighted } from "./code";
+import { fenceLanguage } from "./language";
 
 const components: Components = {
   a: ({ href, children }) => (
@@ -15,15 +16,14 @@ const components: Components = {
       {children}
     </a>
   ),
-  img: ({ src, alt }) => (
-    <a
-      href={typeof src === "string" ? src : undefined}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      {`image: ${alt !== undefined && alt !== "" ? alt : typeof src === "string" ? src : ""}`}
-    </a>
-  ),
+  img: ({ src, alt }) => {
+    const url = typeof src === "string" ? src : "";
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {`image: ${alt !== undefined && alt !== "" ? alt : url}`}
+      </a>
+    );
+  },
   code: ({ className, children }) => {
     const tag = /language-(\S+)/.exec(className ?? "")?.[1];
     const known = tag === undefined ? null : fenceLanguage(tag);

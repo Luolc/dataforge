@@ -14,7 +14,7 @@ import type { BadLine, Block, Message, Session, ToolCall } from "./parse";
 export type ThinkingMode = Project["session"]["thinking"];
 
 /** More tool calls than this in one message fold into one line. */
-export const FOLD_OVER = 4;
+const FOLD_OVER = 4;
 
 const count = new Intl.NumberFormat("en-US", { notation: "compact" });
 
@@ -178,7 +178,6 @@ function useToggle(initial: boolean) {
   const [open, setOpen] = useState(initial);
   const id = useId();
   const button = {
-    type: "button" as const,
     "aria-expanded": open,
     "aria-controls": id,
     onClick: () => {
@@ -206,6 +205,7 @@ function Thinking({ text, open: initial }: { text: string; open: boolean }) {
   return (
     <div className="flex flex-col gap-1">
       <button
+        type="button"
         {...button}
         className="flex target max-w-full min-w-0 items-center gap-1.5 self-start rounded-row text-left text-xs text-fg-2 hover:bg-hover"
       >
@@ -242,7 +242,7 @@ const KEY_FIELDS = [
 ];
 
 /** The part of a call's input that names what it did. */
-export function keyArgument(input: unknown): string {
+function keyArgument(input: unknown): string {
   for (const key of KEY_FIELDS) {
     const value = stringField(input, key);
     if (value !== null) return value;
@@ -275,6 +275,7 @@ function ToolRow({
   return (
     <div className="flex flex-col gap-1">
       <button
+        type="button"
         {...button}
         className="flex target min-w-0 items-center gap-2 rounded-row px-1 text-left font-mono text-xs hover:bg-hover"
       >
@@ -355,6 +356,7 @@ function ToolGroup({
   return (
     <div className="flex flex-col gap-1">
       <button
+        type="button"
         {...button}
         className="flex target min-w-0 items-center gap-2 rounded-row px-1 text-left text-xs hover:bg-hover"
       >

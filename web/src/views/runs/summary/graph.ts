@@ -15,7 +15,7 @@ const H = 52;
 const X0 = 24;
 const LANE = 30;
 
-export interface Node {
+interface Node {
   key: string;
   x: number;
   y: number;
@@ -29,12 +29,12 @@ export interface Node {
   lastVisit: number | null;
 }
 
-export interface LabelPart {
+interface LabelPart {
   outcome: string;
   taken: number;
 }
 
-export interface Edge {
+interface Edge {
   key: string;
   path: string;
   taken: boolean;

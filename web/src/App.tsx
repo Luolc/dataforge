@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { use } from "react";
 import { Navigate, Route, Routes } from "react-router";
 
 import { Frame, Shell } from "./shell/Shell";
@@ -31,7 +31,7 @@ export function App() {
 
 /** "/" opens the first project. */
 function Home() {
-  const projects = useContext(ProjectsContext);
+  const projects = use(ProjectsContext);
   const first = projects.state === "ok" ? projects.data[0] : undefined;
   if (first)
     return <Navigate to={`/${encodeURIComponent(first.id)}`} replace />;

@@ -38,7 +38,7 @@ export interface BadLine {
   text: string;
 }
 
-export interface Totals {
+interface Totals {
   seconds: number | null;
   costUsd: number | null;
   turns: number | null;

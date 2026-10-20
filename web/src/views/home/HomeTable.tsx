@@ -30,13 +30,8 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import type { AttemptRow, Column, Project } from "../../api/types";
 import { duration, time, usd } from "../../ui/format";
-import {
-  StatusLabel,
-  stateTitle,
-  statusOf,
-  toneGlyph,
-  toneText,
-} from "../../ui/status";
+import { stateTitle, statusOf, toneGlyph, toneText } from "../../ui/status";
+import { StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import {
   filterItems,
@@ -225,6 +220,7 @@ function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   return (
     <Tooltip.Root>
       <Tooltip.Trigger asChild>
+        {/* eslint-disable-next-line jsx-a11y-x/no-noninteractive-tabindex -- the tooltip opens on focus, so a keyboard can reach it */}
         <span tabIndex={0} className="inline-flex rounded-row">
           {label}
         </span>
@@ -297,7 +293,7 @@ export function HomeTable({
   const project = useMemo(() => withHomeStatuses(given), [given]);
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const base = useId();
+  const baseId = useId();
   const q = params.get("q") ?? "";
   const chosen = params.get("status");
 
@@ -494,7 +490,7 @@ export function HomeTable({
               onChange={(e) => {
                 const value = e.target.value;
                 update((p) => {
-                  if (value) p.set("q", value);
+                  if (value !== "") p.set("q", value);
                   else p.delete("q");
                 });
               }}
@@ -515,9 +511,9 @@ export function HomeTable({
         {filtered.hidden > 0 && (
           <p className="flex items-center gap-2 text-xs text-fg-3">
             {filtered.hidden} of {items.length} hidden by{" "}
-            {q.trim() && chosen !== null
+            {q.trim() !== "" && chosen !== null
               ? "the search and the status filter"
-              : q.trim()
+              : q.trim() !== ""
                 ? "the search"
                 : "the status filter"}
             .
@@ -553,12 +549,12 @@ export function HomeTable({
                           ? "descending"
                           : "none"
                     }
-                    className={`px-3 py-1 font-medium ${spec?.numeric ? "text-right" : "text-left"}`}
+                    className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"}`}
                   >
                     <button
                       type="button"
                       onClick={header.column.getToggleSortingHandler()}
-                      className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric ? "flex-row-reverse" : ""}`}
+                      className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
                     >
                       {spec?.title}
                       {sorted !== false && (
@@ -585,13 +581,13 @@ export function HomeTable({
             return (
               <Group
                 key={group}
-                id={`${base}-${group}`}
+                id={`${baseId}-${group}`}
                 title={title}
                 summary={summary}
                 width={columnSpecs.length}
               >
                 {inGroup.map((row, r) =>
-                  itemRows(row, `${base}-${group}-${r.toString()}`),
+                  itemRows(row, `${baseId}-${group}-${r.toString()}`),
                 )}
               </Group>
             );

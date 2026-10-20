@@ -99,8 +99,23 @@ const unknown: Kind = {
 };
 
 /** What shows deliverables of a kind; an unknown kind shows as cards. */
-export function kindOf(kind: string): Kind {
+function kindOf(kind: string): Kind {
   return kinds[kind] ?? unknown;
+}
+
+/** The count on a kind's tab. */
+export function KindCount({
+  kind,
+  ...props
+}: ItemProps & { items: Deliverable[]; kind: string }) {
+  const { Count } = kindOf(kind);
+  return <Count {...props} />;
+}
+
+/** A deliverable's line on its card in the Summary. */
+export function KindLine({ item, ...props }: ItemProps) {
+  const { Line } = kindOf(item.kind);
+  return <Line item={item} {...props} />;
 }
 
 /** A kind's tab: its deliverables stacked, or one chosen from a menu. */

@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, use } from "react";
 
 import type { Loaded } from "../api/client";
 import type { Project } from "../api/types";
@@ -10,7 +10,7 @@ export const ProjectsContext = createContext<Loaded<Project[]>>({
 
 /** The project with an ID: loading, an error, or the project. */
 export function useProject(id: string | undefined): Loaded<Project> {
-  const projects = useContext(ProjectsContext);
+  const projects = use(ProjectsContext);
   if (projects.state !== "ok") return projects;
   const found = projects.data.find((p) => p.id === id);
   return found

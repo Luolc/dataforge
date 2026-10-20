@@ -21,7 +21,7 @@ import {
   toneText,
 } from "../../../ui/status";
 import { attemptHref } from "../../attempt/href";
-import { kindOf } from "../../registry";
+import { KindLine } from "../../registry";
 import { Graph } from "./Graph";
 import { layout } from "./graph";
 
@@ -164,7 +164,6 @@ function Deliverables({ project, attempt, record }: Props) {
         </thead>
         <tbody>
           {record.deliverables.map((item) => {
-            const { Line } = kindOf(item.kind);
             const from =
               item.visit_index === null
                 ? stateTitle(project, item.state)
@@ -182,9 +181,13 @@ function Deliverables({ project, attempt, record }: Props) {
                 <td className="px-5 text-fg-2">{from}</td>
                 <td className="px-5 text-fg-2">
                   {item.path === null ? (
-                    `${NOT_RUN}${item.reason ? `: ${item.reason}` : ""}`
+                    `${NOT_RUN}${item.reason !== null && item.reason !== "" ? `: ${item.reason}` : ""}`
                   ) : (
-                    <Line project={project.id} attempt={attempt} item={item} />
+                    <KindLine
+                      project={project.id}
+                      attempt={attempt}
+                      item={item}
+                    />
                   )}
                 </td>
               </tr>

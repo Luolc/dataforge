@@ -8,8 +8,9 @@ import { type AttemptRecord, type Project, record } from "../../api/types";
 import { Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
-import { attemptStatus, StatusIcon } from "../../ui/status";
-import { kindOf, KindTab } from "../registry";
+import { attemptStatus } from "../../ui/status";
+import { StatusIcon } from "../../ui/status-mark";
+import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
 import { attemptHref } from "./href";
 
@@ -74,13 +75,13 @@ function Attempt({
     { key: "runs", title: "Runs", count: <>{record.visits.length}</> },
     ...kinds.map((kind) => {
       const items = itemsOf(kind);
-      const { Count } = kindOf(kind);
       const first = items[0];
       return {
         key: kind,
         title: first?.title ?? kind,
         count: first && (
-          <Count
+          <KindCount
+            kind={kind}
             project={project.id}
             attempt={attempt}
             item={first}

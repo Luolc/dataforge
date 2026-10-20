@@ -3,7 +3,8 @@
 import type { Project } from "../../api/types";
 import { Card } from "../../ui/card";
 import { Markdown } from "../../ui/markdown";
-import { NOT_RUN, StatusLabel } from "../../ui/status";
+import { NOT_RUN } from "../../ui/status";
+import { StatusLabel } from "../../ui/status-mark";
 import { size, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
 
@@ -25,7 +26,7 @@ export default function ReportView({
     );
   let body;
   if (path === null) {
-    body = `${NOT_RUN}${deliverable.reason ? `: ${deliverable.reason}` : ""}`;
+    body = `${NOT_RUN}${deliverable.reason !== null && deliverable.reason !== "" ? `: ${deliverable.reason}` : ""}`;
   } else if (loaded.state === "loading") body = "Loading…";
   else if (loaded.state === "error") body = loaded.message;
   else if (loaded.data.kind === "too-large") {

@@ -97,7 +97,7 @@ export function Graph({
               height={node.height}
               className="fill-panel stroke-line [rx:var(--radius-panel)]"
             />
-            {node.tone && <ToneMark tone={node.tone} />}
+            {node.tone !== null && <ToneMark tone={node.tone} />}
             <text x="28" y="23" className="fill-fg text-sm font-semibold">
               {node.title}
             </text>
