@@ -1,7 +1,7 @@
-# Release binaries: herdr and gh pinned by sha256 in versions.yml, then the
-# setup's own tools at their latest release. get_url skips the download when
-# the file at dest already has the expected digest, so a rerun changes
-# nothing.
+# Release binaries: herdr, gh, Pi and Codex CLI pinned by sha256 in
+# versions.yml, then the setup's own tools at their latest release. get_url
+# skips the download when the file at dest already has the expected digest,
+# so a rerun changes nothing.
 
 - name: herdr
   become: true
@@ -44,6 +44,27 @@
     dest: /usr/local/bin/gh
     state: link
     force: true
+
+# Pi's tarball holds one pi/ directory; Codex CLI's holds the package
+# itself: the codex program in bin/, and next to it the rg and sandbox
+# helpers that its codex-package.json names.
+- name: Pinned tarballs
+  ansible.builtin.include_tasks: pinned-tarball.yml
+  loop:
+    - name: pi
+      version: "{{ pi_version }}"
+      sha256: "{{ pi_sha256 }}"
+      url: "https://github.com/earendil-works/pi/releases/download/v{{ pi_version }}/pi-linux-x64.tar.gz"
+      tar_options: [--strip-components=1]
+      program: pi
+    - name: codex
+      version: "{{ codex_version }}"
+      sha256: "{{ codex_sha256 }}"
+      url: "https://github.com/openai/codex/releases/download/rust-v{{ codex_version }}/codex-package-x86_64-unknown-linux-musl.tar.gz"
+      program: bin/codex
+  loop_control:
+    loop_var: pinned
+    label: "{{ pinned.name }}"
 
 # fleet, fednet, atb and statute, each at its latest release. fednet also
 # upgrades itself to its latest release; once it has, the digests match and

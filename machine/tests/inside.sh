@@ -6,14 +6,16 @@
 # install runs to the end and installs none of them, and every tool is at
 # its pinned version or, for the tools the repository owner publishes, at
 # the release the run reports, statute's picked from a fake release list.
+# A Pi or Codex CLI tarball with the wrong sha256 must stop the run and
+# leave the installed version in use.
 # Then it drives the gateway client install from a fake release (a missing
 # checksum file or a tampered download must not replace it), the zshenv
 # extension point, fednet being brought to its latest release and the
 # personal zsh switch. Docker is checked as installed, with its log rotation
 # in daemon.json, Chrome as running, with the CJK fonts, no apt source and
 # only its pinned .deb kept, a Chrome .deb with the wrong sha256 as refused,
-# and check mode on a machine that lacks a vendor apt source, or that Chrome
-# was never installed on, as running to the end.
+# and check mode on a machine that lacks a vendor apt source, or that Chrome,
+# Pi and Codex CLI were never installed on, as running to the end.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -141,17 +143,19 @@ recap run2c.log | grep -Eq 'changed=0 +unreachable=0 +failed=0' || {
 ok "check-mode run: $(recap run2c.log)"
 
 # Check mode when the latest release of the gateway client and of statute (a
-# tarball tool) is not the installed one, and gh is pinned to another
-# version: the run reports what it would change and goes on to the end, but
-# installs nothing and switches nothing.
+# tarball tool) is not the installed one, and gh and Pi are pinned to
+# another version: the run reports what it would change and goes on to the
+# end, but installs nothing and switches nothing.
 gw=$HOME/.local/libexec/redcoast-client
 v2=$(stage 2.0.0)
 statute_old=$(ls /opt/statute)
 gh_old=$(ls /opt/gh)
+pi_old=$(ls "$HOME/.local/libexec/pi")
 cp "$statute_api" "$out/statute-api"
 jq --arg t statute-v0.1.23 '[{tag_name: $t, draft: false, prerelease: false}] + .' "$out/statute-api" >"$statute_api"
 setup run2n.log --check -e gh_version=2.97.0 \
-  -e gh_sha256=a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112 ||
+  -e gh_sha256=a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112 \
+  -e pi_version=1.1.0 -e pi_sha256=3faa94666cd3849d37af320ff749407d0271b07a9b94f420c87e30866e10e289 ||
   { tail -n 40 "$out/run2n.log"; fail "check-mode run with new versions"; }
 cp "$out/statute-api" "$statute_api"
 recap run2n.log | grep -Eq 'unreachable=0 +failed=0' || fail "check-mode run with new versions failed: $(recap run2n.log)"
@@ -160,6 +164,8 @@ grep -q 'TASK \[Gateway client | switch current\]' "$out/run2n.log" || fail "che
 [ ! -e "$gw/2.0.0" ] && [ ! -e "$gw/2.0.0.new" ] || fail "check mode installed gateway 2.0.0"
 [ "$(ls /opt/statute)" = "$statute_old" ] || fail "check mode changed /opt/statute: $(ls /opt/statute)"
 [ "$(ls /opt/gh)" = "$gh_old" ] || fail "check mode changed /opt/gh: $(ls /opt/gh)"
+[ "$(ls "$HOME/.local/libexec/pi")" = "$pi_old" ] || fail "check mode changed ~/.local/libexec/pi: $(ls "$HOME/.local/libexec/pi")"
+[ "$(readlink "$HOME/.local/bin/pi")" = "$HOME/.local/libexec/pi/$(pin pi_version)/pi" ] || fail "check mode relinked pi"
 ok "check-mode run with new versions: $(recap run2n.log), nothing installed"
 
 # Versions. Docker is only checked as installed; whether it runs is checked
@@ -177,6 +183,10 @@ check_version uv "uv $(pin uv_version)" uv --version
 check_version herdr "$(pin herdr_version)" herdr --version
 check_version gh "gh version $(pin gh_version)" gh --version
 check_version claude "$(pin claude_code_version) (Claude Code)" claude --version
+pi_got=$("$HOME/.local/bin/pi" --version 2>&1)
+[ "$pi_got" = "$(pin pi_version)" ] || fail "pi: want $(pin pi_version), got: $pi_got"
+ok "pi: $pi_got"
+check_version codex "codex-cli $(pin codex_version)" "$HOME/.local/bin/codex" --version
 check_version docker "$(pin docker_version | sed 's/^[0-9]*://; s/-.*//')" docker --version
 check_version zsh "zsh " zsh --version
 # The tools other setups refer to by absolute path, at those paths.
@@ -210,6 +220,24 @@ if setup run2g.log -e google_chrome_sha256=$bad; then fail "a Chrome .deb with t
 grep -q 'google-chrome-stable: the pinned .deb' "$out/run2g.log" || { tail -n 20 "$out/run2g.log"; fail "run2g failed for another reason"; }
 check_version "chrome after a wrong sha256" "Google Chrome $(pin google_chrome_version | sed 's/-.*//')" /usr/bin/google-chrome --version
 
+# A Pi or Codex CLI tarball, of a version that exists, whose digest does
+# not match the pin: the run fails, naming the tool, before it keeps the
+# tarball, unpacks it or relinks the tool, and the installed version stays.
+for t in pi:1.1.0 codex:0.159.2; do
+  name=${t%%:*}
+  version=${t#*:}
+  if setup "run2-$name.log" -e "${name}_version=$version" -e "${name}_sha256=$bad"; then
+    fail "a $name $version tarball with the wrong sha256 was accepted"
+  fi
+  grep -Eq "$name: the pinned release $version could not be installed .*did not match" "$out/run2-$name.log" ||
+    { tail -n 20 "$out/run2-$name.log"; fail "run2-$name failed for another reason"; }
+  left=$(ls "$HOME/.local/libexec/$name")
+  [ "$left" = "$(pin "${name}_version")
+$(pin "${name}_version").tar.gz" ] || fail "~/.local/libexec/$name after a wrong sha256: $left"
+done
+check_version "pi after a wrong sha256" "$(pin pi_version)" "$HOME/.local/bin/pi" --version
+check_version "codex after a wrong sha256" "codex-cli $(pin codex_version)" "$HOME/.local/bin/codex" --version
+
 # A machine set up before a vendor apt source was added (here, without the
 # Node.js source, and Node.js pinned to a version it does not have): check
 # mode cannot look up that source's packages, reports it and still previews
@@ -226,20 +254,24 @@ recap run2v.log | grep -Eq 'unreachable=0 +failed=0 .*ignored=1' || {
 grep -q 'TASK \[Base agent instructions\]' "$out/run2v.log" || fail "check-mode run without the Node.js source stopped before the last task"
 ok "check-mode run without the Node.js source: $(recap run2v.log)"
 
-# A machine Chrome was never installed on has no /opt/google-chrome. Check
-# mode creates no directory, so it cannot download into one; it still
-# previews the rest of the setup and leaves the directory uncreated.
+# A machine Chrome, Pi and Codex CLI were never installed on has no
+# /opt/google-chrome or ~/.local/libexec/{pi,codex}. Check mode creates no
+# directory, so it cannot download into one; it still previews the rest of
+# the setup and leaves the directories uncreated.
 sudo mv /opt/google-chrome "$out/google-chrome"
+mv "$HOME/.local/libexec/pi" "$HOME/.local/libexec/codex" "$out/"
 setup run2h.log --check ||
-  { tail -n 40 "$out/run2h.log"; fail "check-mode run before Chrome is installed"; }
+  { tail -n 40 "$out/run2h.log"; fail "check-mode run before Chrome, Pi and Codex CLI are installed"; }
 [ ! -e /opt/google-chrome ] || fail "check mode created /opt/google-chrome"
+[ ! -e "$HOME/.local/libexec/pi" ] && [ ! -e "$HOME/.local/libexec/codex" ] || fail "check mode created ~/.local/libexec/pi or codex"
 sudo mv "$out/google-chrome" /opt/google-chrome
+mv "$out/pi" "$out/codex" "$HOME/.local/libexec/"
 recap run2h.log | grep -Eq 'unreachable=0 +failed=0' || {
   grep -A3 -E '^TASK \[Google Chrome' "$out/run2h.log" || true
-  fail "check-mode run before Chrome is installed: $(recap run2h.log)"
+  fail "check-mode run before Chrome, Pi and Codex CLI are installed: $(recap run2h.log)"
 }
-grep -q 'TASK \[Base agent instructions\]' "$out/run2h.log" || fail "check-mode run before Chrome is installed stopped before the last task"
-ok "check-mode run before Chrome is installed: $(recap run2h.log)"
+grep -q 'TASK \[Base agent instructions\]' "$out/run2h.log" || fail "check-mode run before Chrome, Pi and Codex CLI are installed stopped before the last task"
+ok "check-mode run before Chrome, Pi and Codex CLI are installed: $(recap run2h.log)"
 
 for d in dev wt scratch; do [ -d "$HOME/$d" ] || fail "$HOME/$d missing"; done
 ok "dev, wt and scratch under $HOME"
