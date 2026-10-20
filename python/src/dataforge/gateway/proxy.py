@@ -42,7 +42,7 @@ import urllib.parse
 from dataforge.gateway import channels
 from dataforge.gateway.channels import BILLED, Channel, DRAINED, ROUTES
 from dataforge.gateway.pause import Pause
-from dataforge.gateway.spend import Meter, now, price, record, Spend
+from dataforge.gateway.spend import Meter, NO_USAGE, now, price, record, Spend
 
 # How long the proxy waits for the gateway's answer to one request.
 UPSTREAM_TIMEOUT = 600
@@ -308,6 +308,12 @@ class _Server(socketserver.ThreadingUnixStreamServer):
       usd, reason = price(meter, self.spend)
     except Exception as e:  # noqa: BLE001
       usd, reason = None, f"the reply could not be read: {e!r}"
+    if reason == NO_USAGE:
+      # Only the shape of the reply: event types and a byte count.
+      kinds = ",".join(meter.kinds) or "none"
+      _ = sys.stderr.write(
+        f"gateway: {NO_USAGE}: {meter.size} bytes, events {kinds}\n"
+      )
     capped = self._settle(usd, reason)
     if self.ledger is None:
       return
