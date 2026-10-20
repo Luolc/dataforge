@@ -7,7 +7,7 @@ public = true
 domains = [
   # Agents write and change this repository's own rules in .statute/rules/.
   "R96",
-  # The repository keeps a design, docs/design.md.
+  # The repository keeps a design, docs/design.md and docs/design-viz.md.
   "R232",
   # The repository has Python code, python/.
   "R339",
@@ -36,7 +36,8 @@ rules = [
 ]
 
 exclude = [
-  # The design is one file, docs/design.md, under a line cap (L2): not split by topic,
+  # The design is two files under a line cap, one of them for the viz (L33): not split
+  # further by topic,
   "R113",
   # and so with no index.
   "R114",
