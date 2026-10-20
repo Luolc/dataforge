@@ -1,0 +1,33 @@
+{
+  "passed": true,
+  "reviews": [
+    {
+      "name": "tests",
+      "passed": true,
+      "ending": "done",
+      "criteria": [
+        {
+          "criterion": "accepts_other_fixes",
+          "severity": "error",
+          "passed": true,
+          "note": "The tests accept any error message.",
+          "fix": null
+        },
+        {
+          "criterion": "covers_the_change",
+          "severity": "error",
+          "passed": true,
+          "note": "Without the fix, the oversized header is parsed.",
+          "fix": null
+        },
+        {
+          "criterion": "no_wording_checks",
+          "severity": "warning",
+          "passed": true,
+          "note": "No test matches the fix's wording.",
+          "fix": null
+        }
+      ]
+    }
+  ]
+}

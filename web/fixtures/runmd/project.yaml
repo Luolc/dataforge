@@ -1,0 +1,20 @@
+# A synthetic attempt for the run page's Markdown: task-0301 holds a check
+# that hands feedback back, a review round that fails before the kept one,
+# and checks that leave only JSON. It was made up and ran nowhere.
+id: runmd-sample
+name: Run Markdown sample
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+states:
+  author: { title: Author }
+  check: { title: Check }
+  review: { title: Review }
+statuses:
+  passed: { label: Passed, tone: good }
+  done: { label: Done, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+item: { depth: 2, title: Task }
+columns: []
