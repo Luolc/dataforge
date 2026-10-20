@@ -1,0 +1,358 @@
+{
+  "status": "exhausted",
+  "reason": "author reached max_visits 3",
+  "kept_visit": null,
+  "round": 3,
+  "budget": {
+    "max_usd": 40.0,
+    "cost_usd": 5.52,
+    "stopped": null
+  },
+  "final": {
+    "author": {
+      "state": "author",
+      "visit": 3,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/3/task"
+          },
+          "started_at": "2026-03-02T15:43:48+00:00",
+          "ended_at": "2026-03-02T15:54:51+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    "check": {
+      "state": "check",
+      "visit": 3,
+      "round": 3,
+      "outcome": "fail",
+      "data": {
+        "failed": 2
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/3/check.log"
+          },
+          "started_at": "2026-03-02T15:55:00+00:00",
+          "ended_at": "2026-03-02T15:58:03+00:00",
+          "cost_usd": 0.0,
+          "summary": "Round 3: 2 of 6 tests still fail after the fix."
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task"
+          },
+          "started_at": "2026-03-02T15:15:00+00:00",
+          "ended_at": "2026-03-02T15:26:03+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "fail",
+      "data": {
+        "failed": 2
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/1/check.log"
+          },
+          "started_at": "2026-03-02T15:26:12+00:00",
+          "ended_at": "2026-03-02T15:29:15+00:00",
+          "cost_usd": 0.0,
+          "summary": "Round 1: 2 of 6 tests still fail after the fix."
+        }
+      ]
+    },
+    {
+      "state": "author",
+      "visit": 2,
+      "round": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/2/task"
+          },
+          "started_at": "2026-03-02T15:29:24+00:00",
+          "ended_at": "2026-03-02T15:40:27+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 2,
+      "round": 2,
+      "outcome": "fail",
+      "data": {
+        "failed": 2
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/2/check.log"
+          },
+          "started_at": "2026-03-02T15:40:36+00:00",
+          "ended_at": "2026-03-02T15:43:39+00:00",
+          "cost_usd": 0.0,
+          "summary": "Round 2: 2 of 6 tests still fail after the fix."
+        }
+      ]
+    },
+    {
+      "state": "author",
+      "visit": 3,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/3/task"
+          },
+          "started_at": "2026-03-02T15:43:48+00:00",
+          "ended_at": "2026-03-02T15:54:51+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 3,
+      "round": 3,
+      "outcome": "fail",
+      "data": {
+        "failed": 2
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/3/check.log"
+          },
+          "started_at": "2026-03-02T15:55:00+00:00",
+          "ended_at": "2026-03-02T15:58:03+00:00",
+          "cost_usd": 0.0,
+          "summary": "Round 3: 2 of 6 tests still fail after the fix."
+        }
+      ]
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "task",
+      "kind": "files",
+      "title": "Artifacts",
+      "state": "author",
+      "output": "task",
+      "visit": 3,
+      "visit_index": 4,
+      "path": "artifacts/author/3/task",
+      "reason": null
+    },
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "state": "solve",
+      "output": null,
+      "visit": null,
+      "visit_index": null,
+      "path": null,
+      "reason": "solve was never visited",
+      "k": 0,
+      "value": {
+        "output": null,
+        "field": ["solved"],
+        "value": null,
+        "reason": "the state was not reached"
+      },
+      "trials": []
+    },
+    {
+      "name": "review",
+      "kind": "report",
+      "title": "Rubrics",
+      "state": "review",
+      "output": "report",
+      "visit": null,
+      "visit_index": null,
+      "path": null,
+      "reason": "review was never visited",
+      "table": {
+        "state": "review",
+        "output": "scores",
+        "visit": null,
+        "visit_index": null,
+        "path": null,
+        "reason": "review was never visited"
+      }
+    }
+  ],
+  "graph": {
+    "start": "author",
+    "states": [
+      {
+        "name": "author",
+        "kind": "AgentState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 6.0
+      },
+      {
+        "name": "check",
+        "kind": "ScriptState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "review",
+        "kind": "RubricState",
+        "max_visits": 2,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 2.0
+      },
+      {
+        "name": "solve",
+        "kind": "PassAtKState",
+        "max_visits": 1,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 8.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "author",
+        "outcome": "done",
+        "to": "check",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "author",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "pass",
+        "to": "review",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": true
+      },
+      {
+        "from": "review",
+        "outcome": "pass",
+        "to": "solve",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "in_range",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "all_solved",
+        "to": null,
+        "end": "too_easy",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "none_solved",
+        "to": null,
+        "end": "too_hard",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  }
+}

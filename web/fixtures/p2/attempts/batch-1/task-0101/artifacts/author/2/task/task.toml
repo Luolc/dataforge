@@ -1,0 +1,8 @@
+version = "1.0"
+
+[metadata]
+difficulty = "medium"
+category = "parsing"
+
+[verifier]
+timeout_sec = 300

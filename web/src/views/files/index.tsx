@@ -1,12 +1,81 @@
-import { DeliverableCard } from "../DeliverableCard";
-import type { DeliverableProps } from "../kind";
+// The files view: a deliverable's file tree on the left and a read-only
+// preview of the chosen file on the right. The chosen file is the page's
+// `file`, a path relative to the attempt, used only when it is under this
+// deliverable's path.
+import { useSearchParams } from "react-router";
 
-/** The files view, for a deliverable of kind files; not built yet. */
-export default function FilesView({ deliverable }: DeliverableProps) {
+import { useLoaded } from "../../api/client";
+import { Card, Note } from "../../ui/card";
+import { NOT_RUN } from "../../ui/status";
+import type { DeliverableProps } from "../kind";
+import { Preview } from "./Preview";
+import { firstFile, Tree } from "./Tree";
+
+/** The files view, for a deliverable of kind files. */
+export default function FilesView({
+  project,
+  attempt,
+  deliverable,
+}: DeliverableProps) {
+  const root = deliverable.path;
   return (
-    <DeliverableCard
-      item={deliverable}
-      note="The files view is not built yet."
-    />
+    <Card title={deliverable.title} flush={root !== null}>
+      {root === null ? (
+        <p className="text-fg-3">
+          {`${NOT_RUN}${deliverable.reason ? `: ${deliverable.reason}` : ""}`}
+        </p>
+      ) : (
+        <Files project={project.id} attempt={attempt} root={root} />
+      )}
+    </Card>
+  );
+}
+
+function Files({
+  project,
+  attempt,
+  root,
+}: {
+  project: string;
+  attempt: string;
+  root: string;
+}) {
+  const [query] = useSearchParams();
+  const asked = query.get("file");
+  const chosen = asked?.startsWith(`${root}/`) ? asked : null;
+  const first = useLoaded(
+    chosen === null ? JSON.stringify([project, attempt, root]) : null,
+    (signal) => firstFile(project, attempt, root, signal),
+  );
+  const selected = chosen ?? (first.state === "ok" ? first.data : null);
+  return (
+    <div className="grid grid-cols-[minmax(calc(var(--spacing)*48),calc(var(--spacing)*64))_1fr]">
+      <div className="border-r border-line">
+        {/* The tree opens the folders above the file first shown. */}
+        {(chosen !== null || first.state !== "loading") && (
+          <Tree
+            project={project}
+            attempt={attempt}
+            root={root}
+            selected={selected}
+          />
+        )}
+      </div>
+      {selected !== null ? (
+        <Preview
+          key={selected}
+          project={project}
+          attempt={attempt}
+          path={selected}
+          name={selected.slice(root.length + 1)}
+        />
+      ) : first.state === "loading" ? (
+        <Note>Loading…</Note>
+      ) : first.state === "error" ? (
+        <Note>{first.message}</Note>
+      ) : (
+        <Note>No file to show.</Note>
+      )}
+    </div>
   );
 }

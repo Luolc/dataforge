@@ -1,0 +1,18 @@
+diff --git a/src/tinyparse/header.py b/src/tinyparse/header.py
+index 3f1c2aa..8b0d9e1 100644
+--- a/src/tinyparse/header.py
++++ b/src/tinyparse/header.py
+@@ -9,11 +9,15 @@ def parse(block: str) -> dict[str, str]:
+     fields: dict[str, str] = {}
+     for line in block.splitlines():
+         if not line:
+             continue
+-        name, _, value = line.partition(":")
+-        fields[name.lower()] = value.strip()
++        name, sep, value = line.partition(":")
++        if not sep or not name or name != name.strip():
++            raise HeaderError(f"malformed header line: {line!r}")
++        if name.lower() in fields:
++            raise HeaderError(f"repeated header: {name}")
++        fields[name.lower()] = value.strip()
+     return fields

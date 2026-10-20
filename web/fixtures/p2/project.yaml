@@ -1,0 +1,23 @@
+# Synthetic attempts for the files and report views: task-0101 holds the most
+# files and reports, with two files deliverables and two reports; task-0102
+# never reached its report. They were made up and ran nowhere.
+id: files-sample
+name: Files sample
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+states:
+  author: { title: Author }
+  check: { title: Check }
+  review: { title: Review }
+  solve: { title: Pass@k }
+statuses:
+  passed: { label: Passed, tone: good }
+  exhausted: { label: Exhausted, tone: bad }
+  done: { label: Done, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+  in_range: { label: In range, tone: good }
+item: { depth: 2, title: Task }
+columns: []

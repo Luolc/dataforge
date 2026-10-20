@@ -1,0 +1,5 @@
+services:
+  main:
+    build: .
+    working_dir: /app
+    command: sleep infinity
