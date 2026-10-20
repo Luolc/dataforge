@@ -6,8 +6,9 @@ the turn's `usage`, or with `turn.failed`, which carries its `error`; each item
 of the turn, such as the agent's message (an item of type `agent_message` with
 its `text`), comes in an `item.completed` event. The events carry no cost.
 Codex CLI 0.159.3 was seen to print `thread.started`, `turn.started`, `error`,
-`item.completed` and `turn.failed` on 2026-10-20; the shapes of `turn.completed`
-and of an `agent_message` item are as Codex documents them, not seen here.
+`item.started`, `item.completed`, `turn.completed` and `turn.failed` on
+2026-10-20; the shapes of `turn.completed` and of an `agent_message` item are
+as it printed them.
 """
 
 from collections.abc import Mapping
