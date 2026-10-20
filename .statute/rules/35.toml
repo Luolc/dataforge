@@ -1,0 +1,29 @@
+id = 35
+slug = "design-files-change-alone"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R232"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Change the design files only in pull requests of their own"
+
+[text.statement]
+en = "Change `docs/design.md` and `docs/design-viz.md` only in a pull request that changes no file other than these two."
+
+[text.reason]
+en = '''
+A design pass reads the merged changes and brings the design up to date in one place, so the design is reviewed as a whole and not piecemeal beside the code; every other pull request says its effect on the design under "Design impact".
+'''
+
+[text.verification]
+en = '''
+Violated when a pull request changes `docs/design.md` or `docs/design-viz.md` together with a file other than these two.
+'''

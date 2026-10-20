@@ -339,9 +339,9 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - R123 Make every link of the design lead somewhere, and link to another design file by a relative link to a heading that exists.
 - R124 In the design, write each fact in one place and link to it from elsewhere instead of describing it again.
 - R125 In the design, give a link to another design file the text of the heading it leads to, the file's title, or both.
-- L2 Keep the whole design in the one file `docs/design.md`, at most 200 lines long.
-- L3 Link each invariant in `docs/design.md` to the test that guards it, or mark it "untested" and list it in the description of the pull request that adds it.
-- L4 Change `docs/design.md` only in a pull request that changes no other file.
+- L33 Keep the whole design in `docs/design.md`, except the design of the viz, the web viewer of attempts and its server, which goes in `docs/design-viz.md`; keep each file at most 200 lines long.
+- L34 Link each invariant in `docs/design.md` and `docs/design-viz.md` to the test that guards it, or mark it "untested" and list it in the description of the pull request that adds it.
+- L35 Change `docs/design.md` and `docs/design-viz.md` only in a pull request that changes no file other than these two.
 
 ### Git
 
