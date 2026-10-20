@@ -15,9 +15,11 @@ from typing import cast
 
 import pytest
 
+from dataforge.curation.actions import Limits
 from dataforge.gateway import (
   Backoff,
   Channel,
+  hooks,
   Pause,
   pause,
   pausing,
@@ -25,8 +27,16 @@ from dataforge.gateway import (
   QuotaError,
   serve,
   sessions,
+  trial_setup,
 )
-from tests.gateway.fakes import call, Launcher, QUOTA, serving, upstream
+from tests.gateway.fakes import (
+  call,
+  executable,
+  Launcher,
+  QUOTA,
+  serving,
+  upstream,
+)
 
 ROUTE = {
   Channel.CLAUDE: "/v1/messages",
@@ -140,6 +150,21 @@ def test_a_quota_refusal_pauses_and_the_proxy_starts_once_it_is_over(
   first, second = (cast(float, launch["at"]) for launch in launcher.launches())
   assert second - first >= 0.5
   assert QUOTA in capfd.readouterr().err
+
+
+def test_a_quota_refusal_outside_pausing_fails_the_trials_setup(
+  launcher: Launcher, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  monkeypatch.setattr(hooks, "own_dir", lambda: tmp_path / "own")
+  launcher.write("http://127.0.0.1:9", refuse=1)
+  setup = trial_setup(clients={"claude-code": executable(tmp_path)})
+  agent = {"import_path": "dataforge.gateway.harbor:ClaudeCode"}
+  with (
+    pytest.raises(QuotaError, match=QUOTA),
+    setup(tmp_path, agent, Limits(memory_gb=1), tmp_path),
+  ):
+    pass
+  assert len(launcher.launches()) == 1
 
 
 @pytest.mark.parametrize(
