@@ -1,7 +1,9 @@
 // Every request the frontend makes: GETs to dataforge.viz's API.
-import { createContext, use, useEffect, useState } from "react";
+import { createContext, use, useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 
+import { duration } from "../ui/format";
+import { POLL_MS } from "./poll";
 import { listing } from "./types";
 
 export type Loaded<T> =
@@ -85,11 +87,15 @@ export const nextGeneration = () => ++generations;
 /** The page's generation of reads, for useLoaded's refresh. */
 export const useRefresh = () => use(RefreshContext);
 
+/** How long a read again may take before it counts as failed. */
+export const READ_LIMIT_MS = POLL_MS;
+
 /**
  * What load gives, loaded again whenever key changes; a null key loads
  * nothing. The same key must always load the same thing. When refresh
- * changes, the same key loads again, and what it loaded before stays until
- * the new read lands; a read again that fails keeps it, and says so in
+ * changes, the same key loads again, unless a read of it is still out, and
+ * what it loaded before stays until the new read lands. A read again that
+ * fails, or has no answer within READ_LIMIT_MS, keeps it, and says so in
  * failed until a read lands.
  */
 export function useLoaded<T>(
@@ -102,38 +108,63 @@ export function useLoaded<T>(
     value: Loaded<T>;
     read: number;
   }>();
+  const outRef = useRef<{ key: string; controller: AbortController }>(null);
+  const again = loaded?.key === key && loaded.value.state === "ok";
   useEffect(() => {
-    if (key === null) return;
+    if (key === null || outRef.current?.key === key) return;
     const controller = new AbortController();
-    load(controller.signal).then(
-      (data) => {
-        if (controller.signal.aborted) return;
-        setLoaded({ key, value: { state: "ok", data }, read: Date.now() });
-      },
-      (error: unknown) => {
-        if (controller.signal.aborted) return;
-        const message = error instanceof Error ? error.message : String(error);
-        setLoaded((last) => {
-          if (last?.key !== key || last.value.state !== "ok")
-            return { key, value: { state: "error", message }, read: 0 };
-          const times = (last.value.failed?.times ?? 0) + 1;
-          return {
-            ...last,
-            value: {
-              state: "ok",
-              data: last.value.data,
-              failed: { message, times, read: last.read },
-            },
-          };
-        });
-      },
-    );
-    return () => {
-      controller.abort();
+    const read = { key, controller };
+    outRef.current = read;
+    const fail = (message: string) => {
+      setLoaded((last) => {
+        if (last?.key !== key || last.value.state !== "ok")
+          return { key, value: { state: "error", message }, read: 0 };
+        const times = (last.value.failed?.times ?? 0) + 1;
+        return {
+          ...last,
+          value: {
+            state: "ok",
+            data: last.value.data,
+            failed: { message, times, read: last.read },
+          },
+        };
+      });
     };
-    // load is a new function on each render, and key names what it loads.
+    const limit = again
+      ? setTimeout(() => {
+          controller.abort();
+          if (outRef.current === read) outRef.current = null;
+          fail(`no answer in ${duration(READ_LIMIT_MS / 1000)}`);
+        }, READ_LIMIT_MS)
+      : undefined;
+    load(controller.signal)
+      .then(
+        (data) => {
+          if (controller.signal.aborted) return;
+          setLoaded({ key, value: { state: "ok", data }, read: Date.now() });
+        },
+        (error: unknown) => {
+          if (controller.signal.aborted) return;
+          fail(error instanceof Error ? error.message : String(error));
+        },
+      )
+      .finally(() => {
+        clearTimeout(limit);
+        if (outRef.current === read) outRef.current = null;
+      });
+    // load is a new function on each render, key names what it loads and
+    // again only says whether it loads it again.
     // eslint-disable-next-line @eslint-react/exhaustive-deps
   }, [key, refresh]);
+  // A read for a key the page has left, or of a page that has gone, is
+  // dropped.
+  useEffect(
+    () => () => {
+      outRef.current?.controller.abort();
+      outRef.current = null;
+    },
+    [key],
+  );
   // A result for another key is stale: the new one is still loading.
   return loaded?.key === key ? loaded.value : { state: "loading" };
 }

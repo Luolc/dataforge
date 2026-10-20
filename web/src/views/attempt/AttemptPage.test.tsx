@@ -284,6 +284,9 @@ describe("an attempt read again while it runs", () => {
   };
 
   const tick = async () => {
+    // Let the effects of what has landed run first, the poll's timer among
+    // them: a page found on screen may not have set it yet.
+    await act(() => Promise.resolve());
     act(() => {
       vi.advanceTimersByTime(POLL_MS);
     });
@@ -505,5 +508,72 @@ describe("a later visit of an attempt", () => {
     await waitFor(() => {
       expect(tabs()[1]).toHaveTextContent("Task2");
     });
+  });
+});
+
+describe("an attempt whose server stops answering", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Advance the page's timers by ms, letting what they start land.
+  const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
+  it("says so once two reads again have had no answer, one read out at a time", async () => {
+    let answering = true;
+    let out = 0;
+    let most = 0;
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (!answering) {
+        most = Math.max(most, ++out);
+        init?.signal?.addEventListener("abort", () => {
+          out--;
+        });
+        // An answer that never comes, as from a machine gone off the network.
+        return new Promise<Response>(() => undefined);
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(url.includes("/live?") ? runningIn() : inReview),
+          { status: 200 },
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <ProjectsContext value={{ state: "ok", data: [project] }}>
+        <MemoryRouter initialEntries={[`/${project.id}/attempt?id=b/t`]}>
+          <Routes>
+            <Route path=":project/attempt" element={<AttemptPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ProjectsContext>,
+    );
+    await advance(0);
+    expect(tabs()[0]).toHaveTextContent("Runs5");
+    const said = () => screen.queryByText(/^Could not read the attempt again/);
+    // The status region is there before the line, to announce it.
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+    answering = false;
+    // One tick at a time, so that what each starts runs before the next.
+    for (let tick = 0; tick < 2; tick++) await advance(POLL_MS);
+    // The first read again has had no answer: one failure, nothing said.
+    expect(said()).toBeNull();
+    await advance(POLL_MS);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /^Could not read the attempt again \(no answer in 5s\); what is shown was read at/,
+    );
+    expect(tabs()[0]).toHaveTextContent("Runs5");
+    // Each read again is of the record and /live, given up on before the
+    // next is sent: never more than one out.
+    expect(most).toBe(2);
   });
 });

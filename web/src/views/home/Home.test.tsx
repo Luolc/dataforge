@@ -468,6 +468,9 @@ describe("the home page while an attempt runs", () => {
   }
 
   const tick = async (ms = POLL_MS) => {
+    // Let the effects of what has landed run first, the poll's timer among
+    // them: a page found on screen may not have set it yet.
+    await act(() => Promise.resolve());
     act(() => {
       vi.advanceTimersByTime(ms);
     });
@@ -513,6 +516,7 @@ describe("the home page while an attempt runs", () => {
     await screen.findByText("t-run");
     expect(fetch).toHaveBeenCalledTimes(1);
 
+    await act(() => Promise.resolve());
     act(() => {
       vi.advanceTimersByTime(POLL_MS);
     });

@@ -233,7 +233,7 @@ function Attempt({
       <Header attempt={attempt}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
-      {failed !== null && <ReadFailed failed={failed} />}
+      <ReadFailed failed={failed} />
       <Tabs project={project} attempt={attempt} tabs={tabs} current={tab} />
       {tab === "runs" ? (
         <RunsView
@@ -280,17 +280,24 @@ function AttemptIcon({
   return <StatusIcon project={project} word={attemptStatus(project, record)} />;
 }
 
-/** That the page could not read the attempt again, so what it shows is older. */
-function ReadFailed({ failed }: { failed: Failed }) {
+/**
+ * That the page could not read the attempt again, so what it shows is older;
+ * the status region stays on the page, so that a reader announces the line
+ * when it comes.
+ */
+function ReadFailed({ failed }: { failed: Failed | null }) {
   const Glyph = toneGlyph.warn;
   return (
-    <p
-      role="status"
-      className={`flex items-center gap-1.5 px-7 pt-1 text-xs ${toneText.warn}`}
-    >
-      <Glyph className="size-3.5 flex-none" aria-hidden />
-      {`Could not read the attempt again (${failed.message.replace(/\.$/, "")}); what is shown was read at ${time(new Date(failed.read).toISOString())}.`}
-    </p>
+    <div role="status">
+      {failed !== null && (
+        <p
+          className={`flex items-center gap-1.5 px-7 pt-1 text-xs ${toneText.warn}`}
+        >
+          <Glyph className="size-3.5 flex-none" aria-hidden />
+          {`Could not read the attempt again (${failed.message.replace(/\.$/, "")}); what is shown was read at ${time(new Date(failed.read).toISOString())}.`}
+        </p>
+      )}
+    </div>
   );
 }
 

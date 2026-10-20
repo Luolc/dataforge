@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useLoaded } from "./client";
+import { READ_LIMIT_MS, useLoaded } from "./client";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -124,3 +124,73 @@ function must<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("missing");
   return value;
 }
+
+describe("useLoaded read again, slow", () => {
+  function load() {
+    const reads: ReturnType<typeof deferred<string>>[] = [];
+    const hook = renderHook(
+      ({ refresh }) =>
+        useLoaded(
+          "key",
+          () => {
+            const read = deferred<string>();
+            reads.push(read);
+            return read.promise;
+          },
+          refresh,
+        ),
+      { initialProps: { refresh: 0 } },
+    );
+    return { reads, hook };
+  }
+
+  const settle = async (
+    read: ReturnType<typeof deferred<string>> | undefined,
+    value: string,
+  ) => {
+    await act(async () => {
+      must(read).resolve(value);
+      await must(read).promise;
+    });
+  };
+
+  it("sends no other while one is out, and lands a slow one", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { reads, hook } = load();
+    await settle(reads[0], "first");
+
+    hook.rerender({ refresh: 1 });
+    hook.rerender({ refresh: 2 });
+    hook.rerender({ refresh: 3 });
+    expect(reads).toHaveLength(2);
+
+    act(() => {
+      vi.advanceTimersByTime(READ_LIMIT_MS - 1);
+    });
+    await settle(reads[1], "second");
+    expect(hook.result.current).toEqual({ state: "ok", data: "second" });
+  });
+
+  it("counts a read again with no answer within READ_LIMIT_MS as failed", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { reads, hook } = load();
+    await settle(reads[0], "first");
+
+    hook.rerender({ refresh: 1 });
+    act(() => {
+      vi.advanceTimersByTime(READ_LIMIT_MS);
+    });
+    expect(hook.result.current).toMatchObject({
+      state: "ok",
+      data: "first",
+      failed: { message: "no answer in 5s", times: 1 },
+    });
+    // The read given up on lands nothing; the next one is sent.
+    await settle(reads[1], "late");
+    expect(hook.result.current).toMatchObject({ data: "first" });
+    hook.rerender({ refresh: 2 });
+    expect(reads).toHaveLength(3);
+    await settle(reads[2], "second");
+    expect(hook.result.current).toEqual({ state: "ok", data: "second" });
+  });
+});
