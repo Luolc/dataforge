@@ -16,7 +16,7 @@ uses = ["instructions", "review"]
 en = "Keep the license and the source of icons copied into the repository beside them"
 
 [text.statement]
-en = "Keep, in the directory of every icon file copied into this repository from a third party, a file that holds its license's text, its source and version, and each change made to it."
+en = "Keep, in the directory of every file that holds an icon copied into this repository from a third party, whether as a file of its own or inside another file such as a component, a file that holds the icon's license text, its source and version, and each change made to it."
 
 [text.reason]
 en = '''
@@ -25,7 +25,7 @@ An icon library installed as a package carries its own license; an icon copied o
 
 [text.verification]
 en = '''
-A change to an icon is any edit to its file, such as a color replaced.
+An icon is copied when its drawing, such as an SVG's paths, is taken from a third party's file, whether the file is copied whole or its paths are written into a component. A change to an icon is any edit to its drawing, such as a color replaced.
 
-Violated when a directory holds an icon file copied from a third party with no file beside it that gives the license's full text, the source and version it was copied from, and every change made to it since.
+Violated when a directory holds a file with an icon copied from a third party and no file beside it gives the icon's license in full, the source and version it was copied from, and every change made to it since.
 '''

@@ -13,10 +13,10 @@ check = "none"
 uses = ["instructions", "review"]
 
 [title]
-en = "Give each color of a file's type icon 3:1 contrast with the tree's backgrounds"
+en = "Give each color of a file's or folder's icon in a file tree 3:1 contrast with the tree's backgrounds"
 
 [text.statement]
-en = "Draw every file's type icon in a file tree only in colors that have a contrast ratio of at least 3:1 with each background the tree's rows have, in every theme."
+en = "Draw every icon beside a file's or a folder's name in a file tree only in colors that have a contrast ratio of at least 3:1 with each background the tree's rows have, in every theme."
 
 [text.reason]
 en = '''
@@ -25,7 +25,7 @@ Icons drawn for a dark editor carry light greys and pale fills that vanish on a 
 
 [text.verification]
 en = '''
-A file's type icon is as {@rule:50} says. The tree's row backgrounds are the panel and the hover and current-row backgrounds. The ratio is WCAG's contrast ratio between two colors; a color the icon draws over another of its own colors, such as a glyph on its own fill, is measured against that fill instead.
+The tree's row backgrounds are the panel and the hover and current-row backgrounds. The ratio is WCAG's contrast ratio between two colors; a color the icon draws over another of its own colors, such as a glyph on its own fill, is measured against that fill instead.
 
-Violated when a file's type icon, in some theme, draws a color whose ratio with one of those backgrounds is below 3:1.
+Violated when such an icon, in some theme, draws a color whose ratio with one of those backgrounds is below 3:1.
 '''
