@@ -3,6 +3,7 @@
 // and a link opens only on a click, in a new tab with no opener or referrer.
 // react-markdown turns raw HTML into text unless a plugin such as rehype-raw
 // is added; none may be.
+import type { ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -36,11 +37,32 @@ const components: Components = {
   },
 };
 
-/** Untrusted Markdown, rendered safely. */
-export function Markdown({ text }: { text: string }) {
+/**
+ * Untrusted Markdown, rendered safely. cell may draw a table cell whose whole
+ * text is plain: what it returns replaces the text, and null keeps it.
+ */
+export function Markdown({
+  text,
+  cell,
+}: {
+  text: string;
+  cell?: (text: string) => ReactNode | null;
+}) {
+  const all: Components =
+    cell === undefined
+      ? components
+      : {
+          ...components,
+          td: ({ style, children }) => (
+            <td style={style}>
+              {(typeof children === "string" ? cell(children) : null) ??
+                children}
+            </td>
+          ),
+        };
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={all}>
         {text}
       </ReactMarkdown>
     </div>
