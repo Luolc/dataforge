@@ -51,7 +51,7 @@ export function StatusIcon({
       title={label}
       className={`inline-grid size-4 flex-none place-items-center rounded-full ${toneIcon[tone]}`}
     >
-      <Glyph className="size-2.5 text-panel" strokeWidth={3} aria-hidden />
+      <Glyph className="size-2.5 text-on-tone" strokeWidth={3} aria-hidden />
     </span>
   );
 }
