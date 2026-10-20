@@ -1,4 +1,4 @@
 # For the resumed attempt's screenshots (attempts/resumeviz/task-0401):
 # `dataforge viz serve --config web/fixtures/resumeviz/site.yaml --static web/dist`.
-listen: { host: 127.0.0.1, port: 8811 }
+listen: { host: 127.0.0.1, port: 8813 }
 projects: [../project.yaml]
