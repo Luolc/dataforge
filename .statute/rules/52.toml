@@ -1,0 +1,31 @@
+id = 52
+slug = "frontend-file-icon-contrast"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["purpose"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Give each color of a file's type icon 3:1 contrast with the tree's backgrounds"
+
+[text.statement]
+en = "Draw every file's type icon in a file tree only in colors that have a contrast ratio of at least 3:1 with each background the tree's rows have, in every theme."
+
+[text.reason]
+en = '''
+Icons drawn for a dark editor carry light greys and pale fills that vanish on a light page. A ratio of 3:1 is what WCAG 2.2 asks of the graphics a reader needs to tell a part of a page from another (success criterion 1.4.11).
+'''
+
+[text.verification]
+en = '''
+A file's type icon is as {@rule:50} says. The tree's row backgrounds are the panel and the hover and current-row backgrounds. The ratio is WCAG's contrast ratio between two colors; a color the icon draws over another of its own colors, such as a glyph on its own fill, is measured against that fill instead.
+
+Violated when a file's type icon, in some theme, draws a color whose ratio with one of those backgrounds is below 3:1.
+'''

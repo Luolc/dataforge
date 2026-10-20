@@ -1,0 +1,31 @@
+id = 51
+slug = "frontend-icon-license"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["decency.legitimate-means"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Keep the license and the source of icons copied into the repository beside them"
+
+[text.statement]
+en = "Keep, in the directory of every icon file copied into this repository from a third party, a file that holds its license's text, its source and version, and each change made to it."
+
+[text.reason]
+en = '''
+An icon library installed as a package carries its own license; an icon copied out of one does not, and its license asks that its text go with every copy. The source and version say where to take a newer copy from, and the changes say what a newer copy would undo.
+'''
+
+[text.verification]
+en = '''
+A change to an icon is any edit to its file, such as a color replaced.
+
+Violated when a directory holds an icon file copied from a third party with no file beside it that gives the license's full text, the source and version it was copied from, and every change made to it since.
+'''
