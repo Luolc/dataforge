@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import passAtK from "../../../fixtures/p3/attempts/pass-at-k/record.json";
@@ -64,6 +70,32 @@ describe("the trials view", () => {
       "tinyparse-fold__p3d4solved",
       "tinyparse-fold__p3e5solved",
     ]);
+  });
+
+  it("heads a visit with no outcome as No outcome once its attempt ended", () => {
+    const open = structuredClone(attempt);
+    open.status = null;
+    for (const visit of open.visits) visit.outcome = null;
+    const view = (shown: Project) =>
+      render(
+        <TrialsView
+          project={shown}
+          attempt="pass-at-k"
+          record={open}
+          deliverable={must(open.deliverables[0])}
+        />,
+      );
+    const heading = () =>
+      within(screen.getByRole("navigation", { name: "Trials" })).getByText(
+        /^Outcome/,
+      );
+
+    view({ ...project, not_ended: ["running"] });
+    expect(heading()).toHaveTextContent("Outcome No outcome");
+    cleanup();
+
+    view(project);
+    expect(heading()).toHaveTextContent("Outcome Not ended");
   });
 
   it("shows the chosen trial's numbers and its session", async () => {

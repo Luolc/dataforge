@@ -32,14 +32,16 @@ from dataforge.curation.harbor import (
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json and then does what
 # FAKE_MODE says: "ok", "exception", "no-reward", "exit" (exit 3 with no result)
-# or "hang" (start a child, write its own and the child's pid, sleep). The
+# or "hang" (start a child, write its own and the child's pid, sleep);
+# "interrupt" also sends its parent SIGUSR1 before it sleeps, and "stubborn"
+# does too, and again on SIGTERM instead of exiting. The
 # agent's cost is FAKE_COST, 0.25 by default and null for "none"; with
 # FAKE_TRACE, the agent directory gets a Claude Code trace whose last result
 # event costs that much. FAKE_LINKS, a JSON object, gives symlinks to make in
 # the trial's directory, by path inside it, FAKE_FILES files to write there and
 # FAKE_FIFO a FIFO to make there.
 FAKE_HARBOR = """\
-import json, os, pathlib, subprocess, sys, time
+import json, os, pathlib, signal, subprocess, sys, time
 argv = sys.argv[1:]
 jobs = pathlib.Path(argv[argv.index("--jobs-dir") + 1])
 trial = jobs / argv[argv.index("--job-name") + 1] / "task__abc"
@@ -49,9 +51,15 @@ trial = jobs / argv[argv.index("--job-name") + 1] / "task__abc"
 mode = os.environ["FAKE_MODE"]
 if mode == "exit":
     sys.exit(3)
-if mode == "hang":
+if mode in ("hang", "interrupt", "stubborn"):
     child = subprocess.Popen(["sleep", "60"])
     (jobs / "pids").write_text(f"{os.getpid()} {child.pid}")
+    if mode == "stubborn":
+        signal.signal(
+            signal.SIGTERM, lambda *_: os.kill(os.getppid(), signal.SIGUSR1)
+        )
+    if mode != "hang":
+        os.kill(os.getppid(), signal.SIGUSR1)
     time.sleep(60)
 (trial / "agent").mkdir(parents=True)
 result = {
@@ -102,14 +110,29 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 # inspected: `container ls` without a filter prints those ids, `container
 # inspect` gives their mounts, says "No such container" for each gone one and
 # the line in a file "inspect-error" when there is one, exiting 1 when it said
-# anything, and `container rm` removes them unless "stuck" is there. `compose`
-# goes to the real docker on PATH, which only reads compose files here.
+# anything, and `container rm` removes them unless "stuck" is there. `run` (the
+# chown) writes to alive.json which of the pids in the trial's "pids" still run.
+# `compose` goes to the real docker on PATH, which only reads compose files
+# here.
 FAKE_DOCKER = """\
 import json, os, pathlib, sys
 here = pathlib.Path(__file__).parent
 argv = sys.argv[1:]
 with (here / "calls.jsonl").open("a") as f:
     f.write(json.dumps(argv) + "\\n")
+def running(pid):
+    try:
+        stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    except FileNotFoundError:
+        return False
+    return stat.rsplit(")")[-1].split()[0] != "Z"
+if argv[0] == "run":
+    volume = next(a for a in argv if a.startswith("--volume="))
+    trial = volume.removeprefix("--volume=").rsplit(":", 1)[0]
+    pids = pathlib.Path(trial, "pids")
+    if pids.exists():
+        alive = [int(p) for p in pids.read_text().split() if running(p)]
+        (here / "alive.json").write_text(json.dumps(alive))
 if argv[0] == "compose":
     os.execvp("docker", ["docker", *argv])
 mounts_file = here / "mounts.json"
@@ -600,6 +623,36 @@ def test_a_hung_harbor_is_stopped_with_its_children(
     for pid in alive(out):
       pytest.fail(f"process {pid} of the fake harbor is still running")
   finally:
+    for pid in alive(out):
+      os.kill(pid, signal.SIGKILL)
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt(), SystemExit(143)])
+@pytest.mark.parametrize("mode", ["interrupt", "stubborn"])
+def test_an_interrupted_harbor_is_stopped_before_the_chown(
+  tmp_path: Path, fakes: tuple[Path, Path], interrupt: BaseException, mode: str
+) -> None:
+  out = outdir(tmp_path)
+  raised: list[BaseException] = []
+
+  def handler(*_: object) -> None:
+    # A new exception each time, so that which one escaped can be told.
+    raised.append(type(interrupt)(*interrupt.args))
+    raise raised[-1]
+
+  previous = signal.signal(signal.SIGUSR1, handler)
+  started = time.monotonic()
+  try:
+    with pytest.raises(type(interrupt)) as caught:
+      _ = runner(fakes, mode).run(task(tmp_path), "nop", Limits(2), out)
+    # In "stubborn", the second interrupt, in the grace period, escapes.
+    assert caught.value is raised[-1]
+    assert len(raised) == (1 if mode == "interrupt" else 2)
+    assert caught.value.args == interrupt.args
+    assert time.monotonic() - started < 20
+    assert json.loads((fakes[1].parent / "alive.json").read_text()) == []
+  finally:
+    _ = signal.signal(signal.SIGUSR1, previous)
     for pid in alive(out):
       os.kill(pid, signal.SIGKILL)
 

@@ -24,7 +24,8 @@ compose file, which Harbor reads before ours, can take the same limits from
 DATAFORGE_SIDECAR_CPUS and DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment.
 After the run, whatever happened, the trial's files are given back to this user
 and everything with the label is removed, and so is every container, labelled
-or not, that mounts from under the trial's output directory. Then, as the
+or not, that mounts from under the trial's output directory; when run is
+interrupted, Harbor and its children are stopped first. Then, as the
 containers wrote into the trial's directory, each symlink there that resolves,
 or may, outside it, and each entry that is no regular file, directory or
 symlink, is removed and named in `harbor.log`, before run gives the trial to any
@@ -46,7 +47,7 @@ spans the whole trial and may add to the other three for that trial.
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 import json
@@ -365,6 +366,10 @@ class HarborRunner:
 
     Returns:
       Why it failed, or None when it exited 0.
+
+    Raises:
+      BaseException: Whatever interrupted the wait, such as the SystemExit of a
+        SIGTERM or a KeyboardInterrupt, once Harbor is stopped.
     """
     env = {
       **_passed(),
@@ -387,6 +392,11 @@ class HarborRunner:
       except subprocess.TimeoutExpired:
         _stop(process)
         return f"TimeoutError: Harbor ran past {self.timeout:g} s"
+      except BaseException:
+        # Interrupted (a SIGTERM made SystemExit, Ctrl-C): Harbor could still
+        # start a container or write after the cleanup gave its files back.
+        _stop(process)
+        raise
     return (
       None if code == 0 else f"HarborError: harbor exited {code}; see {log}"
     )
@@ -611,6 +621,13 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
       break
     except subprocess.TimeoutExpired:
       continue
+    except BaseException:
+      # An interrupt in the grace period (a second Ctrl-C, say) kills them
+      # before it goes on.
+      with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+      _ = process.wait()
+      raise
 
 
 def _read(
