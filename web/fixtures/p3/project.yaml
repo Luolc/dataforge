@@ -1,0 +1,17 @@
+# Synthetic stream-json traces for the session and trials views; the attempt
+# was made up and ran nowhere. The same attempt, its thinking first expanded,
+# is project-expanded.yaml.
+id: sessions
+name: Session samples
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*"
+record: record.json
+states:
+  solve: { title: Pass@k }
+statuses:
+  passed: { label: Passed, tone: good }
+  in_range: { label: In range, tone: good }
+item: { depth: 1, title: Task }
+columns: []
+session: { thinking: collapsed }
