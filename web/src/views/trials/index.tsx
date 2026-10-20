@@ -7,7 +7,7 @@ import type { Action, Tone, Trial } from "../../api/types";
 import { SessionView } from "../../session";
 import { Note } from "../../ui/card";
 import { duration, span, usd } from "../../ui/format";
-import { toneGlyph, toneText } from "../../ui/status";
+import { attemptStatus, toneGlyph, toneText } from "../../ui/status";
 import { StatusLabel } from "../../ui/status-mark";
 import { DeliverableCard } from "../DeliverableCard";
 import type { DeliverableProps } from "../kind";
@@ -94,7 +94,12 @@ export default function TrialsView({
           )}
           {visit !== undefined && (
             <p className="flex items-center gap-2 text-xs text-fg-3">
-              Outcome <StatusLabel project={project} word={visit.outcome} />
+              Outcome{" "}
+              <StatusLabel
+                project={project}
+                word={visit.outcome}
+                ended={attemptStatus(project, record) !== null}
+              />
             </p>
           )}
         </div>

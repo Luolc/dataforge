@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
-import { attemptStatus, liveStatus, statusOf } from "./status";
+import { attemptStatus, liveStatus, outcomeOf, statusOf } from "./status";
 
 describe("status words", () => {
   it("an unmapped raised is bad, any other unmapped word neutral", () => {
@@ -49,6 +49,20 @@ describe("status words", () => {
       label: "No status",
       tone: "neutral",
     });
+  });
+
+  it("a visit with no outcome is No outcome once its attempt has ended", () => {
+    expect(outcomeOf(sampleProject, null, true)).toEqual({
+      label: "No outcome",
+      tone: "neutral",
+    });
+    expect(outcomeOf(sampleProject, null, false)).toEqual({
+      label: "Not ended",
+      tone: "neutral",
+    });
+    expect(outcomeOf(sampleProject, "passed", true)).toEqual(
+      statusOf(sampleProject, "passed"),
+    );
   });
 
   it("live words have the viewer's own labels and tones", () => {

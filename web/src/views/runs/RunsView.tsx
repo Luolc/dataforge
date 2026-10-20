@@ -4,7 +4,7 @@ import { Link } from "react-router";
 
 import type { AttemptRecord, Project } from "../../api/types";
 import { duration, usd, visitCost, visitSeconds } from "../../ui/format";
-import { stateTitle, statusOf } from "../../ui/status";
+import { attemptStatus, outcomeOf, stateTitle } from "../../ui/status";
 import { StatusIcon } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import { Note } from "../../ui/card";
@@ -27,6 +27,7 @@ export function RunsView({
 }) {
   const href = (at: { run?: number }) =>
     attemptHref(project.id, attempt, { tab: "runs", ...at });
+  const ended = attemptStatus(project, record) !== null;
   return (
     <div className="grid grid-cols-[var(--spacing-runs)_minmax(0,1fr)] gap-6 px-7 pt-5 pb-12">
       <nav aria-label="Runs" className="flex flex-col gap-0.5">
@@ -50,13 +51,17 @@ export function RunsView({
               aria-current={run === index ? "page" : undefined}
               className={item}
             >
-              <StatusIcon project={project} word={visit.outcome} />
+              <StatusIcon
+                project={project}
+                word={visit.outcome}
+                ended={ended}
+              />
               <span className="min-w-0 flex-auto">
                 <span className="block break-words">
                   {stateTitle(project, visit.state)}
                 </span>
                 <span className="block text-2xs font-normal text-fg-3">
-                  {statusOf(project, visit.outcome).label}
+                  {outcomeOf(project, visit.outcome, ended).label}
                   {seconds !== null && ` · ${duration(seconds)}`}
                   {` · ${usd(visitCost(visit))}`}
                 </span>
