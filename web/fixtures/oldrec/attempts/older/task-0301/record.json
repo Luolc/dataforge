@@ -1,0 +1,132 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "final": {
+    "author": {
+      "state": "author",
+      "visit": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/2/task"
+          },
+          "started_at": "2026-03-04T10:15:10+00:00",
+          "ended_at": "2026-03-04T10:24:31+00:00",
+          "cost_usd": 1.62
+        }
+      ]
+    },
+    "check": {
+      "state": "check",
+      "visit": 2,
+      "outcome": "pass",
+      "data": {
+        "failed": 0
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/2/check.log"
+          },
+          "started_at": "2026-03-04T10:24:39+00:00",
+          "ended_at": "2026-03-04T10:26:55+00:00",
+          "cost_usd": 0.0
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "author",
+      "visit": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task"
+          },
+          "started_at": "2026-03-04T10:00:05+00:00",
+          "ended_at": "2026-03-04T10:12:40+00:00",
+          "cost_usd": 2.15
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "outcome": "fail",
+      "data": {
+        "failed": 3
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/1/check.log"
+          },
+          "started_at": "2026-03-04T10:12:48+00:00",
+          "ended_at": "2026-03-04T10:15:02+00:00",
+          "cost_usd": 0.0
+        }
+      ]
+    },
+    {
+      "state": "author",
+      "visit": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/2/task"
+          },
+          "started_at": "2026-03-04T10:15:10+00:00",
+          "ended_at": "2026-03-04T10:24:31+00:00",
+          "cost_usd": 1.62
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 2,
+      "outcome": "pass",
+      "data": {
+        "failed": 0
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/2/check.log"
+          },
+          "started_at": "2026-03-04T10:24:39+00:00",
+          "ended_at": "2026-03-04T10:26:55+00:00",
+          "cost_usd": 0.0
+        }
+      ]
+    }
+  ],
+  "cost_usd": 3.77,
+  "tone": "good",
+  "kept_round": 2
+}

@@ -47,7 +47,7 @@ export function Summary({ project, attempt, record }: Props) {
           {machine ? (
             <Graph layout={machine} runHref={runHref} />
           ) : (
-            <p className="p-4 text-fg-3">The record has no graph.</p>
+            <p className="p-4 text-fg-3">This record has no graph.</p>
           )}
         </div>
       </Card>
@@ -71,7 +71,7 @@ function TopRow({
   const seconds =
     started !== undefined && ended !== undefined ? span(started, ended) : null;
   const status = statusOf(project, attemptStatus(project, record));
-  const { max_usd: cap, cost_usd: cost } = record.budget;
+  const budget = record.budget;
   const items = [
     { key: "Started", value: started === undefined ? "—" : time(started) },
     {
@@ -84,9 +84,13 @@ function TopRow({
     },
     {
       key: "Cost",
-      value: cap === null ? usd(cost) : `${usd(cost)} of ${usd(cap)}`,
+      value: !budget
+        ? "This record has no budget."
+        : budget.max_usd === null
+          ? usd(budget.cost_usd)
+          : `${usd(budget.cost_usd)} of ${usd(budget.max_usd)}`,
     },
-    { key: "Deliverables", value: record.deliverables.length },
+    { key: "Deliverables", value: record.deliverables?.length ?? "—" },
   ];
   return (
     <section className="rounded-panel border border-line">
@@ -118,11 +122,21 @@ function Summaries({
   record: AttemptRecord;
   runHref: (index: number) => string;
 }) {
+  const actions = record.visits.flatMap((visit) => visit.actions);
+  if (
+    actions.length > 0 &&
+    actions.every((action) => action.summary === undefined)
+  )
+    return (
+      <Card title="Summaries">
+        <p className="text-fg-3">This record has no summaries.</p>
+      </Card>
+    );
   const written = record.visits.flatMap((visit, index) =>
     visit.actions.flatMap((action, i) =>
-      action.summary === null
-        ? []
-        : [{ visit, index, key: `${index}-${i}`, text: action.summary }],
+      typeof action.summary === "string"
+        ? [{ visit, index, key: `${index}-${i}`, text: action.summary }]
+        : [],
     ),
   );
   if (written.length === 0) return null;
@@ -151,7 +165,14 @@ function Summaries({
 }
 
 function Deliverables({ project, attempt, record }: Props) {
-  if (record.deliverables.length === 0) return null;
+  const deliverables = record.deliverables;
+  if (deliverables === undefined)
+    return (
+      <Card title="Deliverables">
+        <p className="text-fg-3">This record has no deliverables.</p>
+      </Card>
+    );
+  if (deliverables.length === 0) return null;
   return (
     <Card title="Deliverables" aside="What the attempt hands on" flush>
       <table className="w-full border-collapse">
@@ -163,7 +184,7 @@ function Deliverables({ project, attempt, record }: Props) {
           </tr>
         </thead>
         <tbody>
-          {record.deliverables.map((item) => {
+          {deliverables.map((item) => {
             const from =
               item.visit_index === null
                 ? stateTitle(project, item.state)

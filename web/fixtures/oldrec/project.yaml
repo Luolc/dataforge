@@ -1,0 +1,21 @@
+# The sample dataset with two records of older shapes, made up as
+# project.yaml's are: older/task-0301 lacks every key the engine added after
+# its first record, older/task-0302 is an object with no visits at all.
+id: sample-oldrec
+name: Sample dataset
+color: "#e5a54b"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+states:
+  author: { title: Author }
+  check: { title: Check }
+statuses:
+  passed: { label: Passed, tone: good }
+  done: { label: Done, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+item: { depth: 2, title: Task }
+columns:
+  - { title: Tone, field: [tone] }
+  - { title: Kept round, field: [kept_round], format: number }

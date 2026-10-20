@@ -240,7 +240,7 @@ describe("what the record does not have", () => {
     show(rec, 2);
     fireEvent.click(within(step(/^Input/)).getByRole("button"));
 
-    expect(screen.getByText(/The record has no graph/)).toBeVisible();
+    expect(screen.getByText(/This record has no graph/)).toBeVisible();
   });
 
   it("an agent with no trace, no outputs and times that do not parse", () => {

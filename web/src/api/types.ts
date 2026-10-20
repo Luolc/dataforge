@@ -79,14 +79,14 @@ const action = z.looseObject({
   started_at: z.string(),
   ended_at: z.string(),
   cost_usd: z.number(),
-  summary: z.string().nullable(),
+  summary: z.string().nullable().optional(),
 });
 export type Action = z.infer<typeof action>;
 
 const visit = z.looseObject({
   state: z.string(),
   visit: z.number(),
-  round: z.number(),
+  round: z.number().optional(),
   outcome: z.string().nullable(),
   data: z.record(z.string(), z.unknown()),
   mark: z.string().nullable(),
@@ -165,19 +165,56 @@ const deliverable = z.looseObject({
 });
 export type Deliverable = z.infer<typeof deliverable>;
 
+// The keys Attempt.to_json() gained after its first version (round, budget,
+// a visit's round, an action's summary, deliverables, graph) are optional,
+// so a record an older dataforge wrote still loads (design-viz.md section 5,
+// "Older records"). visits comes first, so a record without it is reported
+// as having no visits, the key a page cannot be drawn without.
 export const record = z.looseObject({
+  visits: z.array(visit),
   status: z.string().nullable(),
   reason: z.string().nullable(),
   kept_visit: z.number().nullable(),
-  round: z.number(),
-  budget: z.looseObject({
-    max_usd: z.number().nullable(),
-    cost_usd: z.number(),
-    stopped: z.string().nullable(),
-  }),
+  round: z.number().optional(),
+  budget: z
+    .looseObject({
+      max_usd: z.number().nullable(),
+      cost_usd: z.number(),
+      stopped: z.string().nullable(),
+    })
+    .optional(),
   final: z.record(z.string(), visit),
-  visits: z.array(visit),
-  deliverables: z.array(deliverable),
-  graph: graph.nullable(),
+  deliverables: z.array(deliverable).optional(),
+  graph: graph.nullable().optional(),
 });
 export type AttemptRecord = z.infer<typeof record>;
+
+/**
+ * A record file as the attempt page reads it: of the record's shape, or
+ * another JSON object, shown as written, with why it is not of that shape.
+ */
+export type ReadRecord =
+  | { shape: "record"; record: AttemptRecord }
+  | { shape: "other"; raw: object; why: string };
+
+/** Read a record file's JSON; one that is not a JSON object is an error. */
+export function readRecord(raw: unknown): ReadRecord {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw new Error("The record is not a JSON object.");
+  const parsed = record.safeParse(raw);
+  if (parsed.success) return { shape: "record", record: parsed.data };
+  const issue = parsed.error.issues[0];
+  const where = issue?.path.join(".") ?? "";
+  const missing =
+    issue?.code === "invalid_type" && issue.message.endsWith("undefined");
+  return {
+    shape: "other",
+    raw,
+    why: missing ? `it has no ${where}` : `${where}: ${issue?.message ?? ""}`,
+  };
+}
+
+/** The record's deliverables; none when it has no such key. */
+export function deliverablesOf(record: AttemptRecord): Deliverable[] {
+  return record.deliverables ?? [];
+}
