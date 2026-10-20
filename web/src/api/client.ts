@@ -1,13 +1,23 @@
 // Every request the frontend makes: GETs to dataforge.viz's API.
-import { useEffect, useState } from "react";
+import { createContext, use, useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 
+import { duration } from "../ui/format";
+import { POLL_MS } from "./poll";
 import { listing } from "./types";
 
 export type Loaded<T> =
   | { state: "loading" }
   | { state: "error"; message: string }
-  | { state: "ok"; data: T };
+  | { state: "ok"; data: T; failed?: Failed };
+
+/** The reads again that failed in a row since data landed, at read. */
+export interface Failed {
+  message: string;
+  times: number;
+  /** When the data shown was read, in milliseconds since the epoch. */
+  read: number;
+}
 
 /** A failed request; body is the response's JSON, null when it had none. */
 export class ApiError extends Error {
@@ -63,40 +73,121 @@ function reasonOf(body: unknown): string | null {
 }
 
 /**
+ * The generation of what a page reads while an attempt runs: each read again
+ * takes a new one, and what follows the attempt as it goes reads again with
+ * it. No two pages, and no two visits of a page, share a generation.
+ */
+export const RefreshContext = createContext(0);
+
+let generations = 0;
+
+/** A generation no page has had yet. */
+export const nextGeneration = () => ++generations;
+
+/** The page's generation of reads, for useLoaded's refresh. */
+export const useRefresh = () => use(RefreshContext);
+
+/** How long a read again may take before it counts as failed. */
+export const READ_LIMIT_MS = POLL_MS;
+
+/**
  * What load gives, loaded again whenever key changes; a null key loads
- * nothing. The same key must always load the same thing.
+ * nothing. The same key must always load the same thing. When refresh
+ * changes, the same key loads again, unless a read of it is still out, and
+ * what it loaded before stays until the new read lands. A read again that
+ * fails keeps it, and says so in failed until a read lands; with limit, so
+ * does one with no answer within READ_LIMIT_MS, which is given up. Only a
+ * load that ends when its signal aborts may take a limit: one that runs on
+ * would be given up on again and again and never land.
  */
 export function useLoaded<T>(
   key: string | null,
   load: (signal: AbortSignal) => Promise<T>,
+  refresh = 0,
+  { limit = false }: { limit?: boolean } = {},
 ): Loaded<T> {
-  const [loaded, setLoaded] = useState<{ key: string; value: Loaded<T> }>();
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    value: Loaded<T>;
+    read: number;
+  }>();
+  const outRef = useRef<{
+    key: string;
+    controller: AbortController;
+    timer?: ReturnType<typeof setTimeout>;
+  }>(null);
+  const again = loaded?.key === key && loaded.value.state === "ok";
   useEffect(() => {
-    if (key === null) return;
+    if (key === null || outRef.current?.key === key) return;
     const controller = new AbortController();
-    load(controller.signal).then(
-      (data) => {
-        setLoaded({ key, value: { state: "ok", data } });
-      },
-      (error: unknown) => {
-        if (controller.signal.aborted) return;
-        const message = error instanceof Error ? error.message : String(error);
-        setLoaded({ key, value: { state: "error", message } });
-      },
-    );
-    return () => {
-      controller.abort();
+    const read: NonNullable<typeof outRef.current> = { key, controller };
+    outRef.current = read;
+    const fail = (message: string) => {
+      setLoaded((last) => {
+        if (last?.key !== key || last.value.state !== "ok")
+          return { key, value: { state: "error", message }, read: 0 };
+        const times = (last.value.failed?.times ?? 0) + 1;
+        return {
+          ...last,
+          value: {
+            state: "ok",
+            data: last.value.data,
+            failed: { message, times, read: last.read },
+          },
+        };
+      });
     };
-    // load is a new function on each render, and key names what it loads.
+    if (limit && again)
+      read.timer = setTimeout(() => {
+        if (controller.signal.aborted) return;
+        controller.abort();
+        if (outRef.current === read) outRef.current = null;
+        fail(`no answer in ${duration(READ_LIMIT_MS / 1000)}`);
+      }, READ_LIMIT_MS);
+    load(controller.signal)
+      .then(
+        (data) => {
+          if (controller.signal.aborted) return;
+          setLoaded({ key, value: { state: "ok", data }, read: Date.now() });
+        },
+        (error: unknown) => {
+          if (controller.signal.aborted) return;
+          fail(error instanceof Error ? error.message : String(error));
+        },
+      )
+      .finally(() => {
+        clearTimeout(read.timer);
+        if (outRef.current === read) outRef.current = null;
+      });
+    // load is a new function on each render, key names what it loads and
+    // again only says whether it loads it again.
     // eslint-disable-next-line @eslint-react/exhaustive-deps
-  }, [key]);
+  }, [key, refresh]);
+  // A read for a key the page has left, or of a page that has gone, is
+  // dropped.
+  useEffect(
+    () => () => {
+      clearTimeout(outRef.current?.timer);
+      outRef.current?.controller.abort();
+      outRef.current = null;
+    },
+    [key],
+  );
   // A result for another key is stale: the new one is still loading.
   return loaded?.key === key ? loaded.value : { state: "loading" };
 }
 
-/** The JSON at url, parsed with schema. */
-export function useJson<T>(url: string | null, schema: z.ZodType<T>) {
-  return useLoaded(url, (signal) => getJson(url ?? "", schema, signal));
+/** The JSON at url, parsed with schema; refresh as for useLoaded. */
+export function useJson<T>(
+  url: string | null,
+  schema: z.ZodType<T>,
+  refresh = 0,
+) {
+  return useLoaded(
+    url,
+    (signal) => getJson(url ?? "", schema, signal),
+    refresh,
+  );
 }
 
 export interface FileCount {
@@ -130,22 +221,43 @@ async function countFiles(
   return { files, complete: queue.length === 0 };
 }
 
-// One walk per path while the page is open, shared by a tab's count and a
-// deliverable's card; a failed walk is dropped, to be tried again. The page
-// shows what was on disk when it was loaded, as everywhere else.
-const fileCounts = new Map<string, Promise<FileCount>>();
+// One walk per path and generation of the page's reads, shared by a tab's
+// count and a deliverable's card; a walk not yet settled serves the later
+// generations too, so walks never pile up. A failed walk is dropped, to be
+// tried again.
+const fileCounts = new Map<
+  string,
+  { refresh: number; count: Promise<FileCount>; settled: boolean }
+>();
 
 /** countFiles as a hook, for a tab's count and a deliverable's card. */
 export function useFileCount(p: string, attempt: string, path: string | null) {
+  const refresh = useRefresh();
   const key = path === null ? null : JSON.stringify([p, attempt, path]);
-  return useLoaded(key, () => {
-    if (key === null || path === null) return Promise.reject(new Error(""));
-    let count = fileCounts.get(key);
-    if (count === undefined) {
-      count = countFiles(p, attempt, path);
-      fileCounts.set(key, count);
-      count.catch(() => fileCounts.delete(key));
-    }
-    return count;
-  });
+  return useLoaded(
+    key,
+    () => {
+      if (key === null || path === null) return Promise.reject(new Error(""));
+      const last = fileCounts.get(key);
+      if (last !== undefined && (last.refresh === refresh || !last.settled))
+        return last.count;
+      const walk = {
+        refresh,
+        count: countFiles(p, attempt, path),
+        settled: false,
+      };
+      fileCounts.set(key, walk);
+      walk.count.then(
+        () => {
+          walk.settled = true;
+        },
+        () => {
+          walk.settled = true;
+          if (fileCounts.get(key) === walk) fileCounts.delete(key);
+        },
+      );
+      return walk.count;
+    },
+    refresh,
+  );
 }

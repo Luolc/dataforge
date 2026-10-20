@@ -1,10 +1,20 @@
 // An attempt: its header, a row of tabs (Runs, then one per deliverable kind
-// in the order its first deliverable is declared) and the current tab.
-import type { ReactNode } from "react";
+// in the order its first deliverable is declared) and the current tab. While
+// the attempt runs, the page reads it again every POLL_MS.
+import { type ReactNode, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { Link } from "react-router";
 
-import { getJson, urls, useJson, useLoaded } from "../../api/client";
+import {
+  type Failed,
+  getJson,
+  type Loaded,
+  nextGeneration,
+  RefreshContext,
+  urls,
+  useLoaded,
+} from "../../api/client";
+import { usePolling } from "../../api/poll";
 import { z } from "zod";
 
 import {
@@ -15,13 +25,21 @@ import {
   liveInfo,
   type Project,
   readRecord,
+  type ReadRecord,
 } from "../../api/types";
 import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
 import { CodeView } from "../../ui/code";
+import { time } from "../../ui/format";
 import { RunningIcon } from "../../ui/running";
-import { attemptStatus, liveStatus, stateTitle } from "../../ui/status";
+import {
+  attemptStatus,
+  liveStatus,
+  stateTitle,
+  toneGlyph,
+  toneText,
+} from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
@@ -33,17 +51,66 @@ export function AttemptPage() {
   const [query] = useSearchParams();
   const attempt = query.get("id");
   const project = useProject(id);
+  // A new generation for each read again; what is open, chosen or panned on
+  // the page stays, since what was read before stays shown until the new
+  // read lands.
+  const [first] = useState(nextGeneration);
+  const [refresh, setRefresh] = useState(first);
+  const again = refresh !== first;
   const url =
     id !== undefined && attempt !== null ? urls.record(id, attempt) : null;
-  const loaded = useLoaded(url, (signal) =>
-    getJson(url ?? "", z.unknown(), signal).then(readRecord),
-  );
-  // How the attempt stands now; a page that cannot read it shows the record
-  // alone, as for a project with no lock.
   const liveUrl =
     id !== undefined && attempt !== null ? urls.live(id, attempt) : null;
-  const liveLoaded = useJson(liveUrl, liveInfo);
-  const live = liveLoaded.state === "ok" ? liveLoaded.data : null;
+  // The record and how the attempt stands now (/live), read together so that
+  // what the page shows of the two comes from one read.
+  const both = useLoaded(
+    url,
+    async (signal) => {
+      const [read, live] = await Promise.all([
+        getJson(url ?? "", z.unknown(), signal).then(readRecord),
+        // A page that cannot read /live at first shows the record alone, as
+        // for a project with no lock; a read again keeps what it showed.
+        getJson(liveUrl ?? "", liveInfo, signal).catch((error: unknown) => {
+          if (again) throw error;
+          return null;
+        }),
+      ]);
+      // /live has no word for an attempt whose record it cannot read: a
+      // record that has not ended makes that a failed read, not news.
+      if (
+        again &&
+        live?.live == null &&
+        read.shape === "record" &&
+        project.state === "ok" &&
+        attemptStatus(project.data, read.record) === null
+      )
+        throw new Error("/live could not read the record");
+      return { read, live };
+    },
+    refresh,
+    // Both reads end when their signal aborts.
+    { limit: true },
+  );
+  const loaded: Loaded<ReadRecord> =
+    both.state === "ok" ? { state: "ok", data: both.data.read } : both;
+  const live = both.state === "ok" ? both.data.live : null;
+  // Read again only while /live says it runs and the record has not ended.
+  usePolling(
+    live?.live === "running" &&
+      project.state === "ok" &&
+      loaded.state === "ok" &&
+      loaded.data.shape === "record" &&
+      attemptStatus(project.data, loaded.data.record) === null,
+    () => {
+      setRefresh(nextGeneration());
+    },
+  );
+  // Said only after two failed reads in a row, so that one read of a record
+  // caught half written stays quiet.
+  const failed =
+    both.state === "ok" && (both.failed?.times ?? 0) >= 2
+      ? (both.failed ?? null)
+      : null;
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
   const discarded = runOf(query.get("discarded"));
@@ -73,11 +140,7 @@ export function AttemptPage() {
   if (attempt === null) body = <Note>No attempt is named.</Note>;
   else if (project.state === "error") body = <Note>{project.message}</Note>;
   else if (loaded.state === "error") body = <Note>{loaded.message}</Note>;
-  else if (
-    project.state === "loading" ||
-    loaded.state === "loading" ||
-    liveLoaded.state === "loading"
-  )
+  else if (project.state === "loading" || loaded.state === "loading")
     body = <Note>Loading…</Note>;
   else if (loaded.data.shape === "other")
     body = (
@@ -95,12 +158,17 @@ export function AttemptPage() {
         attempt={attempt}
         record={loaded.data.record}
         live={live}
+        failed={failed}
         tab={tab}
         run={run}
         discarded={discarded}
       />
     );
-  return <Frame crumbs={crumbs}>{body}</Frame>;
+  return (
+    <Frame crumbs={crumbs}>
+      <RefreshContext value={refresh}>{body}</RefreshContext>
+    </Frame>
+  );
 }
 
 function runOf(value: string | null): number | null {
@@ -113,6 +181,7 @@ function Attempt({
   attempt,
   record,
   live: read,
+  failed,
   tab,
   run,
   discarded,
@@ -121,6 +190,8 @@ function Attempt({
   attempt: string;
   record: AttemptRecord;
   live: LiveInfo | null;
+  /** The reads again that failed, when they have; null else. */
+  failed: Failed | null;
   tab: string;
   run: number | null;
   discarded: number | null;
@@ -164,6 +235,7 @@ function Attempt({
       <Header attempt={attempt}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
+      <ReadFailed failed={failed} />
       <Tabs project={project} attempt={attempt} tabs={tabs} current={tab} />
       {tab === "runs" ? (
         <RunsView
@@ -208,6 +280,27 @@ function AttemptIcon({
   if (live?.live === "may have stopped")
     return <ToneIcon {...liveStatus["may have stopped"]} />;
   return <StatusIcon project={project} word={attemptStatus(project, record)} />;
+}
+
+/**
+ * That the page could not read the attempt again, so what it shows is older;
+ * the status region stays on the page, so that a reader announces the line
+ * when it comes.
+ */
+function ReadFailed({ failed }: { failed: Failed | null }) {
+  const Glyph = toneGlyph.warn;
+  return (
+    <div role="status">
+      {failed !== null && (
+        <p
+          className={`flex items-center gap-1.5 px-7 pt-1 text-xs ${toneText.warn}`}
+        >
+          <Glyph className="size-3.5 flex-none" aria-hidden />
+          {`Could not read the attempt again (${failed.message.replace(/\.$/, "")}); what is shown was read at ${time(new Date(failed.read).toISOString())}.`}
+        </p>
+      )}
+    </div>
+  );
 }
 
 interface Tab {

@@ -37,7 +37,7 @@ import {
   toneGlyph,
   toneText,
 } from "../../ui/status";
-import { RunningIcon } from "../../ui/running";
+import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import {
@@ -197,6 +197,10 @@ function specs(project: Project): Spec[] {
       numeric: true,
       value: (l) => rowSeconds(l.row) ?? undefined,
       cell: (l) => {
+        // While it runs, it goes on from its start, and sorts last, as a row
+        // with no duration does.
+        if (l.row.live === "running" && l.row.started_at !== null)
+          return <Elapsed since={l.row.started_at} />;
         const s = rowSeconds(l.row);
         return s === null ? "—" : duration(s);
       },

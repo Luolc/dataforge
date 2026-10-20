@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { must, records, sampleProject } from "../../../fixtures/sample";
+import { RefreshContext } from "../../api/client";
 import type { Deliverable } from "../../api/types";
 import { type FakeEntry, fakeFiles } from "./fake-api";
 import FilesView from "./index";
@@ -266,5 +267,38 @@ describe("the files view", () => {
 
     expect(screen.getByText("Not run: author was never visited")).toBeVisible();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("the files view read again while the attempt runs", () => {
+  it("lists what is new in its open folders and keeps what was opened", async () => {
+    const files = { ...task };
+    fakeFiles(files);
+    const shown = (refresh: number) => (
+      <RefreshContext value={refresh}>
+        <MemoryRouter initialEntries={["/sample/attempt?id=a%2Fb&tab=files"]}>
+          <FilesView
+            project={sampleProject}
+            attempt="a/b"
+            record={records.passed}
+            deliverable={deliverable(root)}
+          />
+        </MemoryRouter>
+      </RefreshContext>
+    );
+    const { rerender } = render(shown(0));
+    expect(await preview()).toHaveTextContent("instruction.md");
+    const folder = await screen.findByRole("button", { name: "solution" });
+    fireEvent.click(folder);
+    await screen.findByRole("link", { name: "fix.patch" });
+
+    files[`${root}/solution/notes.md`] = "notes";
+    files[`${root}/zz.txt`] = "zz";
+    rerender(shown(1));
+
+    expect(await screen.findByRole("link", { name: "notes.md" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: "zz.txt" })).toBeVisible();
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+    expect(await preview()).toHaveTextContent("instruction.md");
   });
 });
