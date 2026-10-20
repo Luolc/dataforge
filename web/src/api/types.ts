@@ -27,6 +27,11 @@ const project = z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
   }),
   not_ended: z.array(z.string()).nullable().optional(),
+  deliverables: z
+    .array(
+      z.looseObject({ name: z.string(), kind: z.string(), title: z.string() }),
+    )
+    .optional(),
 });
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];

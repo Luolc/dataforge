@@ -20,6 +20,7 @@ import {
   statusOf,
   toneText,
 } from "../../../ui/status";
+import { declaredMissing } from "../../attempt/declared";
 import { attemptHref } from "../../attempt/href";
 import { KindLine } from "../../registry";
 import { Graph } from "./Graph";
@@ -72,6 +73,7 @@ function TopRow({
     started !== undefined && ended !== undefined ? span(started, ended) : null;
   const status = statusOf(project, attemptStatus(project, record));
   const budget = record.budget;
+  const missing = declaredMissing(project, record);
   const items = [
     { key: "Started", value: started === undefined ? "—" : time(started) },
     {
@@ -90,7 +92,15 @@ function TopRow({
           ? usd(budget.cost_usd)
           : `${usd(budget.cost_usd)} of ${usd(budget.max_usd)}`,
     },
-    { key: "Deliverables", value: record.deliverables?.length ?? "—" },
+    {
+      key: "Deliverables",
+      value:
+        record.deliverables === undefined
+          ? "—"
+          : missing.length === 0
+            ? record.deliverables.length
+            : `${String(record.deliverables.length)} of ${String(record.deliverables.length + missing.length)}`,
+    },
   ];
   return (
     <section className="rounded-panel border border-line">
@@ -165,7 +175,11 @@ function Summaries({
 }
 
 function Deliverables({ project, attempt, record }: Props) {
-  const deliverables = record.deliverables;
+  const missing = declaredMissing(project, record);
+  const deliverables = record.deliverables && [
+    ...record.deliverables,
+    ...missing,
+  ];
   if (deliverables === undefined)
     return (
       <Card title="Deliverables">
@@ -185,8 +199,9 @@ function Deliverables({ project, attempt, record }: Props) {
         </thead>
         <tbody>
           {deliverables.map((item) => {
-            const from =
-              item.visit_index === null
+            const from = missing.includes(item)
+              ? "—"
+              : item.visit_index === null
                 ? stateTitle(project, item.state)
                 : `${stateTitle(project, item.state)} · run ${item.visit_index + 1}`;
             return (

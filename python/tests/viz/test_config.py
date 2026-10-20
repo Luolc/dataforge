@@ -79,6 +79,30 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (("name: Example", "name: Example\nlock: ../.lock"), "lock"),
     (("name: Example", "name: Example\nnot_ended: running"), "not_ended"),
     (("name: Example", "name: Example\nnot_ended: []"), "not_ended"),
+    (("name: Example", "name: Example\ndeliverables: task"), "deliverables"),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: task, kind: files}]",
+      ),
+      r"deliverables\[0\]\.title: missing",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, path: x}]",
+      ),
+      r"deliverables\[0\]\.path: unknown key",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables:\n"
+        "  - {name: task, kind: files, title: Task}\n"
+        "  - {name: task, kind: report, title: Again}",
+      ),
+      r"deliverables\[1\]\.name: 'task' repeated",
+    ),
   ],
 )
 def test_a_project_file_that_breaks_a_rule_is_refused(
