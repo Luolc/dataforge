@@ -316,6 +316,8 @@ describe("the home page", () => {
     expect(spinner).toHaveClass("lucide-loader-circle", "animate-spin");
     // It stands still when the reader asks for reduced motion (R243).
     expect(spinner).toHaveClass("motion-reduce:animate-none");
+    // In the colour of Running's tone, as every other status icon (L38).
+    expect(running).toHaveClass("text-neutral");
 
     const icon = (id: string, name: string) =>
       must(

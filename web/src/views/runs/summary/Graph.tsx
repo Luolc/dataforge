@@ -12,6 +12,7 @@ import {
 import { Link } from "react-router";
 
 import type { Project } from "../../../api/types";
+import { Elapsed, RunningIcon } from "../../../ui/running";
 import { StatusIcon } from "../../../ui/status-mark";
 import type { Edge, Layout } from "./graph";
 
@@ -60,16 +61,25 @@ export function Graph({
   const [focused, setFocused] = useState<string | null>(null);
   const active = hovered ?? focused;
 
-  // The view that shows the whole graph, or its left part at START.
+  // The view that shows the whole graph, or a part of it at START: the
+  // state the attempt runs now in the middle, else the left part.
   const fit = useCallback(
     (w: number, h: number, whole: boolean): View => {
       const across = w / layout.width;
       const k = whole
         ? clamp(Math.min(across, h / layout.height), START, 1.5)
         : START;
+      const gw = layout.width * k;
+      const running = layout.nodes.find((n) => n.running !== null);
+      const x =
+        gw <= w
+          ? (w - gw) / 2
+          : running && !whole
+            ? clamp(w / 2 - (running.x + running.width / 2) * k, w - gw, 0)
+            : 0;
       return {
         k,
-        x: Math.max(0, (w - layout.width * k) / 2),
+        x,
         y: whole ? Math.max(0, (h - layout.height * k) / 2) : 0,
       };
     },
@@ -470,9 +480,11 @@ function NodeCard({
 }) {
   const border = lit
     ? "stroke-fg stroke-2"
-    : node.idle
-      ? "stroke-icon [stroke-dasharray:var(--dash-not-taken)]"
-      : "stroke-icon";
+    : node.running
+      ? "stroke-accent stroke-2"
+      : node.idle
+        ? "stroke-icon [stroke-dasharray:var(--dash-not-taken)]"
+        : "stroke-icon";
   return (
     <g
       transform={`translate(${node.x} ${node.y})`}
@@ -492,7 +504,11 @@ function NodeCard({
           className="fill-app stroke-icon"
         />
       ))}
-      {node.status !== null ? (
+      {node.running ? (
+        <foreignObject x="12" y="12" width="16" height="16">
+          <RunningIcon />
+        </foreignObject>
+      ) : node.status !== null ? (
         <foreignObject x="12" y="12" width="16" height="16">
           <StatusIcon project={project} word={node.word} ended={node.ended} />
         </foreignObject>
@@ -516,14 +532,18 @@ function NodeCard({
       >
         {node.title}
       </text>
-      {node.time !== null && (
+      {(node.time !== null || node.running?.since != null) && (
         <text
           x={node.width - 14}
           y="25"
           textAnchor="end"
           className="fill-fg-3 text-xs [font-variant-numeric:tabular-nums]"
         >
-          {node.time}
+          {node.running?.since != null ? (
+            <Elapsed since={node.running.since} before={node.running.before} />
+          ) : (
+            node.time
+          )}
         </text>
       )}
       <text x="36" y="43" className="fill-fg-3 text-xs">

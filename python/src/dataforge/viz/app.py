@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 from dataforge.viz import live, monitor
 from dataforge.viz.config import Project, Site, split_relative
 from dataforge.viz.paths import (
+  attempt_parts,
   FILE_LIMIT,
   is_dir,
   list_attempts,
@@ -56,6 +57,7 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/api/projects", api.projects),
     ("/api/projects/{p}/attempts", api.attempts),
     ("/api/projects/{p}/record", api.record),
+    ("/api/projects/{p}/live", api.live_status),
     ("/api/projects/{p}/files", api.files),
     ("/api/projects/{p}/monitor/runs", api.monitor_runs),
     ("/api/projects/{p}/monitor/window", api.monitor_window),
@@ -79,10 +81,33 @@ class _Api:
 
   def attempts(self, p: str) -> Response:
     project = self._project(p)
-    rows = [_row(project, attempt) for attempt in list_attempts(project)]
-    rows.sort(key=lambda r: cast(str, r["modified"] or ""), reverse=True)
-    live.mark(project, rows)
+    rows = [_row(project, attempt)[0] for attempt in list_attempts(project)]
+    _mark(project, rows)
     return JSONResponse(rows)
+
+  def live_status(self, p: str, attempt: str | None = None) -> Response:
+    project = self._project(p)
+    attempt = _attempt(attempt)
+    _ = attempt_parts(project, attempt)
+    # live as the listing gives it, from the attempts of its item alone.
+    item = _item(project, attempt)
+    read = {
+      a: _row(project, a)
+      for a in list_attempts(project)
+      if _item(project, a) == item
+    }
+    if attempt not in read:
+      raise RefusedError(404, f"no attempt {attempt!r}")
+    _mark(project, [row for row, _ in read.values()])
+    row, record = read[attempt]
+    running = row["live"] == live.RUNNING
+    return JSONResponse(
+      {
+        "live": row["live"],
+        "held": row["held"],
+        "current": live.current(record) if running and record else None,
+      }
+    )
 
   def record(self, p: str, attempt: str | None = None) -> Response:
     project = self._project(p)
@@ -226,10 +251,22 @@ def _error(status: int, reason: str) -> Response:
   )
 
 
-def _row(project: Project, attempt: str) -> dict[str, object]:
+def _mark(project: Project, rows: list[dict[str, object]]) -> None:
+  rows.sort(key=lambda r: cast(str, r["modified"] or ""), reverse=True)
+  live.mark(project, rows)
+
+
+def _item(project: Project, attempt: str) -> str:
+  return "/".join(attempt.split("/")[: project.item.depth])
+
+
+def _row(
+  project: Project, attempt: str
+) -> tuple[dict[str, object], dict[str, object] | None]:
+  # A row of the listing, and the record it read, None when there is none.
   row: dict[str, object] = {
     "id": attempt,
-    "item": "/".join(attempt.split("/")[: project.item.depth]),
+    "item": _item(project, attempt),
     "modified": None,
     "status": None,
     "reason": None,
@@ -246,14 +283,14 @@ def _row(project: Project, attempt: str) -> dict[str, object]:
     with open_attempt(project, attempt) as fd:
       read = read_record(project, fd)
   except RefusedError as error:
-    return row | {"error": f"the record: {error.reason}"}
+    return row | {"error": f"the record: {error.reason}"}, None
   row["modified"] = datetime.fromtimestamp(read.mtime, UTC).isoformat()
   try:
     record = cast(object, json.loads(read.data))
   except ValueError, RecursionError:
-    return row | {"error": "the record is not JSON"}
+    return row | {"error": "the record is not JSON"}, None
   if not isinstance(record, dict):
-    return row | {"error": "the record is not a JSON object"}
+    return row | {"error": "the record is not a JSON object"}, None
   data = cast(dict[str, object], record)
   # The record is the file as an attempt left it: each value is checked
   # before it is used, and one of another type reads as missing.
@@ -280,7 +317,7 @@ def _row(project: Project, attempt: str) -> dict[str, object]:
     "rounds": _rounds(visits),
     "values": [_field(data, c.field) for c in project.columns],
     "live": None if ended else live.NOT_ENDED,
-  }
+  }, data
 
 
 def _rounds(visits: list[dict[str, object]]) -> list[dict[str, object]]:

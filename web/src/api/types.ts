@@ -72,6 +72,24 @@ export const attemptRow = z.looseObject({
 export type AttemptRow = z.infer<typeof attemptRow>;
 export const attemptRows = z.array(attemptRow);
 
+// How one attempt stands now (/live): live and held as its listing row has
+// them, and the visit it is in while it runs.
+export const liveInfo = z.looseObject({
+  live: z.enum(LIVE).nullable(),
+  held: z.boolean().nullable(),
+  current: z
+    .looseObject({
+      state: z.string(),
+      visit: z.number(),
+      index: z.number(),
+      recorded: z.boolean(),
+      since: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type LiveInfo = z.infer<typeof liveInfo>;
+export type Current = NonNullable<LiveInfo["current"]>;
+
 export const listing = z.looseObject({
   entries: z.array(
     z.looseObject({
@@ -252,4 +270,24 @@ export function readRecord(raw: unknown): ReadRecord {
 /** The record's deliverables; none when it has no such key. */
 export function deliverablesOf(record: AttemptRecord): Deliverable[] {
   return record.deliverables ?? [];
+}
+
+/**
+ * The visit a running attempt is in, when it fits the record as read: the
+ * record's last visit when it holds it, else the one after its last. A record
+ * read before or after /live may not fit, and then the page shows none.
+ */
+export function currentOf(
+  record: AttemptRecord,
+  info: LiveInfo | null,
+): Current | null {
+  const current = info?.current ?? null;
+  if (current === null) return null;
+  const visits = record.visits.length;
+  const fits = current.recorded
+    ? current.index === visits - 1 &&
+      record.visits[current.index]?.state === current.state &&
+      record.visits[current.index]?.outcome === null
+    : current.index === visits;
+  return fits ? current : null;
 }

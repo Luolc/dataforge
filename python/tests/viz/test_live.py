@@ -227,3 +227,154 @@ def test_the_backend_never_takes_a_lock(
 
   assert not names & {"fcntl", "flock", "lockf"}
   assert found["batch-1/task-2"] == "running"
+
+
+LIVE = "/api/projects/example/live"
+
+
+def two_states() -> dict[str, object]:
+  # The fixture's record, not ended, with a second state that write's done
+  # goes to.
+  record = fixture() | {"status": None}
+  graph = cast(dict[str, object], record["graph"])
+  edges = cast(list[dict[str, object]], graph["edges"])
+  edges[0] |= {"to": "check", "end": None}
+  edges.append(
+    {"from": "check", "outcome": "pass", "to": None, "end": "passed"}
+  )
+  return record
+
+
+def state_of(tree: Tree, static: Path, name: str) -> dict[str, object]:
+  web = TestClient(create_app(load_site(tree.site), static))
+  response = web.get(LIVE, params={"attempt": f"batch-1/{name}"})
+  assert response.status_code == 200
+  return cast(dict[str, object], response.json())
+
+
+def test_a_running_attempt_is_in_the_state_its_last_visit_goes_to(
+  tree: Tree, static: Path
+) -> None:
+  write(tree, "task-2", two_states(), 10)
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = state_of(tree, static, "task-2")
+
+  assert found == {
+    "live": "running",
+    "held": True,
+    "current": {
+      "state": "check",
+      "visit": 1,
+      "index": 1,
+      "recorded": False,
+      "since": "2026-01-02T03:14:05+00:00",
+    },
+  }
+
+
+def test_a_visit_with_no_outcome_is_the_one_that_runs(
+  tree: Tree, static: Path
+) -> None:
+  record = two_states()
+  visits = cast(list[dict[str, object]], record["visits"])
+  visits.append(
+    visits[0]
+    | {
+      "visit": 2,
+      "outcome": None,
+      "actions": [
+        {"started_at": "2026-01-02T03:20:00+00:00", "ended_at": None},
+        {"started_at": "2026-01-02T03:15:00+00:00", "ended_at": None},
+      ],
+    }
+  )
+  write(tree, "task-2", record, 10)
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = state_of(tree, static, "task-2")
+
+  assert found["current"] == {
+    "state": "write",
+    "visit": 2,
+    "index": 1,
+    "recorded": True,
+    "since": "2026-01-02T03:15:00+00:00",
+  }
+
+
+def test_an_attempt_with_no_visit_is_in_its_first_state(
+  tree: Tree, static: Path
+) -> None:
+  none: list[object] = []
+  write(tree, "task-2", two_states() | {"visits": none}, 10)
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = state_of(tree, static, "task-2")
+
+  assert found["current"] == {
+    "state": "write",
+    "visit": 1,
+    "index": 0,
+    "recorded": False,
+    "since": None,
+  }
+
+
+def test_only_a_running_attempt_has_a_current_visit(
+  tree: Tree, static: Path
+) -> None:
+  write(tree, "task-2", two_states(), 10)
+  write(tree, "task-0", two_states(), 20)
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    older = state_of(tree, static, "task-0")
+    ended = state_of(tree, static, "task-1")
+  free = state_of(tree, static, "task-2")
+
+  assert older == {"live": "may have stopped", "held": True, "current": None}
+  assert ended == {"live": None, "held": True, "current": None}
+  assert free == {"live": "may have stopped", "held": False, "current": None}
+
+
+def test_a_transition_to_the_end_has_no_current_visit(
+  tree: Tree, static: Path
+) -> None:
+  # The fixture's write goes to the end with done: the attempt is ending.
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = state_of(tree, static, "task-2")
+
+  assert found == {"live": "running", "held": True, "current": None}
+
+
+def test_live_refuses_an_attempt_that_is_not_there(
+  tree: Tree, static: Path
+) -> None:
+  web = TestClient(create_app(load_site(tree.site), static))
+
+  missing = web.get(LIVE, params={"attempt": "batch-1/task-9"})
+  outside = web.get(LIVE, params={"attempt": "../batch-1"})
+
+  assert missing.status_code == 404
+  assert outside.status_code == 404
+
+
+def test_a_visit_with_no_outcome_nor_action_began_as_the_last_ended(
+  tree: Tree, static: Path
+) -> None:
+  # As a record written when a visit begins, before any action ended.
+  record = two_states()
+  visits = cast(list[dict[str, object]], record["visits"])
+  visits.append({"state": "check", "visit": 1, "outcome": None, "actions": []})
+  write(tree, "task-2", record, 10)
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = state_of(tree, static, "task-2")
+
+  assert found["current"] == {
+    "state": "check",
+    "visit": 1,
+    "index": 1,
+    "recorded": True,
+    "since": "2026-01-02T03:14:05+00:00",
+  }

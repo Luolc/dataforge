@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
-import { must, records, sampleProject } from "../../../../fixtures/sample";
+import {
+  inReview,
+  must,
+  records,
+  reviewSince,
+  runningIn,
+  sampleProject,
+} from "../../../../fixtures/sample";
 import { record } from "../../../api/types";
 import { END, lanes, layout, takenCounts } from "./graph";
 
@@ -123,5 +130,66 @@ describe("lanes", () => {
         [2, 5],
       ]),
     ).toEqual([2, 0, 0, 1]);
+  });
+});
+
+describe("the lanes of the edges", () => {
+  it("run at least 36 apart, the nearest 22 from the cards", () => {
+    const drawn = must(layout(record.parse(busy), sampleProject));
+    const card = must(drawn.nodes[0]);
+    const ys = (back: boolean) =>
+      [
+        ...new Set(
+          drawn.edges
+            .filter((e) => e.back === back && !e.label.stack && e.from !== e.to)
+            .map((e) => e.label.y + 5),
+        ),
+      ].sort((a, b) => a - b);
+    const below = ys(true);
+    const above = ys(false).reverse();
+    const gaps = (list: number[]) =>
+      list.slice(1).map((y, i) => Math.abs(y - must(list[i])));
+
+    expect(below.length).toBeGreaterThan(1);
+    expect(above.length).toBeGreaterThan(1);
+    expect(must(below[0]) - (card.y + card.height)).toBe(22);
+    expect(card.y - must(above[0])).toBe(22);
+    for (const gap of [...gaps(below), ...gaps(above)]) expect(gap).toBe(36);
+  });
+});
+
+describe("a running attempt's layout", () => {
+  it("draws the state it runs as running and the transition into it taken", () => {
+    const drawn = must(layout(inReview, sampleProject, runningIn().current));
+    const review = must(drawn.nodes.find((n) => n.key === "review"));
+
+    expect(review).toMatchObject({
+      sub: "1 run · Running",
+      status: { label: "Running" },
+      idle: false,
+      lastVisit: null,
+      running: { since: reviewSince, before: 0 },
+    });
+    expect(takenCounts(inReview, sampleProject).get("check\0pass")).toBe(
+      undefined,
+    );
+    expect(
+      takenCounts(inReview, sampleProject, runningIn().current).get(
+        "check\0pass",
+      ),
+    ).toBe(1);
+  });
+
+  it("counts a run its record holds with no outcome once", () => {
+    const current = must(
+      runningIn({ state: "check", index: 1, recorded: true }).current,
+    );
+    const drawn = must(layout(records.running, sampleProject, current));
+
+    expect(drawn.nodes.find((n) => n.key === "check")).toMatchObject({
+      sub: "1 run · Running",
+      lastVisit: 1,
+      running: { before: 0 },
+    });
   });
 });

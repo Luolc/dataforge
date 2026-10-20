@@ -1,0 +1,6 @@
+# For the screenshots of an attempt that runs: hold the lock with
+# `flock web/fixtures/running/attempts/batch-1/.lock sleep 600`, then
+# `dataforge viz serve --config web/fixtures/running/site.yaml --static
+# web/dist`.
+listen: { host: 127.0.0.1, port: 8812 }
+projects: [project.yaml]

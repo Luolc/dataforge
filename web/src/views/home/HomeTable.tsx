@@ -15,7 +15,6 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
-  LoaderCircle,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -38,6 +37,7 @@ import {
   toneGlyph,
   toneText,
 } from "../../ui/status";
+import { RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import {
@@ -263,12 +263,7 @@ function RowIcon({ project, row }: { project: Project; row: AttemptRow }) {
   return (
     <span className="inline-flex target items-center">
       {word === "~running" ? (
-        <span role="img" aria-label="Running" title="Running">
-          <LoaderCircle
-            className="block size-icon-md animate-spin text-icon motion-reduce:animate-none"
-            aria-hidden
-          />
-        </span>
+        <RunningIcon />
       ) : (
         <StatusIcon project={project} word={word} />
       )}
