@@ -82,7 +82,7 @@ export function SessionView({
           text
         </span>
       </header>
-      <pre className="overflow-x-auto px-5 py-3 font-mono text-xs text-fg whitespace-pre-wrap">
+      <pre className="overflow-x-auto px-5 py-3 font-mono text-code whitespace-pre-wrap">
         {loaded.data}
       </pre>
     </section>

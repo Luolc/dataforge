@@ -109,7 +109,7 @@ function BadRow({ entry }: { entry: BadLine }) {
       <p className="text-xs text-fg-3">
         Line {entry.line} is not JSON, shown as it is:
       </p>
-      <pre className="overflow-x-auto rounded-code bg-code px-3 py-2 font-mono text-xs text-fg whitespace-pre-wrap">
+      <pre className="overflow-x-auto rounded-code bg-code-bg px-3 py-2 font-mono text-code whitespace-pre-wrap">
         {entry.text}
       </pre>
     </Row>
@@ -331,7 +331,7 @@ function Output({
       >
         {title}
       </p>
-      <pre className="max-h-96 overflow-auto bg-code px-3 py-2 font-mono text-xs text-fg whitespace-pre-wrap">
+      <pre className="max-h-96 overflow-auto bg-code-bg px-3 py-2 font-mono text-code whitespace-pre-wrap">
         {text}
       </pre>
     </div>
