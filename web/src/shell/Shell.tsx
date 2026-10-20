@@ -25,11 +25,11 @@ export function Shell() {
           Monitor
         </NavLink>
         <Collapsible.Root defaultOpen className="mt-3">
-          <Collapsible.Trigger className="target group flex h-row items-center gap-1 rounded-row px-1.5 text-xs font-medium text-fg-3 hover:bg-hover hover:text-fg-2">
+          <Collapsible.Trigger className="group flex h-row target items-center gap-1 rounded-row px-1.5 text-xs font-medium text-fg-3 hover:bg-hover hover:text-fg-2">
             Projects
             {projects.state === "ok" && ` · ${projects.data.length}`}
             <ChevronDown
-              className="size-2.5 transition-transform motion-reduce:transition-none group-data-[state=closed]:-rotate-90"
+              className="size-2.5 transition-transform group-data-[state=closed]:-rotate-90 motion-reduce:transition-none"
               strokeWidth={2}
               aria-hidden
             />
@@ -96,7 +96,7 @@ export function Frame({
               {crumb.to !== undefined && i < crumbs.length - 1 ? (
                 <Link
                   to={crumb.to}
-                  className="target flex items-center rounded-row px-1.5 whitespace-nowrap text-fg-2 hover:bg-hover hover:text-fg"
+                  className="flex target items-center rounded-row px-1.5 whitespace-nowrap text-fg-2 hover:bg-hover hover:text-fg"
                 >
                   {crumb.label}
                 </Link>

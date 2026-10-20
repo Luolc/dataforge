@@ -62,7 +62,7 @@ export function SessionBody({
             onClick={() => {
               setHidden(!hidden);
             }}
-            className="target ml-auto rounded-row border border-line px-2.5 font-medium hover:bg-hover"
+            className="ml-auto target rounded-row border border-line px-2.5 font-medium hover:bg-hover"
           >
             {hidden
               ? `Show thinking · ${session.thinking} hidden`
@@ -207,7 +207,7 @@ function Thinking({ text, open: initial }: { text: string; open: boolean }) {
     <div className="flex flex-col gap-1">
       <button
         {...button}
-        className="target flex max-w-full min-w-0 items-center gap-1.5 self-start rounded-row text-left text-xs text-fg-2 hover:bg-hover"
+        className="flex target max-w-full min-w-0 items-center gap-1.5 self-start rounded-row text-left text-xs text-fg-2 hover:bg-hover"
       >
         <Chevron open={open} />
         <span className="flex-none font-medium">Thinking · {words} words</span>
@@ -276,7 +276,7 @@ function ToolRow({
     <div className="flex flex-col gap-1">
       <button
         {...button}
-        className="target flex min-w-0 items-center gap-2 rounded-row px-1 text-left font-mono text-xs hover:bg-hover"
+        className="flex target min-w-0 items-center gap-2 rounded-row px-1 text-left font-mono text-xs hover:bg-hover"
       >
         <Chevron open={open} />
         <span className="flex-none font-medium text-fg">{call.name}</span>
@@ -356,7 +356,7 @@ function ToolGroup({
     <div className="flex flex-col gap-1">
       <button
         {...button}
-        className="target flex min-w-0 items-center gap-2 rounded-row px-1 text-left text-xs hover:bg-hover"
+        className="flex target min-w-0 items-center gap-2 rounded-row px-1 text-left text-xs hover:bg-hover"
       >
         <Chevron open={open} />
         <span className="flex-none font-medium">{calls.length} tool calls</span>

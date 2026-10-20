@@ -137,7 +137,7 @@ function Summaries({
             <h3 className="mb-2 text-xs text-fg-3">
               <Link
                 to={runHref(index)}
-                className="target inline-flex items-center hover:text-fg"
+                className="inline-flex target items-center hover:text-fg"
               >
                 {stateTitle(project, visit.state)} · run {index + 1}
               </Link>
@@ -174,7 +174,7 @@ function Deliverables({ project, attempt, record }: Props) {
                 <td className="px-5">
                   <Link
                     to={attemptHref(project.id, attempt, { tab: item.kind })}
-                    className="target inline-flex items-center underline decoration-faint underline-offset-3"
+                    className="inline-flex target items-center underline decoration-faint underline-offset-3"
                   >
                     {item.title}
                   </Link>

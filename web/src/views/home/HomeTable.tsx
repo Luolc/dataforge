@@ -270,7 +270,7 @@ function AttemptLink({ href, children }: { href: string; children: string }) {
   return (
     <Link
       to={href}
-      className="target inline-flex items-center font-mono text-xs break-words underline decoration-faint underline-offset-3"
+      className="inline-flex target items-center font-mono text-xs break-words underline decoration-faint underline-offset-3"
     >
       {children}
     </Link>
@@ -419,7 +419,7 @@ export function HomeTable({
         onClick={() => {
           row.toggleExpanded();
         }}
-        className="target inline-flex items-center gap-0.5 rounded-row px-1 hover:bg-active"
+        className="inline-flex target items-center gap-0.5 rounded-row px-1 hover:bg-active"
       >
         {expanded ? (
           <ChevronDown className="size-3.5 text-icon" aria-hidden />
@@ -484,7 +484,7 @@ export function HomeTable({
               );
             })}
           </div>
-          <label className="target inline-flex items-center gap-1.5 rounded-row border border-line px-2 focus-within:border-fg-3">
+          <label className="inline-flex target items-center gap-1.5 rounded-row border border-line px-2 focus-within:border-fg-3">
             <Search className="size-3.5 text-icon" aria-hidden />
             <input
               type="search"
@@ -558,7 +558,7 @@ export function HomeTable({
                     <button
                       type="button"
                       onClick={header.column.getToggleSortingHandler()}
-                      className={`target inline-flex items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric ? "flex-row-reverse" : ""}`}
+                      className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric ? "flex-row-reverse" : ""}`}
                     >
                       {spec?.title}
                       {sorted !== false && (
@@ -667,7 +667,7 @@ function Group({
               onClick={() => {
                 setFolded((f) => !f);
               }}
-              className="target inline-flex items-center gap-1.5 rounded-row px-1.5 text-xs font-medium hover:bg-hover"
+              className="inline-flex target items-center gap-1.5 rounded-row px-1.5 text-xs font-medium hover:bg-hover"
             >
               {folded ? (
                 <ChevronRight className="size-3.5 text-icon" aria-hidden />

@@ -1,5 +1,6 @@
 # Hooks: secret scan (gitleaks), Chinese Markdown typography (limae), the
-# statute compile check, the uv.lock check, and ruff and pydoclint on python/.
+# statute compile check, the uv.lock check, ruff and pydoclint on python/, and
+# Prettier on web/.
 repos:
   # Runs first: a leaked secret must be stopped before other hooks rewrite
   # staged files. The upstream entry scans the staged diff only (it ends in
@@ -67,3 +68,17 @@ repos:
       - id: pydoclint
         args: ["--config=python/pyproject.toml", "--quiet"]
         files: ^python/
+  # web/: Prettier from web/node_modules (run `npm --prefix web ci` first), so
+  # its version and plugins are the ones web/package-lock.json pins. It checks
+  # all of web/, not only the staged files. ESLint is not a hook: its rules
+  # need type information, and it takes about 8 seconds on web/. CI skips
+  # this hook, since setup-node and npm ci come later there, and runs both
+  # with `npm run lint` in the web checks.
+  - repo: local
+    hooks:
+      - id: web-prettier
+        name: prettier (web)
+        language: system
+        entry: npm --prefix web run --silent format:check
+        files: ^web/
+        pass_filenames: false

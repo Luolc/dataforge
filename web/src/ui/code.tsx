@@ -84,7 +84,7 @@ export function CodeView({ name, text }: { name: string; text: string }) {
     <div className="flex overflow-auto py-2.5 font-mono text-code tracking-normal">
       <pre
         aria-hidden
-        className="flex-none select-none pr-4 pl-5 text-right text-faint"
+        className="flex-none pr-4 pl-5 text-right text-faint select-none"
       >
         {Array.from({ length: count }, (_, i) => i + 1).join("\n")}
       </pre>

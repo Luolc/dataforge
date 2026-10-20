@@ -106,7 +106,7 @@ export default function TrialsView({
                 onClick={() => {
                   setChosen(t.id);
                 }}
-                className="target flex w-full items-center justify-between gap-2 rounded-row px-2 text-left aria-pressed:bg-active hover:bg-hover"
+                className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
               >
                 <span className="min-w-0 font-mono text-xs break-all">
                   {t.id}

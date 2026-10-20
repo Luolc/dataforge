@@ -139,7 +139,7 @@ function Menu({
 }) {
   return (
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="target flex items-center gap-1.5 self-start rounded-row border border-line px-2.5 font-medium hover:bg-hover">
+      <DropdownMenu.Trigger className="flex target items-center gap-1.5 self-start rounded-row border border-line px-2.5 font-medium hover:bg-hover">
         {chosen?.title}
         <ChevronDown className="size-3 text-icon" aria-hidden />
       </DropdownMenu.Trigger>
@@ -155,7 +155,7 @@ function Menu({
               onSelect={() => {
                 onChoose(item.name);
               }}
-              className="target flex cursor-default items-center rounded-row px-2 outline-none data-highlighted:bg-hover"
+              className="flex target cursor-default items-center rounded-row px-2 outline-none data-highlighted:bg-hover"
             >
               {item.title}
             </DropdownMenu.Item>

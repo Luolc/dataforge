@@ -42,7 +42,7 @@ export function Step({
           onClick={() => {
             setOpen(!open);
           }}
-          className="target flex w-full items-center gap-2 px-5 py-2.5 text-left hover:bg-hover"
+          className="flex target w-full items-center gap-2 px-5 py-2.5 text-left hover:bg-hover"
         >
           <Chevron className="size-4 flex-none text-icon" aria-hidden />
           <span
