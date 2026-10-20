@@ -732,6 +732,8 @@ def test_collect_fails_on_a_directory_it_cannot_list(tmp_path: Path) -> None:
     once(tmp_path, body)
   with pytest.raises(OSError):
     _ = (outdirs[0] / "sub" / "locked" / "leak").read_text()
+  for locked in outdirs[0].parent.glob(".*/sub/locked"):
+    locked.chmod(0o700)
 
 
 @pytest.mark.parametrize("kind", ["file", "directory"])
