@@ -1,8 +1,9 @@
 id = 4
 slug = "design-changes-alone"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 35
 lang = "en"
 parent = "R232"
 default = "on"
