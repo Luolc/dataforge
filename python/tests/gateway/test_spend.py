@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+# The refuser test builds the session module's private refuser.
 # pyright: reportAny=false, reportExplicitAny=false
 # The tests read the ledger's JSON.
 
@@ -14,6 +16,8 @@ import gzip
 from http.server import BaseHTTPRequestHandler
 import json
 from pathlib import Path
+import socket as sockets
+import socketserver
 import threading
 from typing import Any
 
@@ -21,7 +25,7 @@ import pytest
 
 from dataforge.gateway import Channel, Price, proxy, read_ledger, serve, Spend
 from dataforge.gateway.channels import DRAINED
-from dataforge.gateway.session import holders
+from dataforge.gateway.session import _Refuser, _Refusing, holders
 from tests.gateway.fakes import (
   call,
   Launcher,
@@ -209,6 +213,68 @@ def test_the_cap_refuses_every_request_once_reached_and_ends_the_session(
   assert reply["cost_usd"] == pytest.approx(COST[channel])
   assert capped["channel"] == channel.value
   assert "spent" in str(capped["capped"])
+
+
+def bare(*parts: bytes) -> Callable[[BaseHTTPRequestHandler, int], None]:
+  # A stream the gateway sends without a Content-Type, as the Codex channel's.
+  def respond(handler: BaseHTTPRequestHandler, n: int) -> None:
+    del n
+    handler.send_response(200)
+    handler.end_headers()
+    for part in parts:
+      _ = handler.wfile.write(part)
+      handler.wfile.flush()
+
+  return respond
+
+
+@pytest.mark.parametrize("channel", list(Channel))
+def test_a_stream_without_a_content_type_is_priced_as_a_stream(
+  launcher: Launcher, socket_dir: Path, channel: Channel
+):
+  path = socket_dir / "model.sock"
+  ledger = socket_dir / "ledger.jsonl"
+  spend = Spend(prices=PRICES, max_usd=1.0)
+  with upstream(bare(*events(channel))) as (base, _):
+    launcher.write(base)
+    with serve(channel, path, spend=spend, ledger=ledger):
+      assert call(path, ROUTE[channel])[0] == 200
+  [line] = read_ledger(ledger)
+  assert line["model"] == MODEL[channel]
+  assert line["cost_usd"] == pytest.approx(COST[channel])
+  assert line["reason"] is None
+
+
+def test_the_refuser_leaves_the_path_answering_while_it_takes_it_over(
+  tmp_path: Path,
+):
+  path = tmp_path / "model.sock"
+  missed = threading.Event()
+  done = threading.Event()
+
+  def poll():
+    while not done.is_set():
+      with sockets.socket(sockets.AF_UNIX) as s:
+        try:
+          s.connect(str(path))
+        except OSError:
+          missed.set()
+
+  for _ in range(12):
+    old = socketserver.ThreadingUnixStreamServer(str(path), _Refusing)
+    serving_old = threading.Thread(target=old.serve_forever, daemon=True)
+    serving_old.start()
+    thread = threading.Thread(target=poll)
+    thread.start()
+    refuser = _Refuser(path)
+    done.set()
+    thread.join()
+    done.clear()
+    refuser.close()
+    old.shutdown()
+    old.server_close()
+    path.unlink()
+  assert not missed.is_set()
 
 
 def gzipped(*parts: bytes) -> Callable[[BaseHTTPRequestHandler, int], None]:

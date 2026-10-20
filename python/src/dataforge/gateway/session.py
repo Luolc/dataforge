@@ -392,10 +392,14 @@ class _Refuser:
   # process, which holds no session.
 
   def __init__(self, path: Path):
-    path.unlink(missing_ok=True)
-    self.server = socketserver.ThreadingUnixStreamServer(str(path), _Refusing)
+    # Bound under another name and renamed over the old socket, so that the
+    # path is never without a socket that answers.
+    new = path.with_name(f"{path.name}.refuser")
+    new.unlink(missing_ok=True)
+    self.server = socketserver.ThreadingUnixStreamServer(str(new), _Refusing)
     self.server.daemon_threads = True
-    path.chmod(0o666)
+    new.chmod(0o666)
+    _ = new.rename(path)
     self._thread = threading.Thread(
       target=self.server.serve_forever, daemon=True
     )
