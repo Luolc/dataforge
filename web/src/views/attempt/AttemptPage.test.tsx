@@ -93,6 +93,16 @@ describe("the attempt page's breadcrumb", () => {
     ).toHaveAttribute("aria-current", "page");
   });
 
+  it("on a run page, the run is the last crumb, the page", async () => {
+    const crumbs = open(RUN);
+
+    expect(await crumbs.findByText("Run 1 · author")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(crumbs.getAllByRole("listitem")).toHaveLength(4);
+  });
+
   it("on the Summary, the attempt ID is the page, not a link", async () => {
     const crumbs = open(ATTEMPT);
 
@@ -103,6 +113,7 @@ describe("the attempt page's breadcrumb", () => {
     expect(
       crumbs.queryByRole("link", { name: "batch-1/task-0001" }),
     ).toBeNull();
+    expect(crumbs.getAllByRole("listitem")).toHaveLength(3);
   });
 });
 

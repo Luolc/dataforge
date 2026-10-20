@@ -8,7 +8,7 @@ import { type AttemptRecord, type Project, record } from "../../api/types";
 import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
-import { attemptStatus } from "../../ui/status";
+import { attemptStatus, stateTitle } from "../../ui/status";
 import { StatusIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
 import { RunsView } from "../runs/RunsView";
@@ -39,6 +39,12 @@ export function AttemptPage() {
         : {}),
     },
   ];
+  const visit =
+    run !== null && loaded.state === "ok" ? loaded.data.visits[run] : undefined;
+  if (run !== null && visit && project.state === "ok")
+    crumbs.push({
+      label: `Run ${String(run + 1)} · ${stateTitle(project.data, visit.state)}`,
+    });
   let body;
   if (attempt === null) body = <Note>No attempt is named.</Note>;
   else if (project.state === "error") body = <Note>{project.message}</Note>;
