@@ -98,6 +98,27 @@ describe("which steps start open", () => {
     expect(within(trial2).getByText(/trial-2\/trace\.jsonl/)).toBeVisible();
   });
 
+  it("another run's steps start as that run's rules say", () => {
+    const page = (index: number) => (
+      <MemoryRouter>
+        <RunPage
+          project={project}
+          attempt="batch-1/task-0001"
+          record={records.passed}
+          visit={must(records.passed.visits[index])}
+          index={index}
+        />
+      </MemoryRouter>
+    );
+    const { rerender } = render(page(5));
+    fireEvent.click(within(stepAt(5)).getByRole("button"));
+
+    rerender(page(1));
+
+    // Input, the script, then the Output of a failed check.
+    expect(steps().map(([, open]) => open)).toEqual([false, false, true]);
+  });
+
   it("each toggle names the body it opens", () => {
     show(records.passed, 0);
 
@@ -147,6 +168,7 @@ describe("the input and the output", () => {
       "/sample/attempt?id=p4%2Ftask-0101&tab=runs&run=1",
     );
     expect(within(input).getByRole("link")).toHaveTextContent("check · run 2");
+    expect(within(input).getByText("Fail")).toBeVisible();
     expect(
       within(input).getByText("artifacts/check/1/feedback.md"),
     ).toBeVisible();

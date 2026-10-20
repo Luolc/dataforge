@@ -58,7 +58,9 @@ export default function RunPage({
   const seconds = visitSeconds(visit);
   const title = stateTitle(project, visit.state);
   return (
+    // Keyed by the run, so another run's steps start folded as theirs do.
     <section
+      key={index}
       aria-label={`${title} · run ${index + 1}`}
       className="flex min-w-0 flex-col rounded-panel border border-line bg-panel"
     >
@@ -74,7 +76,12 @@ export default function RunPage({
           {` · ${usd(visitCost(visit))}`}
         </p>
       </header>
-      <InputStep record={record} index={index} runLink={runLink} />
+      <InputStep
+        project={project}
+        record={record}
+        index={index}
+        runLink={runLink}
+      />
       {visit.actions.map((action, i) => (
         <ActionStep
           key={i}
@@ -101,11 +108,13 @@ export default function RunPage({
   );
 }
 
+const fields = "grid grid-cols-[auto_minmax(0,1fr)] gap-x-10";
+
 function Field({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 py-1">
-      <dt className="text-fg-3">{name}</dt>
-      <dd className="min-w-0 break-words text-fg-2">{children}</dd>
+    <div className="contents">
+      <dt className="py-1 text-fg-3">{name}</dt>
+      <dd className="min-w-0 py-1 break-words text-fg-2">{children}</dd>
     </div>
   );
 }
@@ -135,10 +144,12 @@ function Outputs({ outputs }: { outputs: Record<string, string> }) {
 }
 
 function InputStep({
+  project,
   record,
   index,
   runLink,
 }: {
+  project: Project;
   record: AttemptRecord;
   index: number;
   runLink: (at: number) => ReactNode;
@@ -162,9 +173,11 @@ function InputStep({
         </p>
       )}
       {input.kind === "report" && before && (
-        <dl>
+        <dl className={fields}>
           <Field name="Report from">{runLink(input.from)}</Field>
-          <Field name="Outcome">{before.outcome ?? NOT_ENDED}</Field>
+          <Field name="Outcome">
+            <StatusLabel project={project} word={before.outcome} />
+          </Field>
           <Field name="Data">
             <Data data={before.data} />
           </Field>
@@ -213,7 +226,7 @@ function ActionStep({
       aside={`${seconds === null ? "—" : duration(seconds)} · ${usd(action.cost_usd)}`}
       open={open}
     >
-      <dl>
+      <dl className={fields}>
         <Field name="Kind">{action.kind}</Field>
         <Field name="Status">{status.label}</Field>
         <Field name="Cost">{usd(action.cost_usd)}</Field>
@@ -262,7 +275,7 @@ function OutputStep({
   const end = attemptStatus(record);
   return (
     <Step name="Output" status={statusOf(project, visit.outcome)} open={open}>
-      <dl>
+      <dl className={fields}>
         <Field name="Outcome">
           <StatusLabel project={project} word={visit.outcome} />
         </Field>
