@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
-import { attemptStatus, statusOf } from "./status";
+import { attemptStatus, liveStatus, statusOf } from "./status";
 
 describe("status words", () => {
   it("an unmapped raised is bad, any other unmapped word neutral", () => {
@@ -35,5 +35,13 @@ describe("status words", () => {
     expect(attemptStatus(records.running)).toBeNull();
     expect(attemptStatus(records.raised)).toBe("raised");
     expect(attemptStatus(records.passed)).toBe("passed");
+  });
+
+  it("live words have the viewer's own labels and tones", () => {
+    expect(liveStatus).toEqual({
+      running: { label: "Running", tone: "neutral" },
+      "may have stopped": { label: "May have stopped", tone: "warn" },
+      "not ended": { label: "Not ended", tone: "neutral" },
+    });
   });
 });

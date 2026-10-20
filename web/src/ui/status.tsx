@@ -1,7 +1,7 @@
 // Statuses and outcomes drawn by their tone, as the project file names them.
 import { Check, Minus, TriangleAlert, X } from "lucide-react";
 
-import type { AttemptRecord, Project, Tone } from "../api/types";
+import type { AttemptRecord, Live, Project, Tone } from "../api/types";
 
 // The words the viewer itself gives a status; every other word comes from the
 // project file.
@@ -35,6 +35,13 @@ export function attemptStatus(record: AttemptRecord): string | null {
   if (record.status !== null) return record.status;
   return record.visits.at(-1)?.outcome === RAISED ? RAISED : null;
 }
+
+/** The label and tone of the listing's live (design-viz.md section 4). */
+export const liveStatus: Record<Live, { label: string; tone: Tone }> = {
+  running: { label: "Running", tone: "neutral" },
+  "may have stopped": { label: "May have stopped", tone: "warn" },
+  "not ended": { label: NOT_ENDED, tone: "neutral" },
+};
 
 /** A state's title, else its name. */
 export function stateTitle(project: Project, state: string): string {
