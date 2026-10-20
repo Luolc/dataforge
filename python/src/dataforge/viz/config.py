@@ -289,7 +289,9 @@ def _str(path: Path, key: str, value: object) -> str:
 
 
 def _root(path: Path, value: str) -> Path:
-  root = path.parent / value
+  # Absolute, so that it does not depend on the working directory later;
+  # abspath, unlike resolve, follows no symlink.
+  root = Path(os.path.abspath(path.parent / value))
   try:
     status = os.lstat(root)
   except OSError as error:

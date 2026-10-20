@@ -104,3 +104,14 @@ def test_a_repeated_project_id_is_refused(tree: Tree) -> None:
 
   with pytest.raises(ConfigError, match="id example is repeated"):
     _ = load_site(tree.site)
+
+
+def test_paths_are_relative_to_their_file(
+  tree: Tree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  monkeypatch.chdir(tree.site.parent)
+
+  [project] = load_site(Path("site.yaml")).projects
+
+  assert project.root == tree.root
+  assert project.root.is_absolute()
