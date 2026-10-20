@@ -9,6 +9,9 @@ domains = [
   "R96",
   # The repository keeps a design, docs/design.md and docs/design-viz.md.
   "R232",
+  # The repository is to hold the viz's frontend (docs/design-viz.md): components and
+  # tokens that data pipelines compose into their own sites.
+  "R240",
   # The repository has Python code, python/.
   "R339",
 ]

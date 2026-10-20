@@ -1,0 +1,31 @@
+id = 38
+slug = "frontend-four-status-tones"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R240"
+default = "on"
+authority = ["purpose"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Color a status with one of four tones"
+
+[text.statement]
+en = "Color every status on a page with the tokens of one of four tones, `good`, `bad`, `warn` and `neutral`, and with no other color."
+
+[text.reason]
+en = '''
+The tones say whether a person has to act on a state, not what kind of object it belongs to; with four of them a reader learns the colors once and sees at a glance which rows need a look, on every page and in every project that uses the frontend.
+'''
+
+[text.verification]
+en = '''
+Which status takes which tone is set where its kind's status words are defined.
+
+Violated when a status is drawn in a color that is not one of the four tones' tokens, or when the tokens define a status color outside the four.
+'''
