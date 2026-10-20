@@ -10,8 +10,8 @@ import {
 } from "react";
 import { Link } from "react-router";
 
-import type { Tone } from "../../../api/types";
-import { toneGlyph } from "../../../ui/status";
+import type { Project } from "../../../api/types";
+import { StatusIcon } from "../../../ui/status-mark";
 import type { Edge, Layout } from "./graph";
 
 /** The height of a line of an edge's label, in the graph's units. */
@@ -24,13 +24,6 @@ const STEP = 1.25;
 const START = 1;
 /** Further than this, a pointer drags the graph instead of clicking. */
 const DRAG = 4;
-
-const dot: Record<Tone, string> = {
-  good: "fill-good",
-  bad: "fill-bad",
-  warn: "fill-warn",
-  neutral: "fill-neutral",
-};
 
 interface View {
   k: number;
@@ -48,9 +41,11 @@ const clamp = (v: number, lo: number, hi: number) =>
  * rest; a state links to its last run.
  */
 export function Graph({
+  project,
   layout,
   runHref,
 }: {
+  project: Project;
   layout: Layout;
   runHref: (index: number) => string;
 }) {
@@ -59,7 +54,10 @@ export function Graph({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
   const [view, setView] = useState<View | null>(null);
-  const [active, setActive] = useState<string | null>(null);
+  // The state under the pointer wins over the one with the focus.
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+  const active = hovered ?? focused;
 
   // The view that shows the whole graph, or its left part at START.
   const fit = useCallback(
@@ -269,19 +267,20 @@ export function Graph({
           {layout.nodes.map((node) => {
             const card = (
               <NodeCard
+                project={project}
                 node={node}
                 lit={active === node.key}
                 dim={dim(node.key)}
               />
             );
             const events = {
-              onPointerEnter: () => setActive(node.key),
-              onPointerLeave: () => setActive(null),
+              onPointerEnter: () => setHovered(node.key),
+              onPointerLeave: () => setHovered(null),
               onFocus: () => {
-                setActive(node.key);
+                setFocused(node.key);
                 reveal(node);
               },
-              onBlur: () => setActive(null),
+              onBlur: () => setFocused(null),
             };
             return node.lastVisit === null ? (
               <g key={node.key} data-node={node.key} {...events}>
@@ -291,7 +290,7 @@ export function Graph({
               <Link
                 key={node.key}
                 to={runHref(node.lastVisit)}
-                aria-label={`${node.title}: its last run`}
+                aria-label={`${accessibleName(node)}: open its last run`}
                 data-node={node.key}
                 {...events}
               >
@@ -302,12 +301,14 @@ export function Graph({
         </g>
       </svg>
       <div className="absolute right-3 bottom-3 flex gap-2">
-        <ControlButton
-          label={full ? "Exit full screen" : "Full screen"}
-          onClick={toggleFull}
-        >
-          {full ? <Minimize size={16} /> : <Maximize size={16} />}
-        </ControlButton>
+        {document.fullscreenEnabled && (
+          <ControlButton
+            label={full ? "Exit full screen" : "Full screen"}
+            onClick={toggleFull}
+          >
+            {full ? <Minimize size={16} /> : <Maximize size={16} />}
+          </ControlButton>
+        )}
         <div className="flex">
           <ControlButton
             label="Zoom out"
@@ -423,11 +424,20 @@ function EdgeView({
   );
 }
 
+/** A state's title, status, runs and time, as a screen reader reads it. */
+function accessibleName(node: Layout["nodes"][number]): string {
+  return [node.title, node.status?.label, node.sub, node.time]
+    .filter((part) => part != null)
+    .join(", ");
+}
+
 function NodeCard({
+  project,
   node,
   lit,
   dim,
 }: {
+  project: Project;
   node: Layout["nodes"][number];
   lit: boolean;
   dim: boolean;
@@ -456,8 +466,10 @@ function NodeCard({
           className="fill-app stroke-icon"
         />
       ))}
-      {node.tone !== null ? (
-        <ToneMark tone={node.tone} />
+      {node.status !== null ? (
+        <foreignObject x="12" y="12" width="16" height="16">
+          <StatusIcon project={project} word={node.word} ended={node.ended} />
+        </foreignObject>
       ) : (
         <circle
           cx="20"
@@ -487,24 +499,5 @@ function NodeCard({
         {node.sub}
       </text>
     </g>
-  );
-}
-
-/** A node's tone as a filled circle with the tone's glyph (L39). */
-function ToneMark({ tone }: { tone: Tone }) {
-  const Glyph = toneGlyph[tone];
-  return (
-    <>
-      <circle cx="20" cy="20" r="8" className={dot[tone]} />
-      <Glyph
-        x="14.5"
-        y="14.5"
-        width="11"
-        height="11"
-        strokeWidth={3.5}
-        className="text-on-tone"
-        aria-hidden
-      />
-    </>
   );
 }

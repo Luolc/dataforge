@@ -23,7 +23,7 @@ describe("Summary", () => {
 
     const graph = screen.getByRole("group", { name: "State machine" });
     const solve = within(graph).getByRole("link", {
-      name: "Pass@k: its last run",
+      name: /^Pass@k, .*: open its last run$/,
     });
     expect(solve).toHaveAttribute(
       "href",

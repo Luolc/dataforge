@@ -34,14 +34,7 @@ interface Props {
 export function Summary({ project, attempt, record }: Props) {
   const runHref = (index: number) =>
     attemptHref(project.id, attempt, { tab: "runs", run: index });
-  // Prototype only: ?lanes=own shows the other way of laying out edges back.
-  const machine = layout(
-    record,
-    project,
-    new URLSearchParams(window.location.search).get("lanes") === "own"
-      ? "own"
-      : "bundled",
-  );
+  const machine = layout(record, project);
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <TopRow project={project} record={record} />
@@ -51,7 +44,7 @@ export function Summary({ project, attempt, record }: Props) {
         flush
       >
         {machine ? (
-          <Graph layout={machine} runHref={runHref} />
+          <Graph project={project} layout={machine} runHref={runHref} />
         ) : (
           <p className="rounded-b-panel bg-app p-4 text-fg-3">
             This record has no graph.

@@ -2,17 +2,21 @@
 // states sit in one row in the graph's order, then the end, each a card with a
 // port on either side. An edge to the next node runs straight between their
 // ports; an edge further forward runs above the row, an edge back below it,
-// each in a lane of its own or, bundled, in one lane per state it goes back
-// to; an edge to its own state is a loop over the card.
+// in one lane for all the edges back to its state; an edge to its own state
+// is a loop over the card.
 
 import type { AttemptRecord, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
-import { endWord, NOT_RUN, stateTitle, statusOf } from "../../../ui/status";
+import {
+  attemptStatus,
+  endWord,
+  NOT_RUN,
+  outcomeOf,
+  stateTitle,
+  statusOf,
+} from "../../../ui/status";
 
 export const END = "\0end";
-
-/** One lane per edge back, or one per state the edges go back to. */
-export type BackLanes = "own" | "bundled";
 
 const W = 168;
 const H = 56;
@@ -36,7 +40,15 @@ interface Node {
   /** Runs and their total time, or the end's status; Not run when none. */
   sub: string;
   time: string | null;
-  tone: Tone | null;
+  /**
+   * The word the node's icon and accessible name show: its last visit's
+   * outcome, or the attempt's status at the end; null for none.
+   */
+  word: string | null;
+  /** Whether a null word is No outcome rather than Not ended. */
+  ended: boolean;
+  /** The word's label and tone; null when the node was not reached. */
+  status: { label: string; tone: Tone } | null;
   idle: boolean;
   /** The index in visits of the state's last visit; null for none. */
   lastVisit: number | null;
@@ -140,16 +152,13 @@ function rounded(points: [number, number][]): string {
 }
 
 /** Lay out the record's graph; null when the record has none. */
-export function layout(
-  record: AttemptRecord,
-  project: Project,
-  backLanes: BackLanes = "bundled",
-): Layout | null {
+export function layout(record: AttemptRecord, project: Project): Layout | null {
   const graph = record.graph;
   if (!graph) return null;
   const order = [...graph.states.map((s) => s.name), END];
   const at = (key: string) => order.indexOf(key);
   const taken = takenCounts(record, project);
+  const attemptEnded = attemptStatus(project, record) !== null;
 
   const nodes = order.map((key): Node => {
     const box = { key, x: 0, y: 0, width: W, height: H };
@@ -162,7 +171,9 @@ export function layout(
         title: "End",
         sub: ended ? status.label : NOT_RUN,
         time: null,
-        tone: ended ? status.tone : null,
+        word: end,
+        ended: true,
+        status: ended ? status : null,
         idle: !ended,
         lastVisit: null,
       };
@@ -178,7 +189,9 @@ export function layout(
           ? NOT_RUN
           : `${mine.length} run${mine.length > 1 ? "s" : ""}`,
       time: mine.length === 0 ? null : duration(seconds),
-      tone: last ? statusOf(project, last.outcome).tone : null,
+      word: last?.outcome ?? null,
+      ended: attemptEnded,
+      status: last ? outcomeOf(project, last.outcome, attemptEnded) : null,
       idle: mine.length === 0,
       lastVisit: last ? record.visits.lastIndexOf(last) : null,
     };
@@ -214,20 +227,16 @@ export function layout(
   const back = all.filter((g) => g.span < 0);
   const ahead = all.filter((g) => g.span > 1);
 
-  // An edge back takes a lane of its own, or shares the lane of every edge
-  // back to its state.
-  const backSpan = (g: { from: string; to: string }): [number, number] => {
-    if (backLanes === "own") return [at(g.to), at(g.from)];
-    const same = back.filter((b) => b.to === g.to).map((b) => at(b.from));
-    return [at(g.to), Math.max(...same)];
-  };
-  const laneKey = (g: { key: string; to: string }) =>
-    backLanes === "own" ? g.key : g.to;
-  const backKeys = [...new Set(back.map(laneKey))];
+  // The edges back to one state share a lane, from that state to the
+  // furthest one they leave from.
+  const targets = [...new Set(back.map((g) => g.to))];
   const backLane = new Map(
     lanes(
-      backKeys.map((k) => backSpan(must(back.find((g) => laneKey(g) === k)))),
-    ).map((l, i) => [backKeys[i], l]),
+      targets.map((t): [number, number] => [
+        at(t),
+        Math.max(...back.filter((g) => g.to === t).map((g) => at(g.from))),
+      ]),
+    ).map((l, i) => [targets[i], l]),
   );
   const aheadLane = lanes(ahead.map((g) => [at(g.from), at(g.to)]));
   const aheadCount = Math.max(0, ...aheadLane.map((l) => l + 1));
@@ -327,22 +336,14 @@ export function layout(
         },
       };
     }
-    const lane = backLane.get(laneKey(g)) ?? 0;
+    const lane = backLane.get(g.to) ?? 0;
     const y1 = bottom + 16 + lane * LANE;
     const outs = back
       .filter((o) => o.from === g.from)
-      .map((o) => ({ key: o.key, lane: backLane.get(laneKey(o)) ?? 0 }));
-    // Bundled edges reach their state at one point.
-    const ins = back
-      .filter((o) => o.to === g.to)
-      .map((o) => ({ key: laneKey(o), lane: backLane.get(laneKey(o)) ?? 0 }))
-      .filter((o, i, list) => list.findIndex((p) => p.key === o.key) === i);
+      .map((o) => ({ key: o.key, lane: backLane.get(o.to) ?? 0 }));
     const a = spread(from, outs.length, slot(outs, g.key, false));
-    const b = spread(
-      to,
-      ins.length,
-      ins.length - 1 - slot(ins, laneKey(g), false),
-    );
+    // Every edge back to a state reaches it at its middle.
+    const b = to.x + to.width / 2;
     return {
       ...common,
       back: true,
