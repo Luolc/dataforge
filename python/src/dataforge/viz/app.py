@@ -155,6 +155,7 @@ def _row(project: Project, attempt: str) -> dict[str, object]:
     "rounds": None,
     "values": None,
     "live": None,
+    "held": None,
     "error": None,
   }
   try:
