@@ -373,6 +373,7 @@ class _Refusing(http.server.BaseHTTPRequestHandler):
     self.send_error(403, "the session's spend is capped")
 
   do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = _refuse  # noqa: N815
+  do_OPTIONS = do_TRACE = do_CONNECT = _refuse  # noqa: N815
 
   @override
   def address_string(self) -> str:

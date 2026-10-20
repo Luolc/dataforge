@@ -102,9 +102,11 @@ def test_a_session_is_only_in_the_launcher_and_the_proxy(
 
 
 @pytest.mark.parametrize("channel", list(Channel))
-def test_the_proxy_takes_the_session_out_of_its_environment(
+def test_the_proxy_takes_the_session_out_of_the_environment_it_passes_on(
   tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channel: Channel
 ):
+  # Out of `os.environ`, and so out of what its children inherit; `/proc`
+  # still shows the environment the process began with.
   monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://claude-gateway")
   monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", TOKEN)
   monkeypatch.setenv("CODEX_GATEWAY_TOKEN", TOKEN)
@@ -160,10 +162,13 @@ def test_the_proxy_forwards_only_its_channels_model_calls(
       call(path, "/v1/files")[0],
       call(path, other)[0],
       call(path, f"{ROUTE[channel]}/../files")[0],
+      call(path, f"http://elsewhere.invalid{ROUTE[channel]}")[0],
+      call(path, f"//elsewhere.invalid{ROUTE[channel]}")[0],
+      call(path, "*", method="OPTIONS")[0],
     ]
     server.shutdown()
   assert answer == (200, b"data: one\n\ndata: two\n\n")
-  assert refused == [403, 403, 403, 403]
+  assert refused == [403] * 7
   [(method, url, headers, body)] = seen.requests
   assert (method, url) == ("POST", f"/gw{ROUTE[channel]}?beta=true")
   assert headers["Authorization"] == f"Bearer {TOKEN}"
@@ -207,8 +212,9 @@ def test_a_compressed_chunked_body_is_sent_whole_as_it_came(socket_dir: Path):
   assert "Transfer-Encoding" not in headers
 
 
-def test_a_chunked_body_past_the_limit_is_refused_unsent(
-  socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("framing", ["chunked", "length"])
+def test_a_body_past_the_limit_is_refused_unsent(
+  socket_dir: Path, monkeypatch: pytest.MonkeyPatch, framing: str
 ):
   monkeypatch.setattr(channels, "MAX_BODY", 10)
   path = socket_dir / "model.sock"
@@ -219,12 +225,14 @@ def test_a_chunked_body_past_the_limit_is_refused_unsent(
     _ = serving(server)
     with socket.socket(socket.AF_UNIX) as s:
       s.connect(str(path))
-      head = [
-        b"POST /v1/messages HTTP/1.1",
-        b"Host: x",
-        b"Transfer-Encoding: chunked",
-      ]
-      s.sendall(b"\r\n".join(head) + b"\r\n\r\n" + chunked([b"12345"] * 3))
+      head = [b"POST /v1/messages HTTP/1.1", b"Host: x"]
+      if framing == "chunked":
+        head.append(b"Transfer-Encoding: chunked")
+        body = chunked([b"12345"] * 3)
+      else:
+        head.append(b"Content-Length: 11")
+        body = b"x" * 11
+      s.sendall(b"\r\n".join(head) + b"\r\n\r\n" + body)
       reply = s.makefile("rb").readline()
     server.shutdown()
   assert reply.startswith(b"HTTP/1.0 413 ")

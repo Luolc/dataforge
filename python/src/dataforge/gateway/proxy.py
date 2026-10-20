@@ -1,18 +1,22 @@
 """The host's model proxy: a container's only way to the model.
 
 `serve` runs it as the client of redcoast-client, so that the gateway session
-is only in the launcher's environment and this process's, which takes it out
-of its own as it starts. It listens on a Unix socket that a container reaches
-through `forward.py`, forwards only its channel's model calls (`ROUTES`) to the
-gateway with the session's `Authorization` in place of the request's, and
-refuses every other request with 403, the session unsent. It ends when the
-process that started it ends, killed or not.
+is only in the launcher's environment and this process's. As it starts, it
+takes the session out of its environment variables, so that nothing it starts
+inherits it; `/proc` still shows the environment it began with, to the host's
+processes of the same user, as it does the launcher's. It listens on a Unix
+socket that a container reaches through `forward.py`, forwards only its
+channel's model calls (`ROUTES`), in origin form, to the gateway with the
+session's `Authorization` in place of the request's, and refuses every other
+request with 403, the session unsent. It ends when the process that started it
+ends, killed or not.
 
-With a `Spend`, it prices each reply as it passes it on and, once the session
-has cost `max_usd` or a reply could not be priced, refuses every later request
-with 403, lets the replies under way finish and then prints `DRAINED`, on which
-`serve` takes the socket over and ends the session. With a ledger, it writes
-each reply down (`spend.record`).
+With a `Spend`, it prices each reply as it passes it on. Once the session has
+cost `max_usd` or a reply could not be priced, and with a ledger once the
+ledger could not be written, it refuses every later request with 403, lets the
+replies under way finish and then prints `DRAINED`, on which `serve` takes the
+socket over and ends the session. With a ledger, it writes each reply down
+(`spend.record`).
 
 Run as `python -I -m dataforge.gateway.proxy --channel <channel> --socket
 <path> --parent <pid>` with `--pause`, `--ledger` and `--spend` as given.
@@ -93,8 +97,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
       return
     # The body is read even for a refusal: the connection closes after it, and
     # a caller still sending the body would get a broken pipe instead.
-    route = (self.command, urllib.parse.urlsplit(self.path).path)
-    if route not in ROUTES[self.server.channel]:
+    # Only a target in origin form: an absolute or `//host` one would reach
+    # the gateway as it came.
+    target = urllib.parse.urlsplit(self.path)
+    route = (self.command, target.path)
+    if (
+      not self.path.startswith("/")
+      or target.netloc
+      or route not in ROUTES[self.server.channel]
+    ):
       self.send_error(403)
       return
     with self.server.flight() as allowed:
@@ -203,6 +214,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         server.charge(meter)
 
   do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = _forward  # noqa: N815
+  do_OPTIONS = do_TRACE = do_CONNECT = _forward  # noqa: N815
 
   @override
   def address_string(self) -> str:
@@ -287,41 +299,60 @@ class _Server(socketserver.ThreadingUnixStreamServer):
     )
 
   def charge(self, meter: Meter) -> None:
-    # Prices a reply that ended, writes it down and caps the session when it
-    # is due.
-    meter.end()
-    usd, reason = price(meter, self.spend)
-    if self.ledger is not None:
-      record(
-        self.ledger,
-        {
-          "at": now(),
-          "channel": self.channel.value,
-          "model": meter.model,
-          "usage": meter.usage,
-          "cost_usd": usd,
-          "reason": reason,
-        },
-      )
-    if self.spend is None:
+    # Prices a reply that ended, caps the session when it is due and then
+    # writes the reply down. The cap fails closed: a reply that cannot be
+    # read, and a ledger that cannot be written, cap the session too, so that
+    # no reply goes uncounted.
+    try:
+      meter.end()
+      usd, reason = price(meter, self.spend)
+    except Exception as e:  # noqa: BLE001
+      usd, reason = None, f"the reply could not be read: {e!r}"
+    capped = self._settle(usd, reason)
+    if self.ledger is None:
       return
+    line: dict[str, object] = {
+      "at": now(),
+      "channel": self.channel.value,
+      "model": meter.model,
+      "usage": meter.usage,
+      "cost_usd": usd,
+      "reason": reason,
+    }
+    try:
+      record(self.ledger, line)
+      if capped is not None:
+        record(
+          self.ledger,
+          {"at": now(), "channel": self.channel.value, "capped": capped},
+        )
+    except OSError as e:
+      _ = self._cap(f"the ledger could not be written: {e!r}")
+
+  def _settle(self, usd: float | None, reason: str | None) -> str | None:
+    # Adds a reply's cost to the session's; returns why it capped the session
+    # when it did.
+    if self.spend is None:
+      return None
     with self._lock:
       if self.capped is not None:
-        return
-      if usd is None:
-        why = f"a reply it could not price: {reason}"
-      else:
+        return None
+      if usd is not None:
         self.spent += usd
         if self.spent < self.spend.max_usd:
-          return
-        why = f"spent {self.spent:.4f} USD of {self.spend.max_usd:.4f}"
+          return None
+    if usd is None:
+      return self._cap(f"a reply it could not price: {reason}")
+    return self._cap(f"spent {self.spent:.4f} USD of {self.spend.max_usd:.4f}")
+
+  def _cap(self, why: str) -> str | None:
+    # Caps the session, unless it was already; returns why when it caps it.
+    with self._lock:
+      if self.capped is not None:
+        return None
       self.capped = why
     _ = sys.stderr.write(f"gateway: the cap ends the session: {why}\n")
-    if self.ledger is not None:
-      record(
-        self.ledger,
-        {"at": now(), "channel": self.channel.value, "capped": why},
-      )
+    return why
 
 
 def make_server(

@@ -4,12 +4,13 @@
 """The cap and the ledger, against a fake gateway.
 
 Invariant 28: a reply is priced the same as JSON or as an event stream, the
-cap refuses every request once reached or after a reply it cannot price and
-ends the session, a reply under way is passed on whole, and each billed reply
-has one ledger line.
+cap refuses every request once reached, after a reply it cannot price or once
+the ledger cannot be written, and ends the session, a reply under way is
+passed on whole, and each billed reply has one ledger line.
 """
 
 from collections.abc import Callable
+import gzip
 from http.server import BaseHTTPRequestHandler
 import json
 from pathlib import Path
@@ -194,13 +195,35 @@ def test_the_cap_refuses_every_request_once_reached_and_ends_the_session(
       assert call(path, ROUTE[channel])[0] == 200
       # The proxy, and with it the session, ends.
       assert wait_for(lambda: not holders(path))
-      after = [call(path, ROUTE[channel])[0], call(path, "/v1/other")[0]]
-  assert after == [403, 403]
+      # The socket is the refuser's now, open to the container's user.
+      mode = path.stat().st_mode & 0o777
+      after = [
+        call(path, ROUTE[channel])[0],
+        call(path, "/v1/other")[0],
+        call(path, "*", method="OPTIONS")[0],
+      ]
+  assert mode == 0o666
+  assert after == [403, 403, 403]
   assert len(seen.requests) == 1
   reply, capped = read_ledger(ledger)
   assert reply["cost_usd"] == pytest.approx(COST[channel])
   assert capped["channel"] == channel.value
   assert "spent" in str(capped["capped"])
+
+
+def gzipped(*parts: bytes) -> Callable[[BaseHTTPRequestHandler, int], None]:
+  body = gzip.compress(b"".join(parts))
+
+  def respond(handler: BaseHTTPRequestHandler, n: int) -> None:
+    del n
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/event-stream")
+    handler.send_header("Content-Encoding", "gzip")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    _ = handler.wfile.write(body)
+
+  return respond
 
 
 @pytest.mark.parametrize(
@@ -216,6 +239,7 @@ def test_the_cap_refuses_every_request_once_reached_and_ends_the_session(
       ),
       "no price for the model 'claude-x'",
     ),
+    (gzipped(*events(Channel.CLAUDE)), "Content-Encoding gzip"),
   ],
 )
 def test_a_reply_it_cannot_price_caps_the_session(
@@ -239,6 +263,8 @@ def test_a_reply_it_cannot_price_caps_the_session(
   ):
     _ = serving(server)
     first = call(path, "/v1/messages")[0]
+    # A reply with a length can reach the caller whole before it is charged.
+    assert wait_for(lambda: server.capped is not None)
     second = call(path, "/v1/messages")[0]
     server.shutdown()
   assert (first, second) == (200, 403)
@@ -248,6 +274,50 @@ def test_a_reply_it_cannot_price_caps_the_session(
   assert reply["cost_usd"] is None
   assert reason in str(reply["reason"])
   assert "could not price" in str(capped["capped"])
+
+
+def broken_price(*_: object) -> tuple[float | None, str | None]:
+  raise ValueError("unexpected usage")
+
+
+@pytest.mark.parametrize("broken", ["ledger", "price"])
+def test_a_ledger_it_cannot_write_or_a_failure_to_price_caps_the_session(
+  socket_dir: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  capfd: pytest.CaptureFixture[str],
+  broken: str,
+):
+  path = socket_dir / "model.sock"
+  ledger = socket_dir / "ledger.jsonl"
+  if broken == "ledger":
+    ledger = socket_dir / "missing" / "ledger.jsonl"
+  else:
+    monkeypatch.setattr(proxy, "price", broken_price)
+  with (
+    upstream(stream(*events(Channel.CLAUDE))) as (base, seen),
+    proxy.make_server(
+      Channel.CLAUDE,
+      path,
+      base,
+      "t",
+      ledger=ledger,
+      spend=Spend(prices=PRICES, max_usd=10.0),
+    ) as server,
+  ):
+    _ = serving(server)
+    first = call(path, "/v1/messages")[0]
+    # A reply with a length can reach the caller whole before it is charged.
+    assert wait_for(lambda: server.capped is not None)
+    second = call(path, "/v1/messages")[0]
+    server.shutdown()
+  assert (first, second) == (200, 403)
+  err = capfd.readouterr().err
+  assert DRAINED in err
+  assert {
+    "ledger": "the ledger could not be written",
+    "price": "the reply could not be read",
+  }[broken] in err
+  assert len(seen.requests) == 1
 
 
 def test_a_reply_under_way_when_the_cap_comes_is_passed_on_whole(

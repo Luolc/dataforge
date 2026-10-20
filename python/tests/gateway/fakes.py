@@ -10,7 +10,6 @@ import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
-import os
 from pathlib import Path
 import socket
 import sys
@@ -290,20 +289,6 @@ def alive(pid: int) -> bool:
   except OSError:
     return False
   return stat.rsplit(")", 1)[1].split()[0] != "Z"
-
-
-def environ_of(pid: int) -> dict[str, str]:
-  """Return a process's environment as it began.
-
-  Args:
-    pid: The process.
-
-  Returns:
-    Its variables.
-  """
-  data = Path(f"/proc/{pid}/environ").read_bytes()
-  pairs = [item.split(b"=", 1) for item in data.split(b"\0") if item]
-  return {os.fsdecode(k): os.fsdecode(v) for k, v in pairs}
 
 
 def wait_for(found: Callable[[], bool], timeout: float = 10) -> bool:
