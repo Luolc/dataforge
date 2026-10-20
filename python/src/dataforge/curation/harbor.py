@@ -87,6 +87,9 @@ CLAUDE_CODE_TRACE = Path("agent", "claude-code.txt")
 # stream-json`, one JSON event per line.
 TRACE_FORMAT = "claude-code-stream-json"
 
+TRACE_LIMIT = 64 * 2**20
+"""The most bytes of CLAUDE_CODE_TRACE read for a trial's cost."""
+
 
 @dataclass(frozen=True)
 class Sidecar:
@@ -140,7 +143,8 @@ class HarborRunner:
   A trial's cost is the `agent_result.cost_usd` of Harbor's `result.json`. When
   that is not a number, it is the `total_cost_usd` of the last `result` event
   in the trial's CLAUDE_CODE_TRACE, a Claude Code trace that Harbor's
-  claude-code agent writes; for an agent that writes none, the cost is 0.
+  claude-code agent writes, read only when it is a regular file of at most
+  TRACE_LIMIT bytes; for an agent that writes none, the cost is 0.
 
   Attributes:
     harbor: The `harbor` command.
@@ -535,10 +539,15 @@ def _read(
   for name in ("agent", "verifier"):
     if (trial / name).is_dir():
       artifacts[name] = trial / name
+  # The agent's container writes agent/, and a symlink there could point
+  # the record or the cost at a file of the host.
+  trace = trial / CLAUDE_CODE_TRACE
+  traced = trace.is_file(follow_symlinks=False)
   cost = agent.get("cost_usd")
   if isinstance(cost, bool) or not isinstance(cost, int | float):
-    cost = claude.read_trace(trial / CLAUDE_CODE_TRACE).cost_usd
-  trace = trial / CLAUDE_CODE_TRACE
+    cost = None
+    if traced and trace.stat(follow_symlinks=False).st_size <= TRACE_LIMIT:
+      cost = claude.read_trace(trace).cost_usd
   return TrialResult(
     {key: float(value) for key, value in rewards.items()},
     exception,
@@ -547,8 +556,6 @@ def _read(
     artifacts,
     id=trial.name,
     path=trial,
-    # The agent's container writes agent/, and a symlink there could point
-    # the record at a file of the host.
-    trace=trace if trace.is_file(follow_symlinks=False) else None,
+    trace=trace if traced else None,
     trace_format=TRACE_FORMAT,
   )
