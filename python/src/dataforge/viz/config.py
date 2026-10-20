@@ -73,6 +73,21 @@ class Item:
 
 
 @dataclass(frozen=True, slots=True)
+class Deliverable:
+  """A deliverable the dataset's declaration names, as a record names it.
+
+  Attributes:
+    name: The name of its entry in a record's deliverables.
+    kind: Its kind, which picks its view.
+    title: Its title.
+  """
+
+  name: str
+  kind: str
+  title: str
+
+
+@dataclass(frozen=True, slots=True)
 class Project:
   """A dataset's project file, as loaded.
 
@@ -93,6 +108,7 @@ class Project:
       the engine's own rule.
     lock: The path of the lock file in an item's directory; None when the
       dataset names none.
+    deliverables: The deliverables an attempt has once it ends, in order.
     trial_diff: The path of a trial's diff in its directory; None when the
       dataset names none.
   """
@@ -110,6 +126,7 @@ class Project:
   thinking: str
   not_ended: tuple[str, ...] | None = None
   lock: tuple[str, ...] | None = None
+  deliverables: tuple[Deliverable, ...] = ()
   trial_diff: tuple[str, ...] | None = None
 
   def public(self) -> dict[str, object]:
@@ -132,6 +149,10 @@ class Project:
       ],
       "session": {"thinking": self.thinking},
       "not_ended": None if self.not_ended is None else list(self.not_ended),
+      "deliverables": [
+        {"name": d.name, "kind": d.kind, "title": d.title}
+        for d in self.deliverables
+      ],
       "trials": None
       if self.trial_diff is None
       else {"diff": "/".join(self.trial_diff)},
@@ -230,6 +251,7 @@ def load_project(path: Path) -> Project:
       "session",
       "not_ended",
       "lock",
+      "deliverables",
       "trials",
     },
   )
@@ -257,6 +279,7 @@ def load_project(path: Path) -> Project:
     lock=None
     if data.get("lock") is None
     else _relative(path, "lock", _str(path, "lock", data["lock"])),
+    deliverables=_deliverables(path, data.get("deliverables")),
     trial_diff=_trial_diff(path, data.get("trials")),
   )
 
@@ -419,6 +442,26 @@ def _columns(path: Path, value: object) -> tuple[Column, ...]:
     title = _str(path, f"{where}.title", entry["title"])
     columns.append(Column(title, keys, format_))
   return tuple(columns)
+
+
+def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list):
+    raise ConfigError(f"{path}: deliverables: not a list")
+  found: list[Deliverable] = []
+  for i, item in enumerate(cast(list[object], value)):
+    where = f"deliverables[{i}]"
+    entry = _mapping(path, where, item)
+    fields = {"name", "kind", "title"}
+    _keys(path, where, entry, required=fields, optional=set())
+    name, kind, title = (
+      _str(path, f"{where}.{f}", entry[f]) for f in ("name", "kind", "title")
+    )
+    if any(d.name == name for d in found):
+      raise ConfigError(f"{path}: {where}.name: {name!r} repeated")
+    found.append(Deliverable(name, kind, title))
+  return tuple(found)
 
 
 def _trial_diff(path: Path, value: object) -> tuple[str, ...] | None:

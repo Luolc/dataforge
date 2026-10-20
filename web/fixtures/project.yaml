@@ -27,3 +27,8 @@ statuses:
 item: { depth: 2, title: Task }
 columns:
   - { title: Cap, field: [budget, max_usd], format: usd }
+# What an attempt delivers once it ends, so a running one shows its tabs.
+deliverables:
+  - { name: task, kind: files, title: Task }
+  - { name: pass_at_k, kind: trials, title: Pass@k }
+  - { name: review, kind: report, title: Review }

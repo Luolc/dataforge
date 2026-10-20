@@ -142,6 +142,7 @@ def test_projects_leave_out_where_the_files_are(
     ],
     "session": {"thinking": "hidden"},
     "not_ended": None,
+    "deliverables": [],
     "trials": None,
   }
 
@@ -154,6 +155,24 @@ def test_projects_carry_not_ended(tree: Tree, static: Path) -> None:
   )
 
   assert project["not_ended"] == ["running", "queued"]
+
+
+def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(
+    PROJECT
+    + "deliverables:\n"
+    + "  - {name: task, kind: files, title: Task}\n"
+    + "  - {name: review, kind: report, title: Review}\n"
+  )
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["deliverables"] == [
+    {"name": "task", "kind": "files", "title": "Task"},
+    {"name": "review", "kind": "report", "title": "Review"},
+  ]
 
 
 def test_projects_carry_the_trial_diff(tree: Tree, static: Path) -> None:
