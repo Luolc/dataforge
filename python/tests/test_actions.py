@@ -41,6 +41,7 @@ from dataforge.curation import (
   TrialResult,
 )
 from dataforge.curation.actions import NOT_A_FILE
+from tests.processes import holding, kill
 
 WAIT = 5.0
 
@@ -155,6 +156,23 @@ def test_pool_rejects_a_reservation_larger_than_itself() -> None:
 def test_pool_larger_than_the_available_memory_is_an_error() -> None:
   with pytest.raises(ValueError, match="GB is available"):
     _ = ResourcePool(10.0**9)
+
+
+POOL = """
+import sys
+from dataforge.curation import ResourcePool
+ResourcePool(float(sys.argv[1])).acquire(float(sys.argv[2]))
+print("held", flush=True)
+sys.stdin.read()
+"""
+
+
+def test_pool_counts_another_processs_reservation_until_it_is_killed() -> None:
+  with holding(POOL, "0.5", "0.5") as other:
+    pool = ResourcePool(0.5)
+    assert pool.reserved_gb == 0.5
+    blocked(lambda: pool.acquire(0.25), lambda: kill(other))
+    assert pool.reserved_gb == 0.25
 
 
 def test_a_host_script_reserves_its_memory(tmp_path: Path) -> None:

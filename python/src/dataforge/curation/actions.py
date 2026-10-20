@@ -1,11 +1,11 @@
 """Actions: agent, script, judge and trial, each in an env; fan_out.
 
 What an action does (agent, script) and where it runs (Host, or a Docker
-container) are independent. Memory is shared through one ResourcePool per
-process: a Docker env reserves its memory_gb from start to stop, a trial what
-its runner's memory_gb gives, a host script its memory_gb; each waits while the
-pool is short. CPUs are not reserved; a container's cpus and cpu_shares divide
-them.
+container) are independent. Memory is shared through a ResourcePool, whose
+reservations every process of the machine counts: a Docker env reserves its
+memory_gb from start to stop, a trial what its runner's memory_gb gives, a host
+script its memory_gb; each waits while the pool is short. CPUs are not
+reserved; a container's cpus and cpu_shares divide them.
 """
 
 import codecs
@@ -35,6 +35,8 @@ from dataforge.curation.engine import (
   Input,
   TrialRecord,
 )
+from dataforge.leases import Lease, Leases
+from dataforge.statedir import state_dir
 
 
 @dataclass(frozen=True)
@@ -82,12 +84,16 @@ class ActionResult:
 
 
 class ResourcePool:
-  """The memory the actions of every attempt in a process share, in GB.
+  """The memory the actions of every process of the machine share, in GB.
 
-  A reservation larger than the pool is a ValueError; a smaller one waits until
-  it fits and, with max_running, until fewer than that many reservations are
-  held. It counts whole MiB, so that a fraction of a GB is given back exactly as
-  it was taken.
+  Each reservation is a lease (`dataforge.leases`) in `memory/` of the state
+  directory (`dataforge.statedir`), so that every pool of the machine counts
+  the reservations of all of them, in whatever process. A reservation that
+  would take what they hold past this pool's memory_gb, or, with max_running,
+  their number past it, waits until it fits; one larger than the pool is a
+  ValueError. The reservations of a process that ended, killed too, are given
+  back. It counts whole MiB, so that a fraction of a GB is given back exactly
+  as it was taken.
   """
 
   def __init__(self, memory_gb: float, max_running: int | None = None) -> None:
@@ -108,15 +114,14 @@ class ResourcePool:
     self.memory_gb: float = memory_gb
     self.max_running: int | None = max_running
     self._total_mb: int = _mb(memory_gb)
-    self._used_mb: int = 0
-    self._running: int = 0
-    self._cond: threading.Condition = threading.Condition()
+    self._leases: Leases = Leases(state_dir() / "memory")
+    self._held: dict[int, list[Lease]] = {}
+    self._lock: threading.Lock = threading.Lock()
 
   @property
   def reserved_gb(self) -> float:
-    """The memory reserved now."""
-    with self._cond:
-      return self._used_mb / 1024
+    """The memory reserved now, by every process of the machine."""
+    return sum(self._leases.held()) / 1024
 
   def acquire(self, memory_gb: float) -> None:
     """Reserve memory, waiting until it fits.
@@ -130,26 +135,30 @@ class ResourcePool:
     mb = _mb(memory_gb)
     if mb > self._total_mb:
       raise ValueError(f"{memory_gb} GB asked of a pool of {self.memory_gb} GB")
-    with self._cond:
-      _ = self._cond.wait_for(
-        lambda: (
-          self._used_mb + mb <= self._total_mb
-          and (self.max_running is None or self._running < self.max_running)
-        )
-      )
-      self._used_mb += mb
-      self._running += 1
+    lease = self._leases.wait(mb, lambda held: self._fits(held, mb))
+    with self._lock:
+      self._held.setdefault(mb, []).append(lease)
+
+  def _fits(self, held: list[int], mb: int) -> bool:
+    return sum(held) + mb <= self._total_mb and (
+      self.max_running is None or len(held) < self.max_running
+    )
 
   def release(self, memory_gb: float) -> None:
-    """Give back a reservation.
+    """Give back a reservation this pool holds.
 
     Args:
       memory_gb: The memory it reserved.
+
+    Raises:
+      ValueError: When this pool holds no reservation of that memory.
     """
-    with self._cond:
-      self._used_mb -= _mb(memory_gb)
-      self._running -= 1
-      self._cond.notify_all()
+    with self._lock:
+      leases = self._held.get(_mb(memory_gb))
+      if not leases:
+        raise ValueError(f"no reservation of {memory_gb} GB is held")
+      lease = leases.pop()
+    lease.release()
 
   @contextmanager
   def reserve(self, memory_gb: float) -> Generator[None]:
