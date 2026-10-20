@@ -147,7 +147,8 @@ def serve(
   pauses the channel and the proxy starts again once the pause is over.
 
   With `spend`, once the cap ends the session, this process answers every
-  request on the socket with 403 until the block ends.
+  request on the socket with 403 until the block ends; for a moment while it
+  takes the socket over, a caller cannot connect instead.
 
   Args:
     channel: The channel.
@@ -294,8 +295,9 @@ class _Launch:
 
   def _watching(self) -> None:
     # Once the cap came and no reply is under way, this process takes the
-    # socket over, so that what comes next is refused without a gap, and ends
-    # the launcher, and with it the session.
+    # socket over, so that what comes next is refused, and ends the launcher,
+    # and with it the session. While it takes the socket over, for a moment,
+    # a caller cannot connect instead of getting 403; the cap stays closed.
     assert self.stderr is not None
     while not self._ended.is_set():
       if self.stderr.drained.wait(0.1):
