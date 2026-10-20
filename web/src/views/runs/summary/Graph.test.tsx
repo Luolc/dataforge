@@ -10,7 +10,7 @@ import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.
 import { must, sampleProject } from "../../../../fixtures/sample";
 import { type Project, record } from "../../../api/types";
 import { Graph } from "./Graph";
-import { layout } from "./graph";
+import { type Layout, layout } from "./graph";
 
 // As fixtures/graph/project.yaml, as /api/projects would serve it.
 const project: Project = {
@@ -292,13 +292,19 @@ describe("a running attempt's machine", () => {
     since: "2026-03-09T13:16:40+00:00",
   };
 
+  let rerenderWith: (drawn: Layout) => void = () => undefined;
+
   function showRunning() {
     const drawn = must(layout(record.parse(early), project, smoke));
-    render(
+    const shown = (at: Layout) => (
       <MemoryRouter>
-        <Graph project={project} layout={drawn} runHref={() => "/run"} />
-      </MemoryRouter>,
+        <Graph project={project} layout={at} runHref={() => "/run"} />
+      </MemoryRouter>
     );
+    const view = render(shown(drawn));
+    rerenderWith = (at) => {
+      view.rerender(shown(at));
+    };
     const graph = screen.getByRole("group", { name: "State machine" });
     const x = Number(
       /translate\((-?[\d.]+)/.exec(
@@ -315,6 +321,33 @@ describe("a running attempt's machine", () => {
 
     expect(x).toBeLessThan(0);
     expect(x + (node.x + node.width / 2)).toBeCloseTo(300);
+  });
+
+  it("keeps its view when the attempt goes on to another state", () => {
+    frameOf(600, 300);
+    const { graph, x } = showRunning();
+    const on = {
+      ...smoke,
+      state: "solve",
+      index: 3,
+      recorded: false,
+      since: null,
+    };
+    const later = must(layout(record.parse(early), project, on));
+    // The state it runs in now would sit elsewhere in the frame.
+    const solve = must(later.nodes.find((n) => n.key === "solve"));
+    expect(300 - (solve.x + solve.width / 2)).not.toBeCloseTo(x);
+
+    rerenderWith(later);
+
+    expect(
+      within(
+        must(graph.querySelector<HTMLElement>('[data-node="solve"]')),
+      ).getByRole("img", { name: "Running" }),
+    ).toBeInTheDocument();
+    expect(must(graph.querySelector("g")).getAttribute("transform")).toMatch(
+      new RegExp(`^translate\\(${String(x)} 0\\)`),
+    );
   });
 
   it("opens at its left end when no state runs", () => {

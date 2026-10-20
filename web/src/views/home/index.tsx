@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { getJson, urls } from "../../api/client";
+import { usePolling } from "../../api/poll";
 import { attemptRows, type Project } from "../../api/types";
 import { Note } from "../../ui/card";
 import { HomeTable, type Read } from "./HomeTable";
 
 /**
- * A project's attempt listing, read once and again on each refresh, never
- * on a timer; the last read stays shown while the next one loads.
+ * A project's attempt listing, read once, again on each refresh, and every
+ * POLL_MS while an attempt of it runs; the last read stays shown while the
+ * next one loads. Only a refresh says it is reading.
  */
 function useListing(project: string) {
-  const [generation, setGeneration] = useState(0);
-  const key = JSON.stringify([project, generation]);
+  const [generation, setGeneration] = useState({ n: 0, polled: false });
+  const key = JSON.stringify([project, generation.n]);
   const [read, setRead] = useState<Read & { project: string }>();
   const [done, setDone] = useState<{ key: string; error: string | null }>();
   useEffect(() => {
@@ -31,12 +33,16 @@ function useListing(project: string) {
     };
   }, [project, key]);
   const refresh = useCallback(() => {
-    setGeneration((g) => g + 1);
+    setGeneration((g) => ({ n: g.n + 1, polled: false }));
   }, []);
+  const shown = read?.project === project ? read : null;
+  usePolling(shown?.rows.some((r) => r.live === "running") ?? false, () => {
+    setGeneration((g) => ({ n: g.n + 1, polled: true }));
+  });
   return {
-    read: read?.project === project ? read : null,
+    read: shown,
     error: done?.key === key ? done.error : null,
-    reading: done?.key !== key,
+    reading: done?.key !== key && !generation.polled,
     refresh,
   };
 }
