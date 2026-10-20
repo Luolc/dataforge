@@ -7,9 +7,13 @@ reviews and how to judge, and `[[criteria]]`, each with an `id`, a
 inputs as tagged blocks and the criteria, and takes one verdict per criterion
 back as structured output. A criterion of severity "error" that fails or gets
 no verdict fails the review; one of severity "warning" is only reported.
+
+RubricState writes what its reviews judged as RUBRIC_TABLE, the same for any
+dataset (rubric_table), and as RUBRIC_REPORT, Markdown for people
+(rubric_report).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +30,12 @@ TEXT_SUFFIXES = frozenset(
 
 MAX_FILE_CHARS = 40_000
 """How much of one file a review reads; the rest is cut."""
+
+RUBRIC_TABLE = "rubric.json"
+"""The output that holds a visit's scores, as rubric_table gives them."""
+
+RUBRIC_REPORT = "report.md"
+"""The output that holds a visit's report, as rubric_report gives it."""
 
 VERDICTS_SCHEMA: Data = {
   "type": "object",
@@ -167,6 +177,25 @@ class Review:
 
 
 @dataclass(frozen=True)
+class Score:
+  """How one criterion was judged.
+
+  Attributes:
+    criterion: The criterion's ID.
+    severity: Its severity, "error" or "warning".
+    passed: Whether its verdict was a pass.
+    note: The reviewer's evidence, or "no verdict" when it gave none.
+    fix: The reviewer's fix; empty for a pass or no verdict.
+  """
+
+  criterion: str
+  severity: str
+  passed: bool
+  note: str
+  fix: str
+
+
+@dataclass(frozen=True)
 class Judgment:
   """How a review ended.
 
@@ -176,6 +205,7 @@ class Judgment:
     passed: Whether it gave verdicts and no "error" criterion failed.
     findings: The failed criteria, errors first, with evidence and fix.
     data: What the visit's data keeps of it.
+    scores: Each criterion's score, in the rubric's order.
   """
 
   name: str
@@ -183,6 +213,7 @@ class Judgment:
   passed: bool
   findings: str
   data: Data
+  scores: tuple[Score, ...] = ()
 
 
 def review_prompt(rubric: Rubric, blocks: Mapping[str, Path]) -> str:
@@ -238,6 +269,18 @@ def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
       for cid in (*failed, *warnings)
     )
   passed = verdicts is not None and not failed
+  scores = tuple(
+    Score(c.id, c.severity, False, "no verdict", "")
+    if c.id not in given
+    else Score(
+      c.id,
+      c.severity,
+      given[c.id]["verdict"] == "pass",
+      given[c.id]["evidence"],
+      given[c.id]["fix"],
+    )
+    for c in rubric.criteria
+  )
   return Judgment(
     name,
     run is None or run.status != "ok",
@@ -251,7 +294,93 @@ def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
       "warnings": warnings,
       "verdicts": result.value if verdicts is not None else None,
     },
+    scores,
   )
+
+
+def rubric_table(judgments: Sequence[Judgment]) -> Data:
+  """Return what reviews judged, in a shape the same for any dataset.
+
+  Args:
+    judgments: The reviews' judgments, in order.
+
+  Returns:
+    {"passed": every review passed, "reviews": [{"name", "passed", "ending",
+    "criteria": [{"criterion", "severity", "passed", "note", "fix"}]}]}, as
+    JSON data.
+  """
+  return {
+    "passed": all(judgment.passed for judgment in judgments),
+    "reviews": [
+      {
+        "name": judgment.name,
+        "passed": judgment.passed,
+        "ending": judgment.data.get("ending"),
+        "criteria": [dataclasses.asdict(score) for score in judgment.scores],
+      }
+      for judgment in judgments
+    ],
+  }
+
+
+def rubric_report(judgments: Sequence[Judgment]) -> str:
+  """Return what reviews judged as a Markdown report for people.
+
+  A line on the whole, then for each review a heading, a table of its
+  criteria and a paragraph on what failed.
+
+  Args:
+    judgments: The reviews' judgments, in order.
+
+  Returns:
+    The report.
+  """
+  failed = [judgment.name for judgment in judgments if not judgment.passed]
+  whole = (
+    "Every review passes." if not failed else f"Failed: {', '.join(failed)}."
+  )
+  parts = ["# Rubric report", whole]
+  for judgment in judgments:
+    result = "passes" if judgment.passed else "fails"
+    rows = [
+      "| Criterion | Severity | Result | Note |",
+      "| --- | --- | --- | --- |",
+      *(_row(score) for score in judgment.scores),
+    ]
+    parts += [
+      f"## {judgment.name} {result}",
+      "\n".join(rows),
+      _summary(judgment),
+    ]
+  return "\n\n".join(parts) + "\n"
+
+
+def _row(score: Score) -> str:
+  result = "pass" if score.passed else "fail"
+  cells = (_cell(score.criterion), score.severity, result, _cell(score.note))
+  return f"| {' | '.join(cells)} |"
+
+
+def _summary(judgment: Judgment) -> str:
+  if judgment.data.get("verdicts") is None:
+    return f"The review gave no verdicts ({judgment.data.get('ending')})."
+  scores = judgment.scores
+  bad = [s for s in scores if not s.passed]
+  errors = [s.criterion for s in bad if s.severity == "error"]
+  warnings = [s.criterion for s in bad if s.severity == "warning"]
+  if not bad:
+    return f"All {len(scores)} criteria pass."
+  lines = [f"{len(bad)} of {len(scores)} criteria fail."]
+  if errors:
+    lines.append(f"Errors: {', '.join(errors)}.")
+  if warnings:
+    lines.append(f"Warnings: {', '.join(warnings)}.")
+  return " ".join(lines)
+
+
+def _cell(text: str) -> str:
+  # A cell is one line, and "|" would end it.
+  return " ".join(text.split()).replace("|", "\\|")
 
 
 def _verdicts(value: object) -> list[dict[str, str]] | None:

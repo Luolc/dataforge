@@ -7,6 +7,8 @@ how the result becomes an outcome.
 
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
+from datetime import datetime, UTC
+import json
 from pathlib import Path
 import string
 from typing import ClassVar, override
@@ -25,12 +27,24 @@ from dataforge.curation.actions import (
   TrialResult,
   Verdict,
 )
-from dataforge.curation.engine import Context, End, Goto, Outcome, State
+from dataforge.curation.engine import (
+  ActionRecord,
+  Context,
+  End,
+  Goto,
+  Outcome,
+  State,
+)
 from dataforge.curation.rubric import (
   judge_review,
+  Judgment,
   Review,
   review_prompt,
   Rubric,
+  RUBRIC_REPORT,
+  rubric_report,
+  RUBRIC_TABLE,
+  rubric_table,
   VERDICTS_SCHEMA,
 )
 
@@ -755,7 +769,9 @@ class RubricState(_ActionState):
   feedback {"details": the findings of each failed review, in order, under
   "### <name>"}; "error" when a review's agent run itself failed, so there
   is nothing to judge. Data: each review's {"ending", "cost_usd", "passed",
-  "failed", "warnings", "verdicts"}, by name.
+  "failed", "warnings", "verdicts"}, by name. Every visit, whatever its
+  outcome, also writes the outputs RUBRIC_TABLE (rubric_table) and
+  RUBRIC_REPORT (rubric_report), recorded as an action of kind "report".
 
   Attributes:
     OUTCOMES: The outcomes it gives, before rename.
@@ -854,6 +870,7 @@ class RubricState(_ActionState):
       judge_review(review.name, self.rubrics[review.name], result)
       for review, result in zip(self.reviews, results, strict=True)
     ]
+    _write_rubric(ctx, judged)
     data = {judgment.name: judgment.data for judgment in judged}
     if any(judgment.errored for judgment in judged):
       return self.renamed(Outcome("error", data))
@@ -862,6 +879,18 @@ class RubricState(_ActionState):
       return self.renamed(Outcome("pass", data))
     details = "\n\n".join(f"### {j.name}\n\n{j.findings}" for j in failed)
     return self.renamed(Outcome("fail", data, feedback={"details": details}))
+
+
+def _write_rubric(ctx: Context, judged: Sequence[Judgment]) -> None:
+  started = datetime.now(UTC)
+  _ = ctx.claim([RUBRIC_TABLE, RUBRIC_REPORT])
+  table, report = ctx.outdir / RUBRIC_TABLE, ctx.outdir / RUBRIC_REPORT
+  _ = table.write_text(json.dumps(rubric_table(judged), indent=2) + "\n")
+  _ = report.write_text(rubric_report(judged))
+  outputs = {RUBRIC_TABLE: table, RUBRIC_REPORT: report}
+  ctx.record(
+    ActionRecord("report", "ok", outputs, started, datetime.now(UTC), 0.0)
+  )
 
 
 def _task_dir(
