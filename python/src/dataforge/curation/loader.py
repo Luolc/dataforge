@@ -61,6 +61,14 @@ The schema, version 1:
         <outcome>: {goto: <state>, report: <boolean>, mark: <string>,
                     end_on_last_visit: <boolean>}
                  | {end: <status>}
+  deliverables:                       # what an attempt shows, in this order
+    <name>:
+      kind: files | trials | report
+      title: <string>
+      source: {state: <state>, output: <string>,   # no output for trials
+               visit: kept | last | <integer>}     # kept by default
+      table: <source>                 # report only
+      value: {field: [<string>], output: <string>} # trials only
 
 In the fields the engine renders as string.Template (feedback, prompt and
 report_prompt, a prompt file and its vars), an input's value has each $
@@ -101,6 +109,13 @@ from dataforge.curation.actions import (
   Mount,
   ScriptSpec,
   TrialAgent,
+)
+from dataforge.curation.deliverables import check as check_deliverables
+from dataforge.curation.deliverables import (
+  Deliverable,
+  Kind,
+  Source,
+  Value,
 )
 from dataforge.curation.engine import (
   Attempt,
@@ -288,7 +303,14 @@ class _Loader:
       data,
       "",
       required={"dataforge", "name", "start", "states"},
-      optional={"inputs", "vars", "max_cost_usd", "environments", "runners"},
+      optional={
+        "inputs",
+        "vars",
+        "max_cost_usd",
+        "environments",
+        "runners",
+        "deliverables",
+      },
     )
     version = top["dataforge"]
     if type(version) is not int or version != SCHEMA_VERSION:
@@ -330,7 +352,64 @@ class _Loader:
     }
     _check_graph(states, start)
     ordered = [states[start], *(s for n, s in states.items() if n != start)]
-    return Machine(ordered, guard=guard, on_step=on_step, max_cost_usd=cap)
+    deliverables = self.deliverables(top.get("deliverables", {}), set(states))
+    return Machine(
+      ordered,
+      guard=guard,
+      on_step=on_step,
+      max_cost_usd=cap,
+      deliverables=deliverables,
+    )
+
+  def deliverables(
+    self, value: object, states: set[str]
+  ) -> dict[str, Deliverable]:
+    found: dict[str, Deliverable] = {}
+    for name, spec in _mapping(value, "deliverables").items():
+      at = f"deliverables.{name}"
+      fields = _fields(
+        spec,
+        at,
+        required={"kind", "title", "source"},
+        optional={"table", "value"},
+      )
+      table, data = fields.get("table"), fields.get("value")
+      item = Deliverable(
+        cast(Kind, self.string(fields["kind"], f"{at}.kind")),
+        self.string(fields["title"], f"{at}.title"),
+        self.source(fields["source"], f"{at}.source"),
+        table=None if table is None else self.source(table, f"{at}.table"),
+        value=None if data is None else self.value(data, f"{at}.value"),
+      )
+      try:
+        check_deliverables({name: item}, states)
+      except ValueError as error:
+        why = str(error).removeprefix(f"deliverable {name}: ")
+        raise SpecError(at, why) from None
+      found[name] = item
+    return found
+
+  def source(self, value: object, at: str) -> Source:
+    fields = _fields(
+      value, at, required={"state"}, optional={"output", "visit"}
+    )
+    visit = fields.get("visit", "kept")
+    if not (visit in ("kept", "last") or type(visit) is int):
+      raise SpecError(
+        f"{at}.visit", _expected('"kept", "last" or an integer', visit)
+      )
+    return Source(
+      self.string(fields["state"], f"{at}.state"),
+      self.optional_string(fields.get("output"), f"{at}.output"),
+      visit,
+    )
+
+  def value(self, value: object, at: str) -> Value:
+    fields = _fields(value, at, required={"field"}, optional={"output"})
+    return Value(
+      self.strings(fields["field"], f"{at}.field"),
+      self.optional_string(fields.get("output"), f"{at}.output"),
+    )
 
   def state(self, name: str, spec: object, at: str) -> State:
     if not _STATE_NAME.fullmatch(name):
