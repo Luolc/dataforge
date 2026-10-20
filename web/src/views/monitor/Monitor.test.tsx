@@ -201,7 +201,7 @@ describe("the Monitor page", () => {
         new Response(
           JSON.stringify({
             error: "unavailable",
-            reason: "the monitor database does not exist",
+            reason: "the monitor database's monitor.sqlite is a symlink",
           }),
           { status: 503 },
         ),
@@ -211,9 +211,38 @@ describe("the Monitor page", () => {
 
     expect(
       await screen.findByText(
-        "The monitor cannot be read: 503: the monitor database does not exist",
+        "The monitor cannot be read: 503: the monitor database's monitor.sqlite is a symlink",
       ),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No sampler has written this monitor database yet."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("says how to start when no sampler has written the database", async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: "no database",
+            reason: "no sampler has written the monitor database yet",
+            db: "../monitor/monitor.sqlite",
+          }),
+          { status: 404 },
+        ),
+      ),
+    );
+    show();
+
+    expect(
+      await screen.findByText(
+        "No sampler has written this monitor database yet.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("../monitor/monitor.sqlite")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/The monitor cannot be read/),
+    ).not.toBeInTheDocument();
   });
 
   it("draws a container's curve once it is chosen from the list", async () => {

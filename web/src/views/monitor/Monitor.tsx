@@ -6,7 +6,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import type { z } from "zod";
 
-import { getJson } from "../../api/client";
+import { ApiError, getJson } from "../../api/client";
 import type { Project } from "../../api/types";
 import { Frame } from "../../shell/Shell";
 import { ProjectsContext } from "../../shell/projects";
@@ -19,6 +19,7 @@ import {
   curve,
   type Curve,
   monitorUrls,
+  noDatabase,
   type Run,
   runs,
   type Selected,
@@ -64,18 +65,28 @@ function useRead<T>(
 ) {
   const key = JSON.stringify([url, generation]);
   const [kept, setKept] = useState<{ url: string; data: T; at: string }>();
-  const [done, setDone] = useState<{ key: string; error: string | null }>();
+  const [done, setDone] = useState<{
+    key: string;
+    error: string | null;
+    missing: string | null;
+  }>();
   useEffect(() => {
     if (url === null) return;
     const controller = new AbortController();
     getJson(url, schema, controller.signal).then(
       (data) => {
         setKept({ url, data, at: new Date().toISOString() });
-        setDone({ key, error: null });
+        setDone({ key, error: null, missing: null });
       },
       (e: unknown) => {
         if (controller.signal.aborted) return;
-        setDone({ key, error: e instanceof Error ? e.message : String(e) });
+        const missing =
+          e instanceof ApiError ? noDatabase.safeParse(e.body) : null;
+        setDone({
+          key,
+          error: e instanceof Error ? e.message : String(e),
+          missing: missing?.success === true ? missing.data.db : null,
+        });
       },
     );
     return () => {
@@ -87,6 +98,8 @@ function useRead<T>(
   return {
     kept: url !== null && kept?.url === url ? kept : null,
     error: done?.key === key ? done.error : null,
+    /** The database as the project file names it, when it does not exist. */
+    missing: done?.key === key ? done.missing : null,
     reading: url !== null && done?.key !== key,
   };
 }
@@ -249,7 +262,9 @@ function MonitorOf({
           </button>
         </div>
       </div>
-      {listed.kept === null ? (
+      {listed.kept === null && listed.missing !== null ? (
+        <NoDatabase db={listed.missing} />
+      ) : listed.kept === null ? (
         <Note>
           {listed.error !== null
             ? `The monitor cannot be read: ${listed.error}`
@@ -269,6 +284,26 @@ function MonitorOf({
           onSelect={select}
         />
       )}
+    </div>
+  );
+}
+
+/** Where the page stands before any sampler has written the database. */
+function NoDatabase({ db }: { db: string }) {
+  return (
+    <div className="flex flex-col gap-2 p-6 text-fg-3">
+      <p className="font-medium text-fg">
+        No sampler has written this monitor database yet.
+      </p>
+      <p>
+        The project file names it{" "}
+        <code className="font-mono text-xs text-fg">{db}</code>, and there is no
+        file there.
+      </p>
+      <p>
+        To fill this page, start a resource sampler that writes to that
+        database. Once it has written its first run, Refresh reads it.
+      </p>
     </div>
   );
 }

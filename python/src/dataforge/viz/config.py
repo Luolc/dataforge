@@ -113,6 +113,9 @@ class Project:
       dataset names none.
     monitor: The resource monitor's SQLite database; None when the dataset
       names none.
+    monitor_shown: The database as a page may show it: monitor.db as the
+      project file writes it, or its file name alone when that is absolute,
+      so that no page shows where the server keeps it; None with monitor.
   """
 
   id: str
@@ -131,6 +134,7 @@ class Project:
   deliverables: tuple[Deliverable, ...] = ()
   trial_diff: tuple[str, ...] | None = None
   monitor: Path | None = None
+  monitor_shown: str | None = None
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
@@ -269,6 +273,7 @@ def load_project(path: Path) -> Project:
   attempts = _attempts(path, _str(path, "attempts", data["attempts"]))
   dir_ = _str(path, "attempts_dir", data["attempts_dir"])
   attempts_dir = _attempts_dir(path, dir_)
+  monitor = _monitor(path, data.get("monitor"), attempts_dir)
   return Project(
     id=id_,
     name=_str(path, "name", data["name"]),
@@ -287,7 +292,8 @@ def load_project(path: Path) -> Project:
     else _relative(path, "lock", _str(path, "lock", data["lock"])),
     deliverables=_deliverables(path, data.get("deliverables")),
     trial_diff=_trial_diff(path, data.get("trials")),
-    monitor=_monitor(path, data.get("monitor"), attempts_dir),
+    monitor=None if monitor is None else monitor[0],
+    monitor_shown=None if monitor is None else monitor[1],
   )
 
 
@@ -481,7 +487,9 @@ def _trial_diff(path: Path, value: object) -> tuple[str, ...] | None:
   )
 
 
-def _monitor(path: Path, value: object, attempts_dir: Path) -> Path | None:
+def _monitor(
+  path: Path, value: object, attempts_dir: Path
+) -> tuple[Path, str] | None:
   # Like attempts_dir, configuration opened as given; relative to
   # attempts_dir, so a copy of the file for another machine changes one key.
   # It is not checked here: a database the sampler has not written yet does
@@ -493,7 +501,8 @@ def _monitor(path: Path, value: object, attempts_dir: Path) -> Path | None:
   db = _str(path, "monitor.db", mapping["db"])
   if "\0" in db:
     raise ConfigError(f"{path}: monitor.db: holds a NUL")
-  return Path(os.path.abspath(attempts_dir / db))
+  shown = Path(db).name if os.path.isabs(db) else db
+  return Path(os.path.abspath(attempts_dir / db)), shown
 
 
 def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:

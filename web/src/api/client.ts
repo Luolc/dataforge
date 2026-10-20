@@ -9,7 +9,15 @@ export type Loaded<T> =
   | { state: "error"; message: string }
   | { state: "ok"; data: T };
 
-export class ApiError extends Error {}
+/** A failed request; body is the response's JSON, null when it had none. */
+export class ApiError extends Error {
+  readonly body: unknown;
+
+  constructor(message: string, body: unknown = null) {
+    super(message);
+    this.body = body;
+  }
+}
 
 const api = (p: string) => `/api/projects/${encodeURIComponent(p)}`;
 
@@ -32,7 +40,7 @@ export async function getJson<T>(
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const reason = reasonOf(body) ?? response.statusText;
-    throw new ApiError(`${response.status.toString()}: ${reason}`);
+    throw new ApiError(`${response.status.toString()}: ${reason}`, body);
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {

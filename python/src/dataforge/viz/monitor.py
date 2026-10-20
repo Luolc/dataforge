@@ -23,6 +23,11 @@ POINTS = 300
 BARS_LIMIT = 5000
 """The most container bars one window returns."""
 
+
+class MissingError(RefusedError):
+  """The database does not exist: no sampler has written it yet."""
+
+
 RUNS = """
 SELECT run_id, started_at, ended_at, stop_reason, source, pid, host,
   interval_s
@@ -151,6 +156,7 @@ def connect(db: Path) -> Generator[sqlite3.Connection]:
     A read-only connection, closed on exit.
 
   Raises:
+    MissingError: 404 when the database does not exist.
     RefusedError: 503 with the reason when it cannot be opened or read.
   """
   for path, missing_ok in (
@@ -163,7 +169,9 @@ def connect(db: Path) -> Generator[sqlite3.Connection]:
     except FileNotFoundError:
       if missing_ok:
         continue
-      raise RefusedError(503, "the monitor database does not exist") from None
+      raise MissingError(
+        404, "no sampler has written the monitor database yet"
+      ) from None
     except OSError as error:
       raise RefusedError(
         503, f"the monitor database: {error.strerror}"

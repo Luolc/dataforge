@@ -56,6 +56,7 @@ def test_the_monitor_database_is_relative_to_attempts_dir(tree: Tree) -> None:
 
   # Not checked at start: the sampler may not have written it yet.
   assert project.monitor == tree.root.parent / "monitor" / "monitor.sqlite"
+  assert project.monitor_shown == "../monitor/monitor.sqlite"
   assert project.public()["monitor"] is True
   assert "monitor.sqlite" not in str(project.public())
 
@@ -78,6 +79,18 @@ def test_the_monitor_database_does_not_follow_the_project_file(
   [project] = load_site(tree.site).projects
 
   assert project.monitor == tree.root.parent / "monitor" / "monitor.sqlite"
+
+
+def test_an_absolute_monitor_database_is_shown_by_its_name_alone(
+  tree: Tree, tmp_path: Path
+) -> None:
+  db = tmp_path / "srv" / "monitor.sqlite"
+  _ = tree.project.write_text(PROJECT + f"monitor: {{db: {db}}}\n")
+
+  [project] = load_site(tree.site).projects
+
+  assert project.monitor == db
+  assert project.monitor_shown == "monitor.sqlite"
 
 
 def test_a_project_with_no_monitor_says_so(tree: Tree) -> None:
