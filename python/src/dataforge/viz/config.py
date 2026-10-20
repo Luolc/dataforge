@@ -14,6 +14,8 @@ from typing import cast
 
 import yaml
 
+from dataforge import queue
+
 TONES = ("good", "bad", "warn", "neutral")
 """The tones a status may take."""
 
@@ -23,7 +25,18 @@ FORMATS = ("text", "number", "usd", "duration", "time")
 THINKING = ("collapsed", "expanded", "hidden")
 """How a session view may first show thinking blocks."""
 
+WHEN = ("idle", "stopped")
+"""The conditions an action may take besides its own key's: idle, no attempt
+of the item runs (its lock is not held); stopped, the item's newest attempt
+may have stopped (it has not ended and the lock is not held)."""
+
+PLACEHOLDER = "{item}"
+"""The one placeholder of an action's argv and key: the data item's ID."""
+
 _ID = re.compile(r"[a-z0-9-]+")
+# The frontend's own pages, at /monitor and /queue, where a project's home
+# page would be.
+_PAGES = ("monitor", "queue")
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 
 
@@ -66,10 +79,40 @@ class Item:
   Attributes:
     depth: How many leading components of an attempt ID name its item.
     title: The heading of the item column.
+    pattern: What a data item's ID must match, as a whole, for an action to
+      take it; None when the dataset names none, and then it has no actions.
   """
 
   depth: int
   title: str
+  pattern: re.Pattern[str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Action:
+  """What a data item's page may put in a queue, as the project file says.
+
+  Attributes:
+    name: Its name, in the URL that submits it; of [a-z0-9-].
+    label: Its button's text.
+    queue: The queue it goes to, one of the site's queue file.
+    argv: The command, each argument with PLACEHOLDER where the item's ID
+      goes, never in the first.
+    cwd: The absolute directory the command runs in.
+    memory_mib: The memory the job reserves, in MiB.
+    key: The job's key with PLACEHOLDER: no two jobs of one key are queued or
+      running at once.
+    when: One of WHEN, or None for the key's condition alone.
+  """
+
+  name: str
+  label: str
+  queue: str
+  argv: tuple[str, ...]
+  cwd: Path
+  memory_mib: int
+  key: str
+  when: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +159,7 @@ class Project:
     monitor_shown: The database as a page may show it: monitor.db as the
       project file writes it, or its file name alone when that is absolute,
       so that no page shows where the server keeps it; None with monitor.
+    actions: What a data item's page may put in a queue, in order.
   """
 
   id: str
@@ -135,13 +179,15 @@ class Project:
   trial_diff: tuple[str, ...] | None = None
   monitor: Path | None = None
   monitor_shown: str | None = None
+  actions: tuple[Action, ...] = ()
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
 
     Returns:
       The project as JSON data, without attempts_dir, attempts, record,
-      lock and the monitor's path.
+      lock, the monitor's path, item.pattern and each action's command,
+      directory, memory and key.
     """
     return {
       "id": self.id,
@@ -164,6 +210,10 @@ class Project:
       if self.trial_diff is None
       else {"diff": "/".join(self.trial_diff)},
       "monitor": self.monitor is not None,
+      "actions": [
+        {"name": a.name, "label": a.label, "queue": a.queue}
+        for a in self.actions
+      ],
     }
 
 
@@ -174,10 +224,12 @@ class Site:
   Attributes:
     listen: The address the server binds.
     projects: The projects, in the file's order.
+    queue: The job queue's configuration; None when the site names none.
   """
 
   listen: Listen
   projects: tuple[Project, ...]
+  queue: queue.Config | None = None
 
 
 def load_site(path: Path) -> Site:
@@ -195,7 +247,7 @@ def load_site(path: Path) -> Site:
     ConfigError: When a file fails a check.
   """
   data = _read(path)
-  _keys(path, "", data, required={"listen", "projects"}, optional=set())
+  _keys(path, "", data, required={"listen", "projects"}, optional={"queue"})
   listen = _mapping(path, "listen", data["listen"])
   _keys(path, "listen", listen, required={"host", "port"}, optional=set())
   host = _str(path, "listen.host", listen["host"])
@@ -223,7 +275,10 @@ def load_site(path: Path) -> Site:
   for i, id_ in enumerate(ids):
     if id_ in ids[:i]:
       raise ConfigError(f"{path}: projects: id {id_} is repeated")
-  return Site(Listen(host, port), tuple(projects))
+  config = _queue(path, data.get("queue"))
+  for project in projects:
+    _check_queues(path, project, config)
+  return Site(Listen(host, port), tuple(projects), config)
 
 
 def load_project(path: Path) -> Project:
@@ -262,11 +317,14 @@ def load_project(path: Path) -> Project:
       "deliverables",
       "trials",
       "monitor",
+      "actions",
     },
   )
   id_ = _str(path, "id", data["id"])
   if not _ID.fullmatch(id_):
     raise ConfigError(f"{path}: id: {id_!r} is not of [a-z0-9-]")
+  if id_ in _PAGES:
+    raise ConfigError(f"{path}: id: {id_!r} is the name of a page")
   color = _str(path, "color", data["color"])
   if not _COLOR.fullmatch(color):
     raise ConfigError(f"{path}: color: {color!r} is not #rrggbb")
@@ -274,6 +332,13 @@ def load_project(path: Path) -> Project:
   dir_ = _str(path, "attempts_dir", data["attempts_dir"])
   attempts_dir = _attempts_dir(path, dir_)
   monitor = _monitor(path, data.get("monitor"), attempts_dir)
+  item = _item(path, data["item"], len(attempts))
+  lock = (
+    None
+    if data.get("lock") is None
+    else _relative(path, "lock", _str(path, "lock", data["lock"]))
+  )
+  actions = _actions(path, data.get("actions"), item, lock)
   return Project(
     id=id_,
     name=_str(path, "name", data["name"]),
@@ -283,17 +348,16 @@ def load_project(path: Path) -> Project:
     record=_relative(path, "record", _str(path, "record", data["record"])),
     states=_entries(path, "states", data.get("states"), {"title"}),
     statuses=_statuses(path, data.get("statuses")),
-    item=_item(path, data["item"], len(attempts)),
+    item=item,
     columns=_columns(path, data.get("columns")),
     thinking=_thinking(path, data.get("session")),
     not_ended=_not_ended(path, data.get("not_ended")),
-    lock=None
-    if data.get("lock") is None
-    else _relative(path, "lock", _str(path, "lock", data["lock"])),
+    lock=lock,
     deliverables=_deliverables(path, data.get("deliverables")),
     trial_diff=_trial_diff(path, data.get("trials")),
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
+    actions=actions,
   )
 
 
@@ -388,13 +452,28 @@ def _attempts_dir(path: Path, value: str) -> Path:
 
 def _item(path: Path, value: object, most: int) -> Item:
   item = _mapping(path, "item", value)
-  _keys(path, "item", item, required={"depth", "title"}, optional=set())
+  _keys(path, "item", item, required={"depth", "title"}, optional={"pattern"})
   depth = item["depth"]
   if not isinstance(depth, int) or isinstance(depth, bool):
     raise ConfigError(f"{path}: item.depth: not an integer")
   if not 1 <= depth <= most:
     raise ConfigError(f"{path}: item.depth: {depth} is not from 1 to {most}")
-  return Item(depth, _str(path, "item.title", item["title"]))
+  pattern = None
+  if "pattern" in item:
+    text = _str(path, "item.pattern", item["pattern"])
+    try:
+      pattern = re.compile(text)
+    except re.error as error:
+      raise ConfigError(f"{path}: item.pattern: {error}") from None
+  return Item(depth, _str(path, "item.title", item["title"]), pattern)
+
+
+def _positive(path: Path, key: str, value: object) -> int:
+  if not isinstance(value, int) or isinstance(value, bool):
+    raise ConfigError(f"{path}: {key}: not an integer")
+  if value < 1:
+    raise ConfigError(f"{path}: {key}: {value} is not from 1")
+  return value
 
 
 def _attempts(path: Path, value: str) -> tuple[str, ...]:
@@ -503,6 +582,109 @@ def _monitor(
     raise ConfigError(f"{path}: monitor.db: holds a NUL")
   shown = Path(db).name if os.path.isabs(db) else db
   return Path(os.path.abspath(attempts_dir / db)), shown
+
+
+def _check_queues(
+  path: Path, project: Project, config: queue.Config | None
+) -> None:
+  for i, action in enumerate(project.actions):
+    where = f"project {project.id}: actions[{i}].queue"
+    if config is None:
+      raise ConfigError(f"{path}: queue: missing, and {where} names one")
+    if action.queue not in config.queues:
+      raise ConfigError(
+        f"{path}: queue: {where}: {action.queue!r} is not in the queue file"
+      )
+
+
+def _queue(path: Path, value: object) -> queue.Config | None:
+  if value is None:
+    return None
+  mapping = _mapping(path, "queue", value)
+  _keys(path, "queue", mapping, required={"config"}, optional=set())
+  file = path.parent / _str(path, "queue.config", mapping["config"])
+  try:
+    return queue.load_config(file)
+  except queue.ConfigError as error:
+    raise ConfigError(f"{path}: queue.config: {error}") from None
+
+
+def _actions(
+  path: Path, value: object, item: Item, lock: tuple[str, ...] | None
+) -> tuple[Action, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: actions: not a non-empty list")
+  if item.pattern is None:
+    raise ConfigError(f"{path}: item.pattern: missing, and there are actions")
+  found: list[Action] = []
+  for i, entry in enumerate(cast(list[object], value)):
+    action = _action(path, f"actions[{i}]", entry)
+    if any(a.name == action.name for a in found):
+      raise ConfigError(f"{path}: actions[{i}].name: {action.name!r} repeated")
+    if action.when is not None and lock is None:
+      raise ConfigError(
+        f"{path}: actions[{i}].when: {action.when} needs the project's lock"
+      )
+    found.append(action)
+  return tuple(found)
+
+
+def _action(path: Path, where: str, value: object) -> Action:
+  entry = _mapping(path, where, value)
+  _keys(
+    path,
+    where,
+    entry,
+    required={"name", "label", "queue", "argv", "cwd", "memory_mib", "key"},
+    optional={"when"},
+  )
+  name = _str(path, f"{where}.name", entry["name"])
+  if not _ID.fullmatch(name):
+    raise ConfigError(f"{path}: {where}.name: {name!r} is not of [a-z0-9-]")
+  argv = entry["argv"]
+  if not isinstance(argv, list) or not argv:
+    raise ConfigError(f"{path}: {where}.argv: not a non-empty list")
+  args = tuple(
+    _template(path, f"{where}.argv", a) for a in cast(list[object], argv)
+  )
+  if PLACEHOLDER in args[0]:
+    raise ConfigError(f"{path}: {where}.argv: the command is {PLACEHOLDER}")
+  key = _template(path, f"{where}.key", entry["key"])
+  if PLACEHOLDER not in key:
+    raise ConfigError(f"{path}: {where}.key: holds no {PLACEHOLDER}")
+  cwd = _str(path, f"{where}.cwd", entry["cwd"])
+  if not os.path.isabs(cwd) or not os.path.isdir(cwd):
+    raise ConfigError(
+      f"{path}: {where}.cwd: {cwd!r} is not an absolute directory"
+    )
+  when = None
+  if "when" in entry:
+    when = _str(path, f"{where}.when", entry["when"])
+    _one_of(path, f"{where}.when", when, WHEN)
+  return Action(
+    name=name,
+    label=_str(path, f"{where}.label", entry["label"]),
+    queue=_str(path, f"{where}.queue", entry["queue"]),
+    argv=args,
+    cwd=Path(cwd),
+    memory_mib=_positive(path, f"{where}.memory_mib", entry["memory_mib"]),
+    key=key,
+    when=when,
+  )
+
+
+def _template(path: Path, key: str, value: object) -> str:
+  # PLACEHOLDER is the only brace a template may hold, so that what replaces
+  # it is all that differs from one item to the next.
+  text = _str(path, key, value)
+  rest = text.replace(PLACEHOLDER, "")
+  if "{" in rest or "}" in rest or "\0" in text:
+    raise ConfigError(
+      f"{path}: {key}: {text!r} holds a brace or NUL besides {PLACEHOLDER}"
+    )
+  return text
 
 
 def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:

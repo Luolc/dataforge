@@ -5,7 +5,13 @@ import uvicorn
 
 from dataforge.viz.config import ConfigError, load_site
 from dataforge.viz.serve import serve
-from tests.viz.sites import make_tree, PROJECT, Tree
+from tests.viz.sites import (
+  make_queue_tree,
+  make_tree,
+  PROJECT,
+  QUEUE,
+  Tree,
+)
 
 
 @pytest.fixture
@@ -239,3 +245,139 @@ def test_paths_are_relative_to_their_file(
 
   assert project.attempts_dir == tree.root
   assert project.attempts_dir.is_absolute()
+
+
+def test_a_site_with_a_queue_loads_its_actions(tmp_path: Path) -> None:
+  made = make_queue_tree(tmp_path)
+
+  site = load_site(made.tree.site)
+
+  assert site.queue is not None
+  assert site.queue.queues == {"fast": 2, "slow": 1}
+  [project] = site.projects
+  again, go_on = project.actions
+  assert again.argv == ("run-item", "--item", "{item}", "--note=from {item}")
+  assert (again.queue, again.cwd, again.memory_mib) == ("fast", made.work, 2048)
+  assert (again.key, again.when, go_on.when) == (
+    "example:{item}",
+    "idle",
+    "stopped",
+  )
+  assert project.public()["actions"] == [
+    {"name": "again", "label": "Run again", "queue": "fast"},
+    {"name": "go-on", "label": "Go on", "queue": "slow"},
+  ]
+
+
+@pytest.mark.parametrize(
+  ("old", "new", "key"),
+  [
+    ("name: again", "name: Again", r"actions\[0\]\.name: 'Again' is not"),
+    ("name: go-on", "name: again", r"actions\[1\]\.name: 'again' repeated"),
+    ("label: Go on", "label: ''", r"actions\[1\]\.label: not a non-empty"),
+    (
+      "    when: idle\n",
+      "    when: idle\n    shell: true\n",
+      r"shell: unknown",
+    ),
+    ("    when: idle\n", "", None),
+    ("argv: [run-item, --go-on", 'argv: ["{item}", --go-on', "the command is"),
+    ('"{item}"]', '"{other}"]', r"actions\[1\]\.argv: .* brace"),
+    ('"{item}"]', '"{item}}"]', r"actions\[1\]\.argv: .* brace"),
+    ('argv: [run-item, --go-on, "{item}"]', "argv: []", "non-empty list"),
+    ("argv: [run-item, --go-on", "argv: [run-item, 3", r"argv: not a non-"),
+    (
+      'key: "example:{item}"\n    when: s',
+      'key: "example"\n    when: s',
+      "holds no",
+    ),
+    ("memory_mib: 1024", "memory_mib: 0", r"memory_mib: 0 is not from 1"),
+    ("memory_mib: 1024", "memory_mib: true", r"memory_mib: not an integer"),
+    ("when: stopped", "when: always", r"when: 'always' is not one of"),
+    ("lock: .lock\n", "", r"when: idle needs the project's lock"),
+    ('pattern: "batch-[0-9]+"', 'pattern: "batch-["', r"item\.pattern: "),
+    (', pattern: "batch-[0-9]+"', "", r"item\.pattern: missing"),
+  ],
+)
+def test_an_action_that_breaks_a_rule_is_refused(
+  tmp_path: Path, old: str, new: str, key: str | None
+) -> None:
+  made = make_queue_tree(tmp_path)
+  text = made.tree.project.read_text()
+  assert old in text
+  _ = made.tree.project.write_text(text.replace(old, new, 1))
+
+  if key is None:
+    # A control: the change alone, an action with no when, loads.
+    _ = load_site(made.tree.site)
+    return
+  with pytest.raises(ConfigError, match=key) as error:
+    _ = load_site(made.tree.site)
+  assert str(made.tree.project) in str(error.value)
+
+
+def test_an_empty_list_of_actions_is_refused(tmp_path: Path) -> None:
+  made = make_queue_tree(tmp_path)
+  text = made.tree.project.read_text()
+  _ = made.tree.project.write_text(
+    text[: text.index("actions:")] + "actions: []\n"
+  )
+
+  with pytest.raises(ConfigError, match=r"actions: not a non-empty list"):
+    _ = load_site(made.tree.site)
+
+
+@pytest.mark.parametrize(
+  "cwd", ["work", "{tmp}/missing", "{tmp}/queue/queue.yaml"]
+)
+def test_an_action_runs_only_in_an_absolute_directory(
+  tmp_path: Path, cwd: str
+) -> None:
+  made = make_queue_tree(tmp_path)
+  text = made.tree.project.read_text()
+  _ = made.tree.project.write_text(
+    text.replace(str(made.work), cwd.replace("{tmp}", str(tmp_path)))
+  )
+
+  with pytest.raises(ConfigError, match=r"cwd: .* is not an absolute dir"):
+    _ = load_site(made.tree.site)
+
+
+@pytest.mark.parametrize(
+  ("change", "key"),
+  [
+    (("queue: {config: queue/queue.yaml}\n", ""), "queue: missing, and"),
+    (("queue/queue.yaml", "queue/none.yaml"), r"queue\.config: "),
+    (("queue: {config: q", "queue: {config: q, db: x, config2: q"), "unknown"),
+  ],
+)
+def test_a_site_whose_queue_does_not_fit_its_actions_is_refused(
+  tmp_path: Path, change: tuple[str, str], key: str
+) -> None:
+  made = make_queue_tree(tmp_path)
+  old, new = change
+  text = made.tree.site.read_text()
+  assert old in text
+  _ = made.tree.site.write_text(text.replace(old, new, 1))
+
+  with pytest.raises(ConfigError, match=key) as error:
+    _ = load_site(made.tree.site)
+  assert str(made.tree.site) in str(error.value)
+
+
+def test_an_action_s_queue_must_be_in_the_queue_file(tmp_path: Path) -> None:
+  made = make_queue_tree(tmp_path)
+  _ = (made.queue / "queue.yaml").write_text(
+    QUEUE.replace("{fast: 2, slow: 1}", "{fast: 2}")
+  )
+
+  with pytest.raises(ConfigError, match=r"actions\[1\]\.queue: 'slow' is"):
+    _ = load_site(made.tree.site)
+
+
+@pytest.mark.parametrize("id_", ["queue", "monitor"])
+def test_a_project_may_not_take_a_page_s_name(tree: Tree, id_: str) -> None:
+  _ = tree.project.write_text(PROJECT.replace("id: example", f"id: {id_}"))
+
+  with pytest.raises(ConfigError, match="is the name of a page"):
+    _ = load_site(tree.site)

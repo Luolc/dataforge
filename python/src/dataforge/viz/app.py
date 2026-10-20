@@ -1,19 +1,26 @@
-"""The viewer's FastAPI app: a read-only JSON API and the built frontend."""
+"""The viewer's FastAPI app: a JSON API and the built frontend.
+
+Every route only reads, but for two that write to the job queue and nothing
+else: one puts a data item's action in its queue, one cancels a job.
+"""
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime, UTC
+import ipaddress
 import json
 import math
 import mimetypes
 import os
 from pathlib import Path
+import sqlite3
 from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
-from dataforge.viz import live, monitor
-from dataforge.viz.config import Project, Site, split_relative
+from dataforge import queue
+from dataforge.viz import actions, live, monitor
+from dataforge.viz.config import Action, Project, Site, split_relative
 from dataforge.viz.paths import (
   attempt_parts,
   FILE_LIMIT,
@@ -35,6 +42,13 @@ CSP = (
 )
 """The Content-Security-Policy of every response."""
 
+WRITE_HEADER = "X-Viz-Write"
+"""The header a write must carry, as 1: a page of another origin cannot send
+it without the browser first asking, which the viewer never allows."""
+
+ENDED_LIMIT = 50
+"""How many of the jobs that have ended the queue route lists."""
+
 _STATIC = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 
@@ -46,12 +60,18 @@ def create_app(site: Site, static: Path) -> FastAPI:
     static: The built frontend, the output of npm run build.
 
   Returns:
-    The app; every route is a GET or a HEAD.
+    The app; every route is a GET or a HEAD, but the two writes, POSTs.
   """
   app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
   api = _Api(site, static)
   app.add_exception_handler(RefusedError, _refused)
   _ = app.middleware("http")(_headers)
+  app.add_api_route(
+    "/api/projects/{p}/actions/{name}", api.submit, methods=["POST"]
+  )
+  app.add_api_route(
+    "/api/queue/jobs/{job}/cancel", api.cancel, methods=["POST"]
+  )
   # In this order: the first route that matches a path serves it.
   routes = [
     ("/api/projects", api.projects),
@@ -59,9 +79,11 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/api/projects/{p}/record", api.record),
     ("/api/projects/{p}/live", api.live_status),
     ("/api/projects/{p}/files", api.files),
+    ("/api/projects/{p}/actions", api.actions),
     ("/api/projects/{p}/monitor/runs", api.monitor_runs),
     ("/api/projects/{p}/monitor/window", api.monitor_window),
     ("/api/projects/{p}/monitor/curve", api.monitor_curve),
+    ("/api/queue", api.queue_jobs),
     ("/api/{rest:path}", api.no_route),
     ("/{rest:path}", api.static),
   ]
@@ -75,6 +97,13 @@ class _Api:
     self._site: Site = site
     self._static: Path = static
     self._projects: dict[str, Project] = {p.id: p for p in site.projects}
+    # A write is taken only from a page the viewer served, as the browser
+    # names it, at the one address the server binds.
+    host = str(ipaddress.ip_address(site.listen.host))
+    if ":" in host:
+      host = f"[{host}]"
+    self._host: str = f"{host}:{site.listen.port}"
+    self._origin: str = f"http://{self._host}"
 
   def projects(self) -> Response:
     return JSONResponse([p.public() for p in self._site.projects])
@@ -131,6 +160,96 @@ class _Api:
       data = read_regular(fd, FILE_LIMIT).data
     return Response(data, media_type="application/octet-stream")
 
+  def actions(self, p: str, item: str | None = None) -> Response:
+    project = self._project(p)
+    if not project.actions:
+      return JSONResponse([])
+    item = _required("item", item)
+    actions.check_item(project, item)
+    rows = _item_rows(project, item)
+    jobs = self._open_jobs()
+    return JSONResponse(
+      [
+        {
+          "name": a.name,
+          "label": a.label,
+          "queue": a.queue,
+          "reason": actions.unavailable(a, item, rows, jobs),
+        }
+        for a in project.actions
+      ]
+    )
+
+  def submit(self, request: Request, p: str, name: str) -> Response:
+    self._writable(request, {"item"})
+    project = self._project(p)
+    action = self._action(project, name)
+    item = _required("item", request.query_params.get("item"))
+    actions.check_item(project, item)
+    rows = _item_rows(project, item)
+    config = self._config()
+    reason = actions.unavailable(action, item, rows, self._open_jobs())
+    if reason is not None:
+      raise RefusedError(409, reason)
+    try:
+      job = actions.submit(config, project, action, item)
+    except queue.DuplicateError as duplicate:
+      return JSONResponse(
+        {
+          "error": "conflict",
+          "reason": f"Job {duplicate.job.id} holds this item's key.",
+          "job": actions.public(duplicate.job),
+        },
+        status_code=409,
+      )
+    except ValueError as error:
+      raise RefusedError(503, f"the queue refused the job: {error}") from None
+    except (sqlite3.Error, OSError) as error:
+      raise RefusedError(503, _queue_failure(error)) from None
+    return JSONResponse({"job": actions.public(job)}, status_code=201)
+
+  def cancel(self, request: Request, job: str) -> Response:
+    self._writable(request, set())
+    config = self._config()
+    try:
+      found = queue.cancel(config, _integer("job", job))
+    except queue.NoSuchJobError:
+      raise RefusedError(404, f"no job {job}") from None
+    except (sqlite3.Error, OSError) as error:
+      raise RefusedError(503, _queue_failure(error)) from None
+    return JSONResponse({"job": actions.public(found)})
+
+  def queue_jobs(self) -> Response:
+    config = self._config()
+    try:
+      open_jobs = queue.jobs(config, states=actions.OPEN)
+      ended = queue.jobs(config, states=actions.ENDED, limit=ENDED_LIMIT)
+    except FileNotFoundError:
+      # No job was ever submitted: submitting one makes the database.
+      open_jobs, ended = [], []
+    except (sqlite3.Error, OSError) as error:
+      raise RefusedError(503, _queue_failure(error)) from None
+    return JSONResponse(
+      {
+        "queues": [
+          {
+            "name": name,
+            "limit": limit,
+            "running": sum(
+              j.queue == name and j.state == "running" for j in open_jobs
+            ),
+            "queued": sum(
+              j.queue == name and j.state == "queued" for j in open_jobs
+            ),
+          }
+          for name, limit in config.queues.items()
+        ],
+        "max_running": config.max_running,
+        "ended_limit": ENDED_LIMIT,
+        "jobs": [actions.public(j) for j in open_jobs + ended],
+      }
+    )
+
   def monitor_runs(self, p: str) -> Response:
     return self._monitor(p, monitor.runs)
 
@@ -183,6 +302,48 @@ class _Api:
       raise RefusedError(404, f"no project {p!r}")
     return self._projects[p]
 
+  def _action(self, project: Project, name: str) -> Action:
+    found = next((a for a in project.actions if a.name == name), None)
+    if found is None:
+      raise RefusedError(404, f"no action {name!r} in {project.id}")
+    return found
+
+  def _config(self) -> queue.Config:
+    if self._site.queue is None:
+      raise RefusedError(404, "the site names no queue")
+    return self._site.queue
+
+  def _open_jobs(self) -> list[queue.Job]:
+    try:
+      return queue.jobs(self._config(), states=actions.OPEN)
+    except FileNotFoundError:
+      return []
+    except (sqlite3.Error, OSError) as error:
+      raise RefusedError(503, _queue_failure(error)) from None
+
+  def _writable(self, request: Request, params: set[str]) -> None:
+    # Against a page of another site (CSRF) and one that a name of its own
+    # points at the viewer's address (DNS rebinding): the header makes the
+    # browser ask first across origins, and Host and Origin must both name
+    # the address the server binds.
+    headers = request.headers
+    if headers.getlist(WRITE_HEADER) != ["1"]:
+      raise RefusedError(403, f"a write needs the header {WRITE_HEADER}: 1")
+    if headers.getlist("host") != [self._host]:
+      raise RefusedError(403, f"a write is taken only at {self._host}")
+    if headers.getlist("origin") != [self._origin]:
+      raise RefusedError(403, f"a write is taken only from {self._origin}")
+    if headers.get("sec-fetch-site", "same-origin") != "same-origin":
+      raise RefusedError(403, "a write is taken only from the same origin")
+    names = [name for name, _ in request.query_params.multi_items()]
+    if any(n not in params for n in names) or len(names) != len(set(names)):
+      allowed = ", ".join(sorted(params)) or "none"
+      raise RefusedError(400, f"a write takes its parameters once: {allowed}")
+    if "transfer-encoding" in headers or headers.get(
+      "content-length", "0"
+    ) not in ("", "0"):
+      raise RefusedError(400, "a write takes no body")
+
   def _monitor(self, p: str, read: Callable[[Path], object]) -> Response:
     project = self._project(p)
     if project.monitor is None:
@@ -203,9 +364,20 @@ class _Api:
 
 
 def _attempt(value: str | None) -> str:
+  return _required("attempt", value)
+
+
+def _required(name: str, value: str | None) -> str:
   if value is None:
-    raise RefusedError(400, "the attempt query parameter is missing")
+    raise RefusedError(400, f"the {name} query parameter is missing")
   return value
+
+
+def _queue_failure(error: sqlite3.Error | OSError) -> str:
+  # An OSError's text may name a path; only its reason is shown.
+  if isinstance(error, OSError):
+    return f"the queue cannot be read: {error.strerror or type(error).__name__}"
+  return f"the queue cannot be read: {error}"
 
 
 def _integer(name: str, value: str | None) -> int:
@@ -242,7 +414,9 @@ async def _headers(
 def _error(status: int, reason: str) -> Response:
   names = {
     400: "bad request",
+    403: "forbidden",
     404: "not found",
+    409: "conflict",
     413: "too large",
     503: "unavailable",
   }
@@ -254,6 +428,19 @@ def _error(status: int, reason: str) -> Response:
 def _mark(project: Project, rows: list[dict[str, object]]) -> None:
   rows.sort(key=lambda r: cast(str, r["modified"] or ""), reverse=True)
   live.mark(project, rows)
+
+
+def _item_rows(project: Project, item: str) -> list[dict[str, object]]:
+  # The listing's rows of an item's attempts, newest first, marked.
+  rows = [
+    _row(project, a)[0]
+    for a in list_attempts(project)
+    if _item(project, a) == item
+  ]
+  if not rows:
+    raise RefusedError(404, f"no attempt of item {item!r}")
+  _mark(project, rows)
+  return rows
 
 
 def _item(project: Project, attempt: str) -> str:
