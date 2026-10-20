@@ -112,7 +112,7 @@ function Attempt({
   project,
   attempt,
   record,
-  live,
+  live: read,
   tab,
   run,
   discarded,
@@ -125,6 +125,9 @@ function Attempt({
   run: number | null;
   discarded: number | null;
 }) {
+  // A record that has ended wins over a /live read before it ended: the page
+  // then shows the record alone.
+  const live = attemptStatus(project, record) === null ? read : null;
   const recorded = deliverablesOf(record);
   const deliverables = [...recorded, ...declaredMissing(project, record)];
   const kinds = tabKinds(project, deliverables);
