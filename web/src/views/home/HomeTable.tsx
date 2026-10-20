@@ -43,7 +43,7 @@ import {
   filterItems,
   flagged,
   GROUPS,
-  isOlder,
+  isEmptyAttempt,
   keyWord,
   notEnded,
   rowSeconds,
@@ -306,9 +306,15 @@ export function HomeTable({
   const chosen = params.get("status");
 
   const showOlder = params.get("older") === "1";
-  const older = useMemo(() => read.rows.filter(isOlder).length, [read.rows]);
+  const older = useMemo(
+    () => read.rows.filter(isEmptyAttempt).length,
+    [read.rows],
+  );
   const items = useMemo(
-    () => toItems(showOlder ? read.rows : read.rows.filter((r) => !isOlder(r))),
+    () =>
+      toItems(
+        showOlder ? read.rows : read.rows.filter((r) => !isEmptyAttempt(r)),
+      ),
     [read.rows, showOlder],
   );
   const filtered = useMemo(

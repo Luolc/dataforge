@@ -4,7 +4,7 @@ import { attemptRow } from "../../api/types";
 import {
   filterItems,
   flagged,
-  isOlder,
+  isEmptyAttempt,
   NO_STATUS_KEY,
   NOT_ENDED_KEY,
   notEnded,
@@ -37,32 +37,36 @@ describe("whether an attempt has not ended", () => {
   });
 });
 
-describe("isOlder", () => {
+describe("isEmptyAttempt", () => {
   const empty = { status: null, rounds: [], started_at: null, ended_at: null };
 
   it("is an unreadable record, or one with no status and no visit", () => {
-    expect(isOlder(unreadable("t/1"))).toBe(true);
-    expect(isOlder(row("t/1", empty))).toBe(true);
-    expect(isOlder(row("t/1", { ...empty, held: false }))).toBe(true);
+    expect(isEmptyAttempt(unreadable("t/1"))).toBe(true);
+    expect(isEmptyAttempt(row("t/1", empty))).toBe(true);
+    expect(isEmptyAttempt(row("t/1", { ...empty, held: false }))).toBe(true);
   });
 
   it("is never an attempt whose item's lock is held", () => {
-    expect(isOlder({ ...unreadable("t/1"), held: true })).toBe(false);
-    expect(isOlder(row("t/1", { ...empty, held: true }))).toBe(false);
+    expect(isEmptyAttempt({ ...unreadable("t/1"), held: true })).toBe(false);
+    expect(isEmptyAttempt(row("t/1", { ...empty, held: true }))).toBe(false);
   });
 
   it("is never an attempt that is live, has a status or has a visit", () => {
-    expect(isOlder(row("t/1", { ...empty, live: "not ended" }))).toBe(false);
-    expect(isOlder(row("t/1", { ...empty, status: "error" }))).toBe(false);
+    expect(isEmptyAttempt(row("t/1", { ...empty, live: "not ended" }))).toBe(
+      false,
+    );
+    expect(isEmptyAttempt(row("t/1", { ...empty, status: "error" }))).toBe(
+      false,
+    );
     expect(
-      isOlder(
+      isEmptyAttempt(
         row("t/1", {
           ...empty,
           rounds: [{ round: 1, state: "solve", outcome: "raised" }],
         }),
       ),
     ).toBe(false);
-    expect(isOlder(row("t/1"))).toBe(false);
+    expect(isEmptyAttempt(row("t/1"))).toBe(false);
   });
 });
 

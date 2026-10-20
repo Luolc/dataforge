@@ -63,12 +63,13 @@ export function rowStatus(row: AttemptRow): string | null {
 }
 
 /**
- * Whether an attempt is an older record, which the page hides unless asked:
- * its record cannot be read, or it has no status and no visit, and it is not
- * live and its item's lock is not held, so an attempt that has just started
- * and has not written its record yet stays shown.
+ * Whether an attempt is empty, which the page hides unless asked and labels
+ * an older record: its record cannot be read, or it has no status and no
+ * visit, and it is not live and its item's lock is not held, so where the
+ * project has a lock, an attempt that has just started and has not written
+ * its record yet stays shown.
  */
-export const isOlder = (row: AttemptRow): boolean =>
+export const isEmptyAttempt = (row: AttemptRow): boolean =>
   row.held !== true &&
   (row.live ?? null) === null &&
   (row.error !== null ||

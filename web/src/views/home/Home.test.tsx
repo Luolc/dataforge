@@ -301,7 +301,7 @@ describe("the home page", () => {
   });
 });
 
-describe("the home page's older records", () => {
+describe("the home page's empty attempts", () => {
   const empty = { status: null, rounds: [], started_at: null, ended_at: null };
   const OLDER: AttemptRow[] = [
     row("t-new/1", { started_at: at(6), ended_at: at(11), status: "too_easy" }),
@@ -365,6 +365,23 @@ describe("the home page's older records", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide" }));
     expect(screen.getByLabelText("where")).toHaveTextContent(/^\/sample$/);
     expect(ids()).not.toContain("t-gone");
+  });
+
+  it("counts only what it shows in the chips, a chosen one at 0", async () => {
+    show("/sample?status=~no-status");
+    await screen.findByText("4 older records hidden");
+
+    expect(
+      screen.getByText("Nothing matches the search and the status filter."),
+    ).toBeVisible();
+    const chips = screen
+      .getAllByRole("button", { pressed: true })
+      .map((b) => b.textContent);
+    expect(chips).toEqual(["No status0"]);
+    // The unreadable attempt of the item whose lock is held stays counted.
+    expect(
+      screen.getByRole("button", { name: /^Unreadable/ }),
+    ).toHaveTextContent("Unreadable1");
   });
 
   it("says when every attempt is an older record", async () => {
