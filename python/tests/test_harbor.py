@@ -35,7 +35,8 @@ from dataforge.curation.harbor import (
 # or "hang" (start a child, write its own and the child's pid, sleep). The
 # agent's cost is FAKE_COST, 0.25 by default and null for "none"; with
 # FAKE_TRACE, the agent directory gets a Claude Code trace whose last result
-# event costs that much.
+# event costs that much. FAKE_LINKS, a JSON object, gives symlinks to make in
+# the trial's directory, by path inside it, and FAKE_FILES files to write there.
 FAKE_HARBOR = """\
 import json, os, pathlib, subprocess, sys, time
 argv = sys.argv[1:]
@@ -81,6 +82,12 @@ if "FAKE_TRACE" in os.environ:
     (trial / "agent" / "claude-code.txt").write_text("\\n".join(
         e if isinstance(e, str) else json.dumps(e) for e in events
     ))
+for name, text in json.loads(os.environ.get("FAKE_FILES", "{}")).items():
+    (trial / name).parent.mkdir(parents=True, exist_ok=True)
+    (trial / name).write_text(text)
+for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
+    (trial / name).parent.mkdir(parents=True, exist_ok=True)
+    (trial / name).symlink_to(to)
 (trial / "result.json").write_text(json.dumps(result))
 """
 
@@ -673,3 +680,61 @@ def test_a_trial_gives_its_name_directory_and_claude_code_trace(
   trace = trial / "agent" / "claude-code.txt" if traced else None
   assert result.trace == trace
   assert result.trace_format == "claude-code-stream-json"
+
+
+def test_no_symlink_in_a_trial_leads_a_reader_out_of_it(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  host = tmp_path / "host"
+  host.mkdir()
+  _ = (host / "secret.txt").write_text("host-only text")
+  out = outdir(tmp_path)
+  # From the trial's agent/ directory, five levels up is tmp_path.
+  links = {
+    "agent/direct": str(host / "secret.txt"),
+    "agent/relative": "../../../../../host/secret.txt",
+    "agent/dir": str(host),
+    "verifier/hop": "../agent/up",
+    "agent/up": "../../..",
+    "agent/inside": "../verifier/notes.txt",
+    "agent/inside-dir": "../verifier",
+  }
+  env = {
+    "FAKE_LINKS": json.dumps(links),
+    "FAKE_FILES": json.dumps({"verifier/notes.txt": "trial text"}),
+  }
+  result = runner(fakes, env=env).run(task(tmp_path), "oracle", Limits(2), out)
+  trial = cast(Path, result.path)
+  outside = (
+    "agent/direct",
+    "agent/relative",
+    "agent/dir/secret.txt",
+    "verifier/hop/fake.json",
+  )
+  read = {name: text for name in outside if (text := _read(trial / name))}
+  assert read == {}
+  assert not os.path.lexists(trial / "agent" / "up")
+  assert (trial / "agent" / "inside").read_text() == "trial text"
+  assert (trial / "agent" / "inside-dir" / "notes.txt").read_text() == (
+    "trial text"
+  )
+  log = (out / "harbor.log").read_text()
+  assert "removed symlink agent/direct" in log
+
+
+def test_a_symlink_in_place_of_a_trials_directory_is_not_given(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  env = {"FAKE_LINKS": json.dumps({"verifier": "agent"})}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert "verifier" not in result.artifacts
+  assert "agent" in result.artifacts
+
+
+def _read(path: Path) -> str | None:
+  try:
+    return path.read_text()[:40]
+  except OSError:
+    return None

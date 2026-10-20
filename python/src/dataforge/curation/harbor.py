@@ -23,7 +23,10 @@ the sidecar after ours, and that file sets none of these. A task directory's own
 compose file, which Harbor reads before ours, can take the same limits from
 DATAFORGE_SIDECAR_CPUS and DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment.
 After the run, whatever happened, the trial's files are given back to this user
-and everything with the label is removed.
+and everything with the label is removed. Then, as the containers wrote into the
+trial's directory, each symlink there that resolves, or may, outside it is
+removed and named in `harbor.log`, before run gives the trial to any reader;
+when the cleanup fails, run raises and gives no trial.
 
 A trial reserves from the pool the task's memory plus the sidecar's limit
 (`memory_gb`), whether or not the task has a sidecar; image builds and the
@@ -54,7 +57,13 @@ import tomllib
 from typing import cast
 import uuid
 
-from dataforge.curation.actions import Limits, Mount, TrialAgent, TrialResult
+from dataforge.curation.actions import (
+  drop_escaping_links,
+  Limits,
+  Mount,
+  TrialAgent,
+  TrialResult,
+)
 from dataforge.runtime import claude
 
 LABEL = "dataforge.trial"
@@ -263,6 +272,17 @@ class HarborRunner:
         left = cleanup(f"{LABEL}={label}", self.docker)
     if any(left.values()):
       raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
+    # The trial's containers wrote into it and are gone now, so no link can
+    # change after it was checked.
+    notes = [
+      note
+      for trial in sorted((outdir / "job").glob("*/"))
+      if not trial.is_symlink()
+      for note in drop_escaping_links(trial, f"trial {trial.name}")
+    ]
+    if notes:
+      with log.open("a") as out:
+        _ = out.write("".join(f"{note}\n" for note in notes))
     return _read(outdir, log, error, time.monotonic() - started)
 
   def overlay(
@@ -537,7 +557,7 @@ def _read(
     seconds = delta.total_seconds()
   artifacts = {"log": log, "trial": trial}
   for name in ("agent", "verifier"):
-    if (trial / name).is_dir():
+    if (trial / name).is_dir(follow_symlinks=False):
       artifacts[name] = trial / name
   # The agent's container writes agent/, and a symlink there could point
   # the record or the cost at a file of the host.

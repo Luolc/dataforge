@@ -724,7 +724,7 @@ class Docker:
         summary = self._summaries[staged.summary]
       inside = str(PurePosixPath(staged.summary).parent)
       _ = self._docker(["cp", f"{self._id}:{inside}/.", str(summary.parent)])
-      notes += _drop_escaping_links(summary.parent, "summary")
+      notes += drop_escaping_links(summary.parent, "summary")
     fresh = Path(tempfile.mkdtemp(prefix=f".{outdir.name}.", dir=outdir.parent))
     try:
       # The copy is checked only once it is somewhere the container cannot
@@ -733,7 +733,7 @@ class Docker:
         _ = self._docker(["cp", f"{self._id}:{staged.outdir}/.", str(fresh)])
       else:
         notes += _copy_untrusted(self.outputs.source, fresh)
-      notes += _drop_escaping_links(fresh, "outputs")
+      notes += drop_escaping_links(fresh, "outputs")
       names = {path.name for path in fresh.iterdir()}
       with self._lock:
         key = (staged.outdir, outdir)
@@ -1396,7 +1396,7 @@ def _copy_status(fd: int, into: Path) -> None:
   into.chmod(stat.S_IMODE(status.st_mode))
 
 
-def _drop_escaping_links(root: Path, what: str) -> list[str]:
+def drop_escaping_links(root: Path, what: str) -> list[str]:
   """Remove each symlink under root that resolves, or may, outside root.
 
   root must be out of reach of whoever wrote it, so that nothing changes
