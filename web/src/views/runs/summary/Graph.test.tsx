@@ -2,8 +2,8 @@
 import { readFileSync } from "node:fs";
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { MemoryRouter, useLocation } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
@@ -29,6 +29,10 @@ const project: Project = {
   },
 };
 
+function Where() {
+  return <p data-testid="where">{useLocation().pathname}</p>;
+}
+
 function show(json: unknown) {
   const drawn = must(layout(record.parse(json), project));
   const view = render(
@@ -38,6 +42,7 @@ function show(json: unknown) {
         layout={drawn}
         runHref={(i) => `/run/${String(i)}`}
       />
+      <Where />
     </MemoryRouter>,
   );
   const graph = screen.getByRole("group", { name: "State machine" });
@@ -54,6 +59,30 @@ function show(json: unknown) {
 }
 
 const lit = (el: Element) => el.getAttribute("data-lit");
+const where = () => screen.getByTestId("where").textContent;
+const scaleOf = (graph: Element) =>
+  /scale\(([\d.]+)\)/.exec(
+    must(graph.querySelector("g")).getAttribute("transform") ?? "",
+  )?.[1];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// jsdom lays nothing out: give every element a size, as a browser would.
+function frameOf(width: number, height: number) {
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(width);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
+    height,
+  );
+}
+
+// A press, a move of dx and a release on el, as a drag.
+function drag(el: Element, dx: number) {
+  fireEvent.pointerDown(el, { button: 0, clientX: 100, clientY: 50 });
+  fireEvent.pointerMove(el, { clientX: 100 + dx, clientY: 50 });
+  fireEvent.pointerUp(el, { clientX: 100 + dx, clientY: 50 });
+}
 
 describe("the machine's graph", () => {
   it("lights a hovered state's edges and dims the rest", () => {
@@ -104,12 +133,16 @@ describe("the machine's graph", () => {
     expect(check).toHaveAttribute("href", "/run/25");
   });
 
+  it("opens at scale 1 in a frame narrower than the graph", () => {
+    frameOf(600, 300);
+    const { graph } = show(busy);
+
+    expect(scaleOf(graph)).toBe("1");
+  });
+
   it("zooms in and out with its buttons", () => {
     const { graph } = show(busy);
-    const scale = () =>
-      /scale\(([\d.]+)\)/.exec(
-        must(graph.querySelector("g")).getAttribute("transform") ?? "",
-      )?.[1];
+    const scale = () => scaleOf(graph);
 
     expect(scale()).toBe("1");
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
@@ -117,6 +150,32 @@ describe("the machine's graph", () => {
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
     expect(scale()).toBe("0.8");
+  });
+
+  it("does not open a state a drag ends on, but opens the next one tapped", () => {
+    // jsdom has no pointer capture.
+    Element.prototype.setPointerCapture = () => undefined;
+    const { node } = show(busy);
+
+    drag(node("check"), 40);
+    fireEvent.click(node("check"));
+    expect(where()).toBe("/");
+
+    fireEvent.pointerDown(node("check"), { button: 0, clientX: 100 });
+    fireEvent.pointerUp(node("check"), { clientX: 100 });
+    fireEvent.click(node("check"));
+    expect(where()).toBe("/run/25");
+  });
+
+  it("opens the state tapped after a touch drag, which brings no click", () => {
+    Element.prototype.setPointerCapture = () => undefined;
+    const { node } = show(busy);
+
+    drag(node("check"), 40);
+    fireEvent.pointerDown(node("draft"), { button: 0, clientX: 100 });
+    fireEvent.pointerUp(node("draft"), { clientX: 100 });
+    fireEvent.click(node("draft"));
+    expect(where()).toBe("/run/22");
   });
 
   it("offers full screen only where the browser does", () => {

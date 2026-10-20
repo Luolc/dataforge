@@ -189,20 +189,19 @@ export function Graph({
     d.moved = true;
     setView(bound({ k: d.from.k, x: d.from.x + dx, y: d.from.y + dy }));
   };
+  // A drag that ends on a state does not open it. The click a drag may
+  // bring comes right after its release; a touch drag brings none, so each
+  // release sets the mark afresh.
+  const draggedRef = useRef(false);
   const onPointerUp = () => {
-    const d = dragRef.current;
+    draggedRef.current = dragRef.current?.moved === true;
     dragRef.current = null;
-    // A drag that ends on a state does not open it.
-    if (d?.moved === true) {
-      frameRef.current?.addEventListener(
-        "click",
-        (c) => {
-          c.preventDefault();
-          c.stopPropagation();
-        },
-        { capture: true, once: true },
-      );
-    }
+  };
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (!draggedRef.current) return;
+    draggedRef.current = false;
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   // A state that gets the keyboard's focus outside the frame comes into it.
@@ -234,8 +233,10 @@ export function Graph({
   });
 
   const toggleFull = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void frameRef.current?.requestFullscreen();
+    // A refused request leaves the frame as it is.
+    const ignore = () => undefined;
+    if (document.fullscreenElement) document.exitFullscreen().catch(ignore);
+    else frameRef.current?.requestFullscreen().catch(ignore);
   };
   const center = () => [size.w / 2, size.h / 2] as const;
 
@@ -248,6 +249,7 @@ export function Graph({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onClickCapture={onClickCapture}
     >
       <svg
         role="group"
