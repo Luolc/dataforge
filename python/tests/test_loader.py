@@ -1232,6 +1232,71 @@ def test_report_outputs_of_the_wrong_type_name_the_field(
   assert str(raised.value) == error
 
 
+REVIEW = {
+  "name": "quality",
+  "rubric": "prompts/quality.toml",
+  "inputs": {"task": "out"},
+}
+
+
+def test_a_rubric_reads_resume_reuse_unchanged_and_notes(
+  tmp_path: Path,
+) -> None:
+  files(tmp_path)
+  doc = agent_doc()
+  put("states.review.with.resume", True)(doc)
+  put("states.review.with.reuse_unchanged", True)(doc)
+  notes = {"change_notes": "changes.md"}
+  put("states.review.with.reviews", [REVIEW | {"notes": notes}])(doc)
+  state = load_doc(doc, {}, base_dir=tmp_path).states[1]
+  assert isinstance(state, RubricState)
+  assert (state.resume, state.reuse_unchanged) == (True, True)
+  assert state.reviews[0].notes == notes
+  default = load_doc(agent_doc(), {}, base_dir=tmp_path).states[1]
+  assert isinstance(default, RubricState)
+  assert (default.resume, default.reuse_unchanged) == (False, False)
+  assert default.reviews[0].notes == {}
+
+
+@pytest.mark.parametrize(
+  ("path", "value", "error"),
+  [
+    (
+      "states.review.with.resume",
+      "yes",
+      "states.review.with.resume: expected a boolean, got a string",
+    ),
+    (
+      "states.review.with.reuse_unchanged",
+      1,
+      "states.review.with.reuse_unchanged: expected a boolean, got an integer",
+    ),
+    (
+      "states.review.with.reviews",
+      [REVIEW | {"notes": ["changes.md"]}],
+      "states.review.with.reviews[0].notes: expected a mapping, got a list",
+    ),
+    (
+      "states.review.with.reviews",
+      [REVIEW | {"notes": {"change_notes": 7}}],
+      (
+        "states.review.with.reviews[0].notes.change_notes: expected a string,"
+        " got an integer"
+      ),
+    ),
+  ],
+)
+def test_rubric_fields_of_the_wrong_type_name_the_field(
+  tmp_path: Path, path: str, value: object, error: str
+) -> None:
+  files(tmp_path)
+  doc = agent_doc()
+  put(path, value)(doc)
+  with pytest.raises(SpecError) as raised:
+    _ = load_doc(doc, {}, base_dir=tmp_path)
+  assert str(raised.value) == error
+
+
 def test_an_input_outside_a_template_is_inserted_as_given() -> None:
   doc = base()
   machine = load_doc(doc, {**INPUTS, "item": "$5"})

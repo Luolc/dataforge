@@ -1010,22 +1010,34 @@ def _trials(
 def _rubric(
   loader: _Loader, value: Mapping[str, object], at: str
 ) -> dict[str, object]:
-  fields = _fields(value, at, required={"reviews"}, optional={"workdir"})
+  fields = _fields(
+    value,
+    at,
+    required={"reviews"},
+    optional={"workdir", "resume", "reuse_unchanged"},
+  )
   reviews: list[Review] = []
   for i, item in enumerate(_list(fields["reviews"], f"{at}.reviews")):
     where = f"{at}.reviews[{i}]"
     review = _fields(
-      item, where, required={"name", "rubric", "inputs"}, optional=set()
+      item, where, required={"name", "rubric", "inputs"}, optional={"notes"}
     )
     inputs = {
       tag: loader.input_ref(ref, f"{where}.inputs.{tag}")
       for tag, ref in _mapping(review["inputs"], f"{where}.inputs").items()
+    }
+    notes = {
+      tag: loader.string(name, f"{where}.notes.{tag}")
+      for tag, name in _mapping(
+        review.get("notes", {}), f"{where}.notes"
+      ).items()
     }
     reviews.append(
       Review(
         loader.string(review["name"], f"{where}.name"),
         loader.file(review["rubric"], f"{where}.rubric"),
         inputs,
+        notes,
       )
     )
   workdir = fields.get("workdir")
@@ -1033,6 +1045,10 @@ def _rubric(
     "reviews": reviews,
     "workdir": (
       None if workdir is None else Path(loader.string(workdir, f"{at}.workdir"))
+    ),
+    "resume": loader.boolean(fields.get("resume", False), f"{at}.resume"),
+    "reuse_unchanged": loader.boolean(
+      fields.get("reuse_unchanged", False), f"{at}.reuse_unchanged"
     ),
   }
 

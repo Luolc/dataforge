@@ -885,6 +885,7 @@ class Runner:
     self, conversation: Conversation, path: Path, prompt: str, cap: float
   ) -> AgentRun:
     path.parent.mkdir(parents=True, exist_ok=True)
+    resumed = conversation.id is not None
     session = dataclasses.replace(
       self.session,
       command=conversation.command,
@@ -930,6 +931,7 @@ class Runner:
       result.subtype,
       conversation.resumable,
       TRACE_FORMAT,
+      resumed,
     )
 
 

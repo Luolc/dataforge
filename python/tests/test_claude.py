@@ -831,14 +831,17 @@ def test_a_keyed_start_resumes_its_session_with_the_resume_prompt(
     resume_prompt="Judge again.",
   )
 
+  starts: list[ActionResult] = []
+
   def body(ctx: Context) -> ActionResult:
     actions = Actions(runner)
-    _ = actions.agent(ctx, keyed, HOST)
+    starts.append(actions.agent(ctx, keyed, HOST))
     return actions.agent(ctx, keyed, HOST)
 
   found = act(tmp_path / "attempt", body)
 
   assert found.cost_usd == pytest.approx(0.25)
+  assert [r.run.resumed for r in (*starts, found) if r.run] == [False, True]
   calls = fake.calls()
   first, second = str(calls[0]["prompt"]), str(calls[1]["prompt"])
   assert first.startswith("Judge.\n\nBefore you finish, run `")
@@ -974,10 +977,11 @@ def test_a_keyed_session_claude_no_longer_has_starts_anew(
 
   found = runner.start(spec, task, HOST)
 
-  assert (found.status, found.ending, found.resumable) == (
+  assert (found.status, found.ending, found.resumable, found.resumed) == (
     "ok",
     "success",
     True,
+    False,
   )
   assert option(fake.argv(2), "--resume") == ["s1"]
   assert fake.calls()[1]["prompt"] == "Go on."

@@ -16,6 +16,7 @@ from typing import ClassVar, override
 from dataforge.curation.actions import (
   ActionResult,
   Actions,
+  AgentRun,
   AgentSpec,
   Env,
   fan_out,
@@ -36,8 +37,13 @@ from dataforge.curation.engine import (
   State,
 )
 from dataforge.curation.rubric import (
+  block_text,
+  Call,
+  CALL_SUFFIX,
   judge_review,
   Judgment,
+  notes_text,
+  rereview_prompt,
   Review,
   review_prompt,
   Rubric,
@@ -808,8 +814,20 @@ class RubricState(_ActionState):
   failed gives "<name> returned no verdicts (<ending>).", if one did, so there
   is nothing to judge. Data: each review's {"ending", "cost_usd", "passed",
   "failed", "warnings", "verdicts"}, by name. Every visit, whatever its
-  outcome, also writes the outputs RUBRIC_TABLE (rubric_table) and
-  RUBRIC_REPORT (rubric_report), recorded as an action of kind "report".
+  outcome, also writes the outputs RUBRIC_TABLE (rubric_table),
+  RUBRIC_REPORT (rubric_report) and, for each review, "<name>" CALL_SUFFIX,
+  its Call, recorded as an action of kind "report".
+
+  Each visit calls each review once. A call compares its blocks with those
+  of the last call of the review in this state that gave verdicts, which
+  rereview_prompt calls the last review. With resume, each review's agent
+  has the session key "<state>/<review>" and a call after such a one is a
+  re-review: its prompt is the whole prompt with what rereview_prompt adds,
+  and its resume prompt what rereview_prompt gives alone. With
+  reuse_unchanged, a call whose blocks are those of the last call of the
+  review that ran, when that call gave verdicts, runs nothing: it gives that
+  call's answer again, at no cost, and no session moves on. Each call gives
+  the review's notes written since the last review, or all for a first call.
 
   Attributes:
     OUTCOMES: The outcomes it gives, before rename.
@@ -833,6 +851,8 @@ class RubricState(_ActionState):
     rename: Mapping[str, str] | None = None,
     feedback: str | None = None,
     max_cost_usd: float = 0.0,
+    resume: bool = False,
+    reuse_unchanged: bool = False,
   ) -> None:
     """Make the state; each rubric is read here.
 
@@ -850,6 +870,9 @@ class RubricState(_ActionState):
       rename: A new name for each outcome that is to have one, by its name.
       feedback: The state's feedback template.
       max_cost_usd: The most one visit may spend, in US dollars.
+      resume: Whether a review goes on with its session and re-reviews.
+      reuse_unchanged: Whether a review whose blocks did not change gives
+        its last answer again instead of running.
 
     Raises:
       ValueError: When two reviews have one name, or a rubric is not one.
@@ -872,43 +895,151 @@ class RubricState(_ActionState):
     }
     self.env: Env = env
     self.workdir: Path | None = workdir
+    self.resume: bool = resume
+    self.reuse_unchanged: bool = reuse_unchanged
 
-  def prompt(self, ctx: Context, review: Review) -> str:
-    """Return the prompt of a review.
+  def calls(self, ctx: Context, review: Review) -> list[Call]:
+    """Return the earlier calls of a review in this state.
 
     Args:
       ctx: The visit's context.
       review: The review.
 
     Returns:
-      The rubric's system text, the inputs as tagged blocks and the criteria.
+      Its calls, oldest first.
     """
+    return [
+      Call.load(version.path)
+      for version in ctx.artifacts.history(review.name + CALL_SUFFIX)
+      if version.state == ctx.state
+    ]
+
+  def call(
+    self, ctx: Context, review: Review, workdir: Path
+  ) -> Callable[[], tuple[Call, ActionResult]]:
+    """Prepare this visit's call of a review.
+
+    Args:
+      ctx: The visit's context.
+      review: The review.
+      workdir: The agent's working directory.
+
+    Returns:
+      What makes the call and gives it, with the result of its agent.
+    """
+    calls = self.calls(ctx, review)
+    ran = [call for call in calls if call.reused is None]
+    judged = [call for call in ran if call.judged]
+    last = judged[-1] if judged else None
     blocks = {
-      tag: next(iter(ctx.resolve([item]).values()))
+      tag: block_text(next(iter(ctx.resolve([item]).values())))
       for tag, item in review.inputs.items()
     }
-    return review_prompt(self.rubrics[review.name], blocks)
+    written = {
+      tag: ctx.artifacts.history(name) for tag, name in review.notes.items()
+    }
+    call = Call(
+      len(calls) + 1,
+      blocks,
+      {tag: len(versions) for tag, versions in written.items()},
+      None,
+      None,
+      changed=(
+        None
+        if last is None
+        else tuple(
+          t for t, text in blocks.items() if last.blocks.get(t) != text
+        )
+      ),
+    )
+    if (
+      self.reuse_unchanged
+      and last is not None
+      and ran[-1] is last
+      and not call.changed
+    ):
+      reused = dataclasses.replace(
+        call, verdicts=last.verdicts, ending=last.ending, reused=last.call
+      )
+      return lambda: (reused, _reused(last))
+    seen: Mapping[str, int] = {} if last is None else last.notes
+    notes = notes_text(
+      {tag: versions[seen.get(tag, 0) :] for tag, versions in written.items()}
+    )
+    rubric = self.rubrics[review.name]
+    if last is None or not self.resume:
+      spec = self._spec(review, workdir, review_prompt(rubric, blocks, notes))
+    else:
+      spec = self._spec(
+        review,
+        workdir,
+        review_prompt(
+          rubric,
+          blocks,
+          notes,
+          rereview_prompt(last, blocks, notes, whole=True),
+        ),
+        rereview_prompt(
+          last,
+          blocks,
+          notes,
+          whole=False,
+          later=None if ran[-1] is last else ran[-1].blocks,
+        ),
+      )
+    return lambda: self._run(ctx, spec, call)
+
+  def _spec(
+    self,
+    review: Review,
+    workdir: Path,
+    prompt: str,
+    resume_prompt: str | None = None,
+  ) -> AgentSpec:
+    return AgentSpec(
+      prompt,
+      workdir,
+      output_schema=VERDICTS_SCHEMA,
+      tools=(),
+      name=review.name,
+      session=f"{self.name}/{review.name}" if self.resume else None,
+      resume_prompt=resume_prompt,
+    )
+
+  def _run(
+    self, ctx: Context, spec: AgentSpec, call: Call
+  ) -> tuple[Call, ActionResult]:
+    result = self.actions.agent(ctx, spec, self.env)
+    run = result.run
+    ran = dataclasses.replace(
+      call,
+      verdicts=result.value,
+      ending=None if run is None else run.ending,
+      resumed=run is not None and run.resumed,
+    )
+    return ran, result
 
   @override
   def run(self, ctx: Context) -> Outcome:
     workdir = ctx.outdir if self.workdir is None else self.workdir
-
-    def one(review: Review) -> Callable[[], ActionResult]:
-      spec = AgentSpec(
-        self.prompt(ctx, review),
-        workdir,
-        output_schema=VERDICTS_SCHEMA,
-        tools=(),
-        name=review.name,
-      )
-      return lambda: self.actions.agent(ctx, spec, self.env)
-
-    results = fan_out([one(review) for review in self.reviews])
+    ended = fan_out(
+      [self.call(ctx, review, workdir) for review in self.reviews]
+    )
     judged = [
-      judge_review(review.name, self.rubrics[review.name], result)
-      for review, result in zip(self.reviews, results, strict=True)
+      dataclasses.replace(
+        judge_review(review.name, self.rubrics[review.name], result),
+        call=call.call,
+        resumed=call.resumed,
+        reused=call.reused,
+        changed=call.changed,
+      )
+      for review, (call, result) in zip(self.reviews, ended, strict=True)
     ]
-    _write_rubric(ctx, judged)
+    calls = {
+      review.name: call
+      for review, (call, _) in zip(self.reviews, ended, strict=True)
+    }
+    _write_rubric(ctx, judged, calls)
     data = {judgment.name: judgment.data for judgment in judged}
     failed = [j for j in judged if j.errored or not j.passed]
     if not failed:
@@ -918,13 +1049,27 @@ class RubricState(_ActionState):
     return self.renamed(Outcome(name, data, feedback={"details": details}))
 
 
-def _write_rubric(ctx: Context, judged: Sequence[Judgment]) -> None:
+def _reused(call: Call) -> ActionResult:
+  answer = json.dumps(call.verdicts)
+  run = AgentRun(None, "ok", 0.0, None, answer, call.ending)
+  return ActionResult(
+    "ok", {}, f"reused call {call.call}", call.verdicts, 0.0, run
+  )
+
+
+def _write_rubric(
+  ctx: Context, judged: Sequence[Judgment], calls: Mapping[str, Call]
+) -> None:
   started = datetime.now(UTC)
-  _ = ctx.claim([RUBRIC_TABLE, RUBRIC_REPORT])
+  names = {name + CALL_SUFFIX: call for name, call in calls.items()}
+  _ = ctx.claim([RUBRIC_TABLE, RUBRIC_REPORT, *names])
   table, report = ctx.outdir / RUBRIC_TABLE, ctx.outdir / RUBRIC_REPORT
   _ = table.write_text(json.dumps(rubric_table(judged), indent=2) + "\n")
   _ = report.write_text(rubric_report(judged))
   outputs = {RUBRIC_TABLE: table, RUBRIC_REPORT: report}
+  for name, call in names.items():
+    outputs[name] = ctx.outdir / name
+    _ = outputs[name].write_text(json.dumps(call.to_json(), indent=2) + "\n")
   ctx.record(
     ActionRecord("report", "ok", outputs, started, datetime.now(UTC), 0.0)
   )

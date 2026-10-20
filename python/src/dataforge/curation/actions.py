@@ -952,6 +952,8 @@ class AgentRun:
     ending: How it ended, in the runner's words, if the runner says.
     resumable: Whether the session can go on after it.
     trace_format: The trace's format, such as "claude-code-stream-json".
+    resumed: Whether it went on with the session of an earlier run rather
+      than start one, as a resume does and a start may (AgentSpec.session).
   """
 
   session: object
@@ -962,6 +964,7 @@ class AgentRun:
   ending: str | None = None
   resumable: bool = True
   trace_format: str | None = None
+  resumed: bool = False
 
 
 class AgentRunner(Protocol):
