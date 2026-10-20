@@ -40,6 +40,7 @@ from dataforge.curation import (
   TrialAgent,
   TrialResult,
 )
+from dataforge.curation import actions as actions_module
 from dataforge.curation.actions import NOT_A_FILE
 from tests.processes import holding, kill
 
@@ -173,6 +174,18 @@ def test_pool_counts_another_processs_reservation_until_it_is_killed() -> None:
     assert pool.reserved_gb == 0.5
     blocked(lambda: pool.acquire(0.25), lambda: kill(other))
     assert pool.reserved_gb == 0.25
+
+
+def test_a_pool_counts_another_processs_reservation_as_available(
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  # The other process's reservation may be in use, so the machine has less
+  # available than the pool both give.
+  with holding(POOL, "1.0", "0.5"):
+    monkeypatch.setattr(actions_module, "_mem_available_gb", lambda: 0.75)
+    assert ResourcePool(1.0).memory_gb == 1.0
+    with pytest.raises(ValueError, match=r"1\.25 GB is available"):
+      _ = ResourcePool(1.5)
 
 
 def test_a_host_script_reserves_its_memory(tmp_path: Path) -> None:

@@ -46,6 +46,10 @@ REFUSALS = 3
 # ends, before what it served counts as cut (`QuotaError`): Claude Code gives
 # up on a request with no answer after about 6 minutes.
 CUT_S = 360.0
+# How long after a pause ended a 429 or a quota refusal still goes on with
+# its run of pauses: a proxy sends a held call again, and a launcher starts
+# again, within seconds of the pause's end.
+LAPSE_S = 900.0
 # How often a paused request looks whether its caller still waits for it.
 POLL_S = 1.0
 # What began a pause or last made it longer.
@@ -355,9 +359,13 @@ def _new(backoff: Backoff) -> _State:
 
 def _goes_on(state: _State, now: float) -> bool:
   # Whether the pause still holds calls; stops it once the run of pauses has
-  # lasted the backoff's limit.
+  # lasted the backoff's limit. A run that no call went on with for `LAPSE_S`
+  # after its last pause ended, such as one a process that has since ended
+  # left, is over, as an answer would have ended it.
   if state["stopped"] is not None:
     return False
+  if now - state["until"] > LAPSE_S:
+    state.update(delay=None, since=None, refusals=0)
   limit = state["backoff"]["limit_s"]
   since = state["since"] if state["since"] is not None else now
   if limit is not None and now - since >= limit:

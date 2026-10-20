@@ -100,13 +100,18 @@ class ResourcePool:
     """Make a pool.
 
     Args:
-      memory_gb: The pool's memory, at most what the machine has available.
+      memory_gb: The pool's memory, at most what the machine has available
+        with what the reservations of every process hold, which the memory
+        they reserved may already be using.
       max_running: How many reservations may be held at once; None for any.
 
     Raises:
       ValueError: When memory_gb is not positive or is more than is available.
     """
+    self._leases: Leases = Leases(state_dir() / "memory")
     available = _mem_available_gb()
+    if available is not None:
+      available += sum(self._leases.held()) / 1024
     if memory_gb <= 0 or (available is not None and memory_gb > available):
       raise ValueError(
         f"pool of {memory_gb} GB, but {available} GB is available"
@@ -114,7 +119,6 @@ class ResourcePool:
     self.memory_gb: float = memory_gb
     self.max_running: int | None = max_running
     self._total_mb: int = _mb(memory_gb)
-    self._leases: Leases = Leases(state_dir() / "memory")
     self._held: dict[int, list[Lease]] = {}
     self._lock: threading.Lock = threading.Lock()
 

@@ -18,21 +18,21 @@ def holding(code: str, *args: str) -> Generator[subprocess.Popen[str]]:
     *args: Its arguments.
 
   Yields:
-    The process, once it printed `held`; killed after the block.
+    The process, once it printed `held`; killed, and its pipes closed, after
+    the block.
   """
-  process = subprocess.Popen(
+  with subprocess.Popen(
     [sys.executable, "-c", code, *args],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     text=True,
-  )
-  try:
-    assert process.stdout is not None
-    assert process.stdout.readline() == "held\n"
-    yield process
-  finally:
-    process.kill()
-    _ = process.wait(WAIT)
+  ) as process:
+    try:
+      assert process.stdout is not None
+      assert process.stdout.readline() == "held\n"
+      yield process
+    finally:
+      process.kill()
 
 
 def kill(process: subprocess.Popen[str]) -> None:

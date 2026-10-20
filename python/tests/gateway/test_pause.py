@@ -306,6 +306,26 @@ def test_a_pause_that_would_pass_the_limit_stops_at_once(
   assert found.remaining() == 0
 
 
+@pytest.mark.parametrize(
+  ("gap_s", "pause_s"), [(10, 120), (2 * pause.LAPSE_S, 60)]
+)
+def test_a_run_no_call_went_on_with_for_lapse_s_is_over(
+  monkeypatch: pytest.MonkeyPatch, gap_s: float, pause_s: float
+):
+  # A 429 `gap_s` after the last pause ended goes on with its run, or, past
+  # `LAPSE_S`, as after a process that left the run ended, starts a new one,
+  # though the old run's start is past `limit_s`.
+  clock = [1_000_000.0]
+  monkeypatch.setattr(time, "time", lambda: clock[0])
+  backoff = Backoff(start_s=60, max_s=900, limit_s=2 * pause.LAPSE_S)
+  with pausing(backoff) as pauses:
+    assert pauses[Channel.CLAUDE].limited()
+  clock[0] += 60 + gap_s
+  with pausing(backoff) as pauses:
+    assert pauses[Channel.CLAUDE].limited()
+    assert pauses[Channel.CLAUDE].remaining() == pause_s
+
+
 @pytest.mark.parametrize("capped", [True, False])
 @pytest.mark.usefixtures("launcher")
 def test_at_most_limit_proxies_of_each_channel_run_at_once(
