@@ -53,8 +53,8 @@ Each one links to the test that guards it. Test files: [`machine/tests/`](../mac
 3. A gateway client download that does not match its release's `SHA256SUMS` installs nothing, and the installed version stays in use; a failed replacement puts the old copy back. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "tampered download was accepted", "current moved after a failed replacement".
 4. The setup merges its Claude Code settings into the existing files and keeps keys it does not own, including the gateway's auth and proxy settings. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "an existing setting was dropped".
 5. The gateway shim is first on `PATH` in every zsh, interactive or not, as long as `zshenv.local` (section 4), which is sourced after the setup's `PATH`, puts nothing in front of it. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "in a non-interactive zsh, claude is …, not the shim".
-6. The setup completes on a machine with none of its settings in place (section 4): it finds every release without a GitHub token, installs every tool and skips the gh login, the git identity and the gateway client's config. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "run without machine settings".
-7. Every zsh sources `zshenv.local` when it is readable, and the setup never writes it. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "zshenv.local not sourced", "the setup changed zshenv.local".
+6. The setup completes on a machine with none of its settings in place (section 4): it finds every release without a GitHub token, installs every tool and skips the gh login and the gateway client's config. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "run without machine settings".
+7. Every zsh sources `zshenv.local` when it is readable, and the setup never writes it, nor the global git configuration `~/.gitconfig`, whose identity and credential helper belong to the machine's owner. [`machine/tests/inside.sh`](../machine/tests/inside.sh): "zshenv.local not sourced", "the setup changed zshenv.local", "run0 changed ~/.gitconfig", "the setup changed ~/.gitconfig".
 8. This file has at most 200 lines. [`design-length.test.sh`](../.github/scripts/design-length.test.sh).
 
 The state machine's invariants (section 5), guarded by the tests in [`python/tests/`](../python/tests/):
@@ -92,7 +92,7 @@ The gateway's invariants (section 5, "The gateway"), then the job queue's (secti
 ## 4. Interfaces
 
 - Setting up a data machine: [`machine/README.md`](../machine/README.md); settings in [`machine/playbook.yml`](../machine/playbook.yml), versions in [`machine/versions.yml`](../machine/versions.yml).
-- The machine's own settings, which the setup reads and never writes: the GitHub token in `~/.config/dataforge/github-token`, the git identity and gateway address in `~/.config/dataforge/setup.yml`, and private environment variables in `~/.config/dataforge/zshenv.local`.
+- The machine's own settings, which the setup reads and never writes: the GitHub token in `~/.config/dataforge/github-token`, the gateway address in `~/.config/dataforge/setup.yml`, and private environment variables in `~/.config/dataforge/zshenv.local`.
 - Install paths that other setups may rely on: `/usr/local/bin/<name>` for `fleet`, `fednet`, `atb`, `statute`, `herdr` and `gh`; `/usr/bin/<name>` for `tailscale`, `op`, `direnv`, `node`, `npm`, `npx` and `google-chrome`; `~/.local/bin/<name>` for `pi` and `codex`.
 - The Claude Code runner: the names section 5 gives of `dataforge.runtime.claude` ([`claude.py`](../python/src/dataforge/runtime/claude.py)).
 - The gateway: the names section 5, "The gateway", gives of `dataforge.gateway`, the files it reads in `~/.config/redcoast-client/`, the paths it mounts in a container, the proxy's command line, which a monitor of the host's processes may read, and the ledger's lines.
