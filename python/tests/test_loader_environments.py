@@ -121,7 +121,7 @@ runners:
       model: ${{ inputs.model }}
       effort: high
       max_budget_usd: ${{ inputs.cap }}
-      command: [claude, --verbose]
+      command: {binding: claude-command}
       timeout: 600
       pass_env: [HOME, PATH, UNSET_HERE]
       files: {numbered: {dir: "${{ inputs.runs }}", prefix: session}}
@@ -188,6 +188,7 @@ def bindings(root: Path, cli: Cli) -> dict[str, object]:
     "harbor-gateway": gateway,
     "count-spend": count_spend,
     "my-runner": Agents,
+    "claude-command": ["claude", "--verbose"],
   }
 
 
@@ -409,6 +410,20 @@ def edit(path: str, value: object) -> Callable[[Doc], None]:
     (
       edit("runners.session.with.env", {"HOME": "/root"}),
       "runners.session.with.env.HOME: unknown field",
+    ),
+    (
+      edit(
+        "runners.session.with.command",
+        ["env", "MODEL_TOKEN=literal-value", "claude"],
+      ),
+      "runners.session.with.command: expected a mapping, got a list",
+    ),
+    (
+      edit("runners.session.with.command", {"binding": "placeholder-env"}),
+      (
+        "runners.session.with.command: the binding 'placeholder-env' is not a"
+        " list of strings"
+      ),
     ),
     (
       edit("runners.session.with.model", None),

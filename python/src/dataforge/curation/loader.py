@@ -38,8 +38,9 @@ The schema, version 1:
       uses: claude-code | harbor | <binding>   # <binding>: a factory
       with: {...}                     # the factory's arguments, or:
         # claude-code: model, effort, max_budget_usd, files ({numbered: {dir,
-        #   prefix}} | <hook>), command, timeout, env, pass_env, tools,
-        #   add_dirs, continue_session, min_fix_usd, serve, spent
+        #   prefix}} | <hook>), command ({binding: <name>}, a list of
+        #   strings), timeout, env, pass_env, tools, add_dirs,
+        #   continue_session, min_fix_usd, serve, spent
         # harbor: harbor, cpus, cpu_shares, pids, sidecar {cpus, memory_mb},
         #   timeout, mounts, env, pass_env, compose_overlay [<path> | <hook>],
         #   setup, docker
@@ -69,9 +70,11 @@ fields "$$" is passed on as it is.
 
 A hook, what can only be Python, is {binding: <name>}, the object the
 dataset registers, or {uses: <name>, with: {...}}, what the factory it
-registers returns when loading calls it with the with's data. No field holds
-a variable's value: environment variables are named, and their values are
-taken from the environment (pass_env) or a binding (env). Relative paths
+registers returns when loading calls it with the with's data. Environment
+variables are only named in a declaration, their values taken from the
+environment (pass_env) or a binding (env), and a runner's command is a
+binding; a hook's with and labels are plain data, which holds no credential.
+Relative paths
 (prompt and rubric files, validators, mount sources, {path: ...} inputs) are
 against the base directory.
 """
@@ -542,6 +545,18 @@ class _Loader:
       raise SpecError(at, f"the binding {name!r} is not a mapping of strings")
     return dict(cast(Mapping[str, str], env))
 
+  def command(self, value: object, at: str) -> tuple[str, ...]:
+    # A command may set variables (env NAME=value claude), so the declaration
+    # names a command the dataset registers instead of holding one.
+    fields = _fields(value, at, required={"binding"}, optional=set())
+    name = self.string(fields["binding"], f"{at}.binding")
+    command = self.bound(name, f"{at}.binding")
+    if not isinstance(command, list | tuple) or not all(
+      isinstance(item, str) for item in cast(Sequence[object], command)
+    ):
+      raise SpecError(at, f"the binding {name!r} is not a list of strings")
+    return tuple(cast(Sequence[str], command))
+
   def names(self, value: object, at: str) -> tuple[str, ...]:
     found = self.strings(value, at)
     for i, name in enumerate(found):
@@ -1004,7 +1019,7 @@ def _claude_code(
     ),
   }
   if "command" in fields:
-    session["command"] = loader.strings(fields["command"], f"{at}.command")
+    session["command"] = loader.command(fields["command"], f"{at}.command")
   if "timeout" in fields:
     session["timeout"] = loader.number(
       fields["timeout"], f"{at}.timeout", minimum=0
