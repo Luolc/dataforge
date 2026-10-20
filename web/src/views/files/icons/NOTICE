@@ -1,0 +1,40 @@
+# Material Icon Theme icons
+
+`material.tsx` holds icons copied from Material Icon Theme.
+
+- Source: the npm package `material-icon-theme`, version 5.39.0, files under `icons/`: `python.svg`, `console.svg`, `yaml.svg`, `toml.svg`, `json.svg`, `docker.svg`, `markdown.svg`, `diff.svg`, `document.svg`, `log.svg`, `file.svg`, `folder.svg` and `folder-open.svg`. Upstream: <https://github.com/material-extensions/vscode-material-icon-theme>.
+- Changes: each icon is a React component with the paths and `viewBox` of its file. Each fill colour is replaced by a theme token, a `fill-file-*` class whose colour `web/src/ui/theme.css` sets. The transparent 24 by 24 frame that `diff.svg`, `document.svg` and `log.svg` carry is left out. No path is changed.
+
+The original colours, by token:
+
+| Token | Original |
+| -- | -- |
+| `file-python` | `#0288d1` |
+| `file-python-2` | `#fdd835` |
+| `file-shell` | `#ff7043` |
+| `file-yaml` | `#ff5252` |
+| `file-toml` | `#ef5350` |
+| `file-toml-2` | `#cfd8dc` |
+| `file-json` | `#f9a825` |
+| `file-docker` | `#0288d1` |
+| `file-markdown` | `#42a5f5` |
+| `file-diff` | `#42a5f5` |
+| `file-text` | `#42a5f5` |
+| `file-log` | `#afb42b` |
+| `file-other` | `#90a4ae` |
+| `file-folder` | `#90a4ae` |
+
+## License
+
+The license of `material-icon-theme` 5.39.0, as its `LICENSE` file gives it:
+
+```text
+The MIT License (MIT)
+Copyright (c) 2025 Material Extensions
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
