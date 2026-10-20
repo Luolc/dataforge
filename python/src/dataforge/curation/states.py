@@ -767,8 +767,8 @@ class RubricState(_ActionState):
 
   Outcomes: "pass" when every review passes; "fail" when one fails, with
   feedback {"details": the findings of each failed review, in order, under
-  "### <name>"}; "error", with the same feedback of each review whose agent run
-  failed, "<name> returned no verdicts (<ending>).", when one did, so there
+  "### <name>"}; "error", with that feedback, where a review whose agent run
+  failed gives "<name> returned no verdicts (<ending>).", if one did, so there
   is nothing to judge. Data: each review's {"ending", "cost_usd", "passed",
   "failed", "warnings", "verdicts"}, by name. Every visit, whatever its
   outcome, also writes the outputs RUBRIC_TABLE (rubric_table) and
@@ -873,12 +873,11 @@ class RubricState(_ActionState):
     ]
     _write_rubric(ctx, judged)
     data = {judgment.name: judgment.data for judgment in judged}
-    errored = [judgment for judgment in judged if judgment.errored]
-    failed = errored or [judgment for judgment in judged if not judgment.passed]
+    failed = [judgment for judgment in judged if not judgment.passed]
     if not failed:
       return self.renamed(Outcome("pass", data))
     details = "\n\n".join(f"### {j.name}\n\n{j.findings}" for j in failed)
-    name = "error" if errored else "fail"
+    name = "error" if any(j.errored for j in judged) else "fail"
     return self.renamed(Outcome(name, data, feedback={"details": details}))
 
 

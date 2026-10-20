@@ -279,7 +279,8 @@ def test_an_error_gives_what_each_review_whose_run_failed_returned(
     ),
     (
       {"tests": ("failed", ""), "docs": ("ok", fail)},
-      "### tests\n\ntests returned no verdicts (error_during_execution).",
+      "### tests\n\ntests returned no verdicts (error_during_execution).\n\n"
+      + "### docs\n\nsound: it breaks\nFix: mend it",
     ),
   ]:
     reviewers = Reviewers(
