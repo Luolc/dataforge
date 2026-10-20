@@ -511,35 +511,75 @@ class Docker:
   def adopt(self, container: str) -> None:
     """Take an existing container as this env's, so that start creates none.
 
-    Such as the container of an attempt that a resume goes on with.
+    Such as the container of an attempt that a resume goes on with. It
+    checks what `docker inspect` gives against what create_args would set:
+    the image, each of labels (the container may have more, from its image),
+    the network (none without network, any other with it), and the user, the
+    working directory, the bind mounts, and each of cap_drop, security, cpus,
+    cpu_shares, memory_gb, memory_swap_gb and pids that this env sets. What
+    the env leaves to docker's defaults is not checked, nor is env or
+    pass_env, whose values inspect would show.
 
     Args:
       container: The container's ID or name.
 
     Raises:
-      ValueError: When this env has a container already, or the container's
-        image is not image or its labels lack one of labels or give it
-        another value.
+      ValueError: When this env has a container already, inspect printed no
+        JSON object, or the container differs from this env in a checked
+        item, which the error names.
       RuntimeError: When docker inspect fails, such as for no such container.
     """  # noqa: DOC503
     with self._lock:
       if self._id is not None:
         raise ValueError(f"the env has a container already: {self._id}")
       args = ["inspect", "--type", "container", "--format", "{{json .}}"]
-      found = _json_object(
-        cast("object", json.loads(self._docker([*args, container])))
+      # The log is stdout and then stderr, where docker may warn; the format
+      # prints the container as JSON on one line.
+      printed = self._docker([*args, container]).partition("\n")[0]
+      found = cast("object", json.loads(printed))
+      if not isinstance(found, dict):
+        raise ValueError(f"docker inspect {container} printed no JSON object")
+      found = cast(dict[str, object], found)
+      differ = self._differences(
+        _json_object(found.get("Config")), _json_object(found.get("HostConfig"))
       )
-      config = _json_object(found.get("Config"))
-      image, labels = config.get("Image"), _json_object(config.get("Labels"))
-      if image != self.image:
-        raise ValueError(f"{container} runs {image!r}, not {self.image!r}")
-      wrong = sorted(
-        key for key, value in self.labels.items() if labels.get(key) != value
-      )
-      if wrong:
-        raise ValueError(f"{container} has other labels: {', '.join(wrong)}")
+      if differ:
+        raise ValueError(f"{container} differs in {', '.join(differ)}")
       found_id = found.get("Id")
       self._id = found_id if isinstance(found_id, str) else container
+
+  def _differences(
+    self, config: dict[str, object], host: dict[str, object]
+  ) -> list[str]:
+    labels = _json_object(config.get("Labels"))
+    mounts = [*self.mounts, *([] if self.outputs is None else [self.outputs])]
+    binds = [
+      f"{m.source.resolve()}:{m.target}{':ro' if m.read_only else ''}"
+      for m in mounts
+    ]
+    caps = _capabilities(_strings(host.get("CapDrop")))
+    # Each item the env sets: whether the container has it.
+    checks: dict[str, bool | None] = {
+      "image": config.get("Image") == self.image,
+      **{f"label {k}": labels.get(k) == v for k, v in self.labels.items()},
+      "network": (host.get("NetworkMode") == "none") != self.network,
+      "mounts": _strings(host.get("Binds")) == sorted(binds),
+      "user": _same(config.get("User"), self.user),
+      "workdir": _same(config.get("WorkingDir"), self.workdir),
+      "cap_drop": caps >= _capabilities(self.cap_drop),
+      "security": set(_strings(host.get("SecurityOpt"))) >= set(self.security),
+      "cpus": _same(
+        host.get("NanoCpus"),
+        None if self.cpus is None else round(self.cpus * 1e9),
+      ),
+      "cpu_shares": _same(host.get("CpuShares"), self.cpu_shares),
+      "memory_gb": _same(host.get("Memory"), _bytes(self.memory_gb)),
+      "memory_swap_gb": _same(
+        host.get("MemorySwap"), _bytes(self.memory_swap_gb)
+      ),
+      "pids": _same(host.get("PidsLimit"), self.pids),
+    }
+    return [name for name, same in checks.items() if same is False]
 
   def create_args(self) -> list[str]:
     """Return the arguments of the `docker create` that makes the container.
@@ -1564,6 +1604,24 @@ def _trace_inside(root: Path, run: AgentRun) -> Path | None:
   # The record names paths relative to the attempt's root.
   trace = run.trace
   return trace if trace is not None and trace.is_relative_to(root) else None
+
+
+def _same(found: object, wanted: object) -> bool | None:
+  # None: the env leaves it to docker's default, which is not checked.
+  return None if wanted is None else found == wanted
+
+
+def _bytes(gb: float | None) -> int | None:
+  return None if gb is None else _mb(gb) * 2**20
+
+
+def _capabilities(names: Sequence[str]) -> set[str]:
+  return {name.upper().removeprefix("CAP_") for name in names}
+
+
+def _strings(value: object) -> list[str]:
+  items = cast(list[object], value) if isinstance(value, list) else []
+  return sorted(item for item in items if isinstance(item, str))
 
 
 def _json_object(value: object) -> dict[str, object]:

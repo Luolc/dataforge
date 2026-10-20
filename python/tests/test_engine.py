@@ -1291,7 +1291,7 @@ def sequence(attempt: Attempt) -> list[tuple[object, ...]]:
 
 
 def killed_and_resumed(
-  root: Path, at: tuple[str, int], carried_usd: float = 0.25
+  root: Path, at: tuple[str, int], carried_usd: float = 0.25, step: int = -1
 ) -> tuple[Resumable, Attempt]:
   """Run a Resumable, kill it at a visit and resume it in a new machine.
 
@@ -1299,6 +1299,9 @@ def killed_and_resumed(
     root: The attempt's directory.
     at: The visit to kill.
     carried_usd: What the resume carries.
+    step: Which record on_step saw to resume from: -1 for the one with the
+      killed visit, -2 for the one before, as a process killed outright
+      leaves.
 
   Returns:
     The Resumable, and the attempt as the resume ended it.
@@ -1309,7 +1312,7 @@ def killed_and_resumed(
   machine = fake.machine(lambda attempt: steps.append(as_json(attempt)))
   with pytest.raises(Killed):
     _ = machine.run(root)
-  record = Attempt.from_json(root, steps[-1])
+  record = Attempt.from_json(root, steps[step])
   resumed = fake.machine().resume(
     record, carried_usd=carried_usd, discarded_path="resumes/1", reason="killed"
   )
@@ -1353,6 +1356,22 @@ def test_a_killed_attempt_resumes_where_it_stopped(
   assert (resumption.carried_usd, resumption.reason) == (0.25, "killed")
   feedback = [a.kind for a in resumed.visits[1].actions]
   assert feedback == ["report"]
+
+
+def test_an_attempt_killed_outright_resumes_after_its_last_whole_visit(
+  tmp_path: Path,
+) -> None:
+  reference = (
+    Resumable(tmp_path / "reference").machine().run(tmp_path / "reference")
+  )
+  fake, resumed = killed_and_resumed(
+    tmp_path / "attempt", ("judge", 2), step=-2
+  )
+  assert sequence(resumed) == sequence(reference)
+  visits = [(v.state, v.visit) for v in resumed.visits]
+  assert fake.calls == {v: 2 if v == ("judge", 2) else 1 for v in visits}
+  [resumption] = resumed.resumptions
+  assert (resumption.kept, resumption.discarded) == (7, [])
 
 
 def test_resume_hands_each_runner_the_sessions_of_its_states(

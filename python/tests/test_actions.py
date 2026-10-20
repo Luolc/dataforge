@@ -1149,12 +1149,16 @@ class InspectDocker(FakeDocker):
 
   Args:
     root: Where the container's file system is.
-    config: What inspect gives as the container's Config.
+    found: What inspect prints for c1, besides its Id.
+    stderr: What inspect also prints on stderr.
   """
 
-  def __init__(self, root: Path, config: Mapping[str, object]) -> None:
+  def __init__(
+    self, root: Path, found: Mapping[str, object], stderr: str = ""
+  ) -> None:
     super().__init__(root)
-    self.config: Mapping[str, object] = config
+    self.found: Mapping[str, object] = found
+    self.stderr: str = stderr
 
   @override
   def __call__(self, args: Sequence[str]) -> CommandResult:
@@ -1163,15 +1167,65 @@ class InspectDocker(FakeDocker):
     self.calls.append(list(args))
     if args[-1] != "c1":
       return CommandResult(1, f"Error: No such container: {args[-1]}")
-    return CommandResult(0, json.dumps({"Id": "c1", "Config": self.config}))
+    printed = json.dumps({"Id": "c1", **self.found})
+    return CommandResult(0, f"{printed}\n{self.stderr}")
+
+
+def isolated(tmp_path: Path, cli: InspectDocker) -> Docker:
+  return Docker(
+    "solver:1",
+    mounts=[Mount(tmp_path / "in", "/in")],
+    cpus=2.0,
+    cpu_shares=512,
+    memory_gb=0.5,
+    memory_swap_gb=0.5,
+    pids=256,
+    labels={"run": "r1"},
+    security=["no-new-privileges"],
+    cap_drop=["ALL"],
+    user="1000:1000",
+    workdir="/app",
+    cli=cli,
+  )
+
+
+def inspected(tmp_path: Path) -> dict[str, dict[str, object]]:
+  """Return what docker inspect gives for a container isolated() created.
+
+  Args:
+    tmp_path: The test's directory.
+
+  Returns:
+    Its Config and HostConfig.
+  """
+  return {
+    "Config": {
+      "Image": "solver:1",
+      "Labels": {"run": "r1", "from": "image"},
+      "User": "1000:1000",
+      "WorkingDir": "/app",
+    },
+    "HostConfig": {
+      "NetworkMode": "none",
+      "Binds": [f"{(tmp_path / 'in').resolve()}:/in:ro"],
+      "CapDrop": ["ALL"],
+      "SecurityOpt": ["no-new-privileges"],
+      "NanoCpus": 2_000_000_000,
+      "CpuShares": 512,
+      "Memory": 512 * 2**20,
+      "MemorySwap": 512 * 2**20,
+      "PidsLimit": 256,
+    },
+  }
 
 
 def test_an_adopted_container_is_started_without_a_create(
   tmp_path: Path,
 ) -> None:
-  config = {"Image": "solver:1", "Labels": {"run": "r1", "from": "image"}}
-  docker = InspectDocker(tmp_path / "container", config)
-  env = Docker("solver:1", labels={"run": "r1"}, cli=docker)
+  docker = InspectDocker(
+    tmp_path / "container", inspected(tmp_path), "WARNING: a note\n"
+  )
+  env = isolated(tmp_path, docker)
   env.adopt("c1")
 
   def body(ctx: Context) -> Outcome:
@@ -1185,31 +1239,67 @@ def test_an_adopted_container_is_started_without_a_create(
 
 
 @pytest.mark.parametrize(
-  ("container", "config", "error"),
+  ("part", "key", "value", "item"),
   [
-    ("c1", {"Image": "solver:2", "Labels": {"run": "r1"}}, "runs 'solver:2'"),
-    ("c1", {"Image": "solver:1", "Labels": {"run": "r2"}}, "labels: run"),
-    ("c1", {"Image": "solver:1", "Labels": None}, "labels: run"),
+    ("Config", "Image", "solver:2", "image"),
+    ("Config", "Labels", {"run": "r2"}, "label run"),
+    ("Config", "Labels", None, "label run"),
+    ("Config", "User", "0", "user"),
+    ("Config", "WorkingDir", "/", "workdir"),
+    ("HostConfig", "NetworkMode", "bridge", "network"),
+    ("HostConfig", "Binds", ["/:/in"], "mounts"),
+    ("HostConfig", "CapDrop", ["NET_RAW"], "cap_drop"),
+    ("HostConfig", "SecurityOpt", None, "security"),
+    ("HostConfig", "NanoCpus", 0, "cpus"),
+    ("HostConfig", "CpuShares", 1024, "cpu_shares"),
+    ("HostConfig", "Memory", 0, "memory_gb"),
+    ("HostConfig", "MemorySwap", -1, "memory_swap_gb"),
+    ("HostConfig", "PidsLimit", None, "pids"),
   ],
 )
 def test_a_container_unlike_the_env_is_not_adopted(
-  tmp_path: Path, container: str, config: Mapping[str, object], error: str
+  tmp_path: Path, part: str, key: str, value: object, item: str
 ) -> None:
-  docker = InspectDocker(tmp_path, config)
-  env = Docker("solver:1", labels={"run": "r1"}, cli=docker)
-  with pytest.raises(ValueError, match=error):
-    env.adopt(container)
+  found = inspected(tmp_path)
+  found[part][key] = value
+  env = isolated(tmp_path, InspectDocker(tmp_path, found))
+  with pytest.raises(ValueError, match=f"c1 differs in {item}$"):
+    env.adopt("c1")
   assert env.container is None
 
 
+def test_a_container_is_checked_only_for_what_the_env_sets(
+  tmp_path: Path,
+) -> None:
+  found = {
+    "Config": {"Image": "solver:1", "User": "root"},
+    "HostConfig": {"NetworkMode": "bridge", "CapDrop": ["CAP_NET_RAW"]},
+  }
+  env = Docker("solver:1", network=True, cli=InspectDocker(tmp_path, found))
+  env.adopt("c1")
+  assert env.container == "c1"
+  found["HostConfig"] = {"NetworkMode": "none"}
+  env = Docker("solver:1", network=True, cli=InspectDocker(tmp_path, found))
+  with pytest.raises(ValueError, match=r"c1 differs in network$"):
+    env.adopt("c1")
+
+
 def test_an_env_with_a_container_adopts_no_other(tmp_path: Path) -> None:
-  config: dict[str, object] = {"Image": "solver:1", "Labels": {}}
-  env = Docker("solver:1", cli=InspectDocker(tmp_path, config))
+  docker = InspectDocker(tmp_path, inspected(tmp_path))
+  env = isolated(tmp_path, docker)
   env.adopt("c1")
   with pytest.raises(ValueError, match="has a container already: c1"):
     env.adopt("c1")
   with pytest.raises(RuntimeError, match="No such container"):
-    Docker("solver:1", cli=InspectDocker(tmp_path, config)).adopt("c2")
+    isolated(tmp_path, docker).adopt("c2")
+
+
+@pytest.mark.parametrize("printed", ["[]\n", "WARNING: a note\n"])
+def test_an_inspect_without_a_json_object_is_an_error(printed: str) -> None:
+  env = Docker("solver:1", cli=lambda args: CommandResult(0, printed))
+  with pytest.raises(ValueError):
+    env.adopt("c1")
+  assert env.container is None
 
 
 class CheckpointAgent:
