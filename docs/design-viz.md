@@ -9,7 +9,7 @@ viz is a read-only web viewer for the attempts a dataset runs on `dataforge.cura
 - a backend, the module `dataforge.viz` in the Python package, that reads attempt directories and their records and serves a JSON API and the frontend's files;
 - a frontend in `web/`, a single-page app built with Vite, React, TypeScript, Tailwind and Radix, with every third-party library bundled, so it works with no network.
 
-A dataset repo gives only configuration (section 4, "The project file"): where its attempts are, what its states and statuses are called and how they are coloured, and the columns of its attempt table. The viewer knows no dataset: it picks a view only by a deliverable's `kind`.
+A dataset repo gives only configuration (section 4, "The project file"): where its attempts are, what its states and statuses are called and how they are coloured, how its attempts group into data items, and the extra columns of its home page. The viewer knows no dataset: it picks a view only by a deliverable's `kind`.
 
 Not in scope:
 
@@ -70,16 +70,18 @@ record: record.json    # the record file, relative to the attempt's directory
 states:                # optional: a state's title in the graph and the run list; else its name
   author: {title: Author}
 statuses:              # an attempt status or a visit outcome: its label and tone
+  running: {label: Running, tone: running}
   passed: {label: Passed, tone: good}
   too_easy: {label: Too easy, tone: warn}
-columns:               # the attempt table, after the ID
+item: {depth: 1, title: Item}   # an attempt ID's first `depth` components name its data item; `title` heads the ID column
+columns:               # extra columns of the home page, after the fixed ones
   - {title: Status, field: [status]}
   - {title: Cost, field: [budget, cost_usd], format: usd}
   - {title: Rounds, field: [round]}
 session: {thinking: collapsed}   # collapsed (default), expanded or hidden
 ```
 
-In `attempts`, a `*` matches one name that does not start with `.`. A tone is `good`, `bad`, `warn` or `neutral`; a word with no entry shows as itself, `neutral`. A column's `field` is a list of keys into the record, as a deliverable's `Value` is (design.md, "The record"), and `format` is `text` (default), `number`, `usd`, `duration` or `time`. `session.thinking` is how a session view first shows thinking blocks; a person can still open, collapse or hide them on the page.
+In `attempts`, a `*` matches one name that does not start with `.`. A tone is `good`, `bad`, `warn`, `neutral` or `running`; a word with no entry shows as itself, `neutral`. The viewer has no idea of its own of an attempt that is still running: a status whose tone is `running` is one, as the project declares. A column's `field` is a list of keys into the record, as a deliverable's `Value` is (design.md, "The record"), and `format` is `text` (default), `number`, `usd`, `duration` or `time`. `session.thinking` is how a session view first shows thinking blocks; a person can still open, collapse or hide them on the page.
 
 ### The API
 
@@ -88,7 +90,7 @@ Every route answers `GET` and `HEAD` and returns JSON unless it says otherwise; 
 | Route | Returns |
 | -- | -- |
 | `/api/projects` | `[{id, name, color, states, statuses, columns, session}]`, each project file as loaded, without `attempts_dir`, `attempts` and `record` |
-| `/api/projects/<p>/attempts` | `[{id, modified, values, reason}]`, one per directory matching `attempts`, newest `modified` (the record file's mtime) first; `values` is each column's value, null where the record has no such key, and `reason` says why when the record is missing, not a regular file or not JSON (all values null) |
+| `/api/projects/<p>/attempts` | `[{id, item, modified, status, reason, cost_usd, started_at, ended_at, rounds, values, error}]`, one per directory matching `attempts`, newest `modified` (the record file's mtime) first: `item` the ID's first `item.depth` components; `status`, `reason` and `cost_usd` (`budget.cost_usd`) from the record; `started_at` and `ended_at` its first and last action's times; `rounds` the last visit of each round, `[{round, state, outcome}]`; `values` each column's value, null where the record has no such key; `error` says why when the record is missing, not a regular file or not JSON (the rest null) |
 | `/api/projects/<p>/record?attempt=<id>` | the record file as written (invariant 7), at most `RECORD_LIMIT`, 64 MiB |
 | `/api/projects/<p>/files?attempt=<id>&path=<rel>` | for a directory, `{entries: [{name, type, size}]}`, `type` one of `file`, `dir`, `symlink`, `other`, sorted by name; for a regular file, its bytes (invariant 3), at most `FILE_LIMIT`, 16 MiB, else 413 with the size in its `reason`; `path` is relative to the attempt's directory, as a record's paths are, and empty for the directory itself |
 
@@ -96,13 +98,13 @@ Everything else under `/api/` is 404; any other path serves a file of the static
 
 ### The frontend's routes
 
-`/` opens the first project; `/<p>` is its attempt table; `/<p>/attempt?id=<id>` an attempt, with `&tab=` (`runs`, else a deliverable kind), `&run=<visit_index>` and `&file=<path>`; `/monitor` the Monitor entry. A link copied from the address bar opens the same view.
+`/` opens the first project; `/<p>` is its home page, with `?q=`, `?status=` and `?sort=`; `/<p>/attempt?id=<id>` an attempt, with `&tab=` (`runs`, else a deliverable kind), `&run=<visit_index>` and `&file=<path>`; `/monitor` the Monitor entry. A link copied from the address bar opens the same view.
 
 ## 5. The pages
 
 **Shell.** A fixed left sidebar, always shown, with the Projects menu (the projects of `/api/projects`, in the site file's order) and the Monitor entry; a breadcrumb at the top, `Projects › <name> › <attempt ID>`; a dark theme. Colours, type sizes and spacing are Tailwind theme tokens in one file, `web/src/ui/theme.css`.
 
-**Attempt table.** One row per attempt, the ID first and then the project's columns, statuses drawn as tone-coloured labels; a row opens the attempt.
+**Home page** (P-home). One row per data item, standing for its newest attempt; an item with more than one attempt opens to a sub-row per attempt, newest first, and a row or sub-row opens that attempt. Columns: the item ID (headed `item.title`), status as a tone-coloured label (the record's `reason` on hover), rounds (one cell per round: its last visit's state title and outcome label, in the outcome's tone), attempts, spent (the sum over the item's attempts), started, duration, then the project's `columns`. Items whose newest attempt has a status of tone `running` form the top group, newest started first; the rest follow, newest ended first, and an item whose record gives no status comes last; each group has a count and folds. Above the table: a search box that matches item IDs, one filter chip per status with its count, and a refresh button with the time of the last read (no polling). Clicking a column header sorts within the groups, again to reverse. Built with TanStack Table. Not in this phase: queued items, paging, columns a person picks, saved views.
 
 **Attempt page.** A row of tabs below the breadcrumb: Runs first, then one per deliverable `kind` in the order its first deliverable is declared, named by that deliverable's `title`, each with a count (Runs: the visits; `files`: the files under its path; `trials`: `value` of `k`, as `2 / 4`; `report`: the reports). Several deliverables of one kind: `report` stacks them in one tab, `files` and `trials` show one, chosen from a menu, the first by default. A deliverable with `path` null shows its `reason`.
 
@@ -115,16 +117,17 @@ Everything else under `/api/` is 404; any other path serves a file of the static
 
 ## 6. Phases and where each part lives
 
-Each phase owns the directories named for it and touches no other's, so P2, P3 and P4 run at once once P1 is merged. P1 writes a placeholder in each later phase's entry module, `index.tsx` in its directory (for a view, its default export takes the deliverable or the visit and the record; for P3, `web/src/session/index.tsx` exports `SessionView`), showing the deliverable's or visit's name, path and reason, which that phase replaces. All of them develop and take screenshots against synthetic attempts in `web/fixtures/` and `python/tests/viz/fixtures/`, made by P1, which each phase may add to under a directory of its own name.
+Each phase owns the directories named for it and touches no other's, so P-home, P2, P3 and P4 run at once once P1 is merged. P1 writes a placeholder in each later phase's entry module, `index.tsx` in its directory (for a view, its default export takes the deliverable or the visit and the record, for P-home the project; for P3, `web/src/session/index.tsx` exports `SessionView`), showing the deliverable's or visit's name, path and reason (on the home page, the attempt IDs), which that phase replaces. All of them develop and take screenshots against synthetic attempts in `web/fixtures/` and `python/tests/viz/fixtures/`, made by P1, which each phase may add to under a directory of its own name.
 
 | Phase | Builds | Owns |
 | -- | -- | -- |
-| P1 | the backend, all of section 4 and invariants 1, 2, 4, 6, 7; the shell, routes, API client and record types; shared UI (Markdown, code view and highlighting, status labels, theme); the kind registry; the attempt table; Runs with its Summary | `python/src/dataforge/viz/`, `python/tests/viz/`, `web/` outside the directories below, `web/src/views/runs/summary/` |
+| P1 | the backend, all of section 4 and invariants 1, 2, 4, 6, 7; the shell, routes, API client and record types; shared UI (Markdown, code view and highlighting, status labels, theme); the kind registry; Runs with its Summary | `python/src/dataforge/viz/`, `python/tests/viz/`, `web/` outside the directories below, `web/src/views/runs/summary/` |
 | P2 | the `files` and `report` views | `web/src/views/files/`, `web/src/views/report/` |
 | P3 | the session view and the `trials` view | `web/src/session/`, `web/src/views/trials/` |
 | P4 | the run page | `web/src/views/runs/run/` |
+| P-home | the home page, adding TanStack Table to the dependencies | `web/src/views/home/` |
 
-P1's backend modules: `config.py` (site and project files, their checks), `paths.py` (opening an attempt and a path in it, invariant 2), `app.py` (the FastAPI app and its routes) and `serve.py` (the `dataforge viz serve` command). The frontend: `web/src/api/` (the client and the record's TypeScript types), `web/src/shell/`, `web/src/ui/`, `web/src/views/registry.tsx` (kind to view), `web/src/views/table/`. P4 renders an agent's session with P3's `SessionView` from `web/src/session/`; until P3 merges, the placeholder shows the trace's path. A change one phase needs in another's directory goes to that phase's owner, or after its merge, in a PR of its own. P1 creates `web/package.json` and `web/package-lock.json`; a later phase's PR that needs a new library may change them, but only one open PR changes them at a time, and the next one updates its branch from main after that one merges.
+P1's backend modules: `config.py` (site and project files, their checks), `paths.py` (opening an attempt and a path in it, invariant 2), `app.py` (the FastAPI app and its routes) and `serve.py` (the `dataforge viz serve` command). The frontend: `web/src/api/` (the client and the record's TypeScript types), `web/src/shell/`, `web/src/ui/`, `web/src/views/registry.tsx` (kind to view). P4 renders an agent's session with P3's `SessionView` from `web/src/session/`; until P3 merges, the placeholder shows the trace's path. A change one phase needs in another's directory goes to that phase's owner, or after its merge, in a PR of its own. P1 creates `web/package.json` and `web/package-lock.json`; a later phase's PR that needs a new library may change them, but only one open PR changes them at a time, and once that one merges, the next merges main into its branch and regenerates the lock file.
 
 The checks, besides the repo's Python checks with the `viz` extra installed: in `web/`, `npm ci`, then `npm run lint` (ESLint and Prettier), `npm run typecheck`, `npm test` (Vitest) and `npm run build`. The backend's dependencies, FastAPI and uvicorn, are the package's optional extra `viz`, so a dataset repo that only runs attempts does not install them.
 
@@ -132,4 +135,5 @@ The checks, besides the repo's Python checks with the `viz` extra installed: in 
 
 - How the built frontend reaches a machine: built there from a checkout of the pinned commit, or shipped with the package (which would be a release).
 - The Monitor page: what it shows and where its data comes from.
+- What `status` is while an attempt runs: design.md section 5 says only how an attempt ends, and an attempt whose process died leaves the same record as one still running. Until real data settles it, the home page relies on the project's `running` tone.
 - A run page's input: the record does not yet say which files a visit read, so P4 shows only the report it was handed.
