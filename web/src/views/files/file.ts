@@ -7,11 +7,13 @@ export type FileContent =
   /** Not UTF-8: shown only by its size. */
   | { kind: "binary"; size: number }
   /** Over the server's FILE_LIMIT: the 413's reason, which gives the size. */
-  | { kind: "too-large"; reason: string };
+  | { kind: "too-large"; reason: string }
+  /** Not there, or refused as invariant 2 asks: the 404's reason. */
+  | { kind: "missing"; reason: string };
 
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
-/** GET a file's bytes; any failure but a 413 is an ApiError. */
+/** GET a file's bytes; any failure but a 404 or a 413 is an ApiError. */
 async function fetchFile(
   project: string,
   attempt: string,
@@ -32,8 +34,15 @@ async function fetchFile(
         ? body.reason
         : response.statusText;
     if (response.status === 413) return { kind: "too-large", reason };
+    if (response.status === 404) return { kind: "missing", reason };
     throw new ApiError(`${response.status.toString()}: ${reason}`);
   }
+  // The route answers a directory with its listing, as JSON.
+  if (
+    response.headers.get("content-type")?.startsWith("application/json") ===
+    true
+  )
+    return { kind: "missing", reason: `${path}: a directory, not a file` };
   const bytes = await response.arrayBuffer();
   try {
     return { kind: "text", text: utf8.decode(bytes), size: bytes.byteLength };
