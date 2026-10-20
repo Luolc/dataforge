@@ -44,6 +44,9 @@ exclude = [
   "R113",
   # and so with no index.
   "R114",
+  # Icons come from Lucide, and those of files and folders in a file tree from
+  # Material Icon Theme (L50): two libraries, where R242 allows one.
+  "R242",
 ]
 
 [language]

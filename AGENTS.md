@@ -378,7 +378,6 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 ### Frontend
 
 - R241 In a page's styles, name a design token for every color, font size, font weight, spacing, corner radius, shadow, duration and easing, and write the value itself only where the tokens are defined.
-- R242 Take every icon on a repository's pages from the one icon library the repository has chosen; draw none by hand, and use no character or emoji as an icon.
 - R243 When the reader's system asks for reduced motion (`prefers-reduced-motion: reduce`), let nothing on a page move or change size, and keep only the fades that show a change of state.
 - R244 Attach to a pull request that changes how a page looks screenshots of each page it changes, in each theme and each language the site has, made with the repository's screenshot script where it has one.
 - R245 When you review a change to how a page looks, go through the repository's frontend design against it point by point, and name in the verdict each point the change breaks.
@@ -398,6 +397,9 @@ A lower-ranking provision or a principal may depart from a higher-ranking provis
 - L46 Never cut a text on a page without a control with it that shows the whole text.
 - L47 Attach to a pull request that changes how a page looks, besides the screenshots R244 asks for, one of each page it changes loaded with the fixture that holds the most items for that page.
 - L48 Make every fixture that the frontend's tests, demos and screenshots load synthetic: no real person's name, no real repository owner, and no identifier of a real run, machine or private resource.
+- L50 Take every icon on this repository's pages from Lucide, except the icon beside a file's or a folder's name in a file tree, which you take from Material Icon Theme; draw none by hand, and use no character or emoji as an icon.
+- L51 Keep, in the directory of every file that holds an icon copied into this repository from a third party, whether as a file of its own or inside another file such as a component, a file that holds the icon's license text, its source and version, and each change made to it.
+- L52 Draw every icon beside a file's or a folder's name in a file tree only in colors that have a contrast ratio of at least 3:1 with each background the tree's rows have, in every theme.
 
 ### Shared Resources
 
