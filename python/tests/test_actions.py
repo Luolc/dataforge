@@ -4,8 +4,9 @@
 from collections.abc import Callable, Sequence
 from pathlib import Path
 import shutil
+import sys
 import threading
-from typing import override
+from typing import cast, override
 
 import pytest
 
@@ -31,6 +32,8 @@ from dataforge.curation import (
   ScriptSpec,
   ScriptState,
   State,
+  SUMMARY_LIMIT,
+  summary_path,
   TrialAgent,
   TrialResult,
 )
@@ -227,10 +230,11 @@ class FakeDocker:
       case ["exec", "--user", "0", "c1", "mkdir", "-p", *paths]:
         for path in paths:
           self.path(path).mkdir(parents=True, exist_ok=True)
-      case ["exec", "--user", "0", "c1", "chmod", mode, path] if (
-        self.path(path) not in self.copied
+      case ["exec", "--user", "0", "c1", "chmod", mode, *paths] if not (
+        self.copied & {self.path(path) for path in paths}
       ):
-        self.path(path).chmod(int(mode, 8))
+        for path in paths:
+          self.path(path).chmod(int(mode, 8))
       case ["exec", "c1", "chmod", mode, path] if (
         self.path(path) in self.copied
       ):
@@ -739,3 +743,78 @@ def test_a_judge_gives_only_the_outcomes_it_names(tmp_path: Path) -> None:
     return Outcome("ok")
 
   once(tmp_path / "loose", loose)
+
+
+def test_scripts_and_judges_write_summaries_into_the_record(
+  tmp_path: Path,
+) -> None:
+  verdict = 'echo \'{"outcome": "yes"}\' > "$DATAFORGE_OUTPUTS/verdict.json"'
+  summary = 'echo "## $DATAFORGE_STATE" > "$DATAFORGE_SUMMARY"'
+
+  def body(ctx: Context) -> Outcome:
+    actions = Actions()
+    built = ["sh", "-c", 'echo "# built" > "$DATAFORGE_SUMMARY"']
+    assert actions.script(ctx, ScriptSpec(built)).ok
+    assert actions.script(ctx, ScriptSpec(["true"])).ok
+    judge = Judge(ScriptSpec(["sh", "-c", f"{verdict}; {summary}"]))
+    assert actions.judge(ctx, judge).outcome == "yes"
+    return Outcome("ok")
+
+  attempt = Machine([Once(body)]).run(tmp_path / "attempt")
+  assert [action.summary for action in attempt.visits[0].actions] == [
+    "# built\n",
+    None,
+    "## a\n",
+  ]
+  visits = cast(
+    list[dict[str, list[dict[str, object]]]], attempt.to_json()["visits"]
+  )
+  assert [action["summary"] for action in visits[0]["actions"]] == [
+    "# built\n",
+    None,
+    "## a\n",
+  ]
+
+
+def test_a_summary_over_the_limit_is_cut_off_in_the_record(
+  tmp_path: Path,
+) -> None:
+  # The last character, two bytes in UTF-8, straddles the limit.
+  write = (
+    "import os; open(os.environ['DATAFORGE_SUMMARY'], 'w')"
+    f".write('a' * {SUMMARY_LIMIT - 1} + '\\u00e9')"
+  )
+
+  def body(ctx: Context) -> Outcome:
+    assert Actions().script(ctx, ScriptSpec([sys.executable, "-c", write])).ok
+    assert summary_path(ctx, 1).stat().st_size == SUMMARY_LIMIT + 1
+    return Outcome("ok")
+
+  attempt = Machine([Once(body)]).run(tmp_path / "attempt")
+  summary = attempt.visits[0].actions[0].summary
+  assert summary == "a" * (SUMMARY_LIMIT - 1) + (
+    f"\n\n(cut off: the summary has {SUMMARY_LIMIT + 1} bytes, over the"
+    f" {SUMMARY_LIMIT} kept)"
+  )
+
+
+class SummaryDocker(FakeDocker):
+  """FakeDocker, where each exec of a script writes its summary."""
+
+  @override
+  def __call__(self, args: Sequence[str]) -> CommandResult:
+    for arg in args:
+      if arg.startswith("DATAFORGE_SUMMARY="):
+        _ = self.path(arg.partition("=")[2]).write_text("in docker\n")
+    return super().__call__(args)
+
+
+def test_a_script_in_docker_writes_its_summary(tmp_path: Path) -> None:
+  docker = SummaryDocker(tmp_path / "container")
+  with Docker("builder:1", cli=docker) as env:
+
+    def body(ctx: Context) -> Outcome:
+      return Outcome(Actions().script(ctx, ScriptSpec(["true"]), env).status)
+
+    attempt = Machine([Once(body)]).run(tmp_path / "attempt")
+  assert attempt.visits[0].actions[0].summary == "in docker\n"

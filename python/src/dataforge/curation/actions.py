@@ -8,6 +8,7 @@ pool is short. CPUs are not reserved; a container's cpus and cpu_shares divide
 them.
 """
 
+import codecs
 from collections.abc import Callable, Generator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager, nullcontext
@@ -190,11 +191,36 @@ class Staged:
     inputs: The input paths, by name.
     outdir: Where the action writes its outputs.
     validator: The validator's path, if the action has one.
+    summary: Where a script may write a Markdown summary of its run, a file
+      not there yet in a directory it may write, which collect leaves at
+      summary_path; None when the env gives none.
   """
 
   inputs: Mapping[str, str]
   outdir: str
   validator: str | None
+  summary: str | None = None
+
+
+SUMMARY = "summary.md"
+"""The file name of an action's summary."""
+
+SUMMARY_LIMIT = 1024 * 1024
+"""The most bytes of a summary the record keeps; the rest is cut off."""
+
+
+def summary_path(ctx: Context, index: int) -> Path:
+  """Return where an action's summary is on the host.
+
+  Args:
+    ctx: The visit's context.
+    index: The action's number in the visit.
+
+  Returns:
+    <root>/summaries/<state>/<visit>/<index>/summary.md.
+  """
+  root = ctx.attempt.root
+  return root / "summaries" / ctx.state / str(ctx.visit) / str(index) / SUMMARY
 
 
 class Env(Protocol):
@@ -303,10 +329,13 @@ class Host:
       copy.parent.mkdir(parents=True, exist_ok=True)
       _ = shutil.copy(validator, copy)
       copy.chmod(0o555)
+    summary = summary_path(ctx, index)
+    summary.parent.mkdir(parents=True, exist_ok=True)
     return Staged(
       {name: str(path) for name, path in inputs.items()},
       str(ctx.outdir),
       None if copy is None else str(copy),
+      str(summary),
     )
 
   def exec(self, argv: Sequence[str], env: Mapping[str, str]) -> CommandResult:
@@ -382,7 +411,8 @@ class Docker:
   copied out from .../outputs, and a validator copied to
   /dataforge/validator/<name>, read-only. These directories are made as root and
   outputs is left writable by all, so that any user the container runs as can
-  write there.
+  write there; so is .../summary, where a script may write summary.md, which
+  each collect of a script copies to the action's summary_path.
 
   Each collect leaves the visit's outputs as the action's output directory is
   then: what it copies out replaces what has the same name, and what an earlier
@@ -443,6 +473,9 @@ class Docker:
   _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
   _collected: dict[tuple[str, Path], set[str]] = field(
     default_factory=dict[tuple[str, Path], set[str]], init=False
+  )
+  _summaries: dict[str, Path] = field(
+    default_factory=dict[str, Path], init=False
   )
 
   @property
@@ -610,13 +643,18 @@ class Docker:
       f"{base}/inputs",
       *(str(PurePosixPath(p).parent) for p in staged.values()),
     }
+    summary = f"{base}/summary"
     if self.outputs is None:
       outdir = f"{base}/outputs"
-      _ = self._exec_ok(["mkdir", "-p", *sorted(dirs), outdir])
-      _ = self._exec_ok(["chmod", "0777", outdir])
+      _ = self._exec_ok(["mkdir", "-p", *sorted(dirs), outdir, summary])
+      _ = self._exec_ok(["chmod", "0777", outdir, summary])
     else:
       outdir = self.outputs.target
-      _ = self._exec_ok(["mkdir", "-p", *sorted(dirs)])
+      _ = self._exec_ok(["mkdir", "-p", *sorted(dirs), summary])
+      _ = self._exec_ok(["chmod", "0777", summary])
+    summary = f"{summary}/{SUMMARY}"
+    with self._lock:
+      self._summaries[summary] = summary_path(ctx, index)
     for name, path in inputs.items():
       _ = self._docker(["cp", str(path), f"{self._id}:{staged[name]}"])
     copy = None
@@ -625,7 +663,7 @@ class Docker:
       _ = self._exec_ok(["mkdir", "-p", "/dataforge/validator"])
       _ = self._docker(["cp", str(validator), f"{self._id}:{copy}"])
       _ = self._exec_ok(["chmod", "0555", copy], root=False)
-    return Staged(staged, outdir, copy)
+    return Staged(staged, outdir, copy, summary)
 
   def exec(self, argv: Sequence[str], env: Mapping[str, str]) -> CommandResult:
     """Run a command in the container, as its user.
@@ -645,10 +683,17 @@ class Docker:
   def collect(self, staged: Staged, outdir: Path) -> None:
     """Copy the action's outputs out of the container, or the outputs mount.
 
+    Also copy its summary out to its summary_path.
+
     Args:
       staged: The action's paths in the container.
       outdir: The visit's output directory.
     """
+    if staged.summary is not None:
+      with self._lock:
+        summary = self._summaries[staged.summary]
+      inside = str(PurePosixPath(staged.summary).parent)
+      _ = self._docker(["cp", f"{self._id}:{inside}/.", str(summary.parent)])
     fresh = Path(tempfile.mkdtemp(prefix=f".{outdir.name}.", dir=outdir.parent))
     try:
       if self.outputs is None:
@@ -811,8 +856,10 @@ class AgentRunner(Protocol):
 class ScriptSpec:
   """A command, run as argv followed by the input paths.
 
-  The output directory is in the environment variable DATAFORGE_OUTPUTS. Exit 0
-  is a pass.
+  The output directory is in the environment variable DATAFORGE_OUTPUTS. Where
+  the env gives a summary file (Host and Docker do), DATAFORGE_SUMMARY is its
+  path: Markdown written there becomes the action's summary in the record, up
+  to SUMMARY_LIMIT bytes. Exit 0 is a pass.
 
   Attributes:
     argv: The command.
@@ -981,7 +1028,10 @@ class Actions:
     inputs = ctx.resolve(spec.inputs, spec.optional_inputs)
     env.start(self.pool)
     try:
-      staged = env.stage(ctx, index, inputs, spec.validator)
+      # An agent writes no summary, so collect copies none.
+      staged = dataclasses.replace(
+        env.stage(ctx, index, inputs, spec.validator), summary=None
+      )
       prompt = _agent_prompt(spec, staged)
       run = runner.start(
         spec,
@@ -1043,9 +1093,11 @@ class Actions:
     Returns:
       Its result.
     """
-    started_at, done = self._run(ctx, spec, env, {})
+    started_at, done, summary = self._run(ctx, spec, env, {})
     passed = done.exit_code == 0
-    return _finish(ctx, "script", started_at, spec.outputs, passed, done.log)
+    return _finish(
+      ctx, "script", started_at, spec.outputs, passed, done.log, summary=summary
+    )
 
   def judge(
     self, ctx: Context, judge: Judge, inputs: Sequence[Input] = ()
@@ -1072,7 +1124,7 @@ class Actions:
     record = ctx.attempt.root / "records" / ctx.state / f"{ctx.visit}.json"
     record.parent.mkdir(parents=True, exist_ok=True)
     _ = record.write_text(json.dumps(ctx.attempt.to_json()))
-    started_at, done = self._run(
+    started_at, done, summary = self._run(
       ctx,
       spec,
       HOST,
@@ -1099,7 +1151,13 @@ class Actions:
         verdict = None
     log = done.log if verdict is not None else f"{done.log}\n{why}"
     _ = _finish(
-      ctx, "judge", started_at, spec.outputs, verdict is not None, log
+      ctx,
+      "judge",
+      started_at,
+      spec.outputs,
+      verdict is not None,
+      log,
+      summary=summary,
     )
     if verdict is None:
       raise JudgeError(f"{ctx.state} visit {ctx.visit}: {why}\n{done.log}")
@@ -1111,8 +1169,9 @@ class Actions:
     spec: ScriptSpec,
     env: Env,
     variables: Mapping[str, str],
-  ) -> tuple[datetime, CommandResult]:
-    # Runs a script and collects its outputs; the caller records it.
+  ) -> tuple[datetime, CommandResult, str | None]:
+    # Runs a script, collects its outputs and reads its summary; the caller
+    # records it.
     index, started_at = ctx.claim(spec.outputs), datetime.now(UTC)
     inputs = ctx.resolve(spec.inputs, spec.optional_inputs)
     memory_gb = spec.memory_gb if isinstance(env, Host) else None
@@ -1120,14 +1179,17 @@ class Actions:
       env.start(self.pool)
       try:
         staged = env.stage(ctx, index, inputs, None)
-        done = env.exec(
-          [*spec.argv, *staged.inputs.values()],
-          {**variables, "DATAFORGE_OUTPUTS": staged.outdir},
-        )
+        variables = {**variables, "DATAFORGE_OUTPUTS": staged.outdir}
+        if staged.summary is not None:
+          variables["DATAFORGE_SUMMARY"] = staged.summary
+        done = env.exec([*spec.argv, *staged.inputs.values()], variables)
         env.collect(staged, ctx.outdir)
       finally:
         env.stop()
-    return started_at, done
+    summary = None
+    if staged.summary is not None:
+      summary = _summary(summary_path(ctx, index))
+    return started_at, done, summary
 
   def trial(
     self,
@@ -1207,6 +1269,7 @@ def _finish(
   log: str,
   value: object = None,
   cost_usd: float = 0.0,
+  summary: str | None = None,
 ) -> ActionResult:
   outputs = {
     name: ctx.outdir / name for name in names if (ctx.outdir / name).exists()
@@ -1217,9 +1280,30 @@ def _finish(
     log += f"\nmissing outputs: {', '.join(missing)}"
   status = "ok" if passed else "failed"
   ctx.record(
-    ActionRecord(kind, status, outputs, started_at, datetime.now(UTC), cost_usd)
+    ActionRecord(
+      kind, status, outputs, started_at, datetime.now(UTC), cost_usd, summary
+    )
   )
   return ActionResult(status, outputs, log, value, cost_usd)
+
+
+def _summary(path: Path) -> str | None:
+  # The whole file stays at path; the record keeps at most SUMMARY_LIMIT bytes.
+  if not path.is_file():
+    return None
+  data = path.read_bytes()
+  if not data:
+    return None
+  if len(data) <= SUMMARY_LIMIT:
+    return data.decode(errors="replace")
+  # A character cut in two at the limit is dropped, not replaced.
+  text = codecs.getincrementaldecoder("utf-8")("replace").decode(
+    data[:SUMMARY_LIMIT]
+  )
+  return (
+    f"{text}\n\n(cut off: the summary has {len(data)} bytes, over the"
+    f" {SUMMARY_LIMIT} kept)"
+  )
 
 
 def _verdict(path: Path) -> Verdict:

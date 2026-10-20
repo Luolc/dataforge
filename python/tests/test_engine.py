@@ -28,6 +28,7 @@ from dataforge.curation import (
   Machine,
   Outcome,
   PassAtKState,
+  Product,
   ScriptSpec,
   State,
   TrialAgent,
@@ -791,3 +792,56 @@ def test_each_visit_records_its_round(tmp_path: Path) -> None:
   assert json.dumps(record["budget"]) == (
     '{"max_usd": null, "cost_usd": 0.0, "stopped": null}'
   )
+
+
+def test_products_name_the_output_of_the_last_or_the_kept_visit(
+  tmp_path: Path,
+) -> None:
+  actions = Actions()
+
+  def build(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", f'echo {ctx.visit} > "$DATAFORGE_OUTPUTS/task"']
+    assert actions.script(ctx, ScriptSpec(argv, outputs=["task"])).ok
+    return Outcome("done")
+
+  def judge(ctx: Context) -> Outcome:
+    return Outcome("easy" if ctx.visit == 1 else "hard")
+
+  products = {
+    "kept": Product("build", "task", "kept"),
+    "last": Product("build", "task"),
+    "none": Product("judge", "task"),
+  }
+  machine = Machine(
+    [
+      Step("build", build, {"done": Goto("judge")}, 3),
+      Step(
+        "judge",
+        judge,
+        {"easy": Goto("build", mark="too_easy"), "hard": Goto("build")},
+        2,
+      ),
+    ],
+    products=products,
+  )
+  attempt = machine.run(tmp_path / "cap")
+  assert (attempt.status, attempt.kept_visit) == ("too_easy", 1)
+  assert attempt.to_json()["products"] == {
+    "kept": "artifacts/build/1/task",
+    "last": "artifacts/build/3/task",
+    "none": None,
+  }
+
+  ended = Machine(
+    [Step("build", build, {"done": End("passed")})],
+    products={"task": Product("build", "task", "kept")},
+  ).run(tmp_path / "end")
+  assert ended.products == {"task": tmp_path / "end/artifacts/build/1/task"}
+
+
+def test_a_product_of_an_unknown_state_is_an_error() -> None:
+  with pytest.raises(ValueError, match="product p: unknown state nowhere"):
+    _ = Machine(
+      [Step("a", lambda _: Outcome("ok"), {"ok": End("ok")})],
+      products={"p": Product("nowhere", "x")},
+    )

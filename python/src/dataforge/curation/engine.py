@@ -14,6 +14,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 import string
 import threading
+from typing import Literal
 
 from dataforge.curation.graph import Graph, GraphEdge, GraphState
 
@@ -76,6 +77,23 @@ class End:
   """
 
   status: str
+
+
+@dataclass(frozen=True)
+class Product:
+  """An output an attempt makes, which its record names when it ends.
+
+  Attributes:
+    state: The state whose visit wrote it.
+    output: The output's name.
+    visit: Which visit of the state: "last" for its last one; "kept" for its
+      last one up to the visit the attempt kept (see Attempt.final), which is
+      its last one when the attempt kept none.
+  """
+
+  state: str
+  output: str
+  visit: Literal["last", "kept"] = "last"
 
 
 class State:
@@ -222,6 +240,8 @@ class ActionRecord:
     started_at: When it started.
     ended_at: When it ended.
     cost_usd: What it cost, in US dollars.
+    summary: The Markdown summary a script or a judge wrote to
+      DATAFORGE_SUMMARY, if it wrote one.
   """
 
   kind: str
@@ -230,6 +250,7 @@ class ActionRecord:
   started_at: datetime
   ended_at: datetime
   cost_usd: float
+  summary: str | None = None
 
 
 @dataclass
@@ -279,6 +300,9 @@ class Attempt:
     visits: Its visits, in order.
     max_cost_usd: What the attempt may spend, in US dollars; None for no cap.
     stopped: The reason, when the cost cap ended the attempt.
+    products: The machine's products, by name, as the attempt's end resolved
+      them; None for one with no such output. Empty until it ends, and when a
+      state's run raised.
   """
 
   root: Path
@@ -288,6 +312,9 @@ class Attempt:
   visits: list[Visit] = field(default_factory=list[Visit])
   max_cost_usd: float | None = None
   stopped: str | None = None
+  products: dict[str, Path | None] = field(
+    default_factory=dict[str, Path | None]
+  )
 
   @property
   def cost_usd(self) -> float:
@@ -328,6 +355,10 @@ class Attempt:
         state: self._visit_json(visit) for state, visit in self.final.items()
       },
       "visits": [self._visit_json(visit) for visit in self.visits],
+      "products": {
+        name: None if path is None else str(path.relative_to(self.root))
+        for name, path in self.products.items()
+      },
     }
 
   def _visit_json(self, visit: Visit) -> dict[str, object]:
@@ -349,6 +380,7 @@ class Attempt:
           "started_at": action.started_at.isoformat(),
           "ended_at": action.ended_at.isoformat(),
           "cost_usd": action.cost_usd,
+          "summary": action.summary,
         }
         for action in visit.actions
       ],
@@ -520,6 +552,7 @@ class Machine:
     guard: Guard | None = None,
     on_step: Callable[[Attempt], None] | None = None,
     max_cost_usd: float | None = None,
+    products: Mapping[str, Product] | None = None,
   ) -> None:
     """Make a machine.
 
@@ -530,9 +563,20 @@ class Machine:
       max_cost_usd: What one attempt may spend, in US dollars; None for no
         cap. A state is not entered when what the attempt's actions cost so
         far and the state's max_cost_usd together would pass it.
+      products: The outputs to name in the record when an attempt ends, by
+        name; each attempt's products holds them.
+
+    Raises:
+      ValueError: When a product names an unknown state or visit.
     """
     self.states: list[State] = list(states)
     self._by_name: dict[str, State] = _check_states(self.states)
+    self.products: dict[str, Product] = dict(products or {})
+    for name, product in self.products.items():
+      if product.state not in self._by_name:
+        raise ValueError(f"product {name}: unknown state {product.state}")
+      if product.visit not in ("last", "kept"):
+        raise ValueError(f"product {name}: unknown visit {product.visit!r}")
     self._guard: Guard | None = guard
     self._on_step: Callable[[Attempt], None] | None = on_step
     self.max_cost_usd: float | None = max_cost_usd
@@ -615,6 +659,7 @@ class Machine:
       ctx = Context(attempt, artifacts, record, report)
       if (blocked := self._blocked(ctx, state, closed)) is not None:
         _stop(attempt, *blocked)
+        self._resolve(attempt)
         self.on_step(attempt)
         return attempt
       visits[state.name] = visit
@@ -630,10 +675,24 @@ class Machine:
       if outcome.last:
         closed.add(state.name)
       step = self._go(ctx, record, state, outcome, state.name in closed)
+      if step is None:
+        self._resolve(attempt)
       self.on_step(attempt)
       if step is None:
         return attempt
       state, report = step
+
+  def _resolve(self, attempt: Attempt) -> None:
+    final = attempt.final
+    for name, product in self.products.items():
+      visits = [v for v in attempt.visits if v.state == product.state]
+      visit = (
+        final.get(product.state)
+        if product.visit == "kept"
+        else (visits[-1] if visits else None)
+      )
+      outputs = {} if visit is None else visit.outputs
+      attempt.products[name] = outputs.get(product.output)
 
   def _blocked(
     self, ctx: Context, state: State, closed: set[str]
