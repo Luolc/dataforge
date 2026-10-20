@@ -1,4 +1,5 @@
-// Every request the frontend makes: GETs to dataforge.viz's API.
+// Every request the frontend makes to dataforge.viz's API: GETs, and the two
+// writes to the job queue.
 import { createContext, use, useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 
@@ -40,7 +41,19 @@ export const urls = {
     `${api(p)}/live?${new URLSearchParams({ attempt }).toString()}`,
   files: (p: string, attempt: string, path: string) =>
     `${api(p)}/files?${new URLSearchParams({ attempt, path }).toString()}`,
+  actions: (p: string, item: string) =>
+    `${api(p)}/actions?${new URLSearchParams({ item }).toString()}`,
+  submit: (p: string, action: string, item: string) =>
+    `${api(p)}/actions/${encodeURIComponent(action)}?${new URLSearchParams({ item }).toString()}`,
+  queue: () => "/api/queue",
+  cancel: (job: number) => `/api/queue/jobs/${job.toString()}/cancel`,
 };
+
+/**
+ * The header a write carries: a page of another origin cannot send it
+ * without the browser asking the server first, which it never allows.
+ */
+const WRITE_HEADER = { "X-Viz-Write": "1" };
 
 /** GET a URL and parse its JSON with schema; any failure is an ApiError. */
 export async function getJson<T>(
@@ -48,7 +61,18 @@ export async function getJson<T>(
   schema: z.ZodType<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(url, signal ? { signal } : {});
+  return parse(await fetch(url, signal ? { signal } : {}), schema);
+}
+
+/** POST to a write's URL, with no body, and parse its JSON with schema. */
+export async function postJson<T>(url: string, schema: z.ZodType<T>) {
+  return parse(
+    await fetch(url, { method: "POST", headers: WRITE_HEADER }),
+    schema,
+  );
+}
+
+async function parse<T>(response: Response, schema: z.ZodType<T>) {
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const reason = reasonOf(body) ?? response.statusText;

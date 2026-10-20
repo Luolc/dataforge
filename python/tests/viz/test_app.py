@@ -13,6 +13,8 @@ from tests.viz.sites import FIXTURES, make_tree, PROJECT, Tree
 
 API = "/api/projects/example"
 QUERY = {"attempt": "batch-1/task-1"}
+# The only routes that write, and only to the job queue (test_actions.py).
+WRITES = ("/api/projects/{p}/actions/{name}", "/api/queue/jobs/{job}/cancel")
 
 
 @pytest.fixture
@@ -58,9 +60,9 @@ def test_every_route_is_a_get_and_writes_nothing(
     "/index.html",
   ]
 
-  methods = {
-    m for r in app.routes if isinstance(r, APIRoute) for m in r.methods or ()
-  }
+  routes = [r for r in app.routes if isinstance(r, APIRoute)]
+  writes = {r.path: r.methods for r in routes if r.path in WRITES}
+  methods = {m for r in routes if r.path not in WRITES for m in r.methods or ()}
   for url in urls:
     assert web.get(url).status_code == 200, url
     assert web.head(url).status_code == 200, url
@@ -68,6 +70,7 @@ def test_every_route_is_a_get_and_writes_nothing(
       assert web.request(method, url).status_code == 405, (method, url)
 
   assert methods == {"GET", "HEAD"}
+  assert writes == {path: {"POST"} for path in WRITES}
   assert snapshot(tree.root.parent.parent) == before
 
 
@@ -147,6 +150,7 @@ def test_projects_leave_out_where_the_files_are(
     "deliverables": [],
     "trials": None,
     "monitor": False,
+    "actions": [],
   }
 
 

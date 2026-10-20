@@ -42,6 +42,7 @@ import {
 } from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
+import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
 import { declaredMissing, tabKinds } from "./declared";
 import { attemptHref } from "./href";
@@ -235,6 +236,7 @@ function Attempt({
       <Header attempt={attempt}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
+      <Actions project={project} attempt={attempt} />
       <ReadFailed failed={failed} />
       <Tabs project={project} attempt={attempt} tabs={tabs} current={tab} />
       {tab === "runs" ? (
@@ -301,6 +303,13 @@ function ReadFailed({ failed }: { failed: Failed | null }) {
       )}
     </div>
   );
+}
+
+/** The item's actions, when the project names any. */
+function Actions({ project, attempt }: { project: Project; attempt: string }) {
+  return (project.actions ?? []).length > 0 ? (
+    <ItemActions project={project} attempt={attempt} />
+  ) : null;
 }
 
 interface Tab {
@@ -382,6 +391,7 @@ function OtherRecord({
   return (
     <>
       <Header attempt={attempt} />
+      <Actions project={project} attempt={attempt} />
       <Tabs
         project={project}
         attempt={attempt}

@@ -1,0 +1,7 @@
+# Two synthetic queues; the machine checks never hold a job back.
+queues: { fast: 2, slow: 1 }
+max_running: 3
+min_mem_available_mib: 0
+max_load1: 1000
+database: queue.sqlite
+logs: logs
