@@ -1,4 +1,4 @@
-import { Maximize, Minimize, Minus, Plus } from "lucide-react";
+import { CircleDashed, Maximize, Minimize, Minus, Plus } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -497,11 +497,16 @@ function NodeCard({
           <StatusIcon project={project} word={node.word} ended={node.ended} />
         </foreignObject>
       ) : (
-        <circle
-          cx="20"
-          cy="20"
-          r="7"
-          className="fill-none stroke-icon [stroke-dasharray:var(--dash-not-taken)]"
+        // As big as a StatusIcon, its stroke as wide as that icon's glyph
+        // draws (3 at 10px wide is about 2 at 16px).
+        <CircleDashed
+          x="12"
+          y="12"
+          width="16"
+          height="16"
+          strokeWidth={2}
+          className="text-icon"
+          aria-hidden
         />
       )}
       <text
