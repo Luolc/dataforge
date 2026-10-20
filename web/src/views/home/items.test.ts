@@ -28,7 +28,8 @@ describe("whether an attempt has not ended", () => {
   });
 
   it("reads a listing without live as ended", () => {
-    const { live: _, ...old } = row("a/1", { status: null });
+    const old: Partial<ReturnType<typeof row>> = row("a/1", { status: null });
+    delete old.live;
     expect(attemptRow.parse(old)).not.toHaveProperty("live");
     expect(notEnded(homeRow.parse(old))).toBe(false);
   });
