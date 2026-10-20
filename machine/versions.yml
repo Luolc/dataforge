@@ -71,7 +71,3 @@ pi_version: 1.2.0
 pi_sha256: 00fc36cffdebceea5a48230da62cf3fb463178f8fe185766652f96002a246847
 codex_version: 0.159.3
 codex_sha256: 3930f31ac5fca861ea3e444e2683f261190d96b63fba58e0a40a879174369cdf
-
-# Only installed with zsh_personal (the default).
-oh_my_zsh_commit: 60c9a7a839b790cd905d0fd4419435124fd1bdc0
-powerlevel10k_commit: 35833ea15f14b71dbcebc7e54c104d8d56ca5268  # v1.20.0

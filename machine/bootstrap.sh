@@ -5,9 +5,9 @@
 # a local connection.
 #
 # Usage: machine/bootstrap.sh [ansible-playbook options]
-# For example `-e zsh_personal=false`. Settings that belong to one machine
-# (git identity, token location) go in ~/.config/dataforge/setup.yml, which is
-# passed to Ansible when it exists.
+# For example `-e docker_log_max_file=3`. Settings that belong to one machine
+# (gateway address, token location) go in ~/.config/dataforge/setup.yml,
+# which is passed to Ansible when it exists.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 pin() { sed -n "s/^$1: *//p" "$here/versions.yml"; }

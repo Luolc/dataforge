@@ -9,14 +9,20 @@
 # A Pi or Codex CLI tarball with the wrong sha256 must stop the run and
 # leave the installed version in use, and rg and fdfind, which Pi would
 # otherwise download, must be on PATH.
+# No run may change the owner's shell startup files, Claude Code settings or
+# global git configuration, or the login shell. The run without settings
+# completes with no Claude Code settings and no shim on PATH; once the
+# gateway address is set, a run must stop when the gateway shim is not first
+# on PATH in a new login or interactive shell, or when one of the four Claude
+# Code keys it checks is not as it needs.
 # Then it drives the gateway client install from a fake release (a missing
-# checksum file or a tampered download must not replace it), the zshenv
-# extension point, fednet being brought to its latest release and the
-# personal zsh switch. Docker is checked as installed, with its log rotation
-# in daemon.json, Chrome as running, with the CJK fonts, no apt source and
-# only its pinned .deb kept, a Chrome .deb with the wrong sha256 as refused,
-# and check mode on a machine that lacks a vendor apt source, or that Chrome,
-# Pi and Codex CLI were never installed on, as running to the end.
+# checksum file or a tampered download must not replace it) and fednet being
+# brought to its latest release. Docker is checked as installed, with its log
+# rotation in daemon.json, Chrome as running, with the CJK fonts, no apt
+# source and only its pinned .deb kept, a Chrome .deb with the wrong sha256 as
+# refused, and check mode on a machine that lacks a vendor apt source, or
+# that Chrome, Pi, Codex CLI and the gateway client were never installed on,
+# as running to the end.
 set -eu
 m=$HOME/machine
 out=$HOME/out
@@ -96,22 +102,31 @@ recap() { grep -E '^localhost +:' "$out/$1"; }
 # The release a run reports for a tool, from its "<tool> <tag>" line.
 tag_of() { sed -n "s/^ *\"msg\": \"$1 \(.*\)\"$/\1/p" "$out/$2" | tail -n 1; }
 
-# A setting the setup does not own, which it must keep, and
-# DISABLE_AUTOUPDATER, which the gateway client refuses to start with and the
-# setup must remove.
+# The owner's files, which no run of the setup may touch. The agent user's
+# login shell is bash, as the image made it, and its ~/.profile and ~/.bashrc
+# are the stock ones; the zsh files and ~/.gitconfig are only there to be
+# left alone. There are no Claude Code settings yet: on a new machine the
+# setup runs before the owner's dotfiles are in place, and it checks the shim
+# on PATH and the Claude Code settings only once the gateway address is set.
+cat >"$HOME/.zshenv" <<'ZSHENV'
+export PATH="$HOME/.local/libexec/redcoast-client/current:$HOME/.local/bin:$PATH"
+ZSHENV
+echo '# The owner'"'"'s zshrc.' >"$HOME/.zshrc"
+echo '# The owner'"'"'s p10k.zsh.' >"$HOME/.p10k.zsh"
+printf '[user]\n\tname = Owner\n\temail = owner@example.invalid\n' >"$HOME/.gitconfig"
+owner_files=".profile .bashrc .zshenv .zshrc .p10k.zsh .gitconfig"
+# shellcheck disable=SC2086 # one word per file
+(cd "$HOME" && sha256sum $owner_files) >"$out/owner.sha256"
+owner_unchanged() { (cd "$HOME" && sha256sum --check --quiet "$out/owner.sha256"); }
+login_shell=$(getent passwd agent | cut -d: -f7)
 settings=$HOME/.claude/settings.json
-mkdir -p "$HOME/.claude"
-echo '{"env": {"EXISTING_SETTING": "kept", "DISABLE_AUTOUPDATER": "1"}}' >"$settings"
+claude_state=$HOME/.claude.json
 
 # A Docker daemon setting the setup does not own, which it must keep, next
 # to the log options it owns.
 daemon=/etc/docker/daemon.json
 sudo mkdir -p /etc/docker
 echo '{"debug": true, "log-opts": {"labels": "kept"}}' | sudo tee "$daemon" >/dev/null
-
-# The owner's global git configuration, which no run of the setup may touch.
-printf '[user]\n\tname = Owner\n\temail = owner@example.invalid\n' >"$HOME/.gitconfig"
-gitconfig_sha=$(sha256sum <"$HOME/.gitconfig")
 
 # A new machine runs the setup before any of its settings are in place: no
 # gateway address or GitHub token. Every tool comes from its
@@ -122,9 +137,30 @@ for t in fleet fednet atb statute "gateway client"; do
 done
 case "$(tag_of statute run0.log)" in statute-v*) ;; *) fail "run0 took statute from $(tag_of statute run0.log)" ;; esac
 grep -q 'No redcoast_client_address' "$out/run0.log" || fail "run0 did not report the missing gateway address"
+grep -q 'and of the Claude Code settings did not run' "$out/run0.log" || fail "run0 did not report the checks it skipped"
 [ ! -e "$HOME/.config/redcoast-client/shim.env" ] || fail "shim.env written without a gateway address"
-[ "$(sha256sum <"$HOME/.gitconfig")" = "$gitconfig_sha" ] || fail "run0 changed ~/.gitconfig"
+owner_unchanged || fail "run0 changed the owner's files"
+[ ! -e "$settings" ] && [ ! -e "$claude_state" ] || fail "run0 wrote Claude Code settings"
+[ "$(getent passwd agent | cut -d: -f7)" = "$login_shell" ] || fail "run0 changed the login shell"
 ok "run without machine settings: $(recap run0.log), statute $(tag_of statute run0.log), gateway client $(tag_of "gateway client" run0.log)"
+
+# What machine/README.md (step 2) has the owner put in place before the
+# setup runs with the gateway address: ~/.profile and ~/.bashrc put the
+# gateway shim first on PATH, and the Claude Code settings have the four keys
+# the setup checks, next to one it does not.
+for f in profile bashrc; do
+  cat >>"$HOME/.$f" <<'SHIM'
+export PATH="$HOME/.local/libexec/redcoast-client/current:$HOME/.local/bin:$PATH"
+SHIM
+  cp "$HOME/.$f" "$out/$f"
+done
+mkdir -p "${settings%/*}"
+echo '{"skipDangerousModePermissionPrompt": true, "env": {"DISABLE_UPDATES": "1", "EXISTING_SETTING": "kept"}}' >"$settings"
+cp "$settings" "$out/settings.json"
+echo '{"hasCompletedOnboarding": true}' >"$claude_state"
+cp "$claude_state" "$out/claude.json"
+# shellcheck disable=SC2086 # one word per file
+(cd "$HOME" && sha256sum $owner_files "${settings#"$HOME"/}" "${claude_state#"$HOME"/}") >"$out/owner.sha256"
 
 serve
 v1=$(stage 1.0.0)
@@ -146,6 +182,42 @@ recap run2c.log | grep -Eq 'changed=0 +unreachable=0 +failed=0' || {
   fail "check-mode run would change something: $(recap run2c.log)"
 }
 ok "check-mode run: $(recap run2c.log)"
+grep -A1 -F 'TASK [Gateway client | claude is the shim in a new shell]' "$out/run2.log" | grep -q '^ok:' ||
+  fail "second run did not check that claude is the shim"
+
+# A new shell that finds another claude first, login or interactive: the run
+# stops, naming the shell and the README's section. Check mode runs the
+# check too, so these runs use it.
+for t in profile:-l bashrc:-i; do
+  file=$HOME/.${t%%:*}
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >>"$file"
+  if setup "run2s${t#*:}.log" --check; then fail "a $t that puts ~/.local/bin first was accepted"; fi
+  cp "$out/${t%%:*}" "$file"
+  grep -q "claude is not the gateway shim $HOME/.local/libexec/redcoast-client/current/claude in a new shell: .$login_shell ${t#*:}. finds claude at ..$HOME/.local/bin/claude." "$out/run2s${t#*:}.log" ||
+    { tail -n 20 "$out/run2s${t#*:}.log"; fail "run2s${t#*:} failed for another reason"; }
+  grep -qF 'README.md, \"The gateway shim on PATH\", shows' "$out/run2s${t#*:}.log" || fail "run2s${t#*:} does not name the README's section"
+done
+ok "a new login or interactive shell that finds another claude stops the run"
+
+# Each of the four Claude Code keys the setup checks, not as it needs: the
+# run stops, naming the key, its file and the README's section.
+for t in \
+  "$claude_state|del(.hasCompletedOnboarding)|hasCompletedOnboarding is not true in $claude_state" \
+  "$settings|.skipDangerousModePermissionPrompt = false|skipDangerousModePermissionPrompt is not true in $settings" \
+  "$settings|del(.env.DISABLE_UPDATES)|env.DISABLE_UPDATES is not set in $settings" \
+  "$settings|.env.DISABLE_AUTOUPDATER = \"1\"|env.DISABLE_AUTOUPDATER is set in $settings"; do
+  file=${t%%|*}
+  rest=${t#*|}
+  jq "${rest%%|*}" "$file" >"$out/mutated.json"
+  cp "$out/mutated.json" "$file"
+  if setup run2k.log --check; then fail "Claude Code settings accepted: ${rest#*|}"; fi
+  cp "$out/settings.json" "$settings"
+  cp "$out/claude.json" "$claude_state"
+  grep -q "Claude Code settings: ${rest#*|}\." "$out/run2k.log" || { tail -n 20 "$out/run2k.log"; fail "run2k failed for another reason than: ${rest#*|}"; }
+  grep -qF 'README.md, \"Claude Code settings\", shows' "$out/run2k.log" || fail "run2k does not name the README's section"
+done
+owner_unchanged || fail "the owner's files are not restored after the failing runs"
+ok "each of the four Claude Code keys, when not as needed, stops the run"
 
 # Check mode when the latest release of the gateway client and of statute (a
 # tarball tool) is not the installed one, and gh and Pi are pinned to
@@ -265,52 +337,45 @@ recap run2v.log | grep -Eq 'unreachable=0 +failed=0 .*ignored=1' || {
 grep -q 'TASK \[Base agent instructions\]' "$out/run2v.log" || fail "check-mode run without the Node.js source stopped before the last task"
 ok "check-mode run without the Node.js source: $(recap run2v.log)"
 
-# A machine Chrome, Pi and Codex CLI were never installed on has no
-# /opt/google-chrome or ~/.local/libexec/{pi,codex}. Check mode creates no
-# directory, so it cannot download into one; it still previews the rest of
-# the setup and leaves the directories uncreated.
+# A machine Chrome, Pi, Codex CLI and the gateway client were never
+# installed on has no /opt/google-chrome or
+# ~/.local/libexec/{pi,codex,redcoast-client}. Check mode creates no
+# directory, so it cannot download into one, and there is no shim yet to
+# check for; it still previews the rest of the setup and leaves the
+# directories uncreated.
 sudo mv /opt/google-chrome "$out/google-chrome"
-mv "$HOME/.local/libexec/pi" "$HOME/.local/libexec/codex" "$out/"
+mv "$HOME/.local/libexec/pi" "$HOME/.local/libexec/codex" "$HOME/.local/libexec/redcoast-client" "$out/"
 setup run2h.log --check ||
-  { tail -n 40 "$out/run2h.log"; fail "check-mode run before Chrome, Pi and Codex CLI are installed"; }
+  { tail -n 40 "$out/run2h.log"; fail "check-mode run before Chrome, Pi, Codex CLI and the gateway client are installed"; }
 [ ! -e /opt/google-chrome ] || fail "check mode created /opt/google-chrome"
-[ ! -e "$HOME/.local/libexec/pi" ] && [ ! -e "$HOME/.local/libexec/codex" ] || fail "check mode created ~/.local/libexec/pi or codex"
+for t in pi codex redcoast-client; do
+  [ ! -e "$HOME/.local/libexec/$t" ] || fail "check mode created ~/.local/libexec/$t"
+done
 sudo mv "$out/google-chrome" /opt/google-chrome
-mv "$out/pi" "$out/codex" "$HOME/.local/libexec/"
+mv "$out/pi" "$out/codex" "$out/redcoast-client" "$HOME/.local/libexec/"
 recap run2h.log | grep -Eq 'unreachable=0 +failed=0' || {
-  grep -A3 -E '^TASK \[Google Chrome' "$out/run2h.log" || true
-  fail "check-mode run before Chrome, Pi and Codex CLI are installed: $(recap run2h.log)"
+  grep -A3 -E '^TASK \[(Google Chrome|Gateway client)' "$out/run2h.log" || true
+  fail "check-mode run before Chrome, Pi, Codex CLI and the gateway client are installed: $(recap run2h.log)"
 }
-grep -q 'TASK \[Base agent instructions\]' "$out/run2h.log" || fail "check-mode run before Chrome, Pi and Codex CLI are installed stopped before the last task"
-ok "check-mode run before Chrome, Pi and Codex CLI are installed: $(recap run2h.log)"
+grep -A1 -F 'TASK [Gateway client | claude is the shim in a new shell]' "$out/run2h.log" | grep -q '^skipping:' ||
+  fail "check mode checked for a shim that was never installed"
+grep -q 'TASK \[Base agent instructions\]' "$out/run2h.log" || fail "check-mode run before Chrome, Pi, Codex CLI and the gateway client are installed stopped before the last task"
+ok "check-mode run before Chrome, Pi, Codex CLI and the gateway client are installed: $(recap run2h.log)"
 
 for d in dev wt scratch; do [ -d "$HOME/$d" ] || fail "$HOME/$d missing"; done
 ok "dev, wt and scratch under $HOME"
-[ "$(sha256sum <"$HOME/.gitconfig")" = "$gitconfig_sha" ] || fail "the setup changed ~/.gitconfig"
-ok "~/.gitconfig unchanged"
-[ "$(getent passwd agent | cut -d: -f7)" = /usr/bin/zsh ] || fail "login shell"
 id -nG agent | grep -qw docker || fail "docker group"
-ok "login shell zsh, in docker group"
+ok "in docker group"
 [ "$(jq -r '."log-driver"' "$daemon")" = json-file ] || fail "daemon.json: log-driver is not json-file"
 [ "$(jq -r '."log-opts"."max-size"' "$daemon")" = 50m ] || fail "daemon.json: log-opts.max-size is not 50m"
 [ "$(jq '."log-opts"."max-file"' "$daemon")" = '"5"' ] || fail "daemon.json: log-opts.max-file is not the string \"5\""
 [ "$(jq -c '[.debug, ."log-opts".labels]' "$daemon")" = '[true,"kept"]' ] || fail "daemon.json: an existing setting was dropped"
 ok "Docker logs rotate: $(jq -c '."log-opts"' "$daemon"), existing keys kept"
-[ "$(jq -r .autoMemoryEnabled "$settings")" = false ] || fail "memory not off"
-[ "$(jq -r .env.EXISTING_SETTING "$settings")" = kept ] || fail "an existing setting was dropped"
-[ "$(jq -r .env.DISABLE_UPDATES "$settings")" = 1 ] || fail "env.DISABLE_UPDATES is not 1"
-[ "$(jq -r '.env | has("DISABLE_AUTOUPDATER")' "$settings")" = false ] || fail "env.DISABLE_AUTOUPDATER still in settings"
-[ "$(jq -r .hasCompletedOnboarding "$HOME/.claude.json")" = true ] || fail "onboarding"
-ok "Claude Code settings merged, existing key kept, DISABLE_AUTOUPDATER removed"
 
-# Gateway client: the shim resolves first in every zsh, interactive or not.
-shim() { zsh -i -c 'command -v claude' 2>/dev/null | tail -n 1; }
-[ "$(shim)" = "$gw/current/claude" ] || fail "claude is $(shim), not the shim"
-plain=$(zsh -c 'command -v claude')
-[ "$plain" = "$gw/current/claude" ] || fail "in a non-interactive zsh, claude is $plain, not the shim"
+# Gateway client.
 [ "$(readlink "$gw/current")" = 1.0.0 ] || fail "current is not 1.0.0"
 grep -qx 'prefix=' "$HOME/.config/redcoast-client/shim.env" || fail "shim.env has no empty prefix= line"
-ok "gateway 1.0.0 installed, claude resolves to the shim in every zsh, shim.env has an empty prefix"
+ok "gateway 1.0.0 installed, shim.env has an empty prefix"
 
 installed_is 1.0.0 "$v1" || fail "1.0.0 does not have the release's digests"
 ok "gateway 1.0.0 matches its release's SHA256SUMS"
@@ -362,7 +427,7 @@ grep -q 'injected mv failure' "$out/run6.log" || { tail -n 20 "$out/run6.log"; f
 [ "$(readlink "$gw/current")" = 2.0.0 ] || fail "current moved after a failed replacement"
 cmp -s "$gw/2.0.0/claude" "$out/claude-2.0.0-before" || fail "old 2.0.0 not put back"
 installed_is 2.0.0 "$v2" || fail "restored 2.0.0 does not have its old digests"
-[ "$(shim)" = "$gw/current/claude" ] || fail "claude is $(shim) after a failed replacement"
+"$gw/current/claude" >/dev/null || fail "the shim does not run after a failed replacement"
 ok "failed replacement of 2.0.0 put the old copy back, current still works"
 
 setup run7.log || { tail -n 40 "$out/run7.log"; fail "reinstall of 2.0.0"; }
@@ -370,26 +435,18 @@ grep -q 'rebuilt' "$gw/2.0.0/claude" || fail "2.0.0 not reinstalled for the rebu
 [ ! -e "$gw/2.0.0.old" ] || fail "old copy left behind"
 ok "rebuilt 2.0.0 reinstalled"
 
-# Every zsh sources the machine's own zshenv.local, which the setup leaves
-# as it is. A fednet that is not its latest release (a stand-in binary here)
-# is replaced by that release.
-local_env=$HOME/.config/dataforge/zshenv.local
-mkdir -p "${local_env%/*}"
-echo 'export DATAFORGE_TEST_LOCAL=from-local' >"$local_env"
-cp "$local_env" "$out/zshenv.local"
-[ "$(zsh -c 'echo $DATAFORGE_TEST_LOCAL')" = from-local ] || fail "zshenv.local not sourced"
+# A fednet that is not its latest release (a stand-in binary here) is
+# replaced by that release.
 printf '#!/bin/sh\necho stand-in\n' >"$out/fednet"
 sudo install -m 755 "$out/fednet" /usr/local/bin/fednet
-
-# The personal zsh layer is on by default and can be switched off.
-grep -q oh-my-zsh.sh "$HOME/.zshrc" || fail "personal layer missing by default"
-setup run8.log -e zsh_personal=false || { tail -n 40 "$out/run8.log"; fail "zsh_personal=false"; }
-cmp -s "$local_env" "$out/zshenv.local" || fail "the setup changed zshenv.local"
-[ "$(zsh -c 'echo $DATAFORGE_TEST_LOCAL')" = from-local ] || fail "zshenv.local not sourced after a rerun"
-ok "zshenv.local sourced and kept"
+setup run8.log || { tail -n 40 "$out/run8.log"; fail "run with a stand-in fednet"; }
 check_version "fednet replaced" "$(tag_of fednet run8.log)" /usr/local/bin/fednet version
-if grep -q oh-my-zsh "$HOME/.zshrc"; then fail "personal layer still in .zshrc"; fi
-[ "$(shim)" = "$gw/current/claude" ] || fail "without the personal layer, claude is $(shim)"
-ok "zsh_personal=false drops the personal layer, the shim stays first"
+
+# After every run above, the owner's files and the login shell are as they
+# were before the first.
+owner_unchanged || fail "the setup changed the owner's files"
+ok "the owner's shell startup files, Claude Code settings and ~/.gitconfig unchanged"
+[ "$(getent passwd agent | cut -d: -f7)" = "$login_shell" ] || fail "the setup changed the login shell"
+ok "login shell still $login_shell"
 
 echo "PASS"

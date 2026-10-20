@@ -2,7 +2,8 @@
 # latest redcoast release, `redcoast-client` and the shim
 # redcoast-client-shim-full installed as `claude` next to it. Each version
 # gets its own directory under ~/.local/libexec/redcoast-client, `current`
-# points at the one in use, and zshenv puts `current` first on PATH. Every
+# points at the one in use, and the owner's shell startup files put `current`
+# first on PATH, which the last task checks. Every
 # download is checked against the release's SHA256SUMS before it lands in the
 # new directory, and nothing is switched unless both are, so a bad download
 # leaves the previous version in use.
@@ -104,7 +105,10 @@
     - name: Gateway client | address missing
       when: redcoast_client_address == ""
       ansible.builtin.debug:
-        msg: "No redcoast_client_address in ~/.config/dataforge/setup.yml; shim.env not written, so the claude shim has no config yet (see machine/README.md)."
+        msg: >-
+          No redcoast_client_address in ~/.config/dataforge/setup.yml; shim.env not written, so the claude
+          shim has no config yet, and the checks of the shim on PATH and of the Claude Code settings did
+          not run (see machine/README.md).
 
     - name: Gateway client | config directory
       when: redcoast_client_address != ""
@@ -123,3 +127,47 @@
           credential_file=$HOME/.config/redcoast-client/machine-credential
           claude=$HOME/.local/bin/claude
           prefix=
+
+# The setup writes no shell startup file; the machine's owner puts `current`
+# first on PATH (machine/README.md, "The gateway shim on PATH"). A login shell
+# and an interactive shell of the user's login shell, each started with a
+# clean environment as a new session would be, must both find the shim as
+# `claude`. Like the shim's config, this waits for redcoast_client_address.
+# Check mode runs it too, unless the gateway client has never been installed
+# and so cannot be found yet.
+- name: Gateway client | shim path
+  when: redcoast_client_address != ""
+  ansible.builtin.stat:
+    path: "{{ home }}/.local/libexec/redcoast-client/current/claude"
+    get_checksum: false
+  register: gw_shim
+
+- name: Gateway client | claude in a new shell
+  when: redcoast_client_address != "" and (gw_shim.stat.exists or not ansible_check_mode)
+  ansible.builtin.shell:
+    cmd: |
+      shell=$(getent passwd "$USER_NAME" | cut -d: -f7)
+      for flag in -l -i; do
+        got=$(env -i HOME="$HOME" USER="$USER_NAME" LOGNAME="$USER_NAME" SHELL="$shell" TERM=dumb \
+          PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+          timeout 60 "$shell" "$flag" -c 'printf "claude=%s\n" "$(command -v claude)"' </dev/null 2>/dev/null |
+          sed -n 's/^claude=//p' | tail -n 1)
+        [ "$got" = "$SHIM" ] || echo "\`$shell $flag\` finds claude at \"$got\""
+      done
+  environment:
+    USER_NAME: "{{ user }}"
+    SHIM: "{{ home }}/.local/libexec/redcoast-client/current/claude"
+  register: gw_new_shell
+  changed_when: false
+  check_mode: false
+
+- name: Gateway client | claude is the shim in a new shell
+  when: redcoast_client_address != "" and (gw_shim.stat.exists or not ansible_check_mode)
+  ansible.builtin.assert:
+    that: gw_new_shell.stdout == ""
+    fail_msg: >-
+      claude is not the gateway shim {{ home }}/.local/libexec/redcoast-client/current/claude
+      in a new shell: {{ gw_new_shell.stdout_lines | join('; ') }}.
+      Put the shim first on PATH in your shell startup files, as machine/README.md,
+      "The gateway shim on PATH", shows.
+    quiet: true
