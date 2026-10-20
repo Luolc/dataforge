@@ -312,6 +312,19 @@ def test_an_agent_by_import_path(
   assert argv[argv.index("--agent-import-path") + 1] == "my_dataset.agents:Mine"
 
 
+def test_harbor_gets_the_verifier_only_when_one_is_set(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  plain, custom = outdir(tmp_path, "plain"), outdir(tmp_path, "custom")
+  _ = runner(fakes).run(task(tmp_path), "nop", Limits(2), plain)
+  _ = replace(runner(fakes), verifier="my_dataset.verifier:Mine").run(
+    task(tmp_path), "nop", Limits(2), custom
+  )
+  assert "--verifier" not in seen_argv(plain)
+  argv = seen_argv(custom)
+  assert argv[argv.index("--verifier") + 1] == "my_dataset.verifier:Mine"
+
+
 def test_the_overlay_caps_the_task_container(
   tmp_path: Path, fakes: tuple[Path, Path]
 ) -> None:
