@@ -1,0 +1,31 @@
+id = 33
+slug = "design-two-files-cap"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R232"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Keep the design in docs/design.md and docs/design-viz.md, at most 200 lines each"
+
+[text.statement]
+en = "Keep the whole design in two files, each at most 200 lines long: the design of the viz, the web viewer of attempts and its server, in `docs/design-viz.md`, and the rest in `docs/design.md`."
+
+[text.reason]
+en = '''
+One short file is read whole before a change; the cap keeps it to what a reader needs. The viz is a part of its own, with its own stack, and does not fit in the cap of `docs/design.md`; it gets one more file, and no other part does.
+'''
+
+[text.verification]
+en = '''
+`.github/scripts/design-length.sh` checks the cap of both files, and CI's `check` job runs it.
+
+Violated when a change adds a third design file, puts into `docs/design-viz.md` a part of the design other than the viz, or leaves either file longer than 200 lines.
+'''
