@@ -1,0 +1,794 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 40.0,
+    "cost_usd": 5.83,
+    "stopped": null
+  },
+  "final": {
+    "author": {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task"
+          },
+          "started_at": "2026-03-05T08:30:00+00:00",
+          "ended_at": "2026-03-05T08:41:17+00:00",
+          "cost_usd": 1.91,
+          "summary": null
+        }
+      ]
+    },
+    "check": {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {
+        "failed": 0
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/1/check.log"
+          },
+          "started_at": "2026-03-05T08:41:26+00:00",
+          "ended_at": "2026-03-05T08:44:43+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    "review": {
+      "state": "review",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {
+        "passed": 6,
+        "failed": 0,
+        "warnings": 1
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "report": "artifacts/review/1/report.md",
+            "scores": "artifacts/review/1/scores.json",
+            "rubric": "artifacts/review/1/rubric.json",
+            "notes": "artifacts/review/1/notes.md"
+          },
+          "started_at": "2026-03-05T08:44:52+00:00",
+          "ended_at": "2026-03-05T08:47:09+00:00",
+          "cost_usd": 0.44,
+          "summary": "Review **passed**: 6 of 6 criteria."
+        }
+      ]
+    },
+    "solve": {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {
+        "solved": 5,
+        "k": 12
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-05T08:47:18+00:00",
+          "ended_at": "2026-03-05T08:56:35+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-03-05T08:56:44+00:00",
+          "ended_at": "2026-03-05T09:07:01+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-03-05T09:07:10+00:00",
+          "ended_at": "2026-03-05T09:15:27+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-4": "artifacts/solve/1/trial-4"
+          },
+          "started_at": "2026-03-05T09:15:36+00:00",
+          "ended_at": "2026-03-05T09:24:53+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-5": "artifacts/solve/1/trial-5"
+          },
+          "started_at": "2026-03-05T09:25:02+00:00",
+          "ended_at": "2026-03-05T09:35:19+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-6": "artifacts/solve/1/trial-6"
+          },
+          "started_at": "2026-03-05T09:35:28+00:00",
+          "ended_at": "2026-03-05T09:43:45+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-7": "artifacts/solve/1/trial-7"
+          },
+          "started_at": "2026-03-05T09:43:54+00:00",
+          "ended_at": "2026-03-05T09:53:11+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-8": "artifacts/solve/1/trial-8"
+          },
+          "started_at": "2026-03-05T09:53:20+00:00",
+          "ended_at": "2026-03-05T10:03:37+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-9": "artifacts/solve/1/trial-9"
+          },
+          "started_at": "2026-03-05T10:03:46+00:00",
+          "ended_at": "2026-03-05T10:12:03+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-10": "artifacts/solve/1/trial-10"
+          },
+          "started_at": "2026-03-05T10:12:12+00:00",
+          "ended_at": "2026-03-05T10:21:29+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-11": "artifacts/solve/1/trial-11"
+          },
+          "started_at": "2026-03-05T10:21:38+00:00",
+          "ended_at": "2026-03-05T10:31:55+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-12": "artifacts/solve/1/trial-12"
+          },
+          "started_at": "2026-03-05T10:32:04+00:00",
+          "ended_at": "2026-03-05T10:40:21+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-05T10:40:30+00:00",
+          "ended_at": "2026-03-05T10:41:47+00:00",
+          "cost_usd": 0.0,
+          "summary": "pass@12 solved **5 of 12**; trial-7 raised."
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task"
+          },
+          "started_at": "2026-03-05T08:30:00+00:00",
+          "ended_at": "2026-03-05T08:41:17+00:00",
+          "cost_usd": 1.91,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {
+        "failed": 0
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "log": "artifacts/check/1/check.log"
+          },
+          "started_at": "2026-03-05T08:41:26+00:00",
+          "ended_at": "2026-03-05T08:44:43+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {
+        "passed": 6,
+        "failed": 0,
+        "warnings": 1
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "judge",
+          "status": "ok",
+          "outputs": {
+            "report": "artifacts/review/1/report.md",
+            "scores": "artifacts/review/1/scores.json",
+            "rubric": "artifacts/review/1/rubric.json",
+            "notes": "artifacts/review/1/notes.md"
+          },
+          "started_at": "2026-03-05T08:44:52+00:00",
+          "ended_at": "2026-03-05T08:47:09+00:00",
+          "cost_usd": 0.44,
+          "summary": "Review **passed**: 6 of 6 criteria."
+        }
+      ]
+    },
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {
+        "solved": 5,
+        "k": 12
+      },
+      "mark": null,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-05T08:47:18+00:00",
+          "ended_at": "2026-03-05T08:56:35+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-03-05T08:56:44+00:00",
+          "ended_at": "2026-03-05T09:07:01+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-03-05T09:07:10+00:00",
+          "ended_at": "2026-03-05T09:15:27+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-4": "artifacts/solve/1/trial-4"
+          },
+          "started_at": "2026-03-05T09:15:36+00:00",
+          "ended_at": "2026-03-05T09:24:53+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-5": "artifacts/solve/1/trial-5"
+          },
+          "started_at": "2026-03-05T09:25:02+00:00",
+          "ended_at": "2026-03-05T09:35:19+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-6": "artifacts/solve/1/trial-6"
+          },
+          "started_at": "2026-03-05T09:35:28+00:00",
+          "ended_at": "2026-03-05T09:43:45+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-7": "artifacts/solve/1/trial-7"
+          },
+          "started_at": "2026-03-05T09:43:54+00:00",
+          "ended_at": "2026-03-05T09:53:11+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-8": "artifacts/solve/1/trial-8"
+          },
+          "started_at": "2026-03-05T09:53:20+00:00",
+          "ended_at": "2026-03-05T10:03:37+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-9": "artifacts/solve/1/trial-9"
+          },
+          "started_at": "2026-03-05T10:03:46+00:00",
+          "ended_at": "2026-03-05T10:12:03+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-10": "artifacts/solve/1/trial-10"
+          },
+          "started_at": "2026-03-05T10:12:12+00:00",
+          "ended_at": "2026-03-05T10:21:29+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-11": "artifacts/solve/1/trial-11"
+          },
+          "started_at": "2026-03-05T10:21:38+00:00",
+          "ended_at": "2026-03-05T10:31:55+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-12": "artifacts/solve/1/trial-12"
+          },
+          "started_at": "2026-03-05T10:32:04+00:00",
+          "ended_at": "2026-03-05T10:40:21+00:00",
+          "cost_usd": 0.29,
+          "summary": null
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-05T10:40:30+00:00",
+          "ended_at": "2026-03-05T10:41:47+00:00",
+          "cost_usd": 0.0,
+          "summary": "pass@12 solved **5 of 12**; trial-7 raised."
+        }
+      ]
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "state": "solve",
+      "output": null,
+      "visit": 1,
+      "visit_index": 3,
+      "path": "artifacts/solve/1",
+      "reason": null,
+      "k": 12,
+      "value": {
+        "output": null,
+        "field": [
+          "solved"
+        ],
+        "value": 5,
+        "reason": null
+      },
+      "trials": [
+        {
+          "id": "sample-task__t01",
+          "output": "trial-1",
+          "path": "artifacts/solve/1/trial-1",
+          "trace": {
+            "path": "artifacts/solve/1/trial-1/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t02",
+          "output": "trial-2",
+          "path": "artifacts/solve/1/trial-2",
+          "trace": {
+            "path": "artifacts/solve/1/trial-2/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t03",
+          "output": "trial-3",
+          "path": "artifacts/solve/1/trial-3",
+          "trace": {
+            "path": "artifacts/solve/1/trial-3/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t04",
+          "output": "trial-4",
+          "path": "artifacts/solve/1/trial-4",
+          "trace": {
+            "path": "artifacts/solve/1/trial-4/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t05",
+          "output": "trial-5",
+          "path": "artifacts/solve/1/trial-5",
+          "trace": {
+            "path": "artifacts/solve/1/trial-5/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t06",
+          "output": "trial-6",
+          "path": "artifacts/solve/1/trial-6",
+          "trace": {
+            "path": "artifacts/solve/1/trial-6/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t07",
+          "output": "trial-7",
+          "path": "artifacts/solve/1/trial-7",
+          "trace": {
+            "path": "artifacts/solve/1/trial-7/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": null,
+            "rewards": {},
+            "exception": "AgentTimeoutError"
+          }
+        },
+        {
+          "id": "sample-task__t08",
+          "output": "trial-8",
+          "path": "artifacts/solve/1/trial-8",
+          "trace": {
+            "path": "artifacts/solve/1/trial-8/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t09",
+          "output": "trial-9",
+          "path": "artifacts/solve/1/trial-9",
+          "trace": {
+            "path": "artifacts/solve/1/trial-9/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t10",
+          "output": "trial-10",
+          "path": "artifacts/solve/1/trial-10",
+          "trace": {
+            "path": "artifacts/solve/1/trial-10/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t11",
+          "output": "trial-11",
+          "path": "artifacts/solve/1/trial-11",
+          "trace": {
+            "path": "artifacts/solve/1/trial-11/agent/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "sample-task__t12",
+          "output": "trial-12",
+          "path": "artifacts/solve/1/trial-12",
+          "trace": null,
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        }
+      ]
+    }
+  ],
+  "graph": {
+    "start": "author",
+    "states": [
+      {
+        "name": "author",
+        "kind": "AgentState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 6.0
+      },
+      {
+        "name": "check",
+        "kind": "ScriptState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "review",
+        "kind": "RubricState",
+        "max_visits": 2,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 2.0
+      },
+      {
+        "name": "solve",
+        "kind": "PassAtKState",
+        "max_visits": 1,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 8.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "author",
+        "outcome": "done",
+        "to": "check",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "author",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "pass",
+        "to": "review",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": true
+      },
+      {
+        "from": "review",
+        "outcome": "pass",
+        "to": "solve",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "in_range",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "all_solved",
+        "to": null,
+        "end": "too_easy",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "none_solved",
+        "to": null,
+        "end": "too_hard",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  }
+}
