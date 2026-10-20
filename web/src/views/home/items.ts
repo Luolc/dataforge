@@ -22,9 +22,9 @@ const LIVE_WORD: Record<Live, string | null> = {
 /** A filter key for items whose newest attempt has not ended. */
 export const NOT_ENDED_KEY = "~not-ended";
 /** A filter key, and a status word, for items whose record cannot be read. */
-export const UNREADABLE = "~unreadable";
+export const UNREADABLE_KEY = "~unreadable";
 /** A status word for an attempt that has ended with no status word. */
-export const NO_STATUS = "~no-status";
+export const NO_STATUS_KEY = "~no-status";
 
 export type Group = "open" | "ended" | "unreadable";
 
@@ -51,15 +51,15 @@ export const notEnded = (row: AttemptRow): boolean =>
   row.error === null && (row.live ?? null) !== null;
 
 /**
- * An attempt's status word: UNREADABLE when its record cannot be read; while
+ * An attempt's status word: UNREADABLE_KEY when its record cannot be read; while
  * it has not ended, live's word (null for not ended); else its record's
- * status, raised when its last visit raised, or NO_STATUS.
+ * status, raised when its last visit raised, or NO_STATUS_KEY.
  */
 export function rowStatus(row: AttemptRow): string | null {
-  if (row.error !== null) return UNREADABLE;
+  if (row.error !== null) return UNREADABLE_KEY;
   if (row.live !== null && row.live !== undefined) return LIVE_WORD[row.live];
   if (row.status !== null) return row.status;
-  return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : NO_STATUS;
+  return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : NO_STATUS_KEY;
 }
 
 /** An attempt's seconds from start to end; null until it ends. */
@@ -147,8 +147,8 @@ export function withHomeStatuses(project: Project): Project {
       ...project.statuses,
       "~running": liveStatus.running,
       "~may-have-stopped": liveStatus["may have stopped"],
-      [NO_STATUS]: viewerStatus.noStatus,
-      [UNREADABLE]: viewerStatus.unreadable,
+      [NO_STATUS_KEY]: viewerStatus.noStatus,
+      [UNREADABLE_KEY]: viewerStatus.unreadable,
     },
   };
 }
@@ -197,7 +197,7 @@ export function filterItems(
   const order = (key: string) =>
     FIRST.includes(key)
       ? FIRST.indexOf(key) - FIRST.length
-      : key === UNREADABLE
+      : key === UNREADABLE_KEY
         ? Infinity
         : declared.includes(key)
           ? declared.indexOf(key)
