@@ -7,7 +7,8 @@
 # its pinned version or, for the tools the repository owner publishes, at
 # the release the run reports, statute's picked from a fake release list.
 # A Pi or Codex CLI tarball with the wrong sha256 must stop the run and
-# leave the installed version in use.
+# leave the installed version in use, and rg and fdfind, which Pi would
+# otherwise download, must be on PATH.
 # Then it drives the gateway client install from a fake release (a missing
 # checksum file or a tampered download must not replace it), the zshenv
 # extension point, fednet being brought to its latest release and the
@@ -206,6 +207,12 @@ chrome_debs=$(ls /opt/google-chrome)
 ok "/opt/google-chrome holds only $chrome_debs"
 cjk=$(fc-list | grep -c 'Noto Sans CJK') || fail "fc-list lists no Noto Sans CJK font"
 ok "fc-list: $cjk Noto Sans CJK faces"
+# Pi looks up rg and fd (or fdfind) on PATH and downloads them unverified
+# when they are missing.
+for t in rg fdfind; do
+  found=$(command -v "$t") || fail "$t not on PATH"
+  ok "$t: $found"
+done
 check_version direnv "$(dpkg-query -W -f '${Version}' direnv | sed 's/-.*//')" /usr/bin/direnv version
 check_version fleet "fleet $(tag_of fleet run2.log | sed 's/^v//')" /usr/local/bin/fleet --version
 check_version fednet "$(tag_of fednet run2.log)" /usr/local/bin/fednet version
