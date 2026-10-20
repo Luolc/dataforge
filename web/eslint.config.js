@@ -85,7 +85,7 @@ export default defineConfig([
     files: [
       "src/session/Session.tsx",
       "src/shell/Shell.tsx",
-      "src/views/files/Preview.tsx",
+      "src/ui/diff.tsx",
       "src/views/runs/RunsView.tsx",
       "src/views/runs/run/index.tsx",
     ],
