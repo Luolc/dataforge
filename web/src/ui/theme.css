@@ -118,6 +118,13 @@
   }
 }
 
+/* A link set in running text or a breadcrumb, which looks like one: in the
+   accent, underlined under a hovering pointer. */
+@utility link {
+  color: var(--color-accent);
+  text-underline-offset: calc(var(--spacing) * 0.75);
+}
+
 /* Markdown from an attempt, rendered by ui/markdown.tsx. */
 @layer components {
   .md {
