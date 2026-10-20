@@ -1,0 +1,212 @@
+{
+  "status": null,
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 40.0,
+    "cost_usd": 1.84,
+    "stopped": null
+  },
+  "final": {
+    "author": {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task"
+          },
+          "started_at": "2026-03-03T11:15:00+00:00",
+          "ended_at": "2026-03-03T11:26:03+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    "check": {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "raised",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-03T11:26:12+00:00",
+          "ended_at": "2026-03-03T11:27:15+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "author",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {
+            "task": "artifacts/author/1/task"
+          },
+          "started_at": "2026-03-03T11:15:00+00:00",
+          "ended_at": "2026-03-03T11:26:03+00:00",
+          "cost_usd": 1.84,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "raised",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-03T11:26:12+00:00",
+          "ended_at": "2026-03-03T11:27:15+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    }
+  ],
+  "deliverables": [],
+  "graph": {
+    "start": "author",
+    "states": [
+      {
+        "name": "author",
+        "kind": "AgentState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 6.0
+      },
+      {
+        "name": "check",
+        "kind": "ScriptState",
+        "max_visits": 3,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "review",
+        "kind": "RubricState",
+        "max_visits": 2,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 2.0
+      },
+      {
+        "name": "solve",
+        "kind": "PassAtKState",
+        "max_visits": 1,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": 8.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "author",
+        "outcome": "done",
+        "to": "check",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "author",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "pass",
+        "to": "review",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": true
+      },
+      {
+        "from": "review",
+        "outcome": "pass",
+        "to": "solve",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "fail",
+        "to": "author",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "in_range",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "all_solved",
+        "to": null,
+        "end": "too_easy",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "none_solved",
+        "to": null,
+        "end": "too_hard",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  }
+}

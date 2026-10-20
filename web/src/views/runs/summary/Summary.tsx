@@ -1,0 +1,197 @@
+// The Summary of an attempt's runs: the top row, the machine with the
+// transitions taken, the summaries its actions wrote and its deliverables.
+import { Link } from "react-router";
+
+import type { AttemptRecord, Project } from "../../../api/types";
+import { Card } from "../../../ui/card";
+import {
+  duration,
+  span,
+  time,
+  usd,
+  visitEnd,
+  visitStart,
+} from "../../../ui/format";
+import { Markdown } from "../../../ui/markdown";
+import {
+  attemptStatus,
+  NOT_RUN,
+  stateTitle,
+  statusOf,
+  toneText,
+} from "../../../ui/status";
+import { attemptHref } from "../../attempt/href";
+import { kindOf } from "../../registry";
+import { Graph } from "./Graph";
+import { layout } from "./graph";
+
+interface Props {
+  project: Project;
+  attempt: string;
+  record: AttemptRecord;
+}
+
+export function Summary({ project, attempt, record }: Props) {
+  const runHref = (index: number) =>
+    attemptHref(project.id, attempt, { tab: "runs", run: index });
+  const machine = layout(record, project);
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <TopRow project={project} record={record} />
+      <Card
+        title="State machine"
+        aside={`${record.visits.length} runs · solid arrows are the transitions this attempt took`}
+        flush
+      >
+        <div className="rounded-b-panel bg-app px-3 pt-2 pb-1">
+          {machine ? (
+            <Graph layout={machine} runHref={runHref} />
+          ) : (
+            <p className="p-4 text-fg-3">The record has no graph.</p>
+          )}
+        </div>
+      </Card>
+      <Summaries project={project} record={record} runHref={runHref} />
+      <Deliverables project={project} attempt={attempt} record={record} />
+    </div>
+  );
+}
+
+function TopRow({
+  project,
+  record,
+}: {
+  project: Project;
+  record: AttemptRecord;
+}) {
+  const first = record.visits[0];
+  const last = record.visits.at(-1);
+  const started = first ? visitStart(first) : undefined;
+  const ended = last ? visitEnd(last) : undefined;
+  const seconds =
+    started !== undefined && ended !== undefined ? span(started, ended) : null;
+  const status = statusOf(project, attemptStatus(record));
+  const { max_usd: cap, cost_usd: cost } = record.budget;
+  const items = [
+    { key: "Started", value: started === undefined ? "—" : time(started) },
+    {
+      key: "Status",
+      value: <span className={toneText[status.tone]}>{status.label}</span>,
+    },
+    {
+      key: "Total duration",
+      value: seconds === null ? "—" : duration(seconds),
+    },
+    {
+      key: "Cost",
+      value: cap === null ? usd(cost) : `${usd(cost)} of ${usd(cap)}`,
+    },
+    { key: "Deliverables", value: record.deliverables.length },
+  ];
+  return (
+    <section className="rounded-panel border border-line">
+      <dl className="flex flex-wrap gap-x-12 gap-y-3 px-5 py-4">
+        {items.map((item) => (
+          <div key={item.key}>
+            <dt className="text-xs text-fg-3">{item.key}</dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">
+              {item.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {record.reason !== null && (
+        <p className="border-t border-line px-5 py-3 text-fg-2">
+          {record.reason}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function Summaries({
+  project,
+  record,
+  runHref,
+}: {
+  project: Project;
+  record: AttemptRecord;
+  runHref: (index: number) => string;
+}) {
+  const written = record.visits.flatMap((visit, index) =>
+    visit.actions.flatMap((action, i) =>
+      action.summary === null
+        ? []
+        : [{ visit, index, key: `${index}-${i}`, text: action.summary }],
+    ),
+  );
+  if (written.length === 0) return null;
+  return (
+    <Card
+      title="Summaries"
+      aside="Written by the actions while the attempt ran"
+    >
+      <div className="flex flex-col gap-5">
+        {written.map(({ visit, index, key, text }) => (
+          <article key={key}>
+            <h3 className="mb-2 text-xs text-fg-3">
+              <Link
+                to={runHref(index)}
+                className="target inline-flex items-center hover:text-fg"
+              >
+                {stateTitle(project, visit.state)} · run {index + 1}
+              </Link>
+            </h3>
+            <Markdown text={text} />
+          </article>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function Deliverables({ project, attempt, record }: Props) {
+  if (record.deliverables.length === 0) return null;
+  return (
+    <Card title="Deliverables" aside="What the attempt hands on" flush>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="h-9 text-left text-xs text-fg-3">
+            <th className="px-5 font-normal">Name</th>
+            <th className="px-5 font-normal">From</th>
+            <th className="px-5 font-normal">What</th>
+          </tr>
+        </thead>
+        <tbody>
+          {record.deliverables.map((item) => {
+            const { Line } = kindOf(item.kind);
+            const from =
+              item.visit_index === null
+                ? stateTitle(project, item.state)
+                : `${stateTitle(project, item.state)} · run ${item.visit_index + 1}`;
+            return (
+              <tr key={item.name} className="h-11 border-t border-line-subtle">
+                <td className="px-5">
+                  <Link
+                    to={attemptHref(project.id, attempt, { tab: item.kind })}
+                    className="target inline-flex items-center underline decoration-faint underline-offset-3"
+                  >
+                    {item.title}
+                  </Link>
+                </td>
+                <td className="px-5 text-fg-2">{from}</td>
+                <td className="px-5 text-fg-2">
+                  {item.path === null ? (
+                    `${NOT_RUN}${item.reason ? `: ${item.reason}` : ""}`
+                  ) : (
+                    <Line project={project.id} attempt={attempt} item={item} />
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Card>
+  );
+}

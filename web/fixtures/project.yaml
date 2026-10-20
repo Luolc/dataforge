@@ -1,0 +1,29 @@
+# A synthetic dataset for developing the viewer and taking screenshots; its
+# attempts were made up and ran nowhere. raised has no entry, so it shows as
+# the viewer's own default.
+id: sample
+name: Sample dataset
+color: "#e5a54b"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+states:
+  author: { title: Author }
+  check: { title: Check }
+  review: { title: Review }
+  solve: { title: Pass@k }
+statuses:
+  passed: { label: Passed, tone: good }
+  too_easy: { label: Too easy, tone: warn }
+  too_hard: { label: Too hard, tone: warn }
+  exhausted: { label: Exhausted, tone: bad }
+  error: { label: Error, tone: bad }
+  done: { label: Done, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+  in_range: { label: In range, tone: good }
+  all_solved: { label: All solved, tone: warn }
+  none_solved: { label: None solved, tone: warn }
+item: { depth: 2, title: Task }
+columns:
+  - { title: Cap, field: [budget, max_usd], format: usd }

@@ -1,0 +1,19 @@
+import { createContext, useContext } from "react";
+
+import type { Loaded } from "../api/client";
+import type { Project } from "../api/types";
+
+/** The site's projects, loaded once by the shell. */
+export const ProjectsContext = createContext<Loaded<Project[]>>({
+  state: "loading",
+});
+
+/** The project with an ID: loading, an error, or the project. */
+export function useProject(id: string | undefined): Loaded<Project> {
+  const projects = useContext(ProjectsContext);
+  if (projects.state !== "ok") return projects;
+  const found = projects.data.find((p) => p.id === id);
+  return found
+    ? { state: "ok", data: found }
+    : { state: "error", message: `No project ${id ?? ""}` };
+}

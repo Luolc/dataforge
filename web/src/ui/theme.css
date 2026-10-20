@@ -1,0 +1,236 @@
+/* Every colour, type size and spacing value of the viewer: Tailwind theme
+   tokens, so a utility such as bg-panel or text-fg-2 names one of them. */
+@import "tailwindcss";
+
+/* Hover styles only where a fine pointer can hover (R248). */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
+@theme {
+  --font-sans:
+    "Geist Variable", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-code: 12.5px;
+  --text-code--line-height: 1.65;
+  --text-graph: 10.5px;
+
+  --font-weight-normal: 450;
+  --font-weight-medium: 520;
+  --font-weight-semibold: 600;
+
+  --spacing: 4px;
+  --spacing-sidebar: 244px;
+  --spacing-header: 44px;
+  --spacing-row: 28px;
+  --spacing-inset: 8px;
+  --spacing-runs: 208px;
+  /* The smallest side of a control, for a fine and a coarse pointer. */
+  --spacing-target: 24px;
+  --spacing-target-coarse: 44px;
+
+  --radius-row: 6px;
+  --radius-panel: 8px;
+  --radius-code: 4px;
+
+  --shadow-current: inset 2px 0 0 var(--color-fg-2);
+
+  --opacity-idle: 0.45;
+  --stroke-taken: 1.5px;
+  --dash-not-taken: 3 3;
+
+  --color-app: #09090a;
+  --color-panel: #121213;
+  --color-hover: #19191b;
+  --color-active: #1e1e21;
+  --color-line: #212224;
+  --color-line-subtle: #1c1c1e;
+  --color-fg: #e3e4e6;
+  --color-fg-2: #a1a2a6;
+  --color-fg-3: #6f7076;
+  --color-faint: #4a4b50;
+  --color-icon: #8a8b90;
+  --color-accent: #e5a54b;
+  --color-focus: #5e6ad2;
+  --color-code: #0d0d0e;
+
+  --color-good: #4cb782;
+  --color-good-bg: #4cb7821f;
+  --color-bad: #eb5757;
+  --color-bad-bg: #eb57571f;
+  --color-warn: #f2c94c;
+  --color-warn-bg: #f2c94c1f;
+  --color-neutral: #8a8b90;
+  --color-neutral-bg: #8a8b901f;
+
+  --color-syn-comment: #6f7076;
+  --color-syn-string: #9ccf8f;
+  --color-syn-keyword: #c49bf0;
+  --color-syn-number: #e9a970;
+  --color-syn-function: #7fb5f5;
+  --color-syn-variable: #e48b8b;
+  --color-syn-key: #7fc8d6;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-app);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: var(--font-weight-normal);
+    letter-spacing: -0.005em;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: -2px;
+    border-radius: var(--radius-row);
+  }
+}
+
+/* Every link and button: at least 24px a side, 44px for a coarse pointer
+   (R246). */
+@utility target {
+  min-height: var(--spacing-target);
+  min-width: var(--spacing-target);
+  @media (pointer: coarse) {
+    min-height: var(--spacing-target-coarse);
+    min-width: var(--spacing-target-coarse);
+  }
+}
+
+/* Markdown from an attempt, rendered by ui/markdown.tsx. */
+@layer components {
+  .md {
+    line-height: 1.6;
+  }
+  .md :where(h1, h2, h3, h4) {
+    margin: 0 0 calc(var(--spacing) * 3);
+    font-weight: var(--font-weight-semibold);
+  }
+  .md h1,
+  .md h2 {
+    font-size: var(--text-xl);
+    padding-bottom: calc(var(--spacing) * 2);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .md h3 {
+    font-size: var(--text-lg);
+  }
+  .md :where(p, ul, ol, table, pre, blockquote) {
+    margin: 0 0 calc(var(--spacing) * 3);
+  }
+  .md :where(ul, ol) {
+    padding-left: calc(var(--spacing) * 5);
+  }
+  .md ul {
+    list-style: disc;
+  }
+  .md ol {
+    list-style: decimal;
+  }
+  .md a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--spacing-target);
+    text-decoration: underline;
+    text-decoration-color: var(--color-faint);
+    text-underline-offset: calc(var(--spacing) * 0.75);
+  }
+  .md code {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    padding: 1px calc(var(--spacing) * 1.25);
+    border-radius: var(--radius-code);
+    background: var(--color-code);
+    border: 1px solid var(--color-line-subtle);
+  }
+  .md pre {
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+    border-radius: var(--radius-row);
+    background: var(--color-code);
+    border: 1px solid var(--color-line-subtle);
+    overflow-x: auto;
+  }
+  .md pre code {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .md blockquote {
+    padding-left: calc(var(--spacing) * 3);
+    border-left: 2px solid var(--color-line);
+    color: var(--color-fg-2);
+  }
+  .md table {
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  .md :where(th, td) {
+    padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 3.5);
+    border: 1px solid var(--color-line);
+    text-align: left;
+  }
+  .md th {
+    color: var(--color-fg-2);
+    font-weight: var(--font-weight-medium);
+  }
+  .md > :last-child {
+    margin-bottom: 0;
+  }
+
+  /* lowlight's classes, in ui/code.tsx and Markdown's code blocks. */
+  .hljs-comment,
+  .hljs-quote {
+    color: var(--color-syn-comment);
+    font-style: italic;
+  }
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-addition {
+    color: var(--color-syn-string);
+  }
+  .hljs-keyword,
+  .hljs-built_in,
+  .hljs-selector-tag {
+    color: var(--color-syn-keyword);
+  }
+  .hljs-number,
+  .hljs-literal {
+    color: var(--color-syn-number);
+  }
+  .hljs-title,
+  .hljs-meta {
+    color: var(--color-syn-function);
+  }
+  .hljs-variable,
+  .hljs-deletion {
+    color: var(--color-syn-variable);
+  }
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-section {
+    color: var(--color-syn-key);
+  }
+  .hljs-addition {
+    color: var(--color-good);
+  }
+  .hljs-deletion {
+    color: var(--color-bad);
+  }
+}

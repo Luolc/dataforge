@@ -1,0 +1,4 @@
+# For development and screenshots: `dataforge viz serve --config
+# web/fixtures/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8800 }
+projects: [project.yaml, project-second.yaml]

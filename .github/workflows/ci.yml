@@ -1,5 +1,6 @@
 # PR gate: secret scan, pre-commit on all files, the script tests, the Python
-# checks, then the data machine setup test (see AGENTS.md, L22, L26 and L31).
+# checks, the web checks, then the data machine setup test (see AGENTS.md,
+# L22, L26 and L31).
 # pre-commit includes the statute compile check, whose hook installs statute
 # itself. It is one job, `check`, so it reports on every pull request; the
 # setup steps that a change does not touch are skipped inside it, as decided
@@ -47,6 +48,7 @@ jobs:
           groups: |
             machine: machine/**
             python:  python/**
+            web:     web/**
             docs:    docs/** *.md .agents/** .claude/** statute.toml statute.lock .statute/**
           run-all-on: .github/** .pre-commit-config.yaml
 
@@ -114,6 +116,25 @@ jobs:
           uv run --locked pydoclint --config pyproject.toml --quiet src tests
           uv run --locked basedpyright
           uv run --locked pytest
+
+      # The viewer's frontend, as docs/design-viz.md section 6 lists its
+      # checks. Node is the release machine/versions.yml pins (nodejs_version);
+      # change both together.
+      - if: fromJSON(steps.changes.outputs.groups).web
+        uses: actions/setup-node@v7
+        with:
+          node-version: "26.12.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web checks (lint, typecheck, test, build)
+        if: fromJSON(steps.changes.outputs.groups).web
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
 
       # The setup test image is a clean Ubuntu plus sudo, its layers cached
       # in the Actions cache.
