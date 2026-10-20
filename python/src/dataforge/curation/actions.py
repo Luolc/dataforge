@@ -848,9 +848,12 @@ class Judge:
   Attributes:
     spec: The script; verdict.json is one of its outputs whether it names it
       or not.
+    outcomes: The outcomes it may give; a verdict with another one is not
+      valid. Empty for any.
   """
 
   spec: ScriptSpec
+  outcomes: Sequence[str] = ()
 
 
 @dataclass(frozen=True)
@@ -1087,6 +1090,13 @@ class Actions:
         verdict = _verdict(ctx.outdir / VERDICT)
       except JudgeError as error:
         why = str(error)
+      if (
+        verdict is not None
+        and judge.outcomes
+        and (verdict.outcome not in judge.outcomes)
+      ):
+        why = f"{VERDICT}: outcome {verdict.outcome!r} is not one it may give"
+        verdict = None
     log = done.log if verdict is not None else f"{done.log}\n{why}"
     _ = _finish(
       ctx, "judge", started_at, spec.outputs, verdict is not None, log

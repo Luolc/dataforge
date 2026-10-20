@@ -22,14 +22,17 @@ from dataforge.curation import (
   Env,
   Goto,
   Judge,
+  JudgeState,
   Limits,
   Machine,
   Outcome,
   PassAtKState,
+  RubricState,
   ScriptSpec,
   ScriptState,
   TrialAgent,
   TrialResult,
+  TrialsState,
   TrialState,
   Visit,
 )
@@ -46,6 +49,7 @@ class Trials:
     self.results: dict[str, TrialResult] = results
     self.agents: list[TrialAgent] = []
     self.task_dirs: list[Path] = []
+    self.calls: dict[str, tuple[Path, TrialAgent]] = {}
 
   def memory_gb(self, limits: Limits) -> float:
     return limits.memory_gb
@@ -55,6 +59,7 @@ class Trials:
   ) -> TrialResult:
     self.agents.append(agent)
     self.task_dirs.append(task_dir)
+    self.calls[outdir.name] = (task_dir, agent)
     return self.results[outdir.name]
 
 
@@ -402,3 +407,132 @@ def test_pass_at_k_with_a_judge_takes_its_verdict(tmp_path: Path) -> None:
   assert kinds[-1] == ("judge", "ok")
   verdict = attempt.visits[0].outputs["verdict.json"]
   assert json.loads(verdict.read_text())["outcome"] == "too_easy"
+
+
+def test_trials_state_runs_each_agent_its_number_of_times(
+  tmp_path: Path,
+) -> None:
+  names = ["nop-0", "nop-1", "solver-0"]
+  for crash, status in [(None, "passed"), ("docker died", "errored")]:
+    results = {name: result(0.0) for name in names}
+    results["solver-0"] = result(1.0, crash)
+    trials = Trials(results)
+    state = TrialsState(
+      "t",
+      {"done": End("passed"), "error": End("errored")},
+      actions=Actions(trial_runner=trials),
+      task_dir=tmp_path,
+      agents={"nop": 2, "solver": 1},
+      limits=Limits(1.0),
+      configs={"solver": {"name": "claude-code"}},
+      rename={"ok": "done"},
+    )
+    attempt = Machine([state]).run(tmp_path / status)
+    assert attempt.status == status
+    assert trials.calls == {
+      "nop-0": (tmp_path, "nop"),
+      "nop-1": (tmp_path, "nop"),
+      "solver-0": (tmp_path, {"name": "claude-code"}),
+    }
+    assert attempt.visits[0].data["solver-0"] == {
+      "rewards": {"reward": 1.0},
+      "exception": crash,
+    }
+    assert sorted(attempt.visits[0].outputs) == names
+
+
+def test_trials_state_runs_on_each_task_of_a_directory(tmp_path: Path) -> None:
+  make = ScriptSpec(
+    ["sh", "-c", 'cd "$DATAFORGE_OUTPUTS" && mkdir -p tasks/a tasks/b'],
+    outputs=["tasks"],
+  )
+  for runs, names in [
+    (1, ["regrade-a", "regrade-b"]),
+    (2, ["regrade-a-0", "regrade-a-1", "regrade-b-0", "regrade-b-1"]),
+  ]:
+    trials = Trials({name: result(1.0) for name in names})
+    write = ScriptState("w", {"ok": Goto("t")}, actions=Actions(), spec=make)
+    state = TrialsState(
+      "t",
+      {"ok": End("passed")},
+      actions=Actions(trial_runner=trials),
+      task_dir="tasks",
+      agents={"regrade": runs},
+      limits=Limits(1.0),
+      configs={"regrade": "oracle"},
+      each_task=True,
+    )
+    root = tmp_path / str(runs)
+    assert Machine([write, state]).run(root).status == "passed"
+    tasks = root / "artifacts/w/1/tasks"
+    assert trials.calls == {
+      name: (tasks / name.split("-")[1], "oracle") for name in names
+    }
+
+
+LOG_JUDGE = """\
+import json, os, pathlib, sys
+log = pathlib.Path(sys.argv[1]).read_text().strip()
+feedback = {"details": log}
+verdict = {"outcome": "fail", "data": {"log": log}, "feedback": feedback}
+out = pathlib.Path(os.environ["DATAFORGE_OUTPUTS"])
+(out / "verdict.json").write_text(json.dumps(verdict))
+"""
+
+
+def test_a_judge_state_takes_its_verdict_on_earlier_outputs(
+  tmp_path: Path,
+) -> None:
+  make = ScriptSpec(
+    ["sh", "-c", 'echo broken > "$DATAFORGE_OUTPUTS/build.log"'],
+    outputs=["build.log"],
+  )
+  judge = tmp_path / "judge.py"
+  _ = judge.write_text(LOG_JUDGE)
+  states = [
+    ScriptState("build", {"ok": Goto("judge")}, actions=Actions(), spec=make),
+    JudgeState(
+      "judge",
+      {"rejected": Goto("end")},
+      actions=Actions(),
+      judge=Judge(
+        ScriptSpec([sys.executable, "-I", str(judge)], inputs=["build.log"])
+      ),
+      rename={"fail": "rejected"},
+      feedback="The build: ${details}",
+    ),
+    ScriptState(
+      "end",
+      {"ok": End("sent back")},
+      actions=Actions(),
+      spec=ScriptSpec(["true"]),
+    ),
+  ]
+  attempt = Machine(states).run(tmp_path / "a")
+  assert attempt.status == "sent back"
+  assert attempt.visits[1].data == {"log": "broken"}
+  feedback = attempt.visits[1].outputs["feedback"]
+  assert feedback.read_text() == "The build: broken"
+
+
+def test_each_state_names_the_outcomes_it_gives() -> None:
+  assert {
+    cls.__name__: cls.OUTCOMES
+    for cls in [
+      AgentState,
+      ScriptState,
+      TrialState,
+      PassAtKState,
+      TrialsState,
+      JudgeState,
+      RubricState,
+    ]
+  } == {
+    "AgentState": {"ok", "failed", "error"},
+    "ScriptState": {"ok", "failed"},
+    "TrialState": {"solved", "unsolved", "error"},
+    "PassAtKState": {"all_solved", "none_solved", "in_range", "error"},
+    "TrialsState": {"ok", "error"},
+    "JudgeState": None,
+    "RubricState": {"pass", "fail", "error"},
+  }

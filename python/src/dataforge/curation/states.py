@@ -1,4 +1,4 @@
-"""dataforge's own states, each one action of dataforge.curation.actions.
+"""dataforge's own states, each running actions of dataforge.curation.actions.
 
 A dataset configures them, giving what to run (spec, or the trial's task_dir,
 agent and limits) and renaming their outcomes, or subclasses them to override
@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from pathlib import Path
 import string
-from typing import override
+from typing import ClassVar, override
 
 from dataforge.curation.actions import (
   ActionResult,
@@ -23,8 +23,16 @@ from dataforge.curation.actions import (
   ScriptSpec,
   TrialAgent,
   TrialResult,
+  Verdict,
 )
 from dataforge.curation.engine import Context, End, Goto, Outcome, State
+from dataforge.curation.rubric import (
+  judge_review,
+  Review,
+  review_prompt,
+  Rubric,
+  VERDICTS_SCHEMA,
+)
 
 
 class _ActionState(State):
@@ -85,7 +93,14 @@ class AgentState(_ActionState):
   so there is nothing to judge). Data: {"ending", "fixes", "cost_usd"}. On
   "failed" the outcome's feedback is {"details": the validator's last output,
   or the action's log when the validator passed or there is none}.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"ok", "failed", "error"}
+  )
 
   def __init__(
     self,
@@ -196,7 +211,12 @@ class ScriptState(_ActionState):
 
   Outcomes: "ok" (exit 0, every output present) or "failed", whose feedback is
   {"details": the script's log}.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset({"ok", "failed"})
 
   def __init__(
     self,
@@ -287,7 +307,14 @@ class TrialState(_ActionState):
   task_dir may be a path, an artifact (or a path inside one, as an Input
   names it) or a function of the context; agent and limits are fixed, or
   overridden as methods.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"solved", "unsolved", "error"}
+  )
 
   def __init__(
     self,
@@ -344,12 +371,7 @@ class TrialState(_ActionState):
     Returns:
       The directory.
     """
-    task_dir = self._task_dir
-    if isinstance(task_dir, Path):
-      return task_dir
-    if isinstance(task_dir, str):
-      return ctx.resolve([task_dir])[task_dir]
-    return task_dir(ctx)
+    return _task_dir(ctx, self._task_dir)
 
   def agent(self, ctx: Context) -> TrialAgent:
     """Return the agent of the trial.
@@ -431,7 +453,15 @@ class PassAtKState(TrialState):
   ran (no exception), so a failure of the trial machinery never reads as a hard
   task; "error" when none ran. Data: {"solved": n, "errors": m, "k": k}. With a
   judge, the judge decides instead, given the k trials' outputs as inputs.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename; with a judge, the
+      judge's.
   """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"all_solved", "none_solved", "in_range", "error"}
+  )
 
   def __init__(
     self,
@@ -497,8 +527,7 @@ class PassAtKState(TrialState):
     """
     if self.judge is not None:
       names = [f"trial-{i}" for i in range(len(results))]
-      verdict = self.actions.judge(ctx, self.judge, names)
-      return Outcome(verdict.outcome, verdict.data, feedback=verdict.feedback)
+      return _judged(self.actions.judge(ctx, self.judge, names))
     ran = [result for result in results if result.exception is None]
     solved = sum(self.solved(result) for result in ran)
     data = {
@@ -518,6 +547,305 @@ class PassAtKState(TrialState):
 
     results = fan_out([one(i) for i in range(self.k)])
     return self.renamed(self.outcomes(ctx, results))
+
+
+class TrialsState(_ActionState):
+  """Runs trials of several agents, each a given number of times, at once.
+
+  Outputs: "<name>-<i>" for the i-th trial of the agent named name, from 0.
+  With each_task, task_dir is a directory of tasks and every agent runs on
+  each of its subdirectories: "<name>-<subdir>", or "<name>-<subdir>-<i>"
+  when the agent runs more than once.
+
+  Outcomes: "ok" when no trial reports an exception, else "error". Data: each
+  trial's {"rewards", "exception"}, by output name. A judge that reads the
+  trials is a JudgeState after this one.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
+  """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset({"ok", "error"})
+
+  def __init__(
+    self,
+    name: str,
+    transitions: Mapping[str, Goto | End],
+    max_visits: int = 1,
+    on_exhausted: str = "failed",
+    *,
+    actions: Actions,
+    task_dir: Path | str | Callable[[Context], Path],
+    agents: Mapping[str, int],
+    limits: Limits,
+    configs: Mapping[str, TrialAgent] | None = None,
+    each_task: bool = False,
+    rename: Mapping[str, str] | None = None,
+    feedback: str | None = None,
+    max_cost_usd: float = 0.0,
+  ) -> None:
+    """Make a state that runs trials of several agents at once.
+
+    Args:
+      name: The state's name, unique among a machine's states.
+      transitions: Where each outcome leads.
+      max_visits: How many times the state may be entered.
+      on_exhausted: The attempt's status when it is entered once too often
+        and no visit was marked.
+      actions: What runs the state's actions.
+      task_dir: The task's directory, the artifact that is, or a function of
+        the context that gives it; with each_task, the directory of tasks.
+      agents: How many trials each agent runs, by its name.
+      limits: The limits of each trial.
+      configs: The agent each name runs, for a name that is not itself the
+        agent (such as "nop" or "oracle").
+      each_task: Whether every agent runs on each subdirectory of task_dir.
+      rename: A new name for each outcome that is to have one, by its name.
+      feedback: The state's feedback template.
+      max_cost_usd: The most one visit may spend, in US dollars.
+    """
+    super().__init__(
+      name,
+      transitions,
+      max_visits,
+      on_exhausted,
+      actions=actions,
+      rename=rename,
+      feedback=feedback,
+      max_cost_usd=max_cost_usd,
+    )
+    self._task_dir: Path | str | Callable[[Context], Path] = task_dir
+    self.agents: Mapping[str, int] = dict(agents)
+    self.limits: Limits = limits
+    self.configs: Mapping[str, TrialAgent] = dict(configs or {})
+    self.each_task: bool = each_task
+
+  def trials(self, ctx: Context) -> list[tuple[str, Path, TrialAgent]]:
+    """Return the trials of a visit: output name, task directory and agent.
+
+    Args:
+      ctx: The visit's context.
+
+    Returns:
+      The trials, in the order of agents, then of tasks, then of runs.
+    """
+    root = _task_dir(ctx, self._task_dir)
+    tasks = [(None, root)]
+    if self.each_task:
+      tasks = [(p.name, p) for p in sorted(root.iterdir()) if p.is_dir()]
+    found: list[tuple[str, Path, TrialAgent]] = []
+    for name, n in self.agents.items():
+      agent = self.configs.get(name, name)
+      for task, path in tasks:
+        for i in range(n):
+          parts = [name] if task is None else [name, task]
+          if task is None or n > 1:
+            parts.append(str(i))
+          found.append(("-".join(parts), path, agent))
+    return found
+
+  @override
+  def run(self, ctx: Context) -> Outcome:
+    trials = self.trials(ctx)
+
+    def one(
+      name: str, task_dir: Path, agent: TrialAgent
+    ) -> Callable[[], TrialResult]:
+      return lambda: self.actions.trial(ctx, name, task_dir, agent, self.limits)
+
+    results = fan_out([one(*trial) for trial in trials])
+    data = {
+      name: {"rewards": dict(result.rewards), "exception": result.exception}
+      for (name, _, _), result in zip(trials, results, strict=True)
+    }
+    errored = any(result.exception is not None for result in results)
+    return self.renamed(Outcome("error" if errored else "ok", data))
+
+
+class JudgeState(_ActionState):
+  """Runs a judge (see Judge) and takes its verdict as the outcome.
+
+  Its inputs, such as the outputs of an earlier state, are its spec's.
+
+  Attributes:
+    OUTCOMES: None: the judge decides, and Judge.outcomes may name what it
+      gives.
+  """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = None
+
+  def __init__(
+    self,
+    name: str,
+    transitions: Mapping[str, Goto | End],
+    max_visits: int = 1,
+    on_exhausted: str = "failed",
+    *,
+    actions: Actions,
+    judge: Judge,
+    rename: Mapping[str, str] | None = None,
+    feedback: str | None = None,
+    max_cost_usd: float = 0.0,
+  ) -> None:
+    """Make a state that runs a judge.
+
+    Args:
+      name: The state's name, unique among a machine's states.
+      transitions: Where each outcome leads.
+      max_visits: How many times the state may be entered.
+      on_exhausted: The attempt's status when it is entered once too often
+        and no visit was marked.
+      actions: What runs the state's actions.
+      judge: The judge.
+      rename: A new name for each outcome that is to have one, by its name.
+      feedback: The state's feedback template.
+      max_cost_usd: The most one visit may spend, in US dollars.
+    """
+    super().__init__(
+      name,
+      transitions,
+      max_visits,
+      on_exhausted,
+      actions=actions,
+      rename=rename,
+      feedback=feedback,
+      max_cost_usd=max_cost_usd,
+    )
+    self.judge: Judge = judge
+
+  @override
+  def run(self, ctx: Context) -> Outcome:
+    return self.renamed(_judged(self.actions.judge(ctx, self.judge)))
+
+
+class RubricState(_ActionState):
+  """Runs each of its reviews at once, each an agent with no tools.
+
+  Outcomes: "pass" when every review passes; "fail" when one fails, with
+  feedback {"details": the findings of each failed review, in order, under
+  "### <name>"}; "error" when a review's agent run itself failed, so there
+  is nothing to judge. Data: each review's {"ending", "cost_usd", "passed",
+  "failed", "warnings", "verdicts"}, by name.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename.
+  """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"pass", "fail", "error"}
+  )
+
+  def __init__(
+    self,
+    name: str,
+    transitions: Mapping[str, Goto | End],
+    max_visits: int = 1,
+    on_exhausted: str = "failed",
+    *,
+    actions: Actions,
+    reviews: Sequence[Review],
+    env: Env = HOST,
+    workdir: Path | None = None,
+    rename: Mapping[str, str] | None = None,
+    feedback: str | None = None,
+    max_cost_usd: float = 0.0,
+  ) -> None:
+    """Make the state; each rubric is read here.
+
+    Args:
+      name: The state's name, unique among a machine's states.
+      transitions: Where each outcome leads.
+      max_visits: How many times the state may be entered.
+      on_exhausted: The attempt's status when it is entered once too often
+        and no visit was marked.
+      actions: What runs the state's actions.
+      reviews: The reviews.
+      env: Where the agents run.
+      workdir: The agents' working directory; None for the visit's output
+        directory, which suits the host only.
+      rename: A new name for each outcome that is to have one, by its name.
+      feedback: The state's feedback template.
+      max_cost_usd: The most one visit may spend, in US dollars.
+
+    Raises:
+      ValueError: When two reviews have one name, or a rubric is not one.
+    """
+    super().__init__(
+      name,
+      transitions,
+      max_visits,
+      on_exhausted,
+      actions=actions,
+      rename=rename,
+      feedback=feedback,
+      max_cost_usd=max_cost_usd,
+    )
+    self.reviews: tuple[Review, ...] = tuple(reviews)
+    if len({review.name for review in self.reviews}) != len(self.reviews):
+      raise ValueError(f"{name}: two reviews have one name")
+    self.rubrics: dict[str, Rubric] = {
+      review.name: Rubric.load(review.rubric) for review in self.reviews
+    }
+    self.env: Env = env
+    self.workdir: Path | None = workdir
+
+  def prompt(self, ctx: Context, review: Review) -> str:
+    """Return the prompt of a review.
+
+    Args:
+      ctx: The visit's context.
+      review: The review.
+
+    Returns:
+      The rubric's system text, the inputs as tagged blocks and the criteria.
+    """
+    blocks = {
+      tag: next(iter(ctx.resolve([item]).values()))
+      for tag, item in review.inputs.items()
+    }
+    return review_prompt(self.rubrics[review.name], blocks)
+
+  @override
+  def run(self, ctx: Context) -> Outcome:
+    workdir = ctx.outdir if self.workdir is None else self.workdir
+
+    def one(review: Review) -> Callable[[], ActionResult]:
+      spec = AgentSpec(
+        self.prompt(ctx, review),
+        workdir,
+        output_schema=VERDICTS_SCHEMA,
+        tools=(),
+        name=review.name,
+      )
+      return lambda: self.actions.agent(ctx, spec, self.env)
+
+    results = fan_out([one(review) for review in self.reviews])
+    judged = [
+      judge_review(review.name, self.rubrics[review.name], result)
+      for review, result in zip(self.reviews, results, strict=True)
+    ]
+    data = {judgment.name: judgment.data for judgment in judged}
+    if any(judgment.errored for judgment in judged):
+      return self.renamed(Outcome("error", data))
+    failed = [judgment for judgment in judged if not judgment.passed]
+    if not failed:
+      return self.renamed(Outcome("pass", data))
+    details = "\n\n".join(f"### {j.name}\n\n{j.findings}" for j in failed)
+    return self.renamed(Outcome("fail", data, feedback={"details": details}))
+
+
+def _task_dir(
+  ctx: Context, task_dir: Path | str | Callable[[Context], Path]
+) -> Path:
+  if isinstance(task_dir, Path):
+    return task_dir
+  if isinstance(task_dir, str):
+    return next(iter(ctx.resolve([task_dir]).values()))
+  return task_dir(ctx)
+
+
+def _judged(verdict: Verdict) -> Outcome:
+  return Outcome(verdict.outcome, verdict.data, feedback=verdict.feedback)
 
 
 def _render(template: str, ctx: Context) -> str:

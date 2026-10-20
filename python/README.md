@@ -8,9 +8,9 @@ end, and has its `max_visits`. `Machine` (`dataforge.curation.engine`) runs them
 attempt at a cap or a guard, and records it. The actions a state runs
 (`dataforge.curation.actions`) are `agent`, `script`, `judge` and `trial`, each in an environment
 (`Host()` or a `Docker` container), plus `fan_out`; they share memory through one
-`ResourcePool` per process. `dataforge.curation.states` has dataforge's own states, one per
-action (`AgentState`, `ScriptState`, `TrialState`, `PassAtKState`), which a dataset
-configures or subclasses; `State` and `Machine` may be subclassed too.
+`ResourcePool` per process. `dataforge.curation.states` has dataforge's own states
+(`AgentState`, `ScriptState`, `TrialState`, `PassAtKState`, `TrialsState`, `JudgeState`,
+`RubricState`), which a dataset configures or subclasses; `State` and `Machine` may be subclassed too.
 
 `dataforge.curation.harbor` has `HarborRunner`, which runs each trial with the Harbor CLI at the
 path it is given; the dataset installs Harbor, and this package does not depend on it.

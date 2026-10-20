@@ -29,6 +29,7 @@ from dataforge.curation import (
   Outcome,
   ResourcePool,
   ScriptSpec,
+  ScriptState,
   State,
   TrialAgent,
   TrialResult,
@@ -697,3 +698,44 @@ def test_a_path_in_an_artifact_is_staged_in_docker(tmp_path: Path) -> None:
     once(tmp_path, body)
   staged = docker.path("/dataforge/a/1/2/inputs/task/a.txt")
   assert staged.read_text() == "hi\n"
+
+
+def test_an_input_may_name_the_state_that_wrote_it(tmp_path: Path) -> None:
+  def writes(text: str) -> ScriptSpec:
+    script = f'D="$DATAFORGE_OUTPUTS/v"; mkdir "$D"; echo {text} > "$D/x"'
+    return ScriptSpec(["sh", "-c", script], outputs=["v"])
+
+  cat = ScriptSpec(
+    ["sh", "-c", 'cat "$@" > "$DATAFORGE_OUTPUTS/out"', "cat"],
+    inputs=["a:v/x", "v/x"],
+    outputs=["out"],
+    optional_inputs=["nowhere:v/x", "a:absent"],
+  )
+  actions = Actions()
+  states = [
+    ScriptState("a", {"ok": Goto("b")}, actions=actions, spec=writes("from-a")),
+    ScriptState("b", {"ok": Goto("c")}, actions=actions, spec=writes("from-b")),
+    ScriptState("c", {"ok": End("ok")}, actions=actions, spec=cat),
+  ]
+  attempt = Machine(states).run(tmp_path / "attempt")
+  assert attempt.status == "ok"
+  assert attempt.visits[2].outputs["out"].read_text() == "from-a\nfrom-b\n"
+
+
+def test_a_judge_gives_only_the_outcomes_it_names(tmp_path: Path) -> None:
+  write = 'echo \'{"outcome": "maybe"}\' > "$DATAFORGE_OUTPUTS/verdict.json"'
+
+  def body(ctx: Context) -> Outcome:
+    judge = Judge(ScriptSpec(["sh", "-c", write]), outcomes=("yes", "no"))
+    with pytest.raises(JudgeError, match="'maybe' is not one it may give"):
+      _ = Actions().judge(ctx, judge)
+    return Outcome("ok")
+
+  once(tmp_path / "named", body)
+
+  def loose(ctx: Context) -> Outcome:
+    judge = Judge(ScriptSpec(["sh", "-c", write]))
+    assert Actions().judge(ctx, judge).outcome == "maybe"
+    return Outcome("ok")
+
+  once(tmp_path / "loose", loose)
