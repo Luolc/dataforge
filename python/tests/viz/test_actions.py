@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import sqlite3
 import time
 from typing import cast
 
@@ -516,3 +517,53 @@ def test_at_http_s_own_port_a_write_names_no_port(
   )
 
   assert (refused.status_code, taken.status_code) == (403, 201)
+
+
+def test_a_running_attempt_with_no_action_yet_starts_with_its_job(
+  made: QueueTree, static: Path
+) -> None:
+  # The record holds a visit with no action: no start of its own to show.
+  path = made.tree.root / "batch-1" / "task-2" / "record.json"
+  path.parent.mkdir(exist_ok=True)
+  _ = path.write_text(
+    json.dumps(
+      {
+        "status": None,
+        "visits": [
+          {
+            "state": "write",
+            "visit": 1,
+            "round": 1,
+            "outcome": None,
+            "actions": [],
+          }
+        ],
+        "graph": {"start": "write", "states": [], "edges": []},
+      }
+    )
+  )
+  web = client(made, static)
+  _ = web.post(f"{ACTIONS}/again", params={"item": "batch-1"}, headers=WRITE)
+  [job] = jobs(made)
+  with sqlite3.connect(made.queue / "queue.sqlite") as conn:
+    _ = conn.execute(
+      "UPDATE jobs SET state = 'running', started_at = 1772442000 WHERE id = ?",
+      (job.id,),
+    )
+  expected = "2026-03-02T09:00:00+00:00"
+
+  with holding(made.tree.root / "batch-1" / ".lock"):
+    rows = cast(
+      list[dict[str, object]],
+      web.get("/api/projects/example/attempts").json(),
+    )
+    live = cast(
+      dict[str, dict[str, object]],
+      web.get(
+        "/api/projects/example/live", params={"attempt": "batch-1/task-2"}
+      ).json(),
+    )
+
+  running = next(r for r in rows if r["id"] == "batch-1/task-2")
+  assert (running["live"], running["started_at"]) == ("running", expected)
+  assert live["current"]["since"] == expected

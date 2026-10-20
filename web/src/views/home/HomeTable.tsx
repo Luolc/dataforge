@@ -411,6 +411,8 @@ export function HomeTable({
     getRowId: (item) => item.id,
     getRowCanExpand: (row) => row.original.attempts.length > 1,
     state: { sorting },
+    // A read of the listing gives new data; what a person opened stays open.
+    autoResetExpanded: false,
     onSortingChange,
     enableMultiSort: false,
   });
