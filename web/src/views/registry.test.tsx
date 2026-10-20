@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
-import { RefreshContext } from "../api/client";
+import { READ_LIMIT_MS, RefreshContext } from "../api/client";
 import type { Deliverable } from "../api/types";
 import { fakeFiles } from "./files/fake-api";
 import type { DeliverableProps } from "./kind";
@@ -173,5 +173,54 @@ describe("a files tab's count slower than the page's reads", () => {
       expect(screen.getByTestId("count")).toHaveTextContent(/^11$/);
     });
     expect(most).toBe(1);
+  });
+});
+
+describe("a files tab's count that takes longer than a read's limit", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("lands while the page reads again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const root = "artifacts/author/1/task";
+    // Ten folders of one file each, every listing answered after 600 ms: a
+    // walk of 11 listings takes 6.6 s, more than READ_LIMIT_MS.
+    const files: Record<string, string> = {};
+    for (let d = 0; d < 10; d++) files[`${root}/d${String(d)}/f.txt`] = "f";
+    const answer = fakeFiles(files);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        await new Promise((r) => setTimeout(r, 600));
+        return answer(url);
+      }),
+    );
+    const task = { ...item("task", "files"), path: root, reason: null };
+    const shown = (refresh: number) => (
+      <RefreshContext value={refresh}>
+        <p data-testid="count">
+          <KindCount
+            kind="files"
+            project="sample"
+            attempt="counted/past-the-limit"
+            item={task}
+            items={[task]}
+          />
+        </p>
+      </RefreshContext>
+    );
+    const { rerender } = render(shown(0));
+    await act(() => vi.advanceTimersByTimeAsync(7000));
+    expect(screen.getByTestId("count")).toHaveTextContent(/^10$/);
+
+    files[`${root}/new.txt`] = "new";
+    // A read just before the limit of the read before would give up.
+    for (let refresh = 1; refresh <= 12; refresh++) {
+      rerender(shown(refresh));
+      await act(() => vi.advanceTimersByTimeAsync(READ_LIMIT_MS - 1));
+    }
+
+    expect(screen.getByTestId("count")).toHaveTextContent(/^11$/);
   });
 });

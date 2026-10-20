@@ -126,20 +126,23 @@ function must<T>(value: T | undefined): T {
 }
 
 describe("useLoaded read again, slow", () => {
-  function load() {
+  // Each read a promise that ends only when settled here, as a load that
+  // runs on when its signal aborts.
+  function load(limit = true) {
     const reads: ReturnType<typeof deferred<string>>[] = [];
     const hook = renderHook(
-      ({ refresh }) =>
+      ({ key, refresh }) =>
         useLoaded(
-          "key",
+          key,
           () => {
             const read = deferred<string>();
             reads.push(read);
             return read.promise;
           },
           refresh,
+          { limit },
         ),
-      { initialProps: { refresh: 0 } },
+      { initialProps: { key: "key", refresh: 0 } },
     );
     return { reads, hook };
   }
@@ -159,9 +162,9 @@ describe("useLoaded read again, slow", () => {
     const { reads, hook } = load();
     await settle(reads[0], "first");
 
-    hook.rerender({ refresh: 1 });
-    hook.rerender({ refresh: 2 });
-    hook.rerender({ refresh: 3 });
+    hook.rerender({ key: "key", refresh: 1 });
+    hook.rerender({ key: "key", refresh: 2 });
+    hook.rerender({ key: "key", refresh: 3 });
     expect(reads).toHaveLength(2);
 
     act(() => {
@@ -176,7 +179,7 @@ describe("useLoaded read again, slow", () => {
     const { reads, hook } = load();
     await settle(reads[0], "first");
 
-    hook.rerender({ refresh: 1 });
+    hook.rerender({ key: "key", refresh: 1 });
     act(() => {
       vi.advanceTimersByTime(READ_LIMIT_MS);
     });
@@ -188,9 +191,40 @@ describe("useLoaded read again, slow", () => {
     // The read given up on lands nothing; the next one is sent.
     await settle(reads[1], "late");
     expect(hook.result.current).toMatchObject({ data: "first" });
-    hook.rerender({ refresh: 2 });
+    hook.rerender({ key: "key", refresh: 2 });
     expect(reads).toHaveLength(3);
     await settle(reads[2], "second");
     expect(hook.result.current).toEqual({ state: "ok", data: "second" });
+  });
+
+  it("waits for a read again however long it takes, without a limit", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { reads, hook } = load(false);
+    await settle(reads[0], "first");
+
+    hook.rerender({ key: "key", refresh: 1 });
+    act(() => {
+      vi.advanceTimersByTime(READ_LIMIT_MS * 3);
+    });
+    hook.rerender({ key: "key", refresh: 2 });
+    expect(reads).toHaveLength(2);
+    expect(hook.result.current).toEqual({ state: "ok", data: "first" });
+    await settle(reads[1], "second");
+    expect(hook.result.current).toEqual({ state: "ok", data: "second" });
+  });
+
+  it("drops the limit of a key the page has left", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { reads, hook } = load();
+    await settle(reads[0], "x first");
+    // A read again of x that runs on, then the page moves to y.
+    hook.rerender({ key: "key", refresh: 1 });
+    hook.rerender({ key: "y", refresh: 1 });
+    await settle(reads[2], "y first");
+
+    act(() => {
+      vi.advanceTimersByTime(READ_LIMIT_MS * 2);
+    });
+    expect(hook.result.current).toEqual({ state: "ok", data: "y first" });
   });
 });

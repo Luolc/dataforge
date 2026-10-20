@@ -95,25 +95,32 @@ export const READ_LIMIT_MS = POLL_MS;
  * nothing. The same key must always load the same thing. When refresh
  * changes, the same key loads again, unless a read of it is still out, and
  * what it loaded before stays until the new read lands. A read again that
- * fails, or has no answer within READ_LIMIT_MS, keeps it, and says so in
- * failed until a read lands.
+ * fails keeps it, and says so in failed until a read lands; with limit, so
+ * does one with no answer within READ_LIMIT_MS, which is given up. Only a
+ * load that ends when its signal aborts may take a limit: one that runs on
+ * would be given up on again and again and never land.
  */
 export function useLoaded<T>(
   key: string | null,
   load: (signal: AbortSignal) => Promise<T>,
   refresh = 0,
+  { limit = false }: { limit?: boolean } = {},
 ): Loaded<T> {
   const [loaded, setLoaded] = useState<{
     key: string;
     value: Loaded<T>;
     read: number;
   }>();
-  const outRef = useRef<{ key: string; controller: AbortController }>(null);
+  const outRef = useRef<{
+    key: string;
+    controller: AbortController;
+    timer?: ReturnType<typeof setTimeout>;
+  }>(null);
   const again = loaded?.key === key && loaded.value.state === "ok";
   useEffect(() => {
     if (key === null || outRef.current?.key === key) return;
     const controller = new AbortController();
-    const read = { key, controller };
+    const read: NonNullable<typeof outRef.current> = { key, controller };
     outRef.current = read;
     const fail = (message: string) => {
       setLoaded((last) => {
@@ -130,13 +137,13 @@ export function useLoaded<T>(
         };
       });
     };
-    const limit = again
-      ? setTimeout(() => {
-          controller.abort();
-          if (outRef.current === read) outRef.current = null;
-          fail(`no answer in ${duration(READ_LIMIT_MS / 1000)}`);
-        }, READ_LIMIT_MS)
-      : undefined;
+    if (limit && again)
+      read.timer = setTimeout(() => {
+        if (controller.signal.aborted) return;
+        controller.abort();
+        if (outRef.current === read) outRef.current = null;
+        fail(`no answer in ${duration(READ_LIMIT_MS / 1000)}`);
+      }, READ_LIMIT_MS);
     load(controller.signal)
       .then(
         (data) => {
@@ -149,7 +156,7 @@ export function useLoaded<T>(
         },
       )
       .finally(() => {
-        clearTimeout(limit);
+        clearTimeout(read.timer);
         if (outRef.current === read) outRef.current = null;
       });
     // load is a new function on each render, key names what it loads and
@@ -160,6 +167,7 @@ export function useLoaded<T>(
   // dropped.
   useEffect(
     () => () => {
+      clearTimeout(outRef.current?.timer);
       outRef.current?.controller.abort();
       outRef.current = null;
     },

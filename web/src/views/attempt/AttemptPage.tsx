@@ -88,6 +88,8 @@ export function AttemptPage() {
       return { read, live };
     },
     refresh,
+    // Both reads end when their signal aborts.
+    { limit: true },
   );
   const loaded: Loaded<ReadRecord> =
     both.state === "ok" ? { state: "ok", data: both.data.read } : both;
