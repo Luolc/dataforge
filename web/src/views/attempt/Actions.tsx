@@ -15,13 +15,12 @@ import {
 } from "../../api/client";
 import { actionStates, type Project, written } from "../../api/types";
 import { Confirm } from "../../ui/confirm";
-import { toneGlyph, toneText } from "../../ui/status";
+import { type Said, SaidLine } from "../../ui/said";
+import { toneText } from "../../ui/status";
 
 // The item an attempt ID names: its first item.depth components.
 const itemOf = (project: Project, attempt: string) =>
   attempt.split("/").slice(0, project.item.depth).join("/");
-
-type Said = { ok: true; text: string } | { ok: false; text: string };
 
 export function ItemActions({
   project,
@@ -59,7 +58,6 @@ export function ItemActions({
     }
     setWrote(nextGeneration());
   };
-  const Bad = toneGlyph.bad;
   return (
     <section
       aria-label={`Actions of ${project.item.title} ${item}`}
@@ -98,24 +96,14 @@ export function ItemActions({
             );
           })}
       </div>
-      <div role="status" className="text-xs">
-        {said !== null &&
-          (said.ok ? (
-            <span>
-              {said.text}{" "}
-              <Link to="/queue" className="link hover:underline">
-                Open the queue
-              </Link>
-            </span>
-          ) : (
-            <span
-              className={`inline-flex items-center gap-1.5 ${toneText.bad}`}
-            >
-              <Bad className="size-3.5 flex-none" aria-hidden />
-              {said.text}
-            </span>
-          ))}
-      </div>
+      <SaidLine
+        said={said}
+        after={
+          <Link to="/queue" className="link hover:underline">
+            Open the queue
+          </Link>
+        }
+      />
     </section>
   );
 }

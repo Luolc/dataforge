@@ -1,7 +1,7 @@
 // A button whose act takes a second click: the first asks whether to go on.
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
-import { useAsk } from "./ask";
+import { triggerProps, useAsk } from "./ask";
 
 /** The look of a small bordered button. */
 export const control =
@@ -9,7 +9,10 @@ export const control =
 
 type Ask = ReturnType<typeof useAsk>;
 
-/** question, with a button named yes, which runs onYes, and Keep. */
+/**
+ * question, with a button named yes, which runs onYes and takes the focus
+ * when the question shows, and Keep.
+ */
 export function Question({
   ask,
   question,
@@ -21,10 +24,18 @@ export function Question({
   yes: string;
   onYes: () => Promise<void>;
 }) {
+  const firstRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    firstRef.current?.focus();
+  }, []);
   return (
-    <span className="inline-flex flex-wrap items-center gap-2 text-xs">
+    <span
+      id={ask.id}
+      className="inline-flex flex-wrap items-center gap-2 text-xs"
+    >
       <span>{question}</span>
       <button
+        ref={firstRef}
         type="button"
         className={control}
         disabled={ask.busy}
@@ -47,7 +58,7 @@ export function Question({
 }
 
 /**
- * children labels the button; once clicked, the question shows in its place
+ * children labels the button; once clicked, the question shows beside it
  * (Question).
  */
 export function Confirm({
@@ -66,17 +77,20 @@ export function Confirm({
   describedBy?: string;
 }) {
   const ask = useAsk();
-  if (ask.asking)
-    return <Question ask={ask} question={question} yes={yes} onYes={onYes} />;
   return (
-    <button
-      type="button"
-      className={control}
-      disabled={disabled}
-      aria-describedby={describedBy}
-      onClick={ask.ask}
-    >
-      {children}
-    </button>
+    <>
+      <button
+        type="button"
+        className={control}
+        disabled={disabled}
+        aria-describedby={describedBy}
+        {...triggerProps(ask)}
+      >
+        {children}
+      </button>
+      {ask.asking && (
+        <Question ask={ask} question={question} yes={yes} onYes={onYes} />
+      )}
+    </>
   );
 }

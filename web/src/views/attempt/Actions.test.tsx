@@ -91,16 +91,30 @@ describe("a data item's actions", () => {
     });
     show();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Run again" }));
-    expect(
-      screen.getByText("Queue Run again for batch-1/task-0001 in fast?"),
-    ).toBeVisible();
+    const again = await screen.findByRole("button", { name: "Run again" });
+    expect(again).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(again);
+    const question = screen.getByText(
+      "Queue Run again for batch-1/task-0001 in fast?",
+    );
+    expect(question).toBeVisible();
+    expect(again).toHaveAttribute("aria-expanded", "true");
+    expect(again).toHaveAttribute(
+      "aria-controls",
+      question.parentElement?.id ?? "",
+    );
+    // The focus goes into the question, at its first button.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Queue" }),
+    );
     expect(calls.map((c) => c.url)).toEqual([ACTIONS]);
     fireEvent.click(screen.getByRole("button", { name: "Queue" }));
 
     expect(
       await screen.findByText("Run again: queued as job 7 in fast."),
     ).toBeVisible();
+    // and then to what came of it.
+    expect(document.activeElement).toBe(screen.getByRole("status"));
     const post = calls.find((c) => c.url === submit);
     expect(post?.init?.method).toBe("POST");
     expect(post?.init?.headers).toEqual({ "X-Viz-Write": "1" });
@@ -116,10 +130,13 @@ describe("a data item's actions", () => {
     const calls = serve({ [ACTIONS]: [[200, states(null)]] });
     show();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Go on" }));
+    const goOn = await screen.findByRole("button", { name: "Go on" });
+    fireEvent.click(goOn);
     fireEvent.click(screen.getByRole("button", { name: "Keep" }));
 
-    expect(screen.getByRole("button", { name: "Go on" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Keep" })).toBeNull();
+    expect(goOn).toHaveAttribute("aria-expanded", "false");
+    expect(document.activeElement).toBe(goOn);
     expect(calls.every((c) => c.init?.method !== "POST")).toBe(true);
   });
 

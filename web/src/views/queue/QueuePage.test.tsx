@@ -7,6 +7,7 @@ import { POLL_MS } from "../../api/poll";
 import type { Job, Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
 import { QueuePage } from "./QueuePage";
+import { isOpen } from "./status";
 
 const project: Project = {
   ...sampleProject,
@@ -35,13 +36,14 @@ function job(id: number, state: string, more: Partial<Job> = {}): Job {
   };
 }
 
-const read = (jobs: Job[]) => ({
+const read = (jobs: Job[], ended = jobs.filter((j) => !isOpen(j)).length) => ({
   queues: [
     { name: "fast", limit: 2, running: 2, queued: 1 },
     { name: "slow", limit: 1, running: 0, queued: 0 },
   ],
   max_running: 3,
   ended_limit: 50,
+  ended,
   jobs,
 });
 
@@ -156,14 +158,53 @@ describe("the queue page", () => {
     expect(cancel).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(cancel);
     expect(cancel).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Cancel job 6?")).toBeVisible();
+    const question = screen.getByText("Cancel job 6?");
+    expect(question).toBeVisible();
+    expect(cancel).toHaveAttribute(
+      "aria-controls",
+      question.parentElement?.id ?? "",
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Cancel job" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Cancel job" }));
 
+    expect(await screen.findByText("Job 6 is canceled.")).toBeVisible();
+    // The focus goes to what came of it, the button being gone.
+    expect(document.activeElement).toBe(screen.getByRole("status"));
     expect(await screen.findByText("Canceled")).toBeVisible();
     const post = calls.find((c) => c.url === "/api/queue/jobs/6/cancel");
     expect(post?.init?.method).toBe("POST");
     expect(post?.init?.headers).toEqual({ "X-Viz-Write": "1" });
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
+  it("gives the focus back to Cancel when told to keep", async () => {
+    serve({}, [200, read([job(6, "queued")])]);
+    show();
+
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    fireEvent.click(cancel);
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+
+    expect(screen.queryByText("Cancel job 6?")).toBeNull();
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it.each([
+    [50, null],
+    [51, "1 older job that ended is not shown."],
+    [120, "70 older jobs that ended are not shown."],
+  ])("says how many of %i ended jobs it leaves out", async (total, note) => {
+    const shown = Array.from({ length: 50 }, (_, i) => job(i + 1, "done"));
+    serve({}, [200, read(shown, total)]);
+
+    show();
+
+    await screen.findByRole("button", { name: /^Ended/ });
+    if (note === null)
+      expect(screen.queryByText(/older jobs? that ended/)).toBeNull();
+    else expect(screen.getByText(note)).toBeVisible();
   });
 
   it("warns that a running job's processes are sent SIGTERM", async () => {

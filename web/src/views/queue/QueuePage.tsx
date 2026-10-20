@@ -17,12 +17,12 @@ import {
 import { Frame } from "../../shell/Shell";
 import { ProjectsContext } from "../../shell/projects";
 import { Note } from "../../ui/card";
-import { useAsk } from "../../ui/ask";
+import { triggerProps, useAsk } from "../../ui/ask";
 import { control, Question } from "../../ui/confirm";
+import { Group } from "../../ui/group";
 import { duration, epoch, time } from "../../ui/format";
 import { Elapsed } from "../../ui/running";
-import { Group } from "../home/HomeTable";
-import { toneGlyph, toneText } from "../../ui/status";
+import { type Said, SaidLine } from "../../ui/said";
 import { ToneLabel } from "../../ui/status-mark";
 import { isOpen, jobLabel } from "./status";
 
@@ -129,20 +129,27 @@ function Queues({
   const projects = use(ProjectsContext);
   const known = projects.state === "ok" ? projects.data : [];
   const running = data.queues.reduce((n, q) => n + q.running, 0);
-  const ended = data.jobs.filter((j) => !isOpen(j)).length;
+  // The jobs that ended before the last ended_limit, which the read leaves out.
+  const older = data.ended - data.jobs.filter((j) => !isOpen(j)).length;
   const baseId = useId();
-  const [said, setSaid] = useState<string | null>(null);
+  const [said, setSaid] = useState<Said | null>(null);
   const cancel = async (job: Job) => {
+    const id = job.id.toString();
     try {
-      await postJson(urls.cancel(job.id), written);
-      setSaid(null);
+      const { job: after } = await postJson(urls.cancel(job.id), written);
+      setSaid({
+        ok: true,
+        text:
+          after.state === "running"
+            ? `Job ${id} was asked to end: its processes were sent SIGTERM.`
+            : `Job ${id} is ${jobLabel(after).label.toLowerCase()}.`,
+      });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      setSaid(`Job ${job.id.toString()} was not canceled (${message}).`);
+      setSaid({ ok: false, text: `Job ${id} was not canceled (${message}).` });
     }
     onRefresh();
   };
-  const Bad = toneGlyph.bad;
   return (
     <div className="flex flex-col gap-3 px-6 py-5">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
@@ -173,14 +180,7 @@ function Queues({
           </button>
         </div>
       </div>
-      <div role="status" className="text-xs">
-        {said !== null && (
-          <span className={`inline-flex items-center gap-1.5 ${toneText.bad}`}>
-            <Bad className="size-3.5 flex-none" aria-hidden />
-            {said}
-          </span>
-        )}
-      </div>
+      <SaidLine said={said} />
       {data.jobs.length === 0 ? (
         <p className="py-6 text-center text-fg-3">
           No job has been queued yet.
@@ -236,9 +236,11 @@ function Queues({
           })}
         </table>
       )}
-      {ended >= data.ended_limit && (
+      {older > 0 && (
         <p className="text-xs text-fg-3">
-          {`Only the last ${data.ended_limit.toString()} jobs that ended are shown.`}
+          {older === 1
+            ? "1 older job that ended is not shown."
+            : `${older.toString()} older jobs that ended are not shown.`}
         </p>
       )}
     </div>
@@ -269,7 +271,6 @@ function JobRow({
   const cancelable = isOpen(job) && job.cancel_requested_at === null;
   const id = job.id.toString();
   const ask = useAsk();
-  const questionId = useId();
   return (
     <>
       <tr className="border-b border-line-subtle hover:bg-hover">
@@ -318,13 +319,7 @@ function JobRow({
         </td>
         <td className={`${cell} text-right`}>
           {cancelable && (
-            <button
-              type="button"
-              className={control}
-              aria-expanded={ask.asking}
-              aria-controls={questionId}
-              onClick={ask.ask}
-            >
+            <button type="button" className={control} {...triggerProps(ask)}>
               <X className="size-3.5 text-icon" aria-hidden />
               Cancel
             </button>
@@ -332,7 +327,7 @@ function JobRow({
         </td>
       </tr>
       {cancelable && ask.asking && (
-        <tr id={questionId} className="border-b border-line-subtle">
+        <tr className="border-b border-line-subtle">
           <td colSpan={HEADS.length + 1} className={`${cell} text-right`}>
             <Question
               ask={ask}

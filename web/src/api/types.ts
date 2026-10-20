@@ -126,7 +126,10 @@ export type Job = z.infer<typeof job>;
 /** What a write answers: the job it queued or canceled. */
 export const written = z.looseObject({ job });
 
-/** The queue page's read: each queue, and the jobs open and lately ended. */
+/**
+ * The queue page's read: each queue, and the jobs open and the last
+ * ended_limit that ended.
+ */
 export const queueRead = z.looseObject({
   queues: z.array(
     z.looseObject({
@@ -138,6 +141,8 @@ export const queueRead = z.looseObject({
   ),
   max_running: z.number(),
   ended_limit: z.number(),
+  // How many jobs have ended, those that jobs leaves out included.
+  ended: z.number(),
   jobs: z.array(job),
 });
 export type QueueRead = z.infer<typeof queueRead>;
