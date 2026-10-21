@@ -24,7 +24,8 @@
     force: true
 
 # The keys the setup owns are in files/claude-settings.json (for
-# ~/.claude/settings.json) and files/claude-state.json (for ~/.claude.json):
+# ~/.claude/settings.json) and files/claude-state.json (for ~/.claude.json),
+# which the dotfiles' modify templates (tasks/dotfiles.yml) merge in:
 # - hasCompletedOnboarding and skipDangerousModePermissionPrompt: agents on a
 #   data machine are started with --dangerously-skip-permissions and nobody
 #   is at the screen, so the first-run onboarding and the bypass-permissions
@@ -41,40 +42,8 @@
 #   back like a typed draft when an agent reads a pane.
 # - disableRemoteControl: data machines have no Remote Control.
 #
-# Both files are merged, not replaced: keys the setup does not own stay as
-# they are. The one exception is env.DISABLE_AUTOUPDATER in
-# ~/.claude/settings.json, which is removed: the gateway client sets it for
-# the sessions it starts and refuses to start claude while a settings file
-# sets it. For the same reason the setup owns no auth, proxy or gateway key.
-# A file is written only when the merge changes its content.
-
-- name: Claude Code settings directory
-  ansible.builtin.file:
-    path: "{{ home }}/.claude"
-    state: directory
-    mode: "0700"
-
-- name: Read Claude Code settings
-  ansible.builtin.slurp:
-    src: "{{ item }}"
-  loop:
-    - "{{ home }}/.claude/settings.json"
-    - "{{ home }}/.claude.json"
-  register: claude_files
-  failed_when: false
-
-- name: Write Claude Code settings
-  vars:
-    current: "{{ (item.content | b64decode | from_json) if 'content' in item else {} }}"
-    settings: "{{ item.item is search('settings.json') }}"
-    owned: "{{ lookup('file', settings | ternary('files/claude-settings.json', 'files/claude-state.json')) | from_json }}"
-    kept: "{{ current | combine({'env': current.env | dict2items | rejectattr('key', 'eq', 'DISABLE_AUTOUPDATER') | items2dict}) if settings and 'env' in current else current }}"
-    merged: "{{ kept | combine(owned, recursive=true) }}"
-  ansible.builtin.copy:
-    dest: "{{ item.item }}"
-    content: "{{ merged | to_nice_json }}\n"
-    mode: "0600"
-  loop: "{{ claude_files.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when: merged != current
+# Keys the setup does not own stay as they are. The one exception is
+# env.DISABLE_AUTOUPDATER in ~/.claude/settings.json, which is removed: the
+# gateway client sets it for the sessions it starts and refuses to start
+# claude while a settings file sets it. For the same reason the setup owns no
+# auth, proxy or gateway key.

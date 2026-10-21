@@ -72,6 +72,16 @@ pi_sha256: 00fc36cffdebceea5a48230da62cf3fb463178f8fe185766652f96002a246847
 codex_version: 0.159.3
 codex_sha256: 3930f31ac5fca861ea3e444e2683f261190d96b63fba58e0a40a879174369cdf
 
-# Only installed with zsh_personal (the default).
+# chezmoi, which applies the dotfiles in machine/dotfiles/: the linux-amd64
+# binary's checksum from the release's checksums file.
+chezmoi_version: 2.73.3
+chezmoi_sha256: 56db674bb755c6655d67df3dec3e6727631d1291f5fc799d3f1aded6d0e56472
+
+# Only installed with zsh_personal (the default), as chezmoi externals: the
+# GitHub archive of each commit, with that archive's sha256. GitHub generates
+# these archives and does not promise their bytes stay the same; should a
+# digest stop matching, the setup fails at that external.
 oh_my_zsh_commit: 60c9a7a839b790cd905d0fd4419435124fd1bdc0
+oh_my_zsh_sha256: b76ccbc18fd732d9d897dd2edbf16519cb48d20f31e509f925d1bf41a8df859f
 powerlevel10k_commit: 35833ea15f14b71dbcebc7e54c104d8d56ca5268  # v1.20.0
+powerlevel10k_sha256: c1316f3b812baa45c0f28feef8856f3e68f5f3d174c4d7253094761926208a64
