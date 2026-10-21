@@ -120,6 +120,7 @@ runners:
     with:
       model: ${{ inputs.model }}
       effort: high
+      thinking_display: omitted
       max_budget_usd: ${{ inputs.cap }}
       command: {binding: claude-command}
       timeout: 600
@@ -289,6 +290,7 @@ def test_environments_and_runners_load_as_they_would_by_hand(
           command=("claude", "--verbose"),
           model="a-model",
           effort="high",
+          thinking_display="omitted",
           max_budget_usd=3,
           timeout=600,
           env={"HOME": "/home/someone", "PATH": "/usr/bin"},
@@ -428,6 +430,11 @@ def edit(path: str, value: object) -> Callable[[Doc], None]:
     (
       edit("runners.session.with.model", None),
       "runners.session.with.model: expected a string, got null",
+    ),
+    (
+      edit("runners.session.with.thinking_display", "bogus"),
+      "runners.session.with.thinking_display: unknown value 'bogus': use "
+      + "summarized, omitted, highlights",
     ),
     (
       edit("runners.trials.with.sidecar", {"memory": 32}),

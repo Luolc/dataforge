@@ -39,7 +39,7 @@ The schema, version 1:
       with: {...}                     # the factory's arguments, or:
         # claude-code: model, effort, max_budget_usd, files ({numbered: {dir,
         #   prefix}} | <hook>), command ({binding: <name>}, a list of
-        #   strings), timeout, env, pass_env, tools, add_dirs,
+        #   strings), thinking_display, timeout, env, pass_env, tools, add_dirs,
         #   continue_session, min_fix_usd, serve, spent
         # harbor: harbor, cpus, cpu_shares, pids, sidecar {cpus, memory_mb},
         #   timeout, mounts, env, pass_env, compose_overlay [<path> | <hook>],
@@ -706,6 +706,12 @@ class _Loader:
       raise SpecError(at, _expected("a string", value))
     return self.substitute(value, at, template)
 
+  def choice(self, value: object, at: str, choices: tuple[str, ...]) -> str:
+    text = self.string(value, at)
+    if text not in choices:
+      raise SpecError(at, f"unknown value {text!r}: use {', '.join(choices)}")
+    return text
+
   def feedback(self, value: object, at: str) -> str | None:
     # The engine renders feedback with string.Template.substitute, which
     # raises on a $ that starts no placeholder; refuse it here instead.
@@ -1103,6 +1109,7 @@ def _claude_code(
     required={"model", "effort", "max_budget_usd", "files"},
     optional={
       "command",
+      "thinking_display",
       "timeout",
       "env",
       "pass_env",
@@ -1120,6 +1127,17 @@ def _claude_code(
     "effort": loader.string(fields["effort"], f"{at}.effort"),
     "max_budget_usd": loader.number(
       fields["max_budget_usd"], f"{at}.max_budget_usd", minimum=0
+    ),
+    **(
+      {
+        "thinking_display": loader.choice(
+          fields["thinking_display"],
+          f"{at}.thinking_display",
+          claude.THINKING_DISPLAYS,
+        )
+      }
+      if "thinking_display" in fields
+      else {}
     ),
   }
   if "command" in fields:
