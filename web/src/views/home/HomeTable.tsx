@@ -23,8 +23,8 @@ import { Tooltip } from "radix-ui";
 import { type MouseEvent, type ReactNode, useId, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import type { AttemptRow, Column, Project } from "../../api/types";
-import { duration, time, usd } from "../../ui/format";
+import type { AttemptRow, Project } from "../../api/types";
+import { duration, formatValue, time, usd } from "../../ui/format";
 import {
   outcomeOf,
   stateTitle,
@@ -111,18 +111,6 @@ function timeValue(iso: string | null): Value {
 }
 
 const NUMERIC_FORMATS = new Set(["number", "usd", "duration", "time"]);
-
-/** A project column's value as its format says; "—" when there is none. */
-function formatValue(value: unknown, format: Column["format"]): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "number") {
-    if (format === "usd") return usd(value);
-    if (format === "duration") return duration(value);
-    return String(value);
-  }
-  if (typeof value === "string") return format === "time" ? time(value) : value;
-  return JSON.stringify(value);
-}
 
 const lineSpent = (l: Line) =>
   l.sub ? l.row.cost_usd : spent(l.item.attempts);
