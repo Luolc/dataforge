@@ -274,7 +274,7 @@ const column = async () =>
   within(await screen.findByRole("navigation", { name: "Runs" }));
 
 describe("an attempt's definition in the Runs column", () => {
-  it("leads the column, above Summary and the runs, with no tab of its own", async () => {
+  it("follows Summary and leads the runs, with no tab of its own", async () => {
     serveAttempt(text);
     showAttempt();
 
@@ -285,8 +285,12 @@ describe("an attempt's definition in the Runs column", () => {
     });
     const summary = (await column()).getByRole("link", { name: "Summary" });
     expect(
-      workflow.compareDocumentPosition(summary) &
+      summary.compareDocumentPosition(workflow) &
         Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const list = (await column()).getByRole("region", { name: "Runs list" });
+    expect(
+      workflow.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
       (await column()).getByRole("link", { name: /^Review/ }),
