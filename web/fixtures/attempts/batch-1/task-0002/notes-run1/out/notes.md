@@ -1,6 +1,6 @@
 # Notes on task 0002
 
-Verdict: **n/a**.
+Verdict: **none**.
 
 ## What happened
 
