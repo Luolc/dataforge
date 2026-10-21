@@ -108,9 +108,17 @@ export async function signIn(token: string): Promise<SignIn> {
   return { state: "failed", message: response.status.toString() };
 }
 
-/** Sign out: the server clears the cookie. */
-export async function signOut(): Promise<void> {
-  await fetch(shareUrls.logout, { method: "POST" });
+/**
+ * Sign out: the server clears the cookie. Null once it has, else why it
+ * failed, and the cookie is still set.
+ */
+export async function signOut(): Promise<string | null> {
+  try {
+    const response = await fetch(shareUrls.logout, { method: "POST" });
+    return response.ok ? null : response.status.toString();
+  } catch (error) {
+    return messageOf(error);
+  }
 }
 
 /** What the shell knows of the person: the projects their token names. */

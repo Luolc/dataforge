@@ -2,15 +2,15 @@
 // a search and a refresh. The export holds only the items it shows, so
 // there is no status and no filter.
 import { RefreshCw, Search } from "lucide-react";
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
+import { useLoaded } from "../api/client";
 import { Frame } from "../shell/Shell";
 import { Note } from "../ui/card";
 import { time } from "../ui/format";
 import {
   itemHref,
-  type Listed,
   listedItems,
   read,
   type ShareProject,
@@ -38,58 +38,32 @@ export function ItemsPage() {
   );
 }
 
-/**
- * A project's items, read once and again on each refresh; the last read
- * stays shown while the next one loads.
- */
-function useItems(project: string) {
-  const { refused } = use(SignedContext);
-  const [generation, setGeneration] = useState(0);
-  const key = JSON.stringify([project, generation]);
-  const [last, setLast] = useState<{
-    project: string;
-    items: Listed[];
-    at: string;
-  }>();
-  const [done, setDone] = useState<{ key: string; error: string | null }>();
-  useEffect(() => {
-    const controller = new AbortController();
-    read(
-      shareUrls.items(project),
-      listedItems,
-      refused,
-      controller.signal,
-    ).then(
-      (items) => {
-        setLast({ project, items, at: new Date().toISOString() });
-        setDone({ key, error: null });
-      },
-      (e: unknown) => {
-        if (controller.signal.aborted) return;
-        setDone({ key, error: e instanceof Error ? e.message : String(e) });
-      },
-    );
-    return () => {
-      controller.abort();
-    };
-  }, [project, key, refused]);
-  const refresh = useCallback(() => {
-    setGeneration((g) => g + 1);
-  }, []);
-  return {
-    last: last?.project === project ? last : null,
-    error: done?.key === key ? done.error : null,
-    reading: done?.key !== key,
-    refresh,
-  };
-}
-
 function Items({ project }: { project: ShareProject }) {
-  const { last, error, reading, refresh } = useItems(project.id);
+  const { refused } = use(SignedContext);
+  // A refresh reads again, and the last read stays shown until it lands.
+  const [generation, setGeneration] = useState(0);
+  const loaded = useLoaded(
+    project.id,
+    async (signal) => ({
+      items: await read(
+        shareUrls.items(project.id),
+        listedItems,
+        refused,
+        signal,
+      ),
+      at: new Date().toISOString(),
+    }),
+    generation,
+    { limit: true },
+  );
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
-  if (last === null) return <Note>{error ?? "Loading…"}</Note>;
-  const { items, at } = last;
+  if (loaded.state !== "ok")
+    return (
+      <Note>{loaded.state === "error" ? loaded.message : "Loading…"}</Note>
+    );
+  const { items, at } = loaded.data;
+  const error = loaded.failed?.message ?? null;
   const needle = q.trim().toLowerCase();
   const shown = items.filter((item) =>
     shownId(item).toLowerCase().includes(needle),
@@ -124,10 +98,14 @@ function Items({ project }: { project: ShareProject }) {
         </label>
         <div className="ml-auto flex items-center gap-2 text-xs text-fg-3">
           {error !== null && <span className="text-bad">{error}</span>}
-          <span aria-live="polite">
-            {reading ? "Reading…" : `Read ${time(at)}`}
-          </span>
-          <button type="button" onClick={refresh} className={control}>
+          <span aria-live="polite">{`Read ${time(at)}`}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setGeneration((g) => g + 1);
+            }}
+            className={control}
+          >
             <RefreshCw className="size-3.5 text-icon" aria-hidden />
             Refresh
           </button>

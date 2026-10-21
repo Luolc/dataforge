@@ -34,12 +34,18 @@ interface Fake {
   signedIn: boolean;
   /** The reason a refusal gives, which the page must not repeat. */
   reason: string;
+  /** Whether a sign-out gets no answer. */
+  logoutFails: boolean;
 }
 
 /** Stub the global fetch with the fake server; returns its state and spy. */
 export function fakeShare(signedIn = false) {
-  const state: Fake = { signedIn, reason: "a valid token is needed" };
-  const fetch = vi.fn((input: string, init?: RequestInit) =>
+  const state: Fake = {
+    signedIn,
+    reason: "a valid token is needed",
+    logoutFails: false,
+  };
+  const fetch = vi.fn(async (input: string, init?: RequestInit) =>
     Promise.resolve(answer(state, input, init)),
   );
   vi.stubGlobal("fetch", fetch);
@@ -66,6 +72,7 @@ function answer(state: Fake, input: string, init?: RequestInit): Response {
     return new Response(null, { status: 204 });
   }
   if (url.pathname === "/api/logout" && method === "POST") {
+    if (state.logoutFails) throw new TypeError("Failed to fetch");
     state.signedIn = false;
     return new Response(null, { status: 204 });
   }

@@ -74,6 +74,12 @@ const emptyThinking = [
   .map((line) => JSON.stringify(line))
   .join("\n");
 
+/** The text of each message's time in the gutter. */
+const gutter = (container: HTMLElement) =>
+  [...container.querySelectorAll("ol > li > span:first-child")].map(
+    (cell) => cell.textContent,
+  );
+
 const toolLine = (name: string | RegExp) =>
   screen.getByRole("button", { name });
 
@@ -239,6 +245,9 @@ describe("the session view", () => {
     expect(header).toHaveTextContent("tokens 195K in · 14K out");
     expect(header).toHaveTextContent("model example-model");
     expect(header).toHaveTextContent("12 tool calls · 1 failed");
+    expect(
+      gutter(container).filter((cell) => cell !== "").length,
+    ).toBeGreaterThan(0);
   });
 
   it("shows the model alone in the header when told to", () => {
@@ -251,6 +260,7 @@ describe("the session view", () => {
     );
     expect(header).toHaveTextContent("the badge");
     expect(screen.getByRole("button", { name: "Expand all" })).toBeVisible();
+    expect(gutter(container).every((cell) => cell === "")).toBe(true);
   });
 
   it("renders a trace with no thinking as usual", () => {

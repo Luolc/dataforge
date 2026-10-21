@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 
 import { getJson, type Loaded, urls, useLoaded } from "../api/client";
+import { toneGlyph, toneText } from "../ui/status";
 import {
   isRefused,
   type ShareProject,
@@ -14,6 +15,8 @@ import {
   signOut,
 } from "./api";
 import { Landing } from "./Landing";
+
+const BadGlyph = toneGlyph.bad;
 
 const navItem =
   "target flex min-h-row w-full items-center gap-2 rounded-row px-1.5 font-medium hover:bg-hover aria-[current=page]:bg-active";
@@ -36,6 +39,7 @@ export function ShareShell() {
     setGeneration((g) => g + 1);
   }, []);
   const read = useLoaded(`projects:${String(generation)}`, readProjects);
+  const [signOutFailed, setSignOutFailed] = useState<string | null>(null);
   const signed = useMemo(() => {
     const projects: Loaded<ShareProject[]> =
       read.state === "ok" ? { state: "ok", data: read.data ?? [] } : read;
@@ -85,12 +89,24 @@ export function ShareShell() {
             </ul>
           </Collapsible.Content>
         </Collapsible.Root>
+        {signOutFailed !== null && (
+          <p
+            role="alert"
+            className={`mt-auto flex items-start gap-1.5 px-1.5 text-xs ${toneText.bad}`}
+          >
+            <BadGlyph className="mt-px size-3.5 flex-none" aria-hidden />
+            {`Signing out failed: ${signOutFailed}. You are still signed in.`}
+          </p>
+        )}
         <button
           type="button"
           onClick={() => {
-            void signOut().finally(again);
+            void signOut().then((failed) => {
+              setSignOutFailed(failed);
+              if (failed === null) again();
+            });
           }}
-          className={`mt-auto text-fg-2 ${navItem}`}
+          className={`${signOutFailed === null ? "mt-auto" : ""} text-fg-2 ${navItem}`}
         >
           <LogOut className="size-4 text-icon" aria-hidden />
           Sign out

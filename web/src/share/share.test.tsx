@@ -83,6 +83,19 @@ describe("the share site's sign-in", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent(/expired|revoked/);
   });
 
+  it("says so when a sign-out fails, and stays signed in", async () => {
+    const { state } = open("/demo");
+    state.logoutFails = true;
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Signing out failed: Failed to fetch. You are still signed in.",
+    );
+    expect(screen.getByRole("table")).toBeVisible();
+    expect(screen.queryByLabelText("Access token")).toBeNull();
+  });
+
   it("asks for a token again after a sign-out", async () => {
     open("/demo");
 
@@ -206,6 +219,9 @@ describe("the share site's Pass@K tab", () => {
       "Trial 4solved",
     ]);
 
+    expect(screen.getByText("Reward").closest("dl")).toHaveTextContent(
+      "Reward1Exception—Modelexample-model",
+    );
     fireEvent.click(within(trials).getByRole("button", { name: /^Trial 3/ }));
     const fields = screen.getByText("Reward").closest("dl");
     expect(fields).toHaveTextContent(

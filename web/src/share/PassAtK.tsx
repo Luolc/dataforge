@@ -91,9 +91,7 @@ function TrialPane({
         <Field label="Reward">
           {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
-        <Field label="Exception">
-          {trial.result === null ? "—" : (trial.result.exception ?? "None")}
-        </Field>
+        <Field label="Exception">{trial.result?.exception ?? "—"}</Field>
         <Field label="Model">
           <span className="font-mono text-xs">{trial.model ?? "—"}</span>
         </Field>
