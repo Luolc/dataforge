@@ -1,8 +1,9 @@
 id = 35
 slug = "design-files-change-alone"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 55
 lang = "en"
 parent = "R232"
 default = "on"

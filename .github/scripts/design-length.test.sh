@@ -1,6 +1,6 @@
 #!/bin/sh
 # Arms of design-length.sh: at the limit, one line over, no file, two files with
-# either one over, and the defaults in a tree with and without docs/design-viz.md.
+# either one over, and the defaults in a tree with and without docs/design-viz.md and docs/design-share.md.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d)
@@ -15,12 +15,13 @@ expect() { # <want exit> <file...>
   got=$?
   [ "$got" -eq "$want" ] || { echo "FAIL: $*: exit $got, want $want"; status=1; }
 }
-expect_tree() { # <want exit> <design.md lines> [design-viz.md lines]
+expect_tree() { # <want exit> <design.md lines> [design-viz.md lines [design-share.md lines]]
   want=$1
   rm -rf "$tmp/tree"
   mkdir -p "$tmp/tree/docs"
   seq "$2" >"$tmp/tree/docs/design.md"
   [ "$#" -lt 3 ] || seq "$3" >"$tmp/tree/docs/design-viz.md"
+  [ "$#" -lt 4 ] || seq "$4" >"$tmp/tree/docs/design-share.md"
   (cd "$tmp/tree" && "$here/design-length.sh" 2>/dev/null)
   got=$?
   [ "$got" -eq "$want" ] || { echo "FAIL: defaults $*: exit $got, want $want"; status=1; }
@@ -35,5 +36,7 @@ expect_tree 0 200
 expect_tree 1 201
 expect_tree 0 200 200
 expect_tree 1 200 201
+expect_tree 0 200 200 200
+expect_tree 1 200 200 201
 [ "$status" -eq 0 ] && echo "design-length: ok"
 exit "$status"
