@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -170,8 +177,11 @@ describe("the queue page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel job" }));
 
     expect(await screen.findByText("Job 6 is canceled.")).toBeVisible();
-    // The focus goes to what came of it, the button being gone.
-    expect(document.activeElement).toBe(screen.getByRole("status"));
+    // The focus goes to what came of it, the button being gone: an effect of
+    // the render that shows it, which may run after the text is found.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole("status"));
+    });
     expect(await screen.findByText("Canceled")).toBeVisible();
     const post = calls.find((c) => c.url === "/api/queue/jobs/6/cancel");
     expect(post?.init?.method).toBe("POST");
