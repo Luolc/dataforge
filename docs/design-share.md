@@ -1,18 +1,18 @@
 # dataforge share design
 
-The design of share, the read-only site that shows an exported set of data to a person who holds an access token, kept apart from [`design.md`](design.md) and [`design-viz.md`](design-viz.md) for length; it follows the same conventions. The backend, `dataforge.share`, and the token commands are built; the frontend is **planned, not built** (section 5).
+The design of share, the read-only site that shows an exported set of data to a person who holds an access token, kept apart from [`design.md`](design.md) and [`design-viz.md`](design-viz.md) for length; it follows the same conventions. The backend, `dataforge.share`, the token commands and the frontend are built.
 
 ## 1. What this is, and what it is not
 
 share is a site for people outside the machine. It reads one or more export directories (section 4, "The export directory") and gives a person who holds a valid token the projects the token names, and nothing else. It has two parts:
 
 - a backend, the module `dataforge.share` in the Python package, a FastAPI app that reads export directories and serves a JSON API and, when it is given one, the frontend's files; `dataforge share token create|list|revoke` manage the tokens;
-- a frontend, planned (section 5).
+- a frontend, `web/share.html` and `web/src/share/` (section 5).
 
 It is not the viewer ([`design-viz.md`](design-viz.md)), and the two are kept apart so that nothing the viewer can do is one mistake away from the outside:
 
 - It is another process (`dataforge share serve`), with its own site file and token database, and the viewer's process serves no share route.
-- It will have its own frontend entry, built on its own, so the viewer's pages are not in what the site serves (section 5, planned).
+- It has its own frontend entry, built on its own, so the viewer's pages are not in what the site serves (section 5).
 - Its routes are a short list (section 4, "The API"); every other path under `/api` is 404, and a path outside `/api` gets the frontend's files. It has no route for a queue, an action, a monitor or an attempt's record as the engine writes it, so an `/api` request for one gets a 404, not data.
 - It has no write route: the only `POST`s are login and logout, which write a cookie and nothing else (invariant 2).
 - What it can show is at most what an export directory holds. Which data goes into an export, and how it is checked, belongs to whoever writes the export, not to share.
@@ -48,7 +48,14 @@ Each invariant links to the tests that guard it, in `python/tests/share/`.
 10. Every response carries `Content-Security-Policy` (the viewer's policy), `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, a server failure (500) included. Tests: [`test_app.py`](../python/tests/share/test_app.py): `test_every_response_has_the_headers`, `test_a_failure_of_the_server_has_the_headers_too`.
 11. No token reaches the server's log or a response it did not set: there is no access log, and no refusal repeats a request's path, item or parameters. Tests: [`test_serve.py`](../python/tests/share/test_serve.py): `test_no_token_and_no_request_reaches_the_log`; [`test_app.py`](../python/tests/share/test_app.py): `test_no_response_repeats_a_token`, `test_a_listed_item_that_is_a_symlink_or_missing_names_no_path`.
 12. `token create` shows a token once, on standard output; `token list` shows no secret and no hash. Test: [`test_tokens.py`](../python/tests/share/test_tokens.py): `test_the_commands_show_the_token_once_and_list_no_secret`.
-13. This file has at most 200 lines. [`design-length.test.sh`](../.github/scripts/design-length.test.sh).
+13. The token goes only in the body of `POST /api/login`, from a `type=password` field with `autocomplete=off`; it reaches no URL and no `localStorage`, and the field is cleared after a sign-in. Tests: [`share.test.tsx`](../web/src/share/share.test.tsx): `asks for a token in a field that does not show or keep it`, `signs in with the token in a POST body, then lists the items`.
+14. Every refused sign-in shows the same sentence, whatever the server's reason. Test: [`share.test.tsx`](../web/src/share/share.test.tsx): `tells every refused token the same thing, whatever the server's reason`.
+15. A failed sign-out says so and keeps the person signed in. Test: [`share.test.tsx`](../web/src/share/share.test.tsx): `says so when a sign-out fails, and stays signed in`.
+16. The list has one column, an item's ID with its revision, a search that says how many items it hides, and a refresh, and no filter. Tests: [`share.test.tsx`](../web/src/share/share.test.tsx): `has one column, of each item's ID with its revision`, `searches the IDs and says how many the search hides`, `has a refresh and a colour template switch, and no filter`.
+17. The item page has one tab for each deliverable of kind `files`, `trials` or `report`, and nothing to act on. Test: [`share.test.tsx`](../web/src/share/share.test.tsx): `has exactly the three tabs of the item's deliverables, and nothing to act on`.
+18. The Pass@K tab shows no duration, cost, turns, tokens, tool call count or diff, its trace's gutter shows no time whatever timestamps the trace holds, and its trace starts with every fold open. Tests: [`share.test.tsx`](../web/src/share/share.test.tsx): `shows no duration, cost, turns, tokens or diff anywhere`, `opens every fold of the trace from the start`; [`Session.test.tsx`](../web/src/session/Session.test.tsx): `shows the model alone in the header when told to`, `shows every total in the header by default`.
+19. The viewer's build holds no share page and the share build none of the viewer's: untested (it follows from the two inputs in `vite.config.ts`).
+20. This file has at most 200 lines. [`design-length.test.sh`](../.github/scripts/design-length.test.sh).
 
 ## 4. Interfaces
 
@@ -108,9 +115,15 @@ Login takes `Content-Type: application/json` alone, which a page of another orig
 
 The site has no TLS, so the cookie has no `Secure`. Anyone who can see the traffic between a person and the site, such as on public Wi-Fi or a provider's network, reads the token at login and the cookie on every request, and the pages, until the token expires or is revoked. What limits it: 14 days by default, one token per holder (a leak revokes one), `token revoke` at any time (invariant 4). TLS, `Secure` and HSTS come when the site is given a domain.
 
-## 5. Planned, not built
+## 5. The frontend
 
-The frontend: `web/share.html` and `web/src/share/` as an entry of its own, built by `vite build --mode share` with only that entry into `web/dist-share/`, which `--static` serves. Its shell has the project list alone, no Monitor and no Queue. It reuses the viewer's `ui/`, `session/` and `views/` components, which read through the same file route, with its own list and detail pages. When it is built, a design PR moves it here to the present tense and gives its invariants their tests.
+`web/share.html` and `web/src/share/` are an entry of their own, built by `npm run build:share` (`vite build --mode share`) with only that entry into `web/dist-share/`, where a small plugin writes the page as `index.html`; `--static` serves that directory. `npm run build` builds the viewer alone. The pages reuse the viewer's `ui/`, `session/` and `views/` components, which read through the same file route.
+
+- Signed in or not: the shell reads `/api/projects`; a 401, there or on any later read, shows the landing page, a single field for a token. The token is sent only in the body of `POST /api/login` (invariant 13).
+- The shell has the token's projects in a sidebar and a Sign out button, but no Monitor and no Queue, with the viewer's colour template switch. `/` goes to the first project.
+- `/<project>` lists the items, one column of each item's ID with its revision, with a search and a refresh (invariant 16).
+- `/<project>/items/<id>?tab=<name>` shows one tab for each `files`, `trials` or `report` deliverable, titled as `record.json` titles it, in `record.json`'s order (invariant 17). Files and report use the viewer's file and report views, with status cells drawn from `export.json`'s `statuses`. The Pass@K tab gives the number solved, each trial with its status word, and the chosen trial's reward, exception and model, with its trace in the session view (invariant 18).
+- The frontend's tests and screenshots load the synthetic export `web/fixtures/share/`.
 
 ## 6. Open questions
 
