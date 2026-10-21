@@ -242,6 +242,8 @@ class Project:
     deliverables: The deliverables an attempt has once it ends, in order.
     trial_diff: The path of a trial's diff in its directory; None when the
       dataset names none.
+    definition: The path of the definition snapshot in an attempt's
+      directory; None when the dataset names none.
     monitor: The resource monitor's SQLite database; None when the dataset
       names none.
     monitor_shown: The database as a page may show it: monitor.db as the
@@ -265,6 +267,7 @@ class Project:
   lock: tuple[str, ...] | None = None
   deliverables: tuple[Deliverable, ...] = ()
   trial_diff: tuple[str, ...] | None = None
+  definition: tuple[str, ...] | None = None
   monitor: Path | None = None
   monitor_shown: str | None = None
   actions: tuple[Action, ...] = ()
@@ -297,6 +300,9 @@ class Project:
       "trials": None
       if self.trial_diff is None
       else {"diff": "/".join(self.trial_diff)},
+      "definition": None
+      if self.definition is None
+      else "/".join(self.definition),
       "monitor": self.monitor is not None,
       "actions": [
         {"name": a.name, "label": a.label, "queue": a.queue}
@@ -404,6 +410,7 @@ def load_project(path: Path) -> Project:
       "lock",
       "deliverables",
       "trials",
+      "definition",
       "monitor",
       "actions",
     },
@@ -443,6 +450,11 @@ def load_project(path: Path) -> Project:
     lock=lock,
     deliverables=_deliverables(path, data.get("deliverables")),
     trial_diff=_trial_diff(path, data.get("trials")),
+    definition=None
+    if data.get("definition") is None
+    else _relative(
+      path, "definition", _str(path, "definition", data["definition"])
+    ),
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
     actions=actions,

@@ -34,6 +34,8 @@ const project = z.looseObject({
     .optional(),
   // A trial's diff, relative to its directory.
   trials: z.looseObject({ diff: z.string() }).nullable().optional(),
+  // The definition snapshot's path in an attempt's directory.
+  definition: z.string().nullable().optional(),
   // Whether the project names a resource monitor database.
   monitor: z.boolean().optional(),
   // What a data item's page may put in a queue.

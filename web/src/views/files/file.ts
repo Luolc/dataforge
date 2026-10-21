@@ -14,7 +14,7 @@ export type FileContent =
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 /** GET a file's bytes; any failure but a 404 or a 413 is an ApiError. */
-async function fetchFile(
+export async function fetchFile(
   project: string,
   attempt: string,
   path: string,

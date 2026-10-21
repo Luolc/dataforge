@@ -7,6 +7,7 @@ color: "#7fb5f5"
 attempts_dir: attempts
 attempts: "*/*"
 record: record.json
+definition: definition.json
 states:
   draft: { title: Draft }
   build: { title: Build }
