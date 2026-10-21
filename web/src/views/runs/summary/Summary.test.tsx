@@ -73,6 +73,19 @@ describe("Summary", () => {
     );
     expect(screen.getByText("Not run: solve was never visited")).toBeVisible();
   });
+
+  it("scrolls the deliverables sideways in their card, its aside under the title when they do not fit", () => {
+    show("exhausted");
+    const card = screen.getByRole("heading", {
+      name: "Deliverables",
+    }).parentElement;
+
+    expect(card).toHaveClass("flex-wrap");
+    expect(
+      within(card?.parentElement ?? document.body).getByRole("table")
+        .parentElement,
+    ).toHaveClass("overflow-x-auto");
+  });
 });
 
 describe("an attempt's status", () => {

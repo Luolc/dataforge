@@ -92,6 +92,8 @@ describe("a record an older dataforge wrote", () => {
     ).toHaveTextContent("—");
     expect(screen.getByText("Passed")).toBeVisible();
     expect(tabs().map((t) => t.textContent)).toEqual(["Runs4"]);
+    // A tab keeps its title and count on one line, however narrow the bar.
+    expect(tabs()[0]).toHaveClass("flex-none", "whitespace-nowrap");
   });
 
   it("opens a run with no round in its heading", async () => {

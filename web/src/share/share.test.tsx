@@ -26,10 +26,15 @@ async function signInWith(token: string) {
 }
 
 /** The page's buttons outside the sidebar. */
+// The page's own buttons: not the sidebar's, nor the one that opens it.
 const pageButtons = () =>
   screen
     .getAllByRole("button")
-    .filter((b) => b.closest("nav[aria-label=Site]") === null);
+    .filter(
+      (b) =>
+        b.closest("nav[aria-label=Site]") === null &&
+        b.getAttribute("aria-label") !== "Open the site menu",
+    );
 
 afterEach(() => {
   vi.unstubAllGlobals();

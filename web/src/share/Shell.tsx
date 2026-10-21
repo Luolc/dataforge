@@ -14,6 +14,7 @@ import {
   SignedContext,
   signOut,
 } from "./api";
+import { Sidebar } from "../shell/sidebar";
 import { Landing } from "./Landing";
 
 const BadGlyph = toneGlyph.bad;
@@ -51,10 +52,7 @@ export function ShareShell() {
   const { projects } = signed;
   return (
     <SignedContext value={signed}>
-      <nav
-        aria-label="Site"
-        className="fixed inset-y-0 left-0 flex w-sidebar flex-col gap-0.5 px-2 py-inset"
-      >
+      <Sidebar label="Site" page={<Outlet />}>
         <Collapsible.Root defaultOpen>
           <Collapsible.Trigger className="group flex h-row target items-center gap-1 rounded-row px-1.5 text-xs font-medium text-fg-3 hover:bg-hover hover:text-fg-2">
             Projects
@@ -75,7 +73,7 @@ export function ShareShell() {
                       className={navItem}
                     >
                       <Diamond
-                        className="size-3 fill-current"
+                        className="size-3 flex-none fill-current"
                         style={{ color: p.color }}
                         aria-hidden
                       />
@@ -111,8 +109,7 @@ export function ShareShell() {
           <LogOut className="size-4 text-icon" aria-hidden />
           Sign out
         </button>
-      </nav>
-      <Outlet />
+      </Sidebar>
     </SignedContext>
   );
 }

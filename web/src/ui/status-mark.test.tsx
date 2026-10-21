@@ -28,4 +28,12 @@ describe("a status's icon", () => {
     expect(label).toHaveClass("bg-warn-label", "text-warn-label-fg");
     expect(label.querySelector("svg")).toHaveClass("lucide-circle-alert");
   });
+
+  it("keeps a label of two words on one line, as its height is one line", () => {
+    render(<StatusLabel project={project} word="too_easy" />);
+    expect(screen.getByText("Too easy")).toHaveClass(
+      "h-5",
+      "whitespace-nowrap",
+    );
+  });
 });

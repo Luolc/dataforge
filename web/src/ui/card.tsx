@@ -14,12 +14,13 @@ export function Card({
 }) {
   return (
     <section className="overflow-hidden rounded-panel border border-line bg-card">
-      <header className="flex items-baseline justify-between gap-3 border-b border-line bg-head px-5 py-3.5">
-        <h2 className="flex items-center gap-2 text-md font-semibold">
+      {/* The aside goes under the title when the two do not fit. */}
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-line bg-head px-5 py-3.5">
+        <h2 className="flex min-w-0 items-center gap-2 text-md font-semibold">
           {title}
         </h2>
         {aside !== undefined && (
-          <div className="text-xs text-fg-3">{aside}</div>
+          <div className="min-w-0 text-xs text-fg-3">{aside}</div>
         )}
       </header>
       <div className={flush ? "" : "px-5 py-4"}>{children}</div>

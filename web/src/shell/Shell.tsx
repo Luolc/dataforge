@@ -1,4 +1,4 @@
-// The frame of every page: a fixed sidebar and an inset panel whose top bar
+// The frame of every page: the sidebar and an inset panel whose top bar
 // holds the breadcrumb.
 import {
   Activity,
@@ -15,6 +15,7 @@ import { useJson, urls } from "../api/client";
 import { projects as projectsSchema } from "../api/types";
 import { ProjectsContext } from "./projects";
 import { TemplateSwitch } from "../ui/template-switch";
+import { Sidebar, SidebarButton } from "./sidebar";
 
 const navItem =
   "target flex min-h-row w-full items-center gap-2 rounded-row px-1.5 font-medium hover:bg-hover aria-[current=page]:bg-active";
@@ -23,10 +24,7 @@ export function Shell() {
   const projects = useJson(urls.projects(), projectsSchema);
   return (
     <ProjectsContext value={projects}>
-      <nav
-        aria-label="Site"
-        className="fixed inset-y-0 left-0 flex w-sidebar flex-col gap-0.5 px-2 py-inset"
-      >
+      <Sidebar label="Site" page={<Outlet />}>
         <NavLink to="/monitor" className={navItem}>
           <Activity className="size-4 text-icon" aria-hidden />
           Monitor
@@ -55,7 +53,7 @@ export function Shell() {
                       className={navItem}
                     >
                       <Diamond
-                        className="size-3 fill-current"
+                        className="size-3 flex-none fill-current"
                         style={{ color: p.color }}
                         aria-hidden
                       />
@@ -69,8 +67,7 @@ export function Shell() {
             </ul>
           </Collapsible.Content>
         </Collapsible.Root>
-      </nav>
-      <Outlet />
+      </Sidebar>
     </ProjectsContext>
   );
 }
@@ -89,12 +86,13 @@ export function Frame({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed top-inset right-inset bottom-inset left-sidebar flex flex-col overflow-hidden rounded-panel border border-line bg-panel">
+    <div className="fixed top-inset right-inset bottom-inset left-inset flex flex-col overflow-hidden rounded-panel border border-line bg-panel lg:left-sidebar">
       <nav
         aria-label="Breadcrumb"
-        className="flex h-header flex-none items-center border-b border-line pr-4 pl-3"
+        className="flex min-h-header flex-none items-center gap-2 border-b border-line py-1 pr-4 pl-3"
       >
-        <ol className="flex min-w-0 items-center gap-0.5 overflow-x-auto font-medium">
+        <SidebarButton />
+        <ol className="flex min-w-0 flex-wrap items-center gap-0.5 font-medium">
           {crumbs.map((crumb, i) => (
             <li key={i} className="flex min-w-0 items-center gap-0.5">
               {i > 0 && (
@@ -107,14 +105,14 @@ export function Frame({
               {crumb.to !== undefined ? (
                 <Link
                   to={crumb.to}
-                  className="flex target items-center rounded-row px-1.5 whitespace-nowrap link hover:underline"
+                  className="flex target min-w-0 items-center rounded-row px-1.5 wrap-anywhere link hover:underline"
                 >
                   {crumb.label}
                 </Link>
               ) : (
                 <span
                   aria-current={i === crumbs.length - 1 ? "page" : undefined}
-                  className="px-1.5 whitespace-nowrap"
+                  className="min-w-0 px-1.5 wrap-anywhere"
                 >
                   {crumb.label}
                 </span>

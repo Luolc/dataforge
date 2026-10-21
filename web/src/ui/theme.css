@@ -414,8 +414,11 @@ html[data-template="dark"] {
 
 /* Markdown from an attempt, rendered by ui/markdown.tsx. */
 @layer components {
+  /* A word longer than the line, such as a path, breaks rather than
+     running out of its card. */
   .md {
     line-height: 1.6;
+    overflow-wrap: break-word;
   }
   .md :where(h1, h2, h3, h4) {
     margin: 0 0 calc(var(--spacing) * 3);
@@ -444,6 +447,7 @@ html[data-template="dark"] {
   }
   .md a {
     display: inline-flex;
+    max-width: 100%;
     align-items: center;
     min-height: var(--spacing-target);
     text-decoration: underline;
@@ -475,7 +479,12 @@ html[data-template="dark"] {
     border-left: 2px solid var(--color-line);
     color: var(--color-fg-2);
   }
+  /* A table wider than the text scrolls sideways on its own. */
   .md table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
     border-collapse: collapse;
     font-variant-numeric: tabular-nums;
   }

@@ -254,48 +254,54 @@ function Deliverables({ project, attempt, record }: Props) {
   if (deliverables.length === 0) return null;
   return (
     <Card title="Deliverables" aside="What the attempt hands on" flush>
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="h-9 text-left text-xs text-fg-3">
-            <th className="px-5 font-normal">Name</th>
-            <th className="px-5 font-normal">From</th>
-            <th className="px-5 font-normal">What</th>
-          </tr>
-        </thead>
-        <tbody>
-          {deliverables.map((item) => {
-            const from = missing.includes(item)
-              ? "—"
-              : item.visit_index === null
-                ? stateTitle(project, item.state)
-                : `${stateTitle(project, item.state)} · run ${item.visit_index + 1}`;
-            return (
-              <tr key={item.name} className="h-11 border-t border-line-subtle">
-                <td className="px-5">
-                  <Link
-                    to={attemptHref(project.id, attempt, { tab: item.kind })}
-                    className="inline-flex target items-center underline decoration-faint underline-offset-3"
-                  >
-                    {item.title}
-                  </Link>
-                </td>
-                <td className="px-5 text-fg-2">{from}</td>
-                <td className="px-5 text-fg-2">
-                  {item.path === null ? (
-                    `${NOT_RUN}${item.reason !== null && item.reason !== "" ? `: ${item.reason}` : ""}`
-                  ) : (
-                    <KindLine
-                      project={project.id}
-                      attempt={attempt}
-                      item={item}
-                    />
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      {/* The table scrolls on its own where the card is narrower than it. */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="h-9 text-left text-xs text-fg-3">
+              <th className="px-5 font-normal">Name</th>
+              <th className="px-5 font-normal">From</th>
+              <th className="px-5 font-normal">What</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deliverables.map((item) => {
+              const from = missing.includes(item)
+                ? "—"
+                : item.visit_index === null
+                  ? stateTitle(project, item.state)
+                  : `${stateTitle(project, item.state)} · run ${item.visit_index + 1}`;
+              return (
+                <tr
+                  key={item.name}
+                  className="h-11 border-t border-line-subtle"
+                >
+                  <td className="px-5">
+                    <Link
+                      to={attemptHref(project.id, attempt, { tab: item.kind })}
+                      className="inline-flex target items-center underline decoration-faint underline-offset-3"
+                    >
+                      {item.title}
+                    </Link>
+                  </td>
+                  <td className="px-5 text-fg-2">{from}</td>
+                  <td className="px-5 text-fg-2">
+                    {item.path === null ? (
+                      `${NOT_RUN}${item.reason !== null && item.reason !== "" ? `: ${item.reason}` : ""}`
+                    ) : (
+                      <KindLine
+                        project={project.id}
+                        attempt={attempt}
+                        item={item}
+                      />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

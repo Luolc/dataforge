@@ -10,7 +10,9 @@ import {
   runningIn,
   sampleProject,
 } from "../../../fixtures/sample";
+import type { Loaded } from "../../api/client";
 import type { AttemptRecord, LiveInfo, Project } from "../../api/types";
+import type { Snapshot } from "../definition/load";
 import { RunsView } from "./RunsView";
 
 function show(
@@ -268,5 +270,38 @@ describe("a running attempt in the Runs column", () => {
     expect(runs.getByText("Runs · 4")).toBeVisible();
     expect(runs.queryByRole("img", { name: "Running" })).toBeNull();
     expect(runs.queryByText("review")).toBeNull();
+  });
+});
+
+describe("the run shown in the Runs column", () => {
+  it("is brought to the list's top again once the definition above it loads", () => {
+    // jsdom lays nothing out: the run shown sits 120px down the list.
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.getAttribute("aria-current") === "page" ? 120 : 0;
+      },
+    );
+    const project = { ...sampleProject, definition: "definition.json" };
+    const view = (definition: Loaded<Snapshot>) => (
+      <MemoryRouter>
+        <RunsView
+          project={project}
+          attempt="batch-1/task-0001"
+          record={records.passed}
+          run={3}
+          definition={definition}
+        />
+      </MemoryRouter>
+    );
+    const { rerender } = render(view({ state: "loading" }));
+    const list = screen.getByRole("region", { name: "Runs list" });
+    expect(list.scrollTop).toBe(120);
+
+    // The definition's links push the list down and leave it scrolled
+    // elsewhere, as a browser does when the list gets shorter.
+    list.scrollTop = 0;
+    rerender(view({ state: "ok", data: { shape: "none" } }));
+    expect(list.scrollTop).toBe(120);
+    vi.restoreAllMocks();
   });
 });

@@ -101,6 +101,10 @@ describe("the queue page", () => {
 
     expect(await screen.findByText("2 of 2 running · 1 queued")).toBeVisible();
     expect(screen.getByText("The machine: 2 of 3 running")).toBeVisible();
+    // A table wider than the page scrolls sideways on its own.
+    expect(screen.getByRole("table").parentElement).toHaveClass(
+      "overflow-x-auto",
+    );
     const group = (name: RegExp) => screen.getByRole("button", { name });
     expect(group(/^Running/)).toHaveTextContent("Running1 of 2 bad or warn");
     expect(group(/^Queued/)).toHaveTextContent("Queued1");

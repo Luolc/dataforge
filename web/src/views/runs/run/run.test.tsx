@@ -155,6 +155,10 @@ describe("an action's fields", () => {
     expect(
       within(judge).getByText("artifacts/review/1/scores.json"),
     ).toBeVisible();
+    // An output's name and path apart, each breaking on its own.
+    const output = within(judge).getByText("artifacts/review/1/scores.json");
+    expect(output.parentElement).toHaveClass("flex", "flex-wrap", "gap-x-2");
+    expect(output).toHaveClass("min-w-0", "wrap-anywhere");
     expect(within(judge).getByText(/4 of 4 criteria/)).toBeVisible();
   });
 
