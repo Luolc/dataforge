@@ -70,7 +70,8 @@
   --dash-not-taken: 3 3;
 
   /* The colour templates (ui/template.ts) give the same tokens other
-     values; these are the default, contrast. Surfaces, from the outside in:
+     values; these are those of contrast, drawn when the root has no
+     data-template. Surfaces, from the outside in:
      app (the sidebar and the ground), panel (the page), card and head (a
      card's body, and the band of a card's or a table's head), group (a
      group's row), tree (the file tree), code-bg and code-gutter (code, the
@@ -151,7 +152,7 @@
 }
 
 /* The other templates: every colour token again, so that none falls back
-   to the default's value. */
+   to the value of contrast, which the root draws without a template. */
 html[data-template="ac"] {
   --color-app: #d1dcc8;
   --color-panel: #dde6d5;

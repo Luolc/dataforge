@@ -1,17 +1,17 @@
 // The colour templates: each is one set of values for the same tokens
 // (theme.css), chosen on the page and kept in localStorage.
 export const TEMPLATES = [
-  { id: "contrast", label: "High contrast" },
-  { id: "ac", label: "AC layered" },
-  { id: "neutral", label: "Neutral light" },
+  { id: "ac", label: "Light" },
   { id: "dark", label: "Dark" },
+  { id: "contrast", label: "High contrast" },
+  { id: "neutral", label: "Neutral light" },
 ] as const;
 
 export type TemplateId = (typeof TEMPLATES)[number]["id"];
 
 /** Where the chosen template is kept in localStorage. */
 export const KEY = "viz.template";
-const DEFAULT: TemplateId = "contrast";
+const DEFAULT: TemplateId = "ac";
 
 export const isTemplate = (v: string | null): v is TemplateId =>
   TEMPLATES.some((t) => t.id === v);
