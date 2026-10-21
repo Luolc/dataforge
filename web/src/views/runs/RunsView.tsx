@@ -1,4 +1,4 @@
-// The Runs tab: a column with the Summary, each run and where the attempt
+// The Runs tab: a column with the Summary, the definition, each run and where the attempt
 // was resumed, beside the page.
 import { House } from "lucide-react";
 import { Fragment, useEffect, useRef } from "react";
@@ -102,16 +102,6 @@ export function RunsView({
   return (
     <div className="grid grid-cols-[var(--spacing-runs)_minmax(0,1fr)] gap-6 px-7 pt-5 pb-12">
       <nav aria-label="Runs" className={column}>
-        {definition !== null && (
-          <div className="mb-3 border-b border-line pb-3">
-            <DefinitionLinks
-              project={project}
-              snapshot={snapshot}
-              href={defnHref}
-              current={defn}
-            />
-          </div>
-        )}
         <Link
           to={href({})}
           aria-current={
@@ -124,6 +114,16 @@ export function RunsView({
           <House className="size-4" aria-hidden />
           Summary
         </Link>
+        {definition !== null && (
+          <div className="mt-3 border-b border-line pb-3">
+            <DefinitionLinks
+              project={project}
+              snapshot={snapshot}
+              href={defnHref}
+              current={defn}
+            />
+          </div>
+        )}
         <h2 className="mt-3 mb-1 px-2 text-xs font-medium text-fg-3">
           Runs · {runs}
         </h2>
