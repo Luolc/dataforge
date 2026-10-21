@@ -53,9 +53,28 @@ function show() {
   );
 }
 
-const states = (goOn: string | null) => [
-  { name: "again", label: "Run again", queue: "fast", reason: null },
-  { name: "go-on", label: "Go on", queue: "slow", reason: goOn },
+const states = (goOn: string | null, params: unknown[] = []) => [
+  { name: "again", label: "Run again", queue: "fast", reason: null, params },
+  { name: "go-on", label: "Go on", queue: "slow", reason: goOn, params: [] },
+];
+
+const params = [
+  {
+    name: "budget",
+    label: "Budget",
+    min: 1,
+    max: 150,
+    default: 75,
+    format: "usd",
+  },
+  {
+    name: "tries",
+    label: "Tries",
+    min: -2,
+    max: 0.5,
+    default: 0,
+    format: "number",
+  },
 ];
 
 afterEach(() => {
@@ -170,5 +189,92 @@ describe("a data item's actions", () => {
         "Go on was not queued (409: An attempt of this item is running: its lock is held.).",
       ),
     ).toBeVisible();
+  });
+
+  it("asks for each number at its default, and posts the numbers with the item", async () => {
+    const submit =
+      "/api/projects/sample/actions/again?item=batch-1%2Ftask-0001&budget=12.5&tries=0";
+    const calls = serve({
+      [ACTIONS]: [
+        [200, states(null, params)],
+        [200, states(null, params)],
+      ],
+      [submit]: [[201, { job }]],
+    });
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Run again" }));
+    const budget = screen.getByRole("textbox", { name: "Budget" });
+    const tries = screen.getByRole("textbox", { name: "Tries" });
+    expect(budget).toHaveValue("75");
+    expect(tries).toHaveValue("0");
+    expect(budget).toHaveAccessibleDescription("From $1.00 to $150.00.");
+    expect(tries).toHaveAccessibleDescription("From -2 to 0.5.");
+    // The focus goes to the first number, so that typing replaces it.
+    expect(document.activeElement).toBe(budget);
+    fireEvent.change(budget, { target: { value: "12.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue" }));
+
+    expect(
+      await screen.findByText(
+        "Run again (Budget $12.50, Tries 0): queued as job 7 in fast.",
+      ),
+    ).toBeVisible();
+    expect(
+      calls.filter((c) => c.init?.method === "POST").map((c) => c.url),
+    ).toEqual([submit]);
+    // Opened again after it queued, the question is back at the defaults.
+    fireEvent.click(screen.getByRole("button", { name: "Run again" }));
+    expect(screen.getByRole("textbox", { name: "Budget" })).toHaveValue("75");
+  });
+
+  it("opens the question at the defaults again after Keep", async () => {
+    serve({ [ACTIONS]: [[200, states(null, params)]] });
+    show();
+
+    const again = await screen.findByRole("button", { name: "Run again" });
+    fireEvent.click(again);
+    fireEvent.change(screen.getByRole("textbox", { name: "Budget" }), {
+      target: { value: "151" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    fireEvent.click(again);
+
+    expect(screen.getByRole("textbox", { name: "Budget" })).toHaveValue("75");
+    expect(screen.getByRole("button", { name: "Queue" })).toBeEnabled();
+  });
+
+  it.each([
+    ["151"],
+    ["0.5"],
+    ["1e2"],
+    [" 75"],
+    ["75."],
+    [""],
+    ["000000075.000000"],
+    ["1.0000001"],
+  ])("queues no number the backend would refuse, such as %j", async (value) => {
+    const calls = serve({ [ACTIONS]: [[200, states(null, params)]] });
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Run again" }));
+    const budget = screen.getByRole("textbox", { name: "Budget" });
+    fireEvent.change(budget, { target: { value } });
+
+    const queue = screen.getByRole("button", { name: "Queue" });
+    expect(queue).toBeDisabled();
+    expect(budget).toHaveAttribute("aria-invalid", "true");
+    expect(budget).toHaveAccessibleDescription(
+      "Not a number from $1.00 to $150.00.",
+    );
+    // Enter in the input submits the form, which queues nothing either.
+    const form = budget.closest("form");
+    expect(form).not.toBeNull();
+    if (form !== null) fireEvent.submit(form);
+    expect(calls.every((c) => c.init?.method !== "POST")).toBe(true);
+    // A control: a number in bounds makes Queue ready again.
+    fireEvent.change(budget, { target: { value: "150" } });
+    expect(queue).toBeEnabled();
+    expect(budget).toHaveAttribute("aria-invalid", "false");
   });
 });

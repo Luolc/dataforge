@@ -87,6 +87,20 @@ actions:
 """
 
 
+PARAMS = """\
+    params:
+      - name: budget
+        label: Budget
+        flag: --max-usd
+        min: 1
+        max: 150
+        default: 75
+        format: usd
+      - {name: tries, label: Tries, flag: --tries, min: -2, max: 0.5,
+         default: 0}
+"""
+
+
 @dataclass(frozen=True)
 class QueueTree:
   tree: Tree
@@ -120,3 +134,16 @@ def make_queue_tree(tmp_path: Path) -> QueueTree:
     tree.site.read_text() + "queue: {config: queue/queue.yaml}\n"
   )
   return QueueTree(tree, queue, work)
+
+
+def with_params(made: QueueTree, params: str = PARAMS) -> None:
+  """Give the action again of make_queue_tree parameters.
+
+  Args:
+    made: The site make_queue_tree made.
+    params: The YAML of again's params key, indented as its other keys.
+  """
+  text = made.tree.project.read_text()
+  _ = made.tree.project.write_text(
+    text.replace("    when: idle\n", "    when: idle\n" + params, 1)
+  )

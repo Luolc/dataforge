@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -8,9 +9,11 @@ from dataforge.viz.serve import serve
 from tests.viz.sites import (
   make_queue_tree,
   make_tree,
+  PARAMS,
   PROJECT,
   QUEUE,
   Tree,
+  with_params,
 )
 
 
@@ -381,3 +384,101 @@ def test_a_project_may_not_take_a_page_s_name(tree: Tree, id_: str) -> None:
 
   with pytest.raises(ConfigError, match="is the name of a page"):
     _ = load_site(tree.site)
+
+
+def test_an_action_loads_its_parameters(tmp_path: Path) -> None:
+  made = make_queue_tree(tmp_path)
+  with_params(made)
+
+  [project] = load_site(made.tree.site).projects
+  budget, tries = project.actions[0].params
+
+  assert (budget.name, budget.label, budget.flag) == (
+    "budget",
+    "Budget",
+    "--max-usd",
+  )
+  assert (budget.min, budget.max, budget.default) == (1, 150, 75)
+  assert (budget.format, tries.format) == ("usd", "number")
+  assert (tries.min, tries.max, tries.default) == (-2, Decimal("0.5"), 0)
+  assert project.actions[1].params == ()
+  # What every page reads names no parameter: only the item's actions do.
+  assert "params" not in str(project.public())
+
+
+BUDGET = (
+  "{name: budget, label: Budget, flag: --max-usd, min: 1, max: 150,"
+  + " default: 75}"
+)
+
+
+@pytest.mark.parametrize(
+  ("old", "new", "key"),
+  [
+    ("name: budget", "name: Budget", r"params\[0\]\.name: 'Budget' is not"),
+    ("name: budget", "name: item", r"params\[0\]\.name: 'item' is not"),
+    ("name: tries", "name: budget", r"params\[1\]\.name: 'budget' repeated"),
+    ("label: Tries", "label: ''", r"params\[1\]\.label: not a non-empty"),
+    ("flag: --max-usd", "flag: -m", r"params\[0\]\.flag: '-m' is not"),
+    ("flag: --max-usd", "flag: max-usd", r"flag: 'max-usd' is not"),
+    ("flag: --max-usd", "flag: --max usd", r"flag: '--max usd' is not"),
+    ("flag: --max-usd", "flag: --Max", r"flag: '--Max' is not"),
+    ("flag: --max-usd", "flag: --max={item}", r"flag: '--max={item}' is not"),
+    ("flag: --tries", "flag: --max-usd", r"params\[1\]\.flag: .* already in"),
+    ("flag: --max-usd", "flag: --item", r"params\[0\]\.flag: .* already in"),
+    ("flag: --max-usd", "flag: --note", r"params\[0\]\.flag: .* already in"),
+    ("default: 75", "default: 151", r"params\[0\]: not min <= default <="),
+    ("default: 75", "default: 0.5", r"params\[0\]: not min <= default <="),
+    ("max: 150", "max: 0", r"params\[0\]: not min <= default <= max"),
+    ("min: 1", 'min: "1"', r"params\[0\]\.min: not a number"),
+    ("min: 1", "min: true", r"params\[0\]\.min: not a number"),
+    ("max: 150", "max: .inf", r"params\[0\]\.max: inf is not a decimal"),
+    ("max: 150", "max: .nan", r"params\[0\]\.max: nan is not a decimal"),
+    ("max: 150", "max: 1.0e+30", r"params\[0\]\.max: .* at most 15"),
+    (
+      "default: 75",
+      "default: 123456789012345678901",
+      r"default: .* at most 15",
+    ),
+    ("min: 1", "min: 0.0000001", r"params\[0\]\.min: .* 6 decimal places"),
+    ("format: usd", "format: eur", r"format: 'eur' is not one of"),
+    ("        format: usd\n", "        shell: true\n", r"shell: unknown"),
+    ("        default: 75\n", "", r"params\[0\]\.default: missing"),
+    ("        format: usd\n", "", None),
+  ],
+)
+def test_a_parameter_that_breaks_a_rule_is_refused(
+  tmp_path: Path, old: str, new: str, key: str | None
+) -> None:
+  made = make_queue_tree(tmp_path)
+  assert old in PARAMS
+  with_params(made, PARAMS.replace(old, new, 1))
+
+  if key is None:
+    # A control: the change alone, a parameter with no format, loads.
+    _ = load_site(made.tree.site)
+    return
+  with pytest.raises(ConfigError, match=key) as error:
+    _ = load_site(made.tree.site)
+  assert str(made.tree.project) in str(error.value)
+
+
+@pytest.mark.parametrize(
+  ("params", "key"),
+  [
+    ("    params: []\n", r"actions\[0\]\.params: not a non-empty list"),
+    (f"    params: {BUDGET}\n", r"actions\[0\]\.params: not a non-empty list"),
+    (f"    params: [{BUDGET}]\n", None),
+  ],
+)
+def test_parameters_are_a_non_empty_list(
+  tmp_path: Path, params: str, key: str | None
+) -> None:
+  made = make_queue_tree(tmp_path)
+  with_params(made, params)
+
+  if key is None:
+    _ = load_site(made.tree.site)
+    return
+  with pytest.raises(ConfigError, match=key):
+    _ = load_site(made.tree.site)
