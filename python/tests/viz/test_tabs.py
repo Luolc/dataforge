@@ -164,14 +164,14 @@ def test_a_tab_that_breaks_a_rule_is_refused(
 def test_versions_come_in_the_patterns_order_last_name_first(
   tree: Tree,
 ) -> None:
-  for name in ("notes-run9", "notes-run10", "notes-eval2", "notes", "x-1"):
+  for name in ("notes-run9", "notes-run10", "notes-alt2", "notes", "x-1"):
     _ = version(tree, name)
 
   assert dirs(shown(tree)) == [
     "notes",
     "notes-run10",
     "notes-run9",
-    "notes-eval2",
+    "notes-alt2",
   ]
 
 
