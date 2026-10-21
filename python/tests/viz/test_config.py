@@ -199,6 +199,18 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
       ("name: Example", "name: Example\ntrials: {diff: x, glob: y}"),
       r"trials\.glob: unknown key",
     ),
+    (
+      ("name: Example", "name: Example\ndefinition: ../definition.json"),
+      r"definition: '\.\./definition\.json' is not",
+    ),
+    (
+      ("name: Example", "name: Example\ndefinition: /definition.json"),
+      r"definition: '/definition\.json' is not",
+    ),
+    (
+      ("name: Example", "name: Example\ndefinition: [d.json]"),
+      "definition: not a non-empty string",
+    ),
     (("name: Example", "name: Example\nmonitor: {}"), r"monitor\.db: missing"),
     (("name: Example", "name: Example\nmonitor: {db: ''}"), r"monitor\.db"),
     (
