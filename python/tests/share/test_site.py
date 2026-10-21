@@ -210,10 +210,16 @@ def test_the_headers_keep_the_site_out_of_search_and_data_out_of_caches(
 
   _ = write_site(inputs.frontend, inputs.out, [inputs.export])
 
-  headers = (inputs.out / "_headers").read_text()
-  assert "  X-Robots-Tag: noindex\n" in headers
-  assert "/data/*\n  Cache-Control: no-cache\n" in headers
-  assert f"  Content-Security-Policy: {app.CSP}\n" in headers
+  assert (inputs.out / "_headers").read_text() == (
+    "/*\n"
+    + f"  Content-Security-Policy: {app.CSP}\n"
+    + "  X-Content-Type-Options: nosniff\n"
+    + "  Referrer-Policy: no-referrer\n"
+    + "  X-Robots-Tag: noindex\n"
+    + "/data/*\n"
+    + "  Cache-Control: no-cache\n"
+    + "  Content-Security-Policy: sandbox; default-src 'none'\n"
+  )
 
 
 def test_an_export_without_a_download_or_listed_only_is_written_whole(
@@ -323,6 +329,33 @@ def test_a_fifo_in_an_item_is_refused(tmp_path: Path) -> None:
   assert_refused(inputs, "item-1/task/pipe: a symlink or not a regular file")
 
 
+@pytest.mark.parametrize(
+  ("path", "words"),
+  [
+    ("task/.git/config", "item-1/task/.git: a name the host's upload leaves"),
+    ("task/node_modules/x/index.js", "item-1/task/node_modules: a name"),
+    (".DS_Store", "item-1/.DS_Store: a name the host's upload leaves out"),
+  ],
+)
+def test_a_name_the_upload_leaves_out_is_refused_in_an_item(
+  tmp_path: Path, path: str, words: str
+) -> None:
+  inputs = make_inputs(tmp_path)
+  (inputs.item / path).parent.mkdir(parents=True, exist_ok=True)
+  _ = (inputs.item / path).write_text("x\n")
+
+  assert_refused(inputs, words)
+
+
+def test_a_name_the_upload_leaves_out_is_refused_in_the_frontend(
+  tmp_path: Path,
+) -> None:
+  inputs = make_inputs(tmp_path)
+  _ = (inputs.frontend / "assets" / ".DS_Store").write_bytes(b"x")
+
+  assert_refused(inputs, "assets/.DS_Store: a name the host's upload leaves")
+
+
 def test_a_symlink_in_the_frontend_is_refused(tmp_path: Path) -> None:
   inputs = make_inputs(tmp_path)
   (inputs.frontend / "assets" / "x.js").symlink_to(inputs.item / "review.md")
@@ -330,7 +363,9 @@ def test_a_symlink_in_the_frontend_is_refused(tmp_path: Path) -> None:
   assert_refused(inputs, "assets/x.js: a symlink")
 
 
-@pytest.mark.parametrize("name", ["404.html", "_redirects", "data"])
+@pytest.mark.parametrize(
+  "name", ["404.html", "_redirects", "data", "functions", ".wrangler"]
+)
 def test_a_frontend_with_a_name_the_site_keeps_is_refused(
   tmp_path: Path, name: str
 ) -> None:

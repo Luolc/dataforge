@@ -26,16 +26,20 @@ and every other file is a copy, byte for byte, of an input:
 
 A file of listed_only, and the download, are in tree.json with listed_only
 true, by their name and size; a file of listed_only is in no other file of
-the site. The site has no 404.html, so a host such as Cloudflare Pages
-answers a path it does not hold with index.html, as a single-page
-application needs.
+the site. A path of listed_only that an item does not hold is skipped for
+that item, as not every item has every such file. The site has no 404.html,
+so a host such as Cloudflare Pages answers a path it does not hold with
+index.html, as a single-page application needs.
 
 The command fails, and leaves nothing, when --out exists, a file of the
 site would hold more than 25 MiB, the site would hold more than 20,000
 files, or an input fails a check. Every input is opened one component at a
 time with O_NOFOLLOW, as share's server opens it (dataforge.share.exports);
 a symlink or anything else that is not a regular file or a directory fails
-the command.
+the command. So does a .git, node_modules or .DS_Store anywhere in an input,
+and a functions or .wrangler at the frontend's top: wrangler pages deploy
+leaves those out of what it uploads, and the host would answer for them
+with index.html.
 """
 
 from collections.abc import Iterator
@@ -72,10 +76,23 @@ FILES_LIMIT = 20_000
 """The most files the site may hold, Cloudflare Pages' limit."""
 
 RESERVED = frozenset(
-  {"data", "_headers", "_redirects", "_routes.json", "_worker.js", "404.html"}
+  {
+    "data",
+    "_headers",
+    "_redirects",
+    "_routes.json",
+    "_worker.js",
+    "404.html",
+    "functions",
+    ".wrangler",
+  }
 )
 """Names the frontend may not have at its top: the command writes data and
-_headers, and the others change what the host serves."""
+_headers, and the others change what the host serves or are not uploaded."""
+
+UNSENT = frozenset({".git", "node_modules", ".DS_Store"})
+"""Names wrangler pages deploy leaves out at any depth, so no input may have
+them."""
 
 CSP = (
   "default-src 'self'; script-src 'self'; connect-src 'self';"
@@ -322,6 +339,8 @@ def _walk(fd: int, path: str, where: str) -> Iterator[tuple[str, list[Entry]]]:
       raise SiteError(
         f"{where}/{name}: a symlink or not a regular file, never copied"
       )
+    if entry.name in UNSENT:
+      raise SiteError(f"{where}/{name}: a name the host's upload leaves out")
   yield path, entries
   for entry in entries:
     if entry.type != "dir":
