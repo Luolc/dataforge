@@ -547,7 +547,10 @@ describe("the home page while an attempt runs", () => {
     await screen.findByText("t-run");
     const toggle = screen.getByRole("button", { name: "2 attempts of t-run" });
     fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The table takes the new state on its own schedule.
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+    });
 
     await tick();
     expect(fetch).toHaveBeenCalledTimes(2);
