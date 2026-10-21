@@ -1,21 +1,49 @@
 // How numbers, times and costs read on every page.
 import type { Action, Visit } from "../api/types";
 
-const utc = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "UTC",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
+/**
+ * The parts of a time in the browser's own time zone, the zone's
+ * abbreviation among them as timeZoneName.
+ */
+function parts(
+  date: Date,
+  fields: Intl.DateTimeFormatOptions,
+  timeZone?: string,
+) {
+  const found = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    ...fields,
+    timeZoneName: "short",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type: string) =>
+    found.find((part) => part.type === type)?.value ?? "";
+  return get;
+}
+
+const numeric: Intl.DateTimeFormatOptions = {
   hour: "2-digit",
   minute: "2-digit",
-  hourCycle: "h23",
-});
+};
 
-/** An ISO 8601 time as "2026-03-02 09:15 UTC"; "—" when it does not parse. */
-export function time(iso: string): string {
+/**
+ * An ISO 8601 time as "2026-03-02 09:15 PST", in the browser's zone or, for
+ * a test, timeZone; "—" when it does not parse.
+ */
+export function time(iso: string, timeZone?: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return `${utc.format(date).replace(",", "")} UTC`;
+  const get = parts(
+    date,
+    {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      ...numeric,
+    },
+    timeZone,
+  );
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")} ${get("timeZoneName")}`;
 }
 
 /** Seconds as "1h 37m", "35m 56s" or "12s". */
@@ -54,32 +82,24 @@ export function visitSeconds(v: Visit): number | null {
 export const visitCost = (v: Visit): number =>
   v.actions.reduce((sum: number, a: Action) => sum + a.cost_usd, 0);
 
-const clockUtc = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "UTC",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
-const secondsUtc = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "UTC",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hourCycle: "h23",
-});
-
-/** Seconds since the epoch as "2026-03-02 09:15 UTC". */
+/** Seconds since the epoch as "2026-03-02 09:15 PST". */
 export const epoch = (seconds: number): string =>
   time(new Date(seconds * 1000).toISOString());
 
-/** Seconds since the epoch as "09:15", in UTC: a chart's time axis. */
-export const clock = (seconds: number): string =>
-  clockUtc.format(new Date(seconds * 1000));
+/** Seconds since the epoch as "09:15", in the browser's zone: a chart's time axis. */
+export function clock(seconds: number): string {
+  const get = parts(new Date(seconds * 1000), numeric);
+  return `${get("hour")}:${get("minute")}`;
+}
 
-/** Seconds since the epoch as "09:15:42 UTC". */
-export const instant = (seconds: number): string =>
-  `${secondsUtc.format(new Date(seconds * 1000))} UTC`;
+/** Seconds since the epoch as "09:15:42 PST". */
+export function instant(seconds: number): string {
+  const get = parts(new Date(seconds * 1000), {
+    ...numeric,
+    second: "2-digit",
+  });
+  return `${get("hour")}:${get("minute")}:${get("second")} ${get("timeZoneName")}`;
+}
 
 /** Bytes in binary units, as "512 MiB" or "12.5 GiB". */
 export function bytes(value: number): string {

@@ -113,8 +113,10 @@ describe("a data item's actions", () => {
     expect(
       await screen.findByText("Run again: queued as job 7 in fast."),
     ).toBeVisible();
-    // and then to what came of it.
-    expect(document.activeElement).toBe(screen.getByRole("status"));
+    // and then to what came of it, in an effect of the render that shows it.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole("status"));
+    });
     const post = calls.find((c) => c.url === submit);
     expect(post?.init?.method).toBe("POST");
     expect(post?.init?.headers).toEqual({ "X-Viz-Write": "1" });

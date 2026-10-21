@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bytes, clock, cores, epoch, instant } from "./format";
+import { bytes, clock, cores, epoch, instant, time } from "./format";
 
 describe("the formatters the Monitor page reads", () => {
   it("write bytes in binary units", () => {
@@ -15,10 +15,24 @@ describe("the formatters the Monitor page reads", () => {
     expect(cores(20)).toBe("20 cores");
   });
 
-  it("write seconds since the epoch in UTC", () => {
+  it("write seconds since the epoch in the browser's zone, UTC in the tests", () => {
     const t = Date.UTC(2026, 2, 2, 9, 15, 42) / 1000;
     expect(epoch(t)).toBe("2026-03-02 09:15 UTC");
     expect(clock(t)).toBe("09:15");
     expect(instant(t)).toBe("09:15:42 UTC");
+  });
+
+  it("write a time in a zone with its abbreviation, as the zone's offset moves", () => {
+    const zone = "America/Los_Angeles";
+    expect(time("2026-03-02T09:15:00+00:00", zone)).toBe(
+      "2026-03-02 01:15 PST",
+    );
+    expect(time("2026-07-02T09:15:00+00:00", zone)).toBe(
+      "2026-07-02 02:15 PDT",
+    );
+    // The day changes with the zone.
+    expect(time("2026-03-02T03:00:00+00:00", zone)).toBe(
+      "2026-03-01 19:00 PST",
+    );
   });
 });
