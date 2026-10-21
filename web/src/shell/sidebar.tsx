@@ -7,10 +7,14 @@ import {
   type MouseEvent,
   type ReactNode,
   use,
+  useId,
   useState,
 } from "react";
 
-const SidebarContext = createContext<string | null>(null);
+/** The sidebar's label, and the ID of the box its drawer opens in. */
+const SidebarContext = createContext<{ label: string; drawer: string } | null>(
+  null,
+);
 
 const nav = "flex w-sidebar flex-col gap-0.5 px-2 py-inset";
 
@@ -28,13 +32,17 @@ export function Sidebar({
   page: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // The drawer opens in a box that is always in the page, so that the
+  // button names it by aria-controls when the drawer is closed too.
+  const drawer = useId();
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
   // A link followed in the drawer closes it, as the page it opens is shown.
   const followed = (event: MouseEvent) => {
     if (event.target instanceof Element && event.target.closest("a"))
       setOpen(false);
   };
   return (
-    <SidebarContext value={label}>
+    <SidebarContext value={{ label, drawer }}>
       <Dialog.Root open={open} onOpenChange={setOpen}>
         <nav
           aria-label={label}
@@ -42,7 +50,10 @@ export function Sidebar({
         >
           {children}
         </nav>
-        <Dialog.Portal>
+        {page}
+        {/* After the page, so that the drawer is drawn over it. */}
+        <div id={drawer} ref={setBox} className="lg:hidden" />
+        <Dialog.Portal container={box}>
           <Dialog.Overlay className="fixed inset-0 lg:hidden" />
           <Dialog.Content
             aria-describedby={undefined}
@@ -50,12 +61,13 @@ export function Sidebar({
             className="fixed inset-y-0 left-0 overflow-y-auto border-r border-line bg-app text-fg lg:hidden"
           >
             <Dialog.Title className="sr-only">{label}</Dialog.Title>
-            <nav aria-label={label} className={nav}>
+            {/* As tall as the drawer, so an entry pushed to the foot, such as
+                the share site's Sign out, sits at its foot. */}
+            <nav aria-label={label} className={`min-h-full ${nav}`}>
               {children}
             </nav>
           </Dialog.Content>
         </Dialog.Portal>
-        {page}
       </Dialog.Root>
     </SidebarContext>
   );
@@ -63,11 +75,12 @@ export function Sidebar({
 
 /** The button that opens the drawer, below the lg breakpoint; none outside a Sidebar. */
 export function SidebarButton() {
-  const label = use(SidebarContext);
-  if (label === null) return null;
+  const sidebar = use(SidebarContext);
+  if (sidebar === null) return null;
   return (
     <Dialog.Trigger
-      aria-label={`Open the ${label.toLowerCase()} menu`}
+      aria-label={`Open the ${sidebar.label.toLowerCase()} menu`}
+      aria-controls={sidebar.drawer}
       className="mr-1 grid target flex-none place-items-center rounded-row hover:bg-hover lg:hidden"
     >
       <PanelLeft className="size-icon-md text-icon" aria-hidden />

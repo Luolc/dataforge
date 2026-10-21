@@ -25,8 +25,7 @@ async function signInWith(token: string) {
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 }
 
-/** The page's buttons outside the sidebar. */
-// The page's own buttons: not the sidebar's, nor the one that opens it.
+/** The page's own buttons: not the sidebar's, nor the one that opens it. */
 const pageButtons = () =>
   screen
     .getAllByRole("button")
@@ -245,9 +244,7 @@ describe("the share site's Pass@K tab", () => {
     open("/demo/items/k7m2q9xr4t?tab=pass_at_k");
 
     await screen.findByRole("button", { name: "Expand all" });
-    const folds = screen
-      .getAllByRole("button")
-      .filter((b) => b.hasAttribute("aria-controls"));
+    const folds = pageButtons().filter((b) => b.hasAttribute("aria-controls"));
     expect(folds.length).toBeGreaterThan(3);
     expect(folds.every((b) => b.getAttribute("aria-expanded") === "true")).toBe(
       true,

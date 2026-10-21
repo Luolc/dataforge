@@ -488,6 +488,11 @@ html[data-template="dark"] {
     border-collapse: collapse;
     font-variant-numeric: tabular-nums;
   }
+  /* A code span in a cell breaks anywhere, so that it does not squeeze the
+     cells beside it to a word a line. */
+  .md :where(th, td) code {
+    overflow-wrap: anywhere;
+  }
   .md :where(th, td) {
     padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 3.5);
     border: 1px solid var(--color-line);

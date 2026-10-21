@@ -247,5 +247,8 @@ describe("rendered Markdown", () => {
     expect(rule(".md table")).toMatch(/max-width: 100%;/);
     expect(rule(".md table")).toMatch(/overflow-x: auto;/);
     expect(rule(".md a")).toMatch(/max-width: 100%;/);
+    expect(rule(".md :where\\(th, td\\) code")).toMatch(
+      /overflow-wrap: anywhere;/,
+    );
   });
 });

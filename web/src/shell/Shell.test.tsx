@@ -118,11 +118,20 @@ describe("the sidebar", () => {
     expect(open).toHaveClass("lg:hidden", "target");
     expect(open).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("dialog")).toBeNull();
+    // Closed, the button still names the box the drawer opens in.
+    const box = document.getElementById(
+      open.getAttribute("aria-controls") ?? "",
+    );
+    expect(box).not.toBeNull();
+    expect(box).toBeEmptyDOMElement();
 
     fireEvent.click(open);
     const drawer = screen.getByRole("dialog", { name: "Site" });
     expect(open).toHaveAttribute("aria-expanded", "true");
-    expect(open).toHaveAttribute("aria-controls", drawer.id);
+    expect(box).toContainElement(drawer);
+    expect(
+      within(drawer).getByRole("navigation", { name: "Site" }),
+    ).toHaveClass("min-h-full");
     expect(drawer).toHaveClass("lg:hidden");
     expect(drawer.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(drawer, { key: "Escape" });
