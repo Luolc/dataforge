@@ -814,10 +814,10 @@ class RubricState(_ActionState):
   "### <name>"}; "error", with that feedback, where a review whose agent run
   failed gives "<name> returned no verdicts (<ending>).", if one did, so there
   is nothing to judge. Data: each review's {"ending", "cost_usd", "passed",
-  "failed", "warnings", "verdicts"}, by name. Every visit, whatever its
-  outcome, also writes the outputs RUBRIC_TABLE (rubric_table),
-  RUBRIC_REPORT (rubric_report) and, for each review, "<name>" CALL_SUFFIX,
-  its Call, recorded as an action of kind "report".
+  "failed", "verdicts"}, by name. Every visit, whatever its outcome, also
+  writes the outputs RUBRIC_TABLE (rubric_table), RUBRIC_REPORT
+  (rubric_report) and, for each review, "<name>" CALL_SUFFIX, its Call,
+  recorded as an action of kind "report".
 
   Each visit calls each review once. A call compares its blocks with those
   of the last call of the review in this state that gave verdicts, one for
