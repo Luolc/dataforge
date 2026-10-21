@@ -12,8 +12,8 @@ share is a site for people outside the machine. It reads one or more export dire
 It is not the viewer ([`design-viz.md`](design-viz.md)), and the two are kept apart so that nothing the viewer can do is one mistake away from the outside:
 
 - It is another process (`dataforge share serve`), with its own site file and token database, and the viewer's process serves no share route.
-- It has its own frontend entry, built on its own, so the viewer's pages are not in what the site serves.
-- Its routes are a short list (section 4, "The API"); everything else is 404. It has no route for a queue, an action, a monitor or an attempt's record as the engine writes it, so a page that asked for one would get a 404, not data.
+- It will have its own frontend entry, built on its own, so the viewer's pages are not in what the site serves (section 5, planned).
+- Its routes are a short list (section 4, "The API"); every other path under `/api` is 404, and a path outside `/api` gets the frontend's files. It has no route for a queue, an action, a monitor or an attempt's record as the engine writes it, so an `/api` request for one gets a 404, not data.
 - It has no write route: the only `POST`s are login and logout, which write a cookie and nothing else (invariant 2).
 - What it can show is at most what an export directory holds. Which data goes into an export, and how it is checked, belongs to whoever writes the export, not to share.
 
@@ -36,7 +36,7 @@ Not in scope: writing an export (share only reads one), deploying (the service u
 
 Each invariant links to the tests that guard it, in `python/tests/share/`.
 
-1. The server binds only `listen.host` and `listen.port` from the site file: a host that is not an IP address literal, or is an unspecified one (`0.0.0.0`, `::`), is refused before anything binds. Tests: [`test_config.py`](../python/tests/share/test_config.py): `test_a_wildcard_or_a_name_is_refused`; [`test_serve.py`](../python/tests/share/test_serve.py): `test_serve_refuses_a_wildcard_or_a_name_before_it_binds`.
+1. The server binds only `listen.host` and `listen.port` from the site file; a host that is not an IP address literal, or is an unspecified one (`0.0.0.0`, `::`), is refused before anything binds (the tests guard the refusal). Tests: [`test_config.py`](../python/tests/share/test_config.py): `test_a_wildcard_or_a_name_is_refused`; [`test_serve.py`](../python/tests/share/test_serve.py): `test_serve_refuses_a_wildcard_or_a_name_before_it_binds`.
 2. Every route answers only `GET` and `HEAD`, but `POST /api/login` and `POST /api/logout`, and no request writes a file. Test: [`test_app.py`](../python/tests/share/test_app.py): `test_every_route_is_a_get_but_the_two_posts_and_writes_nothing`.
 3. A token that is missing, malformed, wrong, unknown, expired or revoked, or is for another project, gets the same 401 with the same body on every project route and on login, so a refusal does not say which; a project that does not exist reads as one the token does not name. Tests: [`test_app.py`](../python/tests/share/test_app.py): `test_every_refused_token_gets_the_same_401`, `test_a_project_that_does_not_exist_reads_as_one_not_named`; [`test_tokens.py`](../python/tests/share/test_tokens.py): `test_a_token_that_differs_or_is_revoked_is_refused`, `test_a_token_is_valid_only_until_it_expires`.
 4. A revoke takes effect on the next request: the cookie's token is checked against the database on every request, and there is no session table. Test: [`test_app.py`](../python/tests/share/test_app.py): `test_a_revoked_token_is_refused_from_the_next_request`.
@@ -95,6 +95,7 @@ Every route answers `GET` and `HEAD`, but the two `POST`s, and returns JSON unle
 | `/api/projects/<p>/items` | a token for `p` | `[{id, revision}]` |
 | `/api/projects/<p>/record?attempt=<item>` | a token for `p` | `items/<item>/record.json` as written |
 | `/api/projects/<p>/files?attempt=<item>&path=<rel>` | a token for `p` | a listing or the file's bytes, with the path and parameters of the viewer's route (design-viz.md, section 4) so the viewer's file and report views work on it |
+| any other path under `/api` | nothing | 404 |
 | any other path | nothing | the built frontend, or a placeholder page without `--static` |
 
 A project the token does not name gives the 401 of invariant 3, so a token cannot probe project names; one it names that no export holds gives 404.
