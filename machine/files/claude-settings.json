@@ -10,6 +10,7 @@
   "autoCompactEnabled": true,
   "autoCompactWindow": 520000,
   "promptSuggestionEnabled": false,
+  "showThinkingSummaries": true,
   "skipDangerousModePermissionPrompt": true,
   "disableRemoteControl": true,
   "env": {
