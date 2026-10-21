@@ -1,0 +1,38 @@
+id = 56
+slug = "checks-by-path-web-share"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R276"
+default = "on"
+authority = ["evidence.grounds"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "The checks a change touches, by what it changes"
+
+[text.statement]
+en = '''
+The checks a change here touches, besides the commit hooks (`uvx pre-commit run --all-files`), are:
+
+- for `python/`: in that directory `uv run --locked ruff check`, `uv run --locked ruff format --check`, `uv run --locked basedpyright`, `uv run --locked pydoclint --config pyproject.toml --quiet src tests` and `uv run --locked pytest`;
+- for `machine/`: the setup test, `machine/tests/run.sh` from the top of the repository;
+- for `web/`: in that directory `npm ci`, then `npm run lint`, `npm run typecheck`, `npm test` and `npm run build`;
+- for a script in `.github/scripts/`: its `.test.sh`; for `docs/design.md`, `docs/design-viz.md` and `docs/design-share.md`: `.github/scripts/design-length.sh`.
+'''
+
+[text.reason]
+en = '''
+Each check runs where it can fail for the change, and nowhere it cannot.
+'''
+
+[text.verification]
+en = '''
+The setup test needs docker and network access; setting `DATAFORGE_MACHINE_APT_CACHE` to a directory keeps apt's downloads there across runs. A change to `.github/workflows/` is checked by its pull request's run of `check`. CI's `check` job runs the full set. When unsure whether a check is touched, it runs.
+
+Violated when a change is pushed without a check this list gives for the paths it changes having passed on the pushed version.
+'''
