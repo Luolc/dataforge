@@ -38,6 +38,14 @@
   --spacing-row: 28px;
   --spacing-inset: 8px;
   --spacing-runs: 208px;
+  /* The height of a frame's body, under its breadcrumb's bar. */
+  --spacing-frame: calc(
+    100dvh - 2 * var(--spacing-inset) - var(--spacing-header) - 2px
+  );
+  /* The least height of the runs' list in the Runs tab's column. */
+  --spacing-run-list: 160px;
+  /* A template's variables beside its text on a definition page. */
+  --spacing-variables: 416px;
   /* The smallest side of a control, for a fine and a coarse pointer. */
   --spacing-target: 24px;
   --spacing-target-coarse: 44px;

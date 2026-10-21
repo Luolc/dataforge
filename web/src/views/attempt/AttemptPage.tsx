@@ -46,6 +46,8 @@ import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
 import { declaredMissing, tabKinds } from "./declared";
 import { attemptHref } from "./href";
+import { WORKFLOW } from "../definition/details";
+import { useSnapshot } from "../definition/load";
 
 export function AttemptPage() {
   const { project: id } = useParams();
@@ -115,7 +117,14 @@ export function AttemptPage() {
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
   const discarded = runOf(query.get("discarded"));
-  const summary = tab === "runs" && run === null && discarded === null;
+  // A stage of the attempt's definition, or its workflow file, from the Runs
+  // tab's column; it wins over a run, for a project that names a definition.
+  const defn =
+    tab === "runs" && project.state === "ok" && project.data.definition != null
+      ? query.get("defn")
+      : null;
+  const summary =
+    tab === "runs" && run === null && discarded === null && defn === null;
   const crumbs: Crumb[] = [
     { label: "Projects", to: "/" },
     {
@@ -133,9 +142,16 @@ export function AttemptPage() {
     run !== null && loaded.state === "ok" && loaded.data.shape === "record"
       ? loaded.data.record.visits[run]
       : undefined;
-  if (run !== null && visit && project.state === "ok")
+  if (run !== null && defn === null && visit && project.state === "ok")
     crumbs.push({
       label: `Run ${String(run + 1)} · ${stateTitle(project.data, visit.state)}`,
+    });
+  if (defn !== null && project.state === "ok")
+    crumbs.push({
+      label:
+        defn === WORKFLOW
+          ? "Workflow file"
+          : `${stateTitle(project.data, defn)} · prompts and rubrics`,
     });
   let body;
   if (attempt === null) body = <Note>No attempt is named.</Note>;
@@ -163,6 +179,7 @@ export function AttemptPage() {
         tab={tab}
         run={run}
         discarded={discarded}
+        defn={defn}
       />
     );
   return (
@@ -186,6 +203,7 @@ function Attempt({
   tab,
   run,
   discarded,
+  defn,
 }: {
   project: Project;
   attempt: string;
@@ -196,6 +214,7 @@ function Attempt({
   tab: string;
   run: number | null;
   discarded: number | null;
+  defn: string | null;
 }) {
   // A record that has ended wins over a /live read before it ended: the page
   // then shows the record alone.
@@ -206,6 +225,7 @@ function Attempt({
   const itemsOf = (kind: string) => deliverables.filter((d) => d.kind === kind);
   const current = currentOf(record, live);
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
+  const definition = useSnapshot(project, attempt);
   const tabs = [
     { key: "runs", title: "Runs", count: <>{runs}</> },
     ...kinds.map((kind) => {
@@ -247,6 +267,8 @@ function Attempt({
           live={live}
           run={run}
           discarded={discarded}
+          definition={project.definition == null ? null : definition}
+          defn={defn}
         />
       ) : kinds.includes(tab) ? (
         <KindTab

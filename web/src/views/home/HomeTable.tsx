@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   RefreshCw,
+  ScrollText,
   Search,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
@@ -561,6 +562,15 @@ export function HomeTable({
             <span aria-live="polite">
               {reading ? "Reading…" : `Read ${time(read.at)}`}
             </span>
+            {project.definition != null && (
+              <Link
+                to={`/${encodeURIComponent(project.id)}/definition`}
+                className={control}
+              >
+                <ScrollText className="size-3.5 text-icon" aria-hidden />
+                Definition
+              </Link>
+            )}
             <button type="button" onClick={onRefresh} className={control}>
               <RefreshCw className="size-3.5 text-icon" aria-hidden />
               Refresh

@@ -107,6 +107,10 @@ const startMs = (row: AttemptRow): number =>
 
 const newestFirst = (a: number, b: number) => (a === b ? 0 : a > b ? -1 : 1);
 
+/** The rows, newest started first, as an item's attempts are ordered. */
+export const byNewestStart = (rows: AttemptRow[]): AttemptRow[] =>
+  [...rows].sort((a, b) => newestFirst(startMs(a), startMs(b)));
+
 /**
  * The rows grouped by item, in the page's order: items not ended, newest
  * started first; ended ones, newest ended first; unreadable ones by ID.
@@ -120,9 +124,7 @@ export function toItems(rows: AttemptRow[]): Item[] {
   }
   const items: Item[] = [];
   for (const [id, list] of byItem) {
-    const attempts = [...list].sort((a, b) =>
-      newestFirst(startMs(a), startMs(b)),
-    );
+    const attempts = byNewestStart(list);
     const newest = attempts[0];
     if (newest === undefined) continue;
     const group: Group =

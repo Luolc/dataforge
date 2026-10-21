@@ -4,7 +4,7 @@
 // react-markdown turns raw HTML into text unless a plugin such as rehype-raw
 // is added; none may be.
 import type { ReactNode } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Highlighted } from "./code";
@@ -37,18 +37,101 @@ const components: Components = {
   },
 };
 
+/** Template variables to draw in place: what matches them, and how. */
+export interface Variables {
+  /** A global pattern; a match's name is its text without $, braces or spaces. */
+  pattern: RegExp;
+  draw: (name: string) => ReactNode;
+}
+
+interface MdNode {
+  type: string;
+  value?: string;
+  lang?: string | null;
+  children?: MdNode[];
+  data?: { hName?: string; hProperties?: Record<string, unknown> };
+}
+
+const nameOf = (spelled: string) =>
+  spelled.replace(/^\$\{?|\{\{|\}\}|\}$/g, "").trim();
+
+/** text split at each variable into text and a node the HTML side draws as
+ * <var>, whose one child is the variable's name; null when it has none. */
+function split(text: string, pattern: RegExp): MdNode[] | null {
+  const out: MdNode[] = [];
+  let at = 0;
+  for (const m of text.matchAll(pattern)) {
+    if (m.index > at)
+      out.push({ type: "text", value: text.slice(at, m.index) });
+    out.push({
+      type: "variable",
+      data: { hName: "var" },
+      children: [{ type: "text", value: nameOf(m[0]) }],
+    });
+    at = m.index + m[0].length;
+  }
+  if (out.length === 0) return null;
+  if (at < text.length) out.push({ type: "text", value: text.slice(at) });
+  return out;
+}
+
+// Splits text at each variable, in code too: a template puts a value in
+// place wherever its variable is written, a code span or block included. A
+// code holding one is drawn as <code> (in <pre> for a block) of those parts,
+// with no highlighting.
+function splitVariables(node: MdNode, pattern: RegExp) {
+  if (node.children === undefined) return;
+  node.children = node.children.flatMap((child): MdNode[] => {
+    if (child.value === undefined) {
+      splitVariables(child, pattern);
+      return [child];
+    }
+    const parts = split(child.value, pattern);
+    if (parts === null) return [child];
+    if (child.type === "text") return parts;
+    if (child.type === "inlineCode")
+      return [
+        { type: "variableCode", data: { hName: "code" }, children: parts },
+      ];
+    if (child.type === "code") {
+      const lang = child.lang ?? undefined;
+      return [
+        {
+          type: "variableBlock",
+          data: { hName: "pre" },
+          children: [
+            {
+              type: "variableCode",
+              data: {
+                hName: "code",
+                hProperties:
+                  lang === undefined ? {} : { className: [`language-${lang}`] },
+              },
+              children: parts,
+            },
+          ],
+        },
+      ];
+    }
+    return [child];
+  });
+}
+
 /**
  * Untrusted Markdown, rendered safely. cell may draw a table cell whose whole
  * text is plain: what it returns replaces the text, and null keeps it.
+ * variables, when given, draws each template variable in place, in code too.
  */
 export function Markdown({
   text,
   cell,
+  variables,
 }: {
   text: string;
   cell?: (text: string) => ReactNode | null;
+  variables?: Variables | undefined;
 }) {
-  const all: Components =
+  let all: Components =
     cell === undefined
       ? components
       : {
@@ -60,9 +143,20 @@ export function Markdown({
             </td>
           ),
         };
+  const plugins: NonNullable<Options["remarkPlugins"]> = [remarkGfm];
+  if (variables !== undefined) {
+    plugins.push(() => (tree: MdNode) => {
+      splitVariables(tree, variables.pattern);
+    });
+    all = {
+      ...all,
+      var: ({ children }) =>
+        variables.draw(typeof children === "string" ? children : ""),
+    };
+  }
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={all}>
+      <ReactMarkdown remarkPlugins={plugins} components={all}>
         {text}
       </ReactMarkdown>
     </div>

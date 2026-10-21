@@ -149,6 +149,7 @@ def test_projects_leave_out_where_the_files_are(
     "not_ended": None,
     "deliverables": [],
     "trials": None,
+    "definition": None,
     "monitor": False,
     "actions": [],
   }
@@ -190,6 +191,16 @@ def test_projects_carry_the_trial_diff(tree: Tree, static: Path) -> None:
   )
 
   assert project["trials"] == {"diff": "verifier/patch.diff"}
+
+
+def test_projects_carry_the_definition_s_path(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(PROJECT + "definition: run/definition.json\n")
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["definition"] == "run/definition.json"
 
 
 def test_attempts_are_newest_first_with_their_values(
