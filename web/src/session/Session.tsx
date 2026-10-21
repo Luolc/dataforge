@@ -64,62 +64,57 @@ export function SessionBody({
   const shownThinking = thinking === "hidden" ? null : thinking;
   return (
     <FoldContext value={fold}>
-      <TimesContext value={shownTotals === "all"}>
-        <section className="flex flex-col rounded-panel border border-line bg-panel">
-          <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
-            {badge}
-            {shownTotals === "all" && (
-              <>
-                <Total label="duration">
-                  {totals.seconds === null ? "—" : duration(totals.seconds)}
-                </Total>
-                <Total label="cost">
-                  {totals.costUsd === null ? "—" : usd(totals.costUsd)}
-                </Total>
-                <Total label="turns">{totals.turns ?? "—"}</Total>
-                <Total label="tokens">
-                  {totals.tokensIn === null
-                    ? "—"
-                    : count.format(totals.tokensIn)}{" "}
-                  in ·{" "}
-                  {totals.tokensOut === null
-                    ? "—"
-                    : count.format(totals.tokensOut)}{" "}
-                  out
-                </Total>
-              </>
-            )}
-            <Total label="model">
-              <span className="font-mono">{totals.model ?? "—"}</span>
-            </Total>
-            {shownTotals === "all" && (
-              <span>
-                {session.tools} tool calls
-                {session.failed > 0 && (
-                  <span className={toneText.bad}>
-                    {" "}
-                    · {session.failed} failed
-                  </span>
-                )}
-              </span>
-            )}
-            <div className="ml-auto flex items-center gap-2">
-              <FoldButton
-                label="Expand all"
-                Icon={ChevronsUpDown}
-                onClick={() => {
-                  setFold({ serial: fold.serial + 1, open: true, startOpen });
-                }}
-              />
-              <FoldButton
-                label="Collapse all"
-                Icon={ChevronsDownUp}
-                onClick={() => {
-                  setFold({ serial: fold.serial + 1, open: false, startOpen });
-                }}
-              />
-            </div>
-          </header>
+      <section className="flex flex-col rounded-panel border border-line bg-panel">
+        <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
+          {badge}
+          {shownTotals === "all" && (
+            <>
+              <Total label="duration">
+                {totals.seconds === null ? "—" : duration(totals.seconds)}
+              </Total>
+              <Total label="cost">
+                {totals.costUsd === null ? "—" : usd(totals.costUsd)}
+              </Total>
+              <Total label="turns">{totals.turns ?? "—"}</Total>
+              <Total label="tokens">
+                {totals.tokensIn === null ? "—" : count.format(totals.tokensIn)}{" "}
+                in ·{" "}
+                {totals.tokensOut === null
+                  ? "—"
+                  : count.format(totals.tokensOut)}{" "}
+                out
+              </Total>
+            </>
+          )}
+          <Total label="model">
+            <span className="font-mono">{totals.model ?? "—"}</span>
+          </Total>
+          {shownTotals === "all" && (
+            <span>
+              {session.tools} tool calls
+              {session.failed > 0 && (
+                <span className={toneText.bad}> · {session.failed} failed</span>
+              )}
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <FoldButton
+              label="Expand all"
+              Icon={ChevronsUpDown}
+              onClick={() => {
+                setFold({ serial: fold.serial + 1, open: true, startOpen });
+              }}
+            />
+            <FoldButton
+              label="Collapse all"
+              Icon={ChevronsDownUp}
+              onClick={() => {
+                setFold({ serial: fold.serial + 1, open: false, startOpen });
+              }}
+            />
+          </div>
+        </header>
+        <TimesContext value={shownTotals === "all"}>
           <ol className="flex flex-col py-2">
             {session.preamble.length > 0 && (
               <Preamble lines={session.preamble} />
@@ -132,8 +127,8 @@ export function SessionBody({
               ),
             )}
           </ol>
-        </section>
-      </TimesContext>
+        </TimesContext>
+      </section>
     </FoldContext>
   );
 }
