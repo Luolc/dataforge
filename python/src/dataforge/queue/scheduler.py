@@ -57,8 +57,8 @@ UPDATE jobs SET state = 'failed', started_at = ?, ended_at = ? WHERE id = ?
 """
 
 _STARTED = """
-UPDATE jobs SET state = 'running', pid = ?, starttime = ?, boot_id = ?,
-  started_at = ?
+UPDATE jobs SET state = 'running', cwd = ?, pid = ?, starttime = ?,
+  boot_id = ?, started_at = ?
 WHERE id = ?
 """
 
@@ -187,7 +187,10 @@ class Scheduler:
   def _start(self, conn: sqlite3.Connection, job: Job) -> None:
     # Called inside the claiming transaction: the wrapper waits for its
     # commit before it runs the command, and runs nothing when the claim
-    # was rolled back.
+    # was rolled back. The claim writes the directory with its links
+    # resolved, so that the job stays on what a link named as it started,
+    # such as one release of several, and its row says which.
+    cwd = os.path.realpath(job.cwd)
     log = Path(job.log)
     log.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     wrapper = [
@@ -219,7 +222,7 @@ class Scheduler:
       _log.error("job %d: its wrapper ended before its claim", job.id)
       _ = conn.execute(_UNSTARTED, (now, now, job.id))
       return
-    _ = conn.execute(_STARTED, (*started, now, job.id))
+    _ = conn.execute(_STARTED, (cwd, *started, now, job.id))
     _log.info("job %d: started in %s, pid %d", job.id, job.queue, child.pid)
 
 

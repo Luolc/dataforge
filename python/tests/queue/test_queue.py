@@ -307,6 +307,99 @@ def test_a_restarted_scheduler_takes_the_running_jobs_as_they_are(
   assert (done.state, done.exit_code) == ("failed", 4)
 
 
+def test_a_restarted_scheduler_counts_the_running_jobs_in_its_caps(
+  config: Config, scheduler: Scheduler, tmp_path: Path
+):
+  def waiting(name: str) -> str:
+    go = tmp_path / name
+    return f"echo ready; while [ ! -e {go} ]; do sleep 0.05; done"
+
+  a = put(config, "alpha", "sh", "-c", waiting("go-a"))
+  b = put(config, "beta", "sh", "-c", waiting("go-b"))
+  # The first scheduler reads the machine's own load; a busy machine must
+  # not keep it from starting a and b.
+  first = tmp_path / "first.yaml"
+  _ = first.write_text(QUEUE_FILE.replace("max_load1: 4", "max_load1: 10000"))
+  serving = subprocess.Popen(
+    [
+      Path(sys.executable).parent / "dataforge",
+      "queue",
+      "serve",
+      "--config",
+      str(first),
+    ],
+    stderr=subprocess.DEVNULL,
+  )
+  try:
+    deadline = time.monotonic() + 20
+    while not ("ready" in log(config, a) and "ready" in log(config, b)):
+      assert time.monotonic() < deadline, "timed out"
+      time.sleep(0.05)
+  finally:
+    serving.terminate()
+    assert serving.wait(timeout=20) == 0
+  c, d = put(config, "alpha", "true"), put(config, "beta", "true")
+  # a and b reach max_running: nothing starts.
+  for _ in range(5):
+    scheduler.tick()
+  assert ids(config, "running") == [a.id, b.id]
+  assert ids(config, "queued") == [c.id, d.id]
+  # b ends; a still holds alpha's cap of 1, so only d starts.
+  (tmp_path / "go-b").touch()
+  until(ended(config, b, d), scheduler)
+  for _ in range(5):
+    scheduler.tick()
+  assert ids(config, "running") == [a.id]
+  assert ids(config, "queued") == [c.id]
+  (tmp_path / "go-a").touch()
+  until(ended(config, a, c), scheduler)
+  for job in (a, b, c, d):
+    done = state(config, job)
+    assert (done.state, done.exit_code) == ("done", 0)
+  assert cast_float(state(config, a).ended_at) <= cast_float(
+    state(config, c).started_at
+  )
+
+
+def test_a_job_runs_in_its_directory_as_its_claim_resolved_it(
+  config: Config,
+  scheduler: Scheduler,
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+):
+  first, second = tmp_path / "releases" / "a", tmp_path / "releases" / "b"
+  first.mkdir(parents=True)
+  second.mkdir()
+  current = tmp_path / "current"
+  current.symlink_to(first)
+  start = Scheduler._start  # pyright: ignore[reportPrivateUsage]
+
+  def start_then_switch(self: Scheduler, conn: sqlite3.Connection, job: Job):
+    start(self, conn, job)
+    # The wrapper waits for the claim's commit before it runs the command:
+    # the link moves on in between.
+    switched = tmp_path / "switched"
+    switched.symlink_to(second)
+    _ = switched.replace(current)
+
+  monkeypatch.setattr(Scheduler, "_start", start_then_switch)
+  job = submit(
+    config,
+    "alpha",
+    ["sh", "-c", "pwd -P; touch here"],
+    cwd=current,
+    memory_mib=10,
+  )
+  assert state(config, job).cwd == str(current)
+  until(ended(config, job), scheduler)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("done", 0)
+  assert done.cwd == str(first)
+  assert current.resolve() == second
+  assert f"{first}\n" in log(config, job)
+  assert (first / "here").exists() and not (second / "here").exists()
+
+
 def test_a_job_whose_wrapper_is_gone_is_recorded_failed(
   config: Config, scheduler: Scheduler
 ):
