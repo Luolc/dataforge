@@ -63,10 +63,10 @@ describe("parseTrace", () => {
     expect(task.output).toBe("Two callers: parser.py:3 and stream.py:41.");
   });
 
-  it("counts thinking, recorded or not, and times each message", () => {
+  it("counts only thinking with text, and times each message", () => {
     expect(parseTrace(solved).thinking).toBe(2);
     const session = parseTrace(unsolved);
-    expect(session.thinking).toBe(1);
+    expect(session.thinking).toBe(0);
     const first = must(messages(session.entries)[0]);
     expect(first.blocks[0]).toEqual({ kind: "thinking", text: "" });
     expect(first.at).toBe(0);

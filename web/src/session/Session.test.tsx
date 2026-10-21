@@ -40,6 +40,40 @@ const call = (id: string, name = "Bash") =>
     },
   });
 
+const emptyThinking = [
+  {
+    type: "assistant",
+    message: {
+      id: "m0",
+      content: [{ type: "thinking", thinking: "", signature: "sig" }],
+    },
+  },
+  {
+    type: "assistant",
+    message: {
+      id: "m1",
+      content: [
+        { type: "thinking", thinking: " \n", signature: "sig" },
+        {
+          type: "tool_use",
+          id: "c1",
+          name: "Bash",
+          input: { command: "run c1" },
+        },
+      ],
+    },
+  },
+  {
+    type: "assistant",
+    message: {
+      id: "m2",
+      content: [{ type: "text", text: "Done." }],
+    },
+  },
+]
+  .map((line) => JSON.stringify(line))
+  .join("\n");
+
 const toolLine = (name: string | RegExp) =>
   screen.getByRole("button", { name });
 
@@ -127,14 +161,28 @@ describe("the session view", () => {
     ).toHaveTextContent(/the parser splits on CRLF\.$/);
   });
 
-  it("hides all thinking with one toggle, and starts so when hidden", () => {
-    show(solved, "collapsed");
-    fireEvent.click(screen.getByRole("button", { name: "Hide thinking" }));
-    expect(screen.queryByText(/Thinking ·/)).toBeNull();
-    screen.getByRole("button", { name: "Show thinking · 2 hidden" });
-
+  it("shows no thinking when the project says hidden, and has no toggle", () => {
     show(solved, "hidden");
+
     expect(screen.queryByText(/Thinking ·/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /thinking/i })).toBeNull();
+  });
+
+  it("has no show or hide thinking button when thinking shows", () => {
+    show(solved, "collapsed");
+
+    expect(
+      screen.queryByRole("button", { name: /^(Show|Hide) thinking/ }),
+    ).toBeNull();
+  });
+
+  it("draws a thinking block with no text as nothing, not even a row", () => {
+    const { container } = show(emptyThinking);
+
+    expect(screen.queryByText(/Thinking ·/)).toBeNull();
+    expect(screen.queryByText(/not in the trace/)).toBeNull();
+    expect(toolLine(/^Bashrun c1/)).toBeVisible();
+    expect(container.querySelectorAll("section > ol > li")).toHaveLength(2);
   });
 
   it("opens every fold with Expand all and closes every one with Collapse all", () => {
@@ -155,15 +203,20 @@ describe("the session view", () => {
     );
   });
 
-  it("opens the thinking shown again after Expand all", () => {
+  it("opens a thinking block with text on Expand all and closes it on Collapse all", () => {
     show(solved, "collapsed");
-    fireEvent.click(screen.getByRole("button", { name: "Hide thinking" }));
-    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Show thinking/ }));
+    const line = toolLine(/^Thinking · 21 words/);
+    expect(line).toHaveAttribute("aria-expanded", "false");
 
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
     expect(toolLine(/^Thinking · 21 words$/)).toHaveAttribute(
       "aria-expanded",
       "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(toolLine(/^Thinking · 21 words/)).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
   });
 
@@ -176,7 +229,7 @@ describe("the session view", () => {
     expect(folds().every((b) => b.ariaExpanded === "false")).toBe(true);
   });
 
-  it("renders a trace with no thinking as usual, with no toggle", () => {
+  it("renders a trace with no thinking as usual", () => {
     show(call("c1"));
 
     expect(toolLine(/^Bashrun c1/)).toBeVisible();
@@ -306,7 +359,7 @@ describe("SessionView", () => {
         format="claude-code-stream-json"
       />,
     );
-    expect(await screen.findByText("Hide thinking")).toBeVisible();
+    expect(await screen.findByText("Expand all")).toBeVisible();
     unmount();
 
     respond(new Response('{"type": "assistant"}\n<b>log</b>'));
@@ -321,6 +374,6 @@ describe("SessionView", () => {
     expect(
       await screen.findByText(/\{"type": "assistant"\}\s+<b>log<\/b>/),
     ).toBeVisible();
-    expect(screen.queryByText("Hide thinking")).toBeNull();
+    expect(screen.queryByText("Expand all")).toBeNull();
   });
 });

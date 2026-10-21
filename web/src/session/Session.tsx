@@ -47,10 +47,9 @@ export function SessionBody({
   startOpen?: boolean;
 }) {
   const [fold, setFold] = useState({ serial: 0, open: startOpen, startOpen });
-  const [hidden, setHidden] = useState(thinking === "hidden");
   const { totals } = session;
-  // How thinking shows now; null while all of it is hidden.
-  const shownThinking = hidden ? null : thinking;
+  // How thinking shows; null when the project hides all of it.
+  const shownThinking = thinking === "hidden" ? null : thinking;
   return (
     <FoldContext value={fold}>
       <section className="flex flex-col rounded-panel border border-line bg-panel">
@@ -92,20 +91,6 @@ export function SessionBody({
                 setFold({ serial: fold.serial + 1, open: false, startOpen });
               }}
             />
-            {session.thinking > 0 && (
-              <button
-                type="button"
-                aria-pressed={hidden}
-                onClick={() => {
-                  setHidden(!hidden);
-                }}
-                className="target rounded-row border border-line px-2.5 font-medium hover:bg-hover"
-              >
-                {hidden
-                  ? `Show thinking · ${session.thinking} hidden`
-                  : "Hide thinking"}
-              </button>
-            )}
           </div>
         </header>
         <ol className="flex flex-col py-2">
@@ -222,7 +207,11 @@ function MessageRow({
   const fold = tools.length > FOLD_OVER;
   const shown: ReactNode[] = [];
   message.blocks.forEach((block, i) => {
-    if (block.kind === "thinking" && thinking === null) return;
+    if (
+      block.kind === "thinking" &&
+      (thinking === null || block.text.trim() === "")
+    )
+      return;
     if (block.kind === "tool" && fold) {
       if (block === tools[0])
         shown.push(<ToolGroup key={i} calls={tools} thinking={thinking} />);
@@ -301,13 +290,6 @@ function Chevron({ open }: { open: boolean }) {
 
 function Thinking({ text, open: initial }: { text: string; open: boolean }) {
   const { open, id, button } = useToggle(initial);
-  if (text.trim() === "") {
-    return (
-      <p className="text-xs text-fg-3">
-        Thinking · its text is not in the trace
-      </p>
-    );
-  }
   const words = text.trim().split(/\s+/).length;
   return (
     <div className="flex flex-col gap-1">
