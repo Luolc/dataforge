@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 from dataforge import queue
-from dataforge.viz import actions, live, monitor
+from dataforge.viz import actions, live, monitor, tabs
 from dataforge.viz.config import Action, Project, Site, split_relative
 from dataforge.viz.paths import (
   attempt_parts,
@@ -79,6 +79,7 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/api/projects/{p}/record", api.record),
     ("/api/projects/{p}/live", api.live_status),
     ("/api/projects/{p}/files", api.files),
+    ("/api/projects/{p}/tabs", api.tabs),
     ("/api/projects/{p}/actions", api.actions),
     ("/api/projects/{p}/monitor/runs", api.monitor_runs),
     ("/api/projects/{p}/monitor/window", api.monitor_window),
@@ -169,6 +170,22 @@ class _Api:
         return JSONResponse({"entries": entries})
       data = read_regular(fd, FILE_LIMIT).data
     return Response(data, media_type="application/octet-stream")
+
+  def tabs(self, p: str, attempt: str | None = None) -> Response:
+    project = self._project(p)
+    with open_attempt(project, _attempt(attempt)) as root:
+      return JSONResponse(
+        [
+          {
+            "name": tab.name,
+            "versions": [
+              {"dir": version, "fields": tabs.fields(tab, root, version)}
+              for version in tabs.versions(tab, root)
+            ],
+          }
+          for tab in project.tabs
+        ]
+      )
 
   def actions(self, p: str, item: str | None = None) -> Response:
     project = self._project(p)
@@ -507,6 +524,7 @@ def _row(
     "ended_at": None,
     "rounds": None,
     "values": None,
+    "reads": None,
     "live": None,
     "held": None,
     "error": None,
@@ -514,6 +532,10 @@ def _row(
   try:
     with open_attempt(project, attempt) as fd:
       read = read_record(project, fd)
+      from_files = [
+        None if c.file is None else tabs.column_value(project, c, fd)
+        for c in project.columns
+      ]
   except RefusedError as error:
     return row | {"error": f"the record: {error.reason}"}, None
   row["modified"] = datetime.fromtimestamp(read.mtime, UTC).isoformat()
@@ -547,7 +569,11 @@ def _row(
     "started_at": _str(actions[0].get("started_at")) if actions else None,
     "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
     "rounds": _rounds(visits),
-    "values": [_field(data, c.field) for c in project.columns],
+    "values": [
+      _field(data, c.field) if found is None else found["value"]
+      for c, found in zip(project.columns, from_files, strict=True)
+    ],
+    "reads": [None if found is None else found["read"] for found in from_files],
     "live": None if ended else live.NOT_ENDED,
   }, data
 

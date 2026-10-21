@@ -23,8 +23,8 @@ import { Tooltip } from "radix-ui";
 import { type MouseEvent, type ReactNode, useId, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import type { AttemptRow, Column, Project } from "../../api/types";
-import { duration, time, usd } from "../../ui/format";
+import type { AttemptRow, Project } from "../../api/types";
+import { duration, formatValue, readValue, time, usd } from "../../ui/format";
 import {
   outcomeOf,
   stateTitle,
@@ -33,6 +33,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { Group } from "../../ui/group";
+import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
@@ -111,18 +112,6 @@ function timeValue(iso: string | null): Value {
 }
 
 const NUMERIC_FORMATS = new Set(["number", "usd", "duration", "time"]);
-
-/** A project column's value as its format says; "—" when there is none. */
-function formatValue(value: unknown, format: Column["format"]): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "number") {
-    if (format === "usd") return usd(value);
-    if (format === "duration") return duration(value);
-    return String(value);
-  }
-  if (typeof value === "string") return format === "time" ? time(value) : value;
-  return JSON.stringify(value);
-}
 
 const lineSpent = (l: Line) =>
   l.sub ? l.row.cost_usd : spent(l.item.attempts);
@@ -214,7 +203,17 @@ function specs(project: Project): Spec[] {
           return timeValue(v);
         return typeof v === "number" || typeof v === "string" ? v : undefined;
       },
-      cell: (l) => formatValue(raw(l), column.format),
+      cell: (l) => {
+        const read = l.row.reads?.[index] ?? null;
+        if (read === null) return formatValue(raw(l), column.format);
+        const shown = readValue(read, raw(l), column.format);
+        // A value it has not read is a word of the viewer's, kept whole.
+        return read === "found" ? (
+          shown
+        ) : (
+          <span className="whitespace-nowrap text-fg-3">{shown}</span>
+        );
+      },
     };
   });
   return [...fixed, ...extra];
@@ -601,7 +600,7 @@ export function HomeTable({
           </p>
         )}
         {/* The table scrolls sideways on its own, under the filters. */}
-        <div className="overflow-x-auto">
+        <Sideways label="the table">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-line bg-head text-xs text-fg-2">
@@ -670,7 +669,7 @@ export function HomeTable({
               );
             })}
           </table>
-        </div>
+        </Sideways>
         {rows.length === 0 && (
           <p className="py-6 text-center text-fg-3">
             {read.rows.length === 0

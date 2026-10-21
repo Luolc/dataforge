@@ -57,6 +57,7 @@ def test_every_route_is_a_get_and_writes_nothing(
     f"{API}/record?attempt=batch-1/task-1",
     f"{API}/live?attempt=batch-1/task-1",
     f"{API}/files?attempt=batch-1/task-1&path=artifacts",
+    f"{API}/tabs?attempt=batch-1/task-1",
     "/index.html",
   ]
 
@@ -152,6 +153,7 @@ def test_projects_leave_out_where_the_files_are(
     "definition": None,
     "monitor": False,
     "actions": [],
+    "tabs": [],
   }
 
 
@@ -238,6 +240,7 @@ def test_attempts_are_newest_first_with_their_values(
     "ended_at": None,
     "rounds": [],
     "values": [3, None, None],
+    "reads": [None, None, None],
     "live": "not ended",
     "held": None,
     "error": None,
@@ -254,6 +257,7 @@ def test_attempts_are_newest_first_with_their_values(
     "ended_at": "2026-01-02T03:14:05+00:00",
     "rounds": [{"round": 1, "state": "write", "outcome": "done"}],
     "values": ["passed", 0.42, None],
+    "reads": [None, None, None],
     "live": None,
     "held": None,
     "error": None,

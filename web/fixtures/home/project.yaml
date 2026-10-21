@@ -26,3 +26,12 @@ item: { depth: 1, title: Item }
 columns:
   - { title: Cap, field: [budget, max_usd], format: usd }
   - { title: Round, field: [round], format: number }
+  - { title: Kept visit, field: [kept_visit], format: number }
+  - { title: Cost, field: [budget, cost_usd], format: usd }
+  - { title: Verdict, tab: notes, file: tags.json, field: [verdict, value] }
+# Notes of a few attempts, to read the Verdict column from; made up.
+tabs:
+  - name: notes
+    title: Notes
+    versions: [notes, "notes-*"]
+    file: out/notes.md

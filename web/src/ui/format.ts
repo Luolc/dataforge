@@ -1,5 +1,6 @@
 // How numbers, times and costs read on every page.
-import type { Action, Visit } from "../api/types";
+import type { Action, Column, Read, Visit } from "../api/types";
+import { NOT_RUN } from "./status";
 
 /**
  * The parts of a time in the browser's own time zone, the zone's
@@ -59,6 +60,36 @@ export function duration(seconds: number): string {
 /** US dollars as "$21.42". */
 export function usd(value: number): string {
   return `$${value.toFixed(2)}`;
+}
+
+/**
+ * A value a project's column or tab field reads, as its format says; "—"
+ * when there is none.
+ */
+export function formatValue(value: unknown, format: Column["format"]): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "number") {
+    if (format === "usd") return usd(value);
+    if (format === "duration") return duration(value);
+    return String(value);
+  }
+  if (typeof value === "string") return format === "time" ? time(value) : value;
+  return JSON.stringify(value);
+}
+
+/**
+ * A value read from a file as it stands: Not run when its file is not
+ * there, "—" when it is there without it, null as "null", else as its
+ * format says.
+ */
+export function readValue(
+  read: Read,
+  value: unknown,
+  format: Column["format"],
+): string {
+  if (read === "not run") return NOT_RUN;
+  if (read === "missing") return "—";
+  return value === null ? "null" : formatValue(value, format);
 }
 
 /** The seconds from one ISO 8601 time to another; null when one is bad. */

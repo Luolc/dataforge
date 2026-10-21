@@ -295,6 +295,25 @@ describe("the home page", () => {
     );
   });
 
+  it("says above a table wider than the page that it scrolls sideways", async () => {
+    show();
+    const box = (await screen.findByText("t-run")).closest(
+      "table",
+    )?.parentElement;
+    if (!box) throw new Error("no box");
+    Object.defineProperty(box, "scrollWidth", { value: 1600 });
+    Object.defineProperty(box, "clientWidth", { value: 1100 });
+
+    fireEvent.scroll(box);
+
+    expect(
+      screen.getByRole("button", { name: "Scroll the table right" }),
+    ).toHaveAttribute("aria-controls", box.id);
+    expect(
+      screen.getByText("The table is wider than the page; scroll it sideways."),
+    ).toBeVisible();
+  });
+
   it("draws the project's columns in their formats", async () => {
     const withColumns: Project = {
       ...project,
@@ -318,6 +337,38 @@ describe("the home page", () => {
       expect(cells[2]).not.toHaveClass("text-right");
     } finally {
       ROWS[3] = { ...must(ROWS[3]), values: [] };
+    }
+  });
+
+  it("tells a column's file not there from its value null", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        { title: "A", field: ["a"], format: "text" },
+        { title: "B", field: ["b"], format: "text" },
+        { title: "C", field: ["c"], format: "text" },
+        { title: "D", field: ["d"], format: "usd" },
+      ],
+    };
+    ROWS[3] = {
+      ...must(ROWS[3]),
+      values: [null, null, null, 2],
+      reads: ["not run", "missing", "found", "found"],
+    };
+    try {
+      show("/sample", withColumns);
+      const item = (await screen.findByText("t-new")).closest("tr");
+      const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-4);
+      expect(cells.map((c) => c.textContent)).toEqual([
+        "Not run",
+        "—",
+        "null",
+        "$2.00",
+      ]);
+      // A word of the viewer's, kept on one line.
+      expect(cells[0]?.firstElementChild).toHaveClass("whitespace-nowrap");
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [], reads: null };
     }
   });
 

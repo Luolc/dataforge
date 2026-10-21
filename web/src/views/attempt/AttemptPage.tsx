@@ -1,6 +1,7 @@
 // An attempt: its header, a row of tabs (Runs, then one per deliverable kind
-// in the order its first deliverable is declared) and the current tab. While
-// the attempt runs, the page reads it again every POLL_MS.
+// in the order its first deliverable is declared, then the project's own) and
+// the current tab. While the attempt runs, the page reads it again every
+// POLL_MS.
 import { type ReactNode, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { Link } from "react-router";
@@ -46,6 +47,8 @@ import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
 import { declaredMissing, retitled, tabKinds } from "./declared";
 import { attemptHref } from "./href";
+import { TabCount, TabView } from "../tabs";
+import { useTabVersions } from "../tabs/versions";
 import { WORKFLOW } from "../definition/details";
 import { useSnapshot } from "../definition/load";
 
@@ -227,6 +230,11 @@ function Attempt({
   const current = currentOf(record, live);
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   const definition = useSnapshot(project, attempt);
+  // A tab of the project's that shares its name with a kind of the record
+  // gives way to it.
+  const own = (project.tabs ?? []).filter((t) => !kinds.includes(t.name));
+  const versions = useTabVersions(project, attempt);
+  const ownTab = own.find((t) => t.name === tab);
   const tabs = [
     { key: "runs", title: "Runs", count: <>{runs}</> },
     ...kinds.map((kind) => {
@@ -251,6 +259,11 @@ function Attempt({
           ),
       };
     }),
+    ...own.map((t) => ({
+      key: t.name,
+      title: t.title,
+      count: <TabCount tab={t} loaded={versions} />,
+    })),
   ];
   return (
     <>
@@ -280,6 +293,14 @@ function Attempt({
           record={record}
           items={itemsOf(tab)}
           live={live}
+        />
+      ) : ownTab !== undefined ? (
+        <TabView
+          key={tab}
+          project={project}
+          attempt={attempt}
+          tab={ownTab}
+          loaded={versions}
         />
       ) : (
         <Note>This attempt has no deliverable of kind {tab}.</Note>

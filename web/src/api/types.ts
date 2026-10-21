@@ -6,6 +6,16 @@ import { z } from "zod";
 const TONES = ["good", "bad", "warn", "neutral"] as const;
 export type Tone = (typeof TONES)[number];
 
+/**
+ * How a value read from a file stands: found (JSON null among them); not
+ * run, its file or the tab's version it is in not there; missing, the file
+ * there but refused, not JSON or without the keys.
+ */
+const READS = ["found", "not run", "missing"] as const;
+export type Read = (typeof READS)[number];
+
+const FORMAT = z.enum(["text", "number", "usd", "duration", "time"]);
+
 export const project = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -20,7 +30,7 @@ export const project = z.looseObject({
     z.looseObject({
       title: z.string(),
       field: z.array(z.string()),
-      format: z.enum(["text", "number", "usd", "duration", "time"]),
+      format: FORMAT,
     }),
   ),
   session: z.looseObject({
@@ -38,6 +48,19 @@ export const project = z.looseObject({
   definition: z.string().nullable().optional(),
   // Whether the project names a resource monitor database.
   monitor: z.boolean().optional(),
+  // The attempt page's tabs of a Markdown file, each found in the
+  // directories of an attempt that match its versions.
+  tabs: z
+    .array(
+      z.looseObject({
+        name: z.string(),
+        title: z.string(),
+        versions: z.array(z.string()),
+        file: z.string(),
+        fields: z.array(z.looseObject({ title: z.string(), format: FORMAT })),
+      }),
+    )
+    .optional(),
   // What a data item's page may put in a queue.
   actions: z
     .array(
@@ -47,7 +70,32 @@ export const project = z.looseObject({
 });
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];
+export type ProjectTab = NonNullable<Project["tabs"]>[number];
 export const projects = z.array(project);
+
+// Each tab of the project, with the versions an attempt has of it, the first
+// shown by default, and the value of each of its fields in each: read found,
+// value the JSON value, null among them; else value null and reason why
+// there is none.
+export const tabVersions = z.array(
+  z.looseObject({
+    name: z.string(),
+    versions: z.array(
+      z.looseObject({
+        dir: z.string(),
+        fields: z.array(
+          z.looseObject({
+            read: z.enum(READS),
+            value: z.unknown(),
+            reason: z.string().nullable(),
+          }),
+        ),
+      }),
+    ),
+  }),
+);
+export type TabVersions = z.infer<typeof tabVersions>[number];
+export type TabVersion = TabVersions["versions"][number];
 
 /** How an attempt that has not ended stands; null once it has ended. */
 const LIVE = ["running", "may have stopped", "not ended"] as const;
@@ -72,6 +120,9 @@ export const attemptRow = z.looseObject({
     )
     .nullable(),
   values: z.array(z.unknown()).nullable(),
+  // How each column with a file read its value; null for a column of the
+  // record.
+  reads: z.array(z.enum(READS).nullable()).nullable().optional(),
   live: z.enum(LIVE).nullable().optional(),
   // Whether the item's lock is held now; null when the project names none.
   held: z.boolean().nullable().optional(),

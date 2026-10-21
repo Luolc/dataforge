@@ -54,6 +54,8 @@ _ITEM_PARAM = "item"
 # The frontend's own pages, at /monitor and /queue, where a project's home
 # page would be.
 _PAGES = ("monitor", "queue")
+# The attempt page's own tab, which no tab of a project may take.
+_RUNS = "runs"
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 
 
@@ -80,13 +82,59 @@ class Column:
 
   Attributes:
     title: Its heading.
-    field: The keys into the record its value is at.
+    field: The keys its value is at, into the record or into file.
     format: One of FORMATS.
+    file: A JSON file to read field from in place of the record, relative to
+      the attempt's directory, or with tab to the tab's first version; None
+      for the record.
+    tab: The name of a tab of the project whose first version file is in;
+      None when file is relative to the attempt's directory.
   """
 
   title: str
   field: tuple[str, ...]
   format: str
+  file: tuple[str, ...] | None = None
+  tab: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TabField:
+  """A value a tab shows above its Markdown, read from a JSON file.
+
+  Attributes:
+    title: Its heading.
+    file: The JSON file, relative to the version shown.
+    field: The keys into the file its value is at.
+    format: One of FORMATS.
+  """
+
+  title: str
+  file: tuple[str, ...]
+  field: tuple[str, ...]
+  format: str
+
+
+@dataclass(frozen=True, slots=True)
+class Tab:
+  """A tab of the attempt page that shows a Markdown file of the attempt.
+
+  Attributes:
+    name: Its name, in the URL; of [a-z0-9-].
+    title: Its title.
+    versions: The patterns of the directories it shows, each one name in
+      the attempt's directory, in order; a pattern may hold "*", which
+      matches any run of characters, and matches no name that starts with
+      "." unless it does too.
+    file: The Markdown file, relative to each version's directory.
+    fields: The values shown above the Markdown, in order.
+  """
+
+  name: str
+  title: str
+  versions: tuple[str, ...]
+  file: tuple[str, ...]
+  fields: tuple[TabField, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +298,7 @@ class Project:
       project file writes it, or its file name alone when that is absolute,
       so that no page shows where the server keeps it; None with monitor.
     actions: What a data item's page may put in a queue, in order.
+    tabs: The attempt page's tabs of Markdown files, in order.
   """
 
   id: str
@@ -271,6 +320,7 @@ class Project:
   monitor: Path | None = None
   monitor_shown: str | None = None
   actions: tuple[Action, ...] = ()
+  tabs: tuple[Tab, ...] = ()
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
@@ -290,6 +340,16 @@ class Project:
       "columns": [
         {"title": c.title, "field": list(c.field), "format": c.format}
         for c in self.columns
+      ],
+      "tabs": [
+        {
+          "name": t.name,
+          "title": t.title,
+          "versions": list(t.versions),
+          "file": "/".join(t.file),
+          "fields": [{"title": f.title, "format": f.format} for f in t.fields],
+        }
+        for t in self.tabs
       ],
       "session": {"thinking": self.thinking},
       "not_ended": None if self.not_ended is None else list(self.not_ended),
@@ -413,6 +473,7 @@ def load_project(path: Path) -> Project:
       "definition",
       "monitor",
       "actions",
+      "tabs",
     },
   )
   id_ = _str(path, "id", data["id"])
@@ -434,6 +495,8 @@ def load_project(path: Path) -> Project:
     else _relative(path, "lock", _str(path, "lock", data["lock"]))
   )
   actions = _actions(path, data.get("actions"), item, lock)
+  deliverables = _deliverables(path, data.get("deliverables"))
+  tabs = _tabs(path, data.get("tabs"), deliverables)
   return Project(
     id=id_,
     name=_str(path, "name", data["name"]),
@@ -444,11 +507,11 @@ def load_project(path: Path) -> Project:
     states=_entries(path, "states", data.get("states"), {"title"}),
     statuses=_statuses(path, data.get("statuses")),
     item=item,
-    columns=_columns(path, data.get("columns")),
+    columns=_columns(path, data.get("columns"), tabs),
     thinking=_thinking(path, data.get("session")),
     not_ended=_not_ended(path, data.get("not_ended")),
     lock=lock,
-    deliverables=_deliverables(path, data.get("deliverables")),
+    deliverables=deliverables,
     trial_diff=_trial_diff(path, data.get("trials")),
     definition=None
     if data.get("definition") is None
@@ -458,6 +521,7 @@ def load_project(path: Path) -> Project:
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
     actions=actions,
+    tabs=tabs,
   )
 
 
@@ -613,7 +677,9 @@ def _statuses(path: Path, value: object) -> dict[str, dict[str, str]]:
   return statuses
 
 
-def _columns(path: Path, value: object) -> tuple[Column, ...]:
+def _columns(
+  path: Path, value: object, tabs: tuple[Tab, ...]
+) -> tuple[Column, ...]:
   if value is None:
     return ()
   if not isinstance(value, list):
@@ -622,18 +688,134 @@ def _columns(path: Path, value: object) -> tuple[Column, ...]:
   for i, item in enumerate(cast(list[object], value)):
     where = f"columns[{i}]"
     entry = _mapping(path, where, item)
-    _keys(path, where, entry, required={"title", "field"}, optional={"format"})
-    field = entry["field"]
-    if not isinstance(field, list) or not field:
-      raise ConfigError(f"{path}: {where}.field: not a non-empty list")
-    keys = tuple(
-      _str(path, f"{where}.field", k) for k in cast(list[object], field)
+    _keys(
+      path,
+      where,
+      entry,
+      required={"title", "field"},
+      optional={"format", "file", "tab"},
     )
-    format_ = _str(path, f"{where}.format", entry.get("format", "text"))
-    _one_of(path, f"{where}.format", format_, FORMATS)
-    title = _str(path, f"{where}.title", entry["title"])
-    columns.append(Column(title, keys, format_))
+    file = None
+    if "file" in entry:
+      file = _relative(
+        path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
+      )
+    tab = None
+    if "tab" in entry:
+      tab = _str(path, f"{where}.tab", entry["tab"])
+      if file is None:
+        raise ConfigError(f"{path}: {where}.file: missing, and tab names one")
+      if not any(t.name == tab for t in tabs):
+        raise ConfigError(f"{path}: {where}.tab: {tab!r} is not a tab's name")
+    columns.append(
+      Column(
+        _str(path, f"{where}.title", entry["title"]),
+        _field_keys(path, where, entry["field"]),
+        _format(path, where, entry),
+        file,
+        tab,
+      )
+    )
   return tuple(columns)
+
+
+def _field_keys(path: Path, where: str, value: object) -> tuple[str, ...]:
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: {where}.field: not a non-empty list")
+  return tuple(
+    _str(path, f"{where}.field", k) for k in cast(list[object], value)
+  )
+
+
+def _format(path: Path, where: str, entry: Mapping[str, object]) -> str:
+  format_ = _str(path, f"{where}.format", entry.get("format", "text"))
+  _one_of(path, f"{where}.format", format_, FORMATS)
+  return format_
+
+
+def _tabs(
+  path: Path, value: object, deliverables: tuple[Deliverable, ...]
+) -> tuple[Tab, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: tabs: not a non-empty list")
+  # A tab's name is its key in the URL, beside Runs and each kind's.
+  taken = {_RUNS, *(d.kind for d in deliverables)}
+  found: list[Tab] = []
+  for i, item in enumerate(cast(list[object], value)):
+    where = f"tabs[{i}]"
+    entry = _mapping(path, where, item)
+    _keys(
+      path,
+      where,
+      entry,
+      required={"name", "title", "versions", "file"},
+      optional={"fields"},
+    )
+    name = _str(path, f"{where}.name", entry["name"])
+    if not _ID.fullmatch(name):
+      raise ConfigError(f"{path}: {where}.name: {name!r} is not of [a-z0-9-]")
+    if name in taken:
+      raise ConfigError(
+        f"{path}: {where}.name: {name!r} is repeated, runs or a kind's"
+      )
+    taken.add(name)
+    found.append(
+      Tab(
+        name=name,
+        title=_str(path, f"{where}.title", entry["title"]),
+        versions=_versions(path, f"{where}.versions", entry["versions"]),
+        file=_relative(
+          path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
+        ),
+        fields=_tab_fields(path, f"{where}.fields", entry.get("fields")),
+      )
+    )
+  return tuple(found)
+
+
+def _versions(path: Path, where: str, value: object) -> tuple[str, ...]:
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: {where}: not a non-empty list")
+  found: list[str] = []
+  for v in cast(list[object], value):
+    pattern = _str(path, where, v)
+    if split_relative(pattern) != (pattern,):
+      raise ConfigError(
+        f"{path}: {where}: {pattern!r} is not one name in the attempt"
+      )
+    found.append(pattern)
+  return tuple(found)
+
+
+def _tab_fields(path: Path, where: str, value: object) -> tuple[TabField, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: {where}: not a non-empty list")
+  found: list[TabField] = []
+  for i, item in enumerate(cast(list[object], value)):
+    at = f"{where}[{i}]"
+    entry = _mapping(path, at, item)
+    _keys(
+      path,
+      at,
+      entry,
+      required={"title", "file", "field"},
+      optional={"format"},
+    )
+    found.append(
+      TabField(
+        title=_str(path, f"{at}.title", entry["title"]),
+        file=_relative(
+          path, f"{at}.file", _str(path, f"{at}.file", entry["file"])
+        ),
+        field=_field_keys(path, at, entry["field"]),
+        format=_format(path, at, entry),
+      )
+    )
+  return tuple(found)
 
 
 def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:

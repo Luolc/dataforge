@@ -1,8 +1,7 @@
 // The only place a deliverable's kind picks what shows it: the view in its
 // tab, whether several of the kind stack or one is chosen from a menu, the
 // tab's count and one line on its card in the Summary.
-import { ChevronDown, CircleAlert } from "lucide-react";
-import { DropdownMenu } from "radix-ui";
+import { CircleAlert } from "lucide-react";
 import { type ComponentType, useState } from "react";
 
 import { useFileCount } from "../api/client";
@@ -12,6 +11,7 @@ import type {
   LiveInfo,
   Project,
 } from "../api/types";
+import { ChoiceMenu } from "../ui/menu";
 import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
 import FilesView from "./files";
@@ -137,7 +137,11 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
   return (
     <div className="flex flex-col gap-3 px-7 pt-5 pb-12">
       {!stack && props.items.length > 1 && (
-        <Menu items={props.items} chosen={shown[0]} onChoose={setChosen} />
+        <ChoiceMenu
+          items={props.items.map(choice)}
+          chosen={shown[0] && choice(shown[0])}
+          onChoose={setChosen}
+        />
       )}
       {shown.map((deliverable) => (
         <View
@@ -153,40 +157,4 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
   );
 }
 
-function Menu({
-  items,
-  chosen,
-  onChoose,
-}: {
-  items: Deliverable[];
-  chosen: Deliverable | undefined;
-  onChoose: (name: string) => void;
-}) {
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="flex target items-center gap-1.5 self-start rounded-row border border-line px-2.5 font-medium hover:bg-hover">
-        {chosen?.title}
-        <ChevronDown className="size-3 text-icon" aria-hidden />
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="start"
-          sideOffset={4}
-          className="flex flex-col gap-0.5 rounded-panel border border-line bg-panel p-1"
-        >
-          {items.map((item) => (
-            <DropdownMenu.Item
-              key={item.name}
-              onSelect={() => {
-                onChoose(item.name);
-              }}
-              className="flex target cursor-default items-center rounded-row px-2 outline-none data-highlighted:bg-hover"
-            >
-              {item.title}
-            </DropdownMenu.Item>
-          ))}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
-}
+const choice = (item: Deliverable) => ({ key: item.name, title: item.title });
