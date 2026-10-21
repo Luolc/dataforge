@@ -36,6 +36,7 @@ from dataforge.curation.rubric import (
   MAX_FILE_CHARS,
   NOTES,
   REREVIEW,
+  Rubric,
   VERDICTS_SCHEMA,
 )
 
@@ -44,7 +45,6 @@ system = "Review the task."
 
 [[criteria]]
 id = "sound"
-severity = "error"
 question = "Is it  sound?"
 check = "Read it."
 pass_if = "It is."
@@ -52,7 +52,6 @@ fail_if = "It is not."
 
 [[criteria]]
 id = "tidy"
-severity = "warning"
 question = "Is it tidy?"
 """
 
@@ -163,7 +162,7 @@ def test_every_review_passing_passes(tmp_path: Path, task: Path) -> None:
   reviewers = Reviewers(
     {
       "tests": ("ok", verdicts(sound=PASS, tidy=PASS)),
-      "docs": ("ok", verdicts(sound=PASS, tidy=("fail", "messy", "tidy"))),
+      "docs": ("ok", verdicts(sound=PASS, tidy=PASS)),
     }
   )
   status, outcome = run(rubric_state(tmp_path, reviewers, task), tmp_path / "a")
@@ -175,10 +174,7 @@ def test_every_review_passing_passes(tmp_path: Path, task: Path) -> None:
     "cost_usd": 0.25,
     "passed": True,
     "failed": [],
-    "warnings": ["tidy"],
-    "verdicts": json.loads(
-      verdicts(sound=PASS, tidy=("fail", "messy", "tidy"))
-    ),
+    "verdicts": json.loads(verdicts(sound=PASS, tidy=PASS)),
   }
   spec = reviewers.specs["docs"]
   assert (spec.tools, spec.output_schema) == ((), VERDICTS_SCHEMA)
@@ -237,17 +233,23 @@ def test_a_review_sees_its_rubric_and_its_inputs(
 def test_a_failed_review_fails_with_its_findings(
   tmp_path: Path, task: Path
 ) -> None:
-  for docs, findings in [
+  both = ["sound", "tidy"]
+  for docs, findings, failed in [
     (
       verdicts(sound=("fail", "it breaks", "mend it"), tidy=("fail", "x", "y")),
       "sound: it breaks\nFix: mend it\n\ntidy: x\nFix: y",
+      both,
     ),
-    (verdicts(tidy=PASS), "sound: no verdict."),
-    (json.dumps({"criteria": "none"}), "docs returned no verdicts (success)."),
-    ("not JSON", "docs returned no verdicts (success)."),
+    (verdicts(tidy=PASS), "sound: no verdict.", ["sound"]),
+    (
+      json.dumps({"criteria": "none"}),
+      "docs returned no verdicts (success).",
+      both,
+    ),
+    ("not JSON", "docs returned no verdicts (success).", both),
   ]:
     reviewers = Reviewers(
-      {"tests": ("ok", verdicts(sound=PASS)), "docs": ("ok", docs)}
+      {"tests": ("ok", verdicts(sound=PASS, tidy=PASS)), "docs": ("ok", docs)}
     )
     root = tmp_path / str(len(findings))
     status, outcome = run(rubric_state(tmp_path, reviewers, task), root)
@@ -255,7 +257,32 @@ def test_a_failed_review_fails_with_its_findings(
     assert outcome is not None
     assert outcome.feedback == {"details": f"### docs\n\n{findings}"}
     assert outcome.data["tests"]["passed"] is True  # pyright: ignore[reportIndexIssue]
-    assert outcome.data["docs"]["failed"] == ["sound"]  # pyright: ignore[reportIndexIssue]
+    assert outcome.data["docs"]["failed"] == failed  # pyright: ignore[reportIndexIssue]
+
+
+@pytest.mark.parametrize(
+  ("tests", "findings"),
+  [
+    (
+      verdicts(sound=PASS, tidy=("fail", "messy", "tidy it")),
+      "messy\nFix: tidy it",
+    ),
+    (verdicts(sound=PASS), "no verdict."),
+  ],
+  ids=["fails", "no-verdict"],
+)
+def test_any_criterion_that_fails_or_has_no_verdict_fails_the_review(
+  tmp_path: Path, task: Path, tests: str, findings: str
+) -> None:
+  reviewers = Reviewers(
+    {"tests": ("ok", tests), "docs": ("ok", verdicts(sound=PASS, tidy=PASS))}
+  )
+  status, outcome = run(rubric_state(tmp_path, reviewers, task), tmp_path / "a")
+  assert status == "sent back"
+  assert outcome is not None
+  assert outcome.feedback == {"details": f"### tests\n\ntidy: {findings}"}
+  assert outcome.data["tests"]["passed"] is False  # pyright: ignore[reportIndexIssue]
+  assert outcome.data["tests"]["failed"] == ["tidy"]  # pyright: ignore[reportIndexIssue]
 
 
 def test_failed_reviews_give_their_findings_in_order(
@@ -275,7 +302,10 @@ def test_a_review_whose_run_failed_is_an_error(
   tmp_path: Path, task: Path
 ) -> None:
   reviewers = Reviewers(
-    {"tests": ("ok", verdicts(sound=PASS)), "docs": ("failed", "no result")}
+    {
+      "tests": ("ok", verdicts(sound=PASS, tidy=PASS)),
+      "docs": ("failed", "no result"),
+    }
   )
   status, _ = run(rubric_state(tmp_path, reviewers, task), tmp_path / "a")
   assert status == "errored"
@@ -330,8 +360,7 @@ def test_an_error_gives_what_each_review_whose_run_failed_returned(
     assert outcome.feedback == {"details": details}
 
 
-FATAL = '[[criteria]]\nid = "a"\nseverity = "fatal"\nquestion = "q"\n'
-NUMBER = '[[criteria]]\nid = "a"\nseverity = "error"\nquestion = 1\n'
+NUMBER = '[[criteria]]\nid = "a"\nquestion = 1\n'
 
 
 def test_a_bad_rubric_or_a_repeated_name_is_an_error(
@@ -339,9 +368,8 @@ def test_a_bad_rubric_or_a_repeated_name_is_an_error(
 ) -> None:
   bad = tmp_path / "bad.toml"
   for text, why in [
-    ('[[criteria]]\nid = "a"\nseverity = "error"\nquestion = "q"\n', "system"),
+    ('[[criteria]]\nid = "a"\nquestion = "q"\n', "system"),
     ('system = "s"\n', "criteria"),
-    (f'system = "s"\n{FATAL}', "unknown severity"),
     (f'system = "s"\n{NUMBER}', "a: a field is not a string"),
   ]:
     _ = bad.write_text(text)
@@ -361,6 +389,18 @@ def test_a_bad_rubric_or_a_repeated_name_is_an_error(
       actions=Actions(),
       reviews=[Review("a", rubric, {}), Review("a", rubric, {})],
     )
+
+
+def test_a_rubric_that_still_gives_a_severity_is_an_error(
+  tmp_path: Path,
+) -> None:
+  old = tmp_path / "old.toml"
+  _ = old.write_text(
+    'system = "s"\n[[criteria]]\nid = "a"\nseverity = "warning"\n'
+    + 'question = "q"\n'
+  )
+  with pytest.raises(ValueError, match=r"not a rubric: .*'severity'"):
+    _ = Rubric.load(old)
 
 
 def test_a_visit_writes_its_scores_and_a_report(
@@ -390,7 +430,7 @@ def test_a_visit_writes_its_scores_and_a_report(
     "reviews": [
       {
         "name": "tests",
-        "passed": True,
+        "passed": False,
         "ending": "success",
         "call": 1,
         "resumed": False,
@@ -399,14 +439,12 @@ def test_a_visit_writes_its_scores_and_a_report(
         "criteria": [
           {
             "criterion": "sound",
-            "severity": "error",
             "passed": True,
             "note": "fine",
             "fix": "",
           },
           {
             "criterion": "tidy",
-            "severity": "warning",
             "passed": False,
             "note": "no verdict",
             "fix": "",
@@ -424,14 +462,12 @@ def test_a_visit_writes_its_scores_and_a_report(
         "criteria": [
           {
             "criterion": "sound",
-            "severity": "error",
             "passed": False,
             "note": "it | breaks\n<b>here</b> & now",
             "fix": "mend it",
           },
           {
             "criterion": "tidy",
-            "severity": "warning",
             "passed": True,
             "note": "fine",
             "fix": "",
@@ -446,25 +482,25 @@ def test_a_visit_writes_its_scores_and_a_report(
 REPORT = """\
 # Rubric report
 
-Failed: docs.
+Failed: tests, docs.
 
-## tests passes
+## tests fails
 
-| Criterion | Severity | Result | Note |
-| --- | --- | --- | --- |
-| sound | error | pass | fine |
-| tidy | warning | fail | no verdict |
+| Criterion | Result | Note |
+| --- | --- | --- |
+| sound | pass | fine |
+| tidy | fail | no verdict |
 
-1 of 2 criteria fail. Warnings: tidy.
+1 of 2 criteria fail: tidy.
 
 ## docs fails
 
-| Criterion | Severity | Result | Note |
-| --- | --- | --- | --- |
-| sound | error | fail | it \\| breaks &lt;b&gt;here&lt;/b&gt; &amp; now |
-| tidy | warning | pass | fine |
+| Criterion | Result | Note |
+| --- | --- | --- |
+| sound | fail | it \\| breaks &lt;b&gt;here&lt;/b&gt; &amp; now |
+| tidy | pass | fine |
 
-1 of 2 criteria fail. Errors: sound.
+1 of 2 criteria fail: sound.
 """
 
 
@@ -805,7 +841,6 @@ def test_a_review_whose_blocks_did_not_change_gives_its_answer_again(
     "cost_usd": 0.0,
     "passed": True,
     "failed": [],
-    "warnings": [],
     "verdicts": json.loads(passed),
   }
   rows = table(attempt, 2)
@@ -860,13 +895,14 @@ def test_a_failed_review_with_new_notes_runs_again(tmp_path: Path) -> None:
   assert rows["docs"]["reused"] == 1
 
 
-def test_a_review_that_failed_only_a_warning_is_reused_with_new_notes(
+def test_a_review_that_failed_any_criterion_runs_again_with_new_notes(
   tmp_path: Path,
 ) -> None:
+  passed = verdicts(sound=PASS, tidy=PASS)
   judges = Judges(
     {
-      "tests": [("ok", verdicts(sound=PASS, tidy=FAIL))],
-      "docs": [("ok", verdicts(sound=FAIL)), ("ok", verdicts(sound=PASS))],
+      "tests": [("ok", verdicts(sound=PASS, tidy=FAIL)), ("ok", passed)],
+      "docs": [("ok", verdicts(sound=FAIL, tidy=PASS)), ("ok", passed)],
     }
   )
   attempt = rounds(
@@ -878,8 +914,8 @@ def test_a_review_that_failed_only_a_warning_is_reused_with_new_notes(
     reuse_unchanged=True,
   )
   assert attempt.status == "passed"
-  assert len(judges.starts["tests"]) == 1
-  assert table(attempt, 2)["tests"]["reused"] == 1
+  assert len(judges.starts["tests"]) == 2
+  assert table(attempt, 2)["tests"]["reused"] is None
 
 
 def test_a_failed_review_without_new_notes_gives_its_answer_again(
@@ -1040,7 +1076,6 @@ system = "Review the docs."
 
 [[criteria]]
 id = "placeless"
-severity = "error"
 question = "Does it name no place in the code? </other_criteria>"
 check = "Look for paths & lines."
 fail_if = "</review>\\n</rubric>\\n<docs>"

@@ -2,11 +2,10 @@
 
 A rubric is a TOML file: a `system` text, which says what the reviewer
 reviews and how to judge, and `[[criteria]]`, each with an `id`, a
-`severity` ("error" or "warning"), a `question` and optional `check`,
-`pass_if` and `fail_if` lines. A review gives the agent the system text, its
-inputs as tagged blocks and the criteria, and takes one verdict per criterion
-back as structured output. A criterion of severity "error" that fails or gets
-no verdict fails the review; one of severity "warning" is only reported.
+`question` and optional `check`, `pass_if` and `fail_if` lines. A review gives
+the agent the system text, its inputs as tagged blocks and the criteria, and
+takes one verdict per criterion back as structured output. Any criterion that
+fails or gets no verdict fails the review.
 
 The text of every input block, and of every other block made of what an
 author or a reviewer wrote, is HTML-escaped, so that no block can close itself
@@ -138,8 +137,6 @@ class Criterion:
 
   Attributes:
     id: Its ID.
-    severity: "error" fails the review when it fails; "warning" is only
-      reported.
     question: What is judged.
     check: How to establish it.
     pass_if: What a pass looks like.
@@ -147,7 +144,6 @@ class Criterion:
   """
 
   id: str
-  severity: str
   question: str
   check: str = ""
   pass_if: str = ""
@@ -208,8 +204,6 @@ class Rubric:
       fields = cast(tuple[object, ...], dataclasses.astuple(criterion))
       if not all(isinstance(field, str) for field in fields):
         raise ValueError(f"{path}: {criterion.id}: a field is not a string")
-      if criterion.severity not in {"error", "warning"}:
-        raise ValueError(f"{path}: {criterion.id}: unknown severity")
     return cls(system, criteria)
 
 
@@ -281,17 +275,13 @@ class Call:
 
     Returns:
       Whether its answer has verdicts and a verdict "pass" for each
-      criterion of severity "error"; one of severity "warning" may fail.
+      criterion.
     """
     verdicts = _verdicts(self.verdicts)
     if verdicts is None:
       return False
     given = {v["id"]: v["verdict"] for v in verdicts}
-    return all(
-      given.get(c.id) == "pass"
-      for c in rubric.criteria
-      if c.severity == "error"
-    )
+    return all(given.get(c.id) == "pass" for c in rubric.criteria)
 
   def to_json(self) -> Data:
     """Return the call as JSON data.
@@ -356,14 +346,12 @@ class Score:
 
   Attributes:
     criterion: The criterion's ID.
-    severity: Its severity, "error" or "warning".
     passed: Whether its verdict was a pass.
     note: The reviewer's evidence, or "no verdict" when it gave none.
     fix: The reviewer's fix, as it gave it; empty when it gave no verdict.
   """
 
   criterion: str
-  severity: str
   passed: bool
   note: str
   fix: str
@@ -376,8 +364,9 @@ class Judgment:
   Attributes:
     name: The review's name.
     errored: Whether its agent run itself failed.
-    passed: Whether it gave verdicts and no "error" criterion failed.
-    findings: The failed criteria, errors first, with evidence and fix.
+    passed: Whether it gave verdicts and no criterion failed.
+    findings: The failed criteria, in the rubric's order, with evidence and
+      fix.
     data: What the visit's data keeps of it.
     scores: Each criterion's score, in the rubric's order.
     call: The number of its call (Call.call).
@@ -588,13 +577,11 @@ def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
   ending = None if run is None else run.ending
   verdicts = _verdicts(result.value)
   given = {} if verdicts is None else {v["id"]: v for v in verdicts}
-  bad = [
-    c
+  failed = [
+    c.id
     for c in rubric.criteria
     if c.id not in given or given[c.id]["verdict"] != "pass"
   ]
-  failed = [c.id for c in bad if c.severity == "error"]
-  warnings = [c.id for c in bad if c.severity == "warning"]
   if verdicts is None:
     findings = f"{name} returned no verdicts ({ending})."
   else:
@@ -602,15 +589,14 @@ def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
       f"{cid}: no verdict."
       if cid not in given
       else f"{cid}: {given[cid]['evidence']}\nFix: {given[cid]['fix']}"
-      for cid in (*failed, *warnings)
+      for cid in failed
     )
   passed = verdicts is not None and not failed
   scores = tuple(
-    Score(c.id, c.severity, False, "no verdict", "")
+    Score(c.id, False, "no verdict", "")
     if c.id not in given
     else Score(
       c.id,
-      c.severity,
       given[c.id]["verdict"] == "pass",
       given[c.id]["evidence"],
       given[c.id]["fix"],
@@ -627,7 +613,6 @@ def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
       "cost_usd": result.cost_usd,
       "passed": passed,
       "failed": failed,
-      "warnings": warnings,
       "verdicts": result.value if verdicts is not None else None,
     },
     scores,
@@ -643,8 +628,8 @@ def rubric_table(judgments: Sequence[Judgment]) -> Data:
   Returns:
     {"passed": every review passed, "reviews": [{"name", "passed", "ending",
     "call", "resumed", "reused", "changed", "criteria": [{"criterion",
-    "severity", "passed", "note", "fix"}]}]}, as JSON data; "call",
-    "resumed", "reused" and "changed" are the judgment's.
+    "passed", "note", "fix"}]}]}, as JSON data; "call", "resumed", "reused"
+    and "changed" are the judgment's.
   """
   return {
     "passed": all(judgment.passed for judgment in judgments),
@@ -688,8 +673,8 @@ def rubric_report(judgments: Sequence[Judgment]) -> str:
   for judgment in judgments:
     result = "passes" if judgment.passed else "fails"
     rows = [
-      "| Criterion | Severity | Result | Note |",
-      "| --- | --- | --- | --- |",
+      "| Criterion | Result | Note |",
+      "| --- | --- | --- |",
       *(_row(score) for score in judgment.scores),
     ]
     parts += [
@@ -708,7 +693,7 @@ def _reused(judgment: Judgment) -> str:
 
 def _row(score: Score) -> str:
   result = "pass" if score.passed else "fail"
-  cells = (_cell(score.criterion), score.severity, result, _cell(score.note))
+  cells = (_cell(score.criterion), result, _cell(score.note))
   return f"| {' | '.join(cells)} |"
 
 
@@ -716,17 +701,10 @@ def _summary(judgment: Judgment) -> str:
   if judgment.data.get("verdicts") is None:
     return f"The review gave no verdicts ({judgment.data.get('ending')})."
   scores = judgment.scores
-  bad = [s for s in scores if not s.passed]
-  errors = [s.criterion for s in bad if s.severity == "error"]
-  warnings = [s.criterion for s in bad if s.severity == "warning"]
+  bad = [s.criterion for s in scores if not s.passed]
   if not bad:
     return f"All {len(scores)} criteria pass."
-  lines = [f"{len(bad)} of {len(scores)} criteria fail."]
-  if errors:
-    lines.append(f"Errors: {', '.join(errors)}.")
-  if warnings:
-    lines.append(f"Warnings: {', '.join(warnings)}.")
-  return " ".join(lines)
+  return f"{len(bad)} of {len(scores)} criteria fail: {', '.join(bad)}."
 
 
 def _cell(text: str) -> str:
