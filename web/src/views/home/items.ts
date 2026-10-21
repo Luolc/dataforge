@@ -97,12 +97,13 @@ function ms(iso: string | null): number {
 }
 
 /**
- * When an attempt started, for finding an item's newest: a readable record
- * with no started_at has not finished its first action yet, so it is newer
- * than any that has.
+ * When an attempt started, for finding an item's newest: one that has not
+ * ended and has no started_at has not finished its first action yet, so it
+ * is newer than any that has. An ended one with no started_at, such as one
+ * that failed before its first action, is the oldest.
  */
 const startMs = (row: AttemptRow): number =>
-  row.error === null && row.started_at === null ? Infinity : ms(row.started_at);
+  row.started_at === null && notEnded(row) ? Infinity : ms(row.started_at);
 
 const newestFirst = (a: number, b: number) => (a === b ? 0 : a > b ? -1 : 1);
 

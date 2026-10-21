@@ -185,24 +185,27 @@ class _Api:
           "label": a.label,
           "queue": a.queue,
           "reason": actions.unavailable(a, item, rows, jobs),
+          "params": [param.public() for param in a.params],
         }
         for a in project.actions
       ]
     )
 
   def submit(self, request: Request, p: str, name: str) -> Response:
-    self._writable(request, {"item"})
+    self._writable(request)
     project = self._project(p)
     action = self._action(project, name)
+    _only(request, {"item", *(param.name for param in action.params)})
     item = _required("item", request.query_params.get("item"))
     actions.check_item(project, item)
+    args = actions.param_args(action, request.query_params)
     rows = _item_rows(project, item)
     config = self._config()
     reason = actions.unavailable(action, item, rows, self._open_jobs())
     if reason is not None:
       raise RefusedError(409, reason)
     try:
-      job = actions.submit(config, project, action, item)
+      job = actions.submit(config, project, action, item, args)
     except queue.DuplicateError as duplicate:
       return JSONResponse(
         {
@@ -220,7 +223,8 @@ class _Api:
     return JSONResponse({"job": actions.public(job)}, status_code=201)
 
   def cancel(self, request: Request, job: str) -> Response:
-    self._writable(request, set())
+    self._writable(request)
+    _only(request, set())
     config = self._config()
     try:
       found = queue.cancel(config, _integer("job", job))
@@ -359,7 +363,7 @@ class _Api:
     except (sqlite3.Error, OSError) as error:
       raise RefusedError(503, _queue_failure(error)) from None
 
-  def _writable(self, request: Request, params: set[str]) -> None:
+  def _writable(self, request: Request) -> None:
     # Against a page of another site (CSRF) and one that a name of its own
     # points at the viewer's address (DNS rebinding): the header makes the
     # browser ask first across origins, and Host and Origin must both name
@@ -373,10 +377,6 @@ class _Api:
       raise RefusedError(403, f"a write is taken only from {self._origin}")
     if headers.get("sec-fetch-site", "same-origin") != "same-origin":
       raise RefusedError(403, "a write is taken only from the same origin")
-    names = [name for name, _ in request.query_params.multi_items()]
-    if any(n not in params for n in names) or len(names) != len(set(names)):
-      allowed = ", ".join(sorted(params)) or "none"
-      raise RefusedError(400, f"a write takes its parameters once: {allowed}")
     if "transfer-encoding" in headers or headers.get(
       "content-length", "0"
     ) not in ("", "0"):
@@ -399,6 +399,13 @@ class _Api:
         },
         status_code=404,
       )
+
+
+def _only(request: Request, params: set[str]) -> None:
+  names = [name for name, _ in request.query_params.multi_items()]
+  if any(n not in params for n in names) or len(names) != len(set(names)):
+    allowed = ", ".join(sorted(params)) or "none"
+    raise RefusedError(400, f"a write takes its parameters once: {allowed}")
 
 
 def _attempt(value: str | None) -> str:

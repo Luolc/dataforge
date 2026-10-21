@@ -43,8 +43,13 @@ export const urls = {
     `${api(p)}/files?${new URLSearchParams({ attempt, path }).toString()}`,
   actions: (p: string, item: string) =>
     `${api(p)}/actions?${new URLSearchParams({ item }).toString()}`,
-  submit: (p: string, action: string, item: string) =>
-    `${api(p)}/actions/${encodeURIComponent(action)}?${new URLSearchParams({ item }).toString()}`,
+  submit: (
+    p: string,
+    action: string,
+    item: string,
+    params: Record<string, string> = {},
+  ) =>
+    `${api(p)}/actions/${encodeURIComponent(action)}?${new URLSearchParams([["item", item], ...Object.entries(params)]).toString()}`,
   queue: () => "/api/queue",
   cancel: (job: number) => `/api/queue/jobs/${job.toString()}/cancel`,
 };
