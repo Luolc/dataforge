@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import fcntl
 import json
 import os
@@ -545,7 +545,9 @@ def test_a_running_attempt_with_no_action_yet_starts_with_its_job(
   web = client(made, static)
   _ = web.post(f"{ACTIONS}/again", params={"item": "batch-1"}, headers=WRITE)
   [job] = jobs(made)
-  with sqlite3.connect(made.queue / "queue.sqlite") as conn:
+  with closing(
+    sqlite3.connect(made.queue / "queue.sqlite", autocommit=True)
+  ) as conn:
     _ = conn.execute(
       "UPDATE jobs SET state = 'running', started_at = 1772442000 WHERE id = ?",
       (job.id,),
