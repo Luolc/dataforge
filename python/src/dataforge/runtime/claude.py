@@ -64,6 +64,10 @@ DEFAULT_TIMEOUT = 1800.0
 # other. `claude` itself ignores an unknown level and runs at its default,
 # so a mistyped one would be recorded but not used. Read on 2026-10-19.
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
+# The values `--thinking-display` takes: how Claude Code shows its thinking in
+# the trace. The flag is hidden from `claude --help`. Read on 2026-10-20 from
+# Claude Code 2.1.292.
+THINKING_DISPLAYS = ("summarized", "omitted", "highlights")
 # The tools an agent has when its spec names none.
 TOOLS = ("Read", "Glob", "Grep", "Write", "Edit", "Bash")
 # How a session ends when it did no work the host could judge: it printed no
@@ -182,6 +186,7 @@ def add_arguments(
   model: str,
   effort: str,
   max_budget_usd: float,
+  thinking_display: str = "summarized",
 ) -> None:
   """Add the options that `Session.from_args` reads to a command.
 
@@ -190,6 +195,7 @@ def add_arguments(
     model: The default of `--model`.
     effort: The default of `--effort`.
     max_budget_usd: The default of `--max-budget-usd`.
+    thinking_display: The default of `--thinking-display`.
   """
   _ = parser.add_argument(
     "--claude",
@@ -198,6 +204,12 @@ def add_arguments(
   )
   _ = parser.add_argument("--model", default=model)
   _ = parser.add_argument("--effort", default=effort, choices=EFFORTS)
+  _ = parser.add_argument(
+    "--thinking-display",
+    default=thinking_display,
+    choices=THINKING_DISPLAYS,
+    help="how thinking is shown in the trace (default: %(default)s)",
+  )
   _ = parser.add_argument(
     "--max-budget-usd",
     type=float,
@@ -222,6 +234,8 @@ class Session:
     model: The model.
     effort: The effort level.
     max_budget_usd: The spend cap of each session, in US dollars.
+    thinking_display: The value of `--thinking-display`, one of
+      `THINKING_DISPLAYS`.
     timeout: Seconds before the session's process group on this machine is
       killed; what a prefix started elsewhere, such as `claude` in a
       container, may go on until that place stops it.
@@ -239,9 +253,22 @@ class Session:
   model: str
   effort: str
   max_budget_usd: float
+  thinking_display: str = "summarized"
   timeout: float = DEFAULT_TIMEOUT
   persist: bool = False
   env: Mapping[str, str] | None = field(default=None, repr=False)
+
+  def __post_init__(self) -> None:
+    """Reject a thinking display that `claude` would not take.
+
+    Raises:
+      ValueError: If `thinking_display` is not one of `THINKING_DISPLAYS`.
+    """
+    if self.thinking_display not in THINKING_DISPLAYS:
+      choices = ", ".join(THINKING_DISPLAYS)
+      raise ValueError(
+        f"unknown thinking_display {self.thinking_display!r}: use {choices}"
+      )
 
   @classmethod
   def from_args(cls, args: argparse.Namespace) -> Session:
@@ -258,6 +285,7 @@ class Session:
       model=cast(str, args.model),
       effort=cast(str, args.effort),
       max_budget_usd=cast(float, args.max_budget_usd),
+      thinking_display=cast(str, args.thinking_display),
       timeout=cast(float, args.timeout),
     )
 
@@ -294,6 +322,8 @@ class Session:
       self.model,
       "--effort",
       self.effort,
+      "--thinking-display",
+      self.thinking_display,
       "--max-budget-usd",
       str(self.max_budget_usd),
       *(() if self.persist else ("--no-session-persistence",)),

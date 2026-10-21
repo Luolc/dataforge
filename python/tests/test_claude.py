@@ -686,6 +686,45 @@ def test_the_options_give_the_session() -> None:
   assert claude.Session.from_args(shim).timeout == 9
 
 
+def test_the_command_line_names_the_thinking_display(tmp_path: Path) -> None:
+  fake = Fake(tmp_path, [{"lines": [result()]}, {"lines": [result()]}])
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  for n, thinking in enumerate((None, "highlights")):
+    session = fake.session
+    if thinking is not None:
+      session = replace(session, thinking_display=thinking)
+    runner = claude.Runner(session, claude.numbered(tmp_path / f"runs{n}"))
+    _ = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert option(fake.argv(1), "--thinking-display") == ["summarized"]
+  assert option(fake.argv(2), "--thinking-display") == ["highlights"]
+
+
+def test_a_session_rejects_an_unknown_thinking_display() -> None:
+  for value in claude.THINKING_DISPLAYS:
+    session = claude.Session(
+      model="m", effort="low", max_budget_usd=1, thinking_display=value
+    )
+    assert session.thinking_display == value
+  with pytest.raises(ValueError, match="unknown thinking_display"):
+    _ = claude.Session(
+      model="m", effort="low", max_budget_usd=1, thinking_display="bogus"
+    )
+
+
+def test_the_thinking_display_option_takes_only_a_known_value(
+  capsys: pytest.CaptureFixture[str],
+) -> None:
+  parser = argparse.ArgumentParser()
+  claude.add_arguments(parser, model="m", effort="low", max_budget_usd=0.5)
+  assert parser.parse_args([]).thinking_display == "summarized"
+  for value in claude.THINKING_DISPLAYS:
+    args = parser.parse_args(["--thinking-display", value])
+    assert claude.Session.from_args(args).thinking_display == value
+  with pytest.raises(SystemExit):
+    _ = parser.parse_args(["--thinking-display", "bogus"])
+  assert "invalid choice: 'bogus'" in capsys.readouterr().err
+
+
 def test_the_effort_option_takes_only_a_known_level(
   capsys: pytest.CaptureFixture[str],
 ) -> None:
