@@ -6,7 +6,7 @@ import { useState } from "react";
 
 import { toneGlyph, toneText } from "../ui/status";
 import { TemplateSwitch } from "../ui/template-switch";
-import { signIn } from "./api";
+import { signIn } from "./token";
 
 /** What every refused token is told, whatever the server's reason. */
 export const REFUSED =

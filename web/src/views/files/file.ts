@@ -1,6 +1,12 @@
-// A file of an attempt, read through the files API as bytes and shown as
-// text only when it is UTF-8.
-import { ApiError, urls, useLoaded } from "../../api/client";
+// A file of an attempt, read from the page's source of files as bytes and
+// shown as text only when it is UTF-8.
+import {
+  ApiError,
+  apiFiles,
+  type FileSource,
+  useFileSource,
+  useLoaded,
+} from "../../api/client";
 
 export type FileContent =
   | { kind: "text"; text: string; size: number }
@@ -8,7 +14,7 @@ export type FileContent =
   | { kind: "binary"; size: number }
   /** Over the server's FILE_LIMIT: the 413's reason, which gives the size. */
   | { kind: "too-large"; reason: string }
-  /** Not there, or refused as invariant 2 asks: the 404's reason. */
+  /** Not there, a directory, or refused as invariant 2 asks: the 404's reason. */
   | { kind: "missing"; reason: string };
 
 const utf8 = new TextDecoder("utf-8", { fatal: true });
@@ -19,11 +25,9 @@ export async function fetchFile(
   attempt: string,
   path: string,
   signal?: AbortSignal,
+  source: FileSource = apiFiles,
 ): Promise<FileContent> {
-  const response = await fetch(
-    urls.files(project, attempt, path),
-    signal ? { signal } : {},
-  );
+  const response = await source.file(project, attempt, path, signal);
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
     const reason =
@@ -37,12 +41,6 @@ export async function fetchFile(
     if (response.status === 404) return { kind: "missing", reason };
     throw new ApiError(`${response.status.toString()}: ${reason}`);
   }
-  // The route answers a directory with its listing, as JSON.
-  if (
-    response.headers.get("content-type")?.startsWith("application/json") ===
-    true
-  )
-    return { kind: "missing", reason: `${path}: a directory, not a file` };
   const bytes = await response.arrayBuffer();
   try {
     return { kind: "text", text: utf8.decode(bytes), size: bytes.byteLength };
@@ -53,9 +51,10 @@ export async function fetchFile(
 
 /** fetchFile as a hook; a null path loads nothing. */
 export function useFile(project: string, attempt: string, path: string | null) {
+  const source = useFileSource();
   return useLoaded(
     path === null ? null : JSON.stringify([project, attempt, path]),
-    (signal) => fetchFile(project, attempt, path ?? "", signal),
+    (signal) => fetchFile(project, attempt, path ?? "", signal, source),
   );
 }
 

@@ -77,5 +77,10 @@
       "title": "Quality reviews",
       "path": "review.md"
     }
-  ]
+  ],
+  "download": {
+    "path": "k7m2q9xr4t-r2.zip",
+    "size": 6196,
+    "sha256": "f69b03018118f1ee604bbf2e8655383a3279edb7538763b00cf1223b6d15b6cd"
+  }
 }

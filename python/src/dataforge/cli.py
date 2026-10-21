@@ -28,9 +28,10 @@ def main(argv: Sequence[str] | None = None) -> int:
   --config <site file> --static <dir>" starts the viewer; it needs the extra
   viz. "dataforge queue submit|list|cancel|serve --config <queue file>"
   puts a command in a queue, lists the jobs, cancels one, or runs the
-  scheduler; see dataforge.queue.command. "dataforge share serve|token"
-  serves the read-only site of exports, or makes, lists or revokes its
-  access tokens; see dataforge.share.command.
+  scheduler; see dataforge.queue.command. "dataforge share
+  serve|site|token" serves the read-only site of exports, writes it as a
+  static site, or makes, lists or revokes its access tokens; see
+  dataforge.share.command.
 
   Args:
     argv: The arguments; None for the command line's.

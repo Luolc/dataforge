@@ -1,4 +1,4 @@
-"""The dataforge share command: serve, and token create, list and revoke."""
+"""The dataforge share command: serve, site, and token create, list, revoke."""
 
 import argparse
 from datetime import datetime, UTC
@@ -7,7 +7,7 @@ import sqlite3
 import sys
 from typing import cast
 
-from dataforge.share import tokens
+from dataforge.share import site, tokens
 
 
 def add_arguments(share: argparse.ArgumentParser) -> None:
@@ -23,6 +23,24 @@ def add_arguments(share: argparse.ArgumentParser) -> None:
   )
   _ = serve.add_argument(
     "--static", type=Path, help="the built frontend; none for a placeholder"
+  )
+  static = subs.add_parser(
+    "site",
+    help="write a static site of exports, for a host such as Cloudflare Pages",
+    description=site.__doc__,
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+  )
+  _ = static.add_argument(
+    "--frontend",
+    type=Path,
+    required=True,
+    help="the frontend's static build (npm run build:share-static)",
+  )
+  _ = static.add_argument(
+    "--out", type=Path, required=True, help="the site to write; must not exist"
+  )
+  _ = static.add_argument(
+    "exports", type=Path, nargs="+", help="the export directories"
   )
   token = subs.add_parser("token", help="the site's access tokens")
   verbs = token.add_subparsers(dest="token_command", required=True)
@@ -63,9 +81,11 @@ def run(args: argparse.Namespace) -> int:
 
   Returns:
     For serve, see dataforge.share.serve; else 0 on success, 1 for an
-    unknown token or a database that cannot be read or written, 2 for bad
-    arguments or without the extra viz.
+    unknown token or a database that cannot be read or written, or a site
+    that cannot be written, 2 for bad arguments or without the extra viz.
   """
+  if cast(str, args.share_command) == "site":
+    return _site(args)
   if cast(str, args.share_command) == "serve":
     # Imported here: FastAPI and uvicorn come only with the extra viz.
     try:
@@ -96,6 +116,19 @@ def run(args: argparse.Namespace) -> int:
   except (sqlite3.Error, OSError) as error:
     print(f"dataforge share token: {db}: {error}", file=sys.stderr)
     return 1
+  return 0
+
+
+def _site(args: argparse.Namespace) -> int:
+  out = cast(Path, args.out)
+  try:
+    files = site.write_site(
+      cast(Path, args.frontend), out, cast(list[Path], args.exports)
+    )
+  except (site.SiteError, OSError) as error:
+    print(f"dataforge share site: {error}", file=sys.stderr)
+    return 1
+  print(f"dataforge share site: {out}: {files} files", file=sys.stderr)
   return 0
 
 

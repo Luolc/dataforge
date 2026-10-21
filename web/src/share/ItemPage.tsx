@@ -1,17 +1,19 @@
 // The route /<p>/items/<id>: one item, its deliverables each in a tab, with
-// nothing to act on. A deliverable of a kind the site does not draw is left
-// out.
+// nothing to act on but a link to download all of it, where the site has
+// one. A deliverable of a kind the site does not draw is left out.
+import { Download } from "lucide-react";
 import { use } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import type { z } from "zod";
 
-import { urls, useLoaded } from "../api/client";
+import { useLoaded } from "../api/client";
 import { Frame } from "../shell/Shell";
 import { Note } from "../ui/card";
 import { FilesCard } from "../views/files";
+import { size } from "../views/files/file";
 import { ReportCard } from "../views/report";
 import {
   itemHref,
+  type ItemRecord,
   itemRecord,
   read,
   type ShareDeliverable,
@@ -19,10 +21,9 @@ import {
   shownId,
   SignedContext,
   useShareProject,
+  useShareSource,
 } from "./api";
 import { PassAtK } from "./PassAtK";
-
-type ItemRecord = z.infer<typeof itemRecord>;
 
 /** The kinds of deliverable the site draws, in their tabs. */
 const KINDS = new Set(["files", "trials", "report"]);
@@ -41,8 +42,9 @@ export function ItemPage() {
 
 function Item({ project, item }: { project: ShareProject; item: string }) {
   const { refused } = use(SignedContext);
+  const source = useShareSource();
   const loaded = useLoaded(JSON.stringify([project.id, item]), (signal) =>
-    read(urls.record(project.id, item), itemRecord, refused, signal),
+    read(source.record(project.id, item), itemRecord, refused, signal),
   );
   const [params] = useSearchParams();
   const crumbs = [
@@ -72,9 +74,25 @@ function Shown({
   const tabs = record.deliverables.filter((d) => KINDS.has(d.kind));
   const current = tabs.find((d) => d.name === tab) ?? tabs[0];
   const shown = shownId(record);
+  const { download } = useShareSource();
   return (
     <>
-      <h1 className="px-7 pt-5 font-mono text-lg tracking-normal">{shown}</h1>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-7 pt-5">
+        <h1 className="font-mono text-lg tracking-normal break-all">{shown}</h1>
+        {download !== null && record.download !== null && (
+          <a
+            href={download(project.id, record.id, record.download.path)}
+            download
+            className="ml-auto inline-flex target items-center gap-1.5 rounded-row border border-chip-line px-2 text-xs font-medium hover:bg-hover"
+          >
+            <Download className="size-3.5 text-icon" aria-hidden />
+            Download all
+            <span className="text-fg-3 tabular-nums">
+              {size(record.download.size)}
+            </span>
+          </a>
+        )}
+      </div>
       <nav
         aria-label="Item"
         className="sticky top-0 z-10 mt-3 flex h-11 gap-1 border-b border-line bg-panel px-5"

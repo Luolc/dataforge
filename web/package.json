@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
-    "build:share": "tsc --noEmit -p tsconfig.json && vite build --mode share"
+    "build:share": "tsc --noEmit -p tsconfig.json && vite build --mode share && vite build --mode share-static",
+    "build:share-static": "tsc --noEmit -p tsconfig.json && vite build --mode share-static"
   },
   "dependencies": {
     "@fontsource-variable/fira-code": "5.3.0",
@@ -58,7 +59,8 @@
   },
   "knip": {
     "entry": [
-      "src/share/main.tsx"
+      "src/share/main.tsx",
+      "src/share/static-main.tsx"
     ]
   }
 }

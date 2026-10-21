@@ -3,7 +3,8 @@
 An export directory holds:
 
   export.json          {format, project: {id, name, color},
-                        session: {thinking}, statuses, items: [{id, revision}]}
+                        session: {thinking}, statuses, items: [{id, revision}],
+                        listed_only: [<path>]}
   items/<id>/          each item export.json lists: its record.json and the
                        files its deliverables name
 
@@ -22,7 +23,7 @@ from pathlib import Path
 import re
 from typing import cast
 
-from dataforge.viz.config import THINKING, TONES
+from dataforge.viz.config import split_relative, THINKING, TONES
 from dataforge.viz.paths import (
   is_dir,
   open_path,
@@ -71,6 +72,8 @@ class Export:
       dataforge.viz.config.THINKING.
     statuses: The label and tone of each status word.
     items: The items, in the file's order.
+    listed_only: The paths, relative to an item's directory, of the files a
+      static site lists by name and size but does not serve.
   """
 
   id: str
@@ -79,6 +82,7 @@ class Export:
   thinking: str
   statuses: dict[str, dict[str, str]]
   items: tuple[Item, ...]
+  listed_only: frozenset[str] = frozenset()
 
   def public(self) -> dict[str, object]:
     """Return the project as a page reads it, without its items.
@@ -171,7 +175,10 @@ def parse(data: bytes) -> Export:
   except ValueError, RecursionError:
     raise ExportError("export.json: not JSON") from None
   top = _mapping(
-    "", value, {"format", "project", "items"}, {"session", "statuses"}
+    "",
+    value,
+    {"format", "project", "items"},
+    {"session", "statuses", "listed_only"},
   )
   format_ = top["format"]
   if format_ != FORMAT or isinstance(format_, bool):
@@ -193,6 +200,7 @@ def parse(data: bytes) -> Export:
     thinking=thinking,
     statuses=_statuses(top.get("statuses", {})),
     items=_items(top["items"]),
+    listed_only=_listed_only(top.get("listed_only", [])),
   )
 
 
@@ -232,6 +240,18 @@ def _items(value: object) -> tuple[Item, ...]:
       raise ExportError(f"items[{i}].revision: not a whole number from 1")
     items.append(Item(id_, revision))
   return tuple(items)
+
+
+def _listed_only(value: object) -> frozenset[str]:
+  if not isinstance(value, list):
+    raise ExportError("listed_only: not a list")
+  paths: set[str] = set()
+  for i, entry in enumerate(cast(list[object], value)):
+    path = _str(f"listed_only[{i}]", entry)
+    if not split_relative(path):
+      raise ExportError(f"listed_only[{i}]: {path!r} is not a relative path")
+    paths.add(path)
+  return frozenset(paths)
 
 
 def _mapping(

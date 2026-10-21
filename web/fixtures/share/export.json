@@ -10,5 +10,6 @@
     { "id": "k7m2q9xr4t", "revision": 2 },
     { "id": "p3w8n5c2vd", "revision": 1 },
     { "id": "h6t1z4b9qm", "revision": 1 }
-  ]
+  ],
+  "listed_only": ["task/environment/source.tar.gz"]
 }
