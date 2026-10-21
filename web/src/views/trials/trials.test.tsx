@@ -109,7 +109,7 @@ describe("the trials view", () => {
     );
     expect(screen.getByText("9m 3s")).toBeVisible();
     expect(screen.getByText("$0.31")).toBeVisible();
-    expect(await screen.findByText("Hide thinking")).toBeVisible();
+    expect(await screen.findByText("Expand all")).toBeVisible();
   });
 
   it("takes each trial's duration and cost from its own action", () => {
@@ -148,7 +148,7 @@ describe("the trials view", () => {
     expect(
       await screen.findByText("All tests pass, the task is done."),
     ).toBeVisible();
-    const header = must(screen.getByText("Hide thinking").closest("header"));
+    const header = must(screen.getByText("Expand all").closest("header"));
     expect(within(header).getByText(/not solved · reward 0/)).toBeVisible();
   });
 
@@ -319,10 +319,10 @@ describe("the trials view's Diff tab", () => {
     serve({ [at(1)]: diff });
     showDiff();
     await screen.findByText(at(1));
-    expect(await screen.findByText("Hide thinking")).not.toBeVisible();
+    expect(await screen.findByText("Expand all")).not.toBeVisible();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Trace" }));
 
-    expect(await screen.findByText("Hide thinking")).toBeVisible();
+    expect(await screen.findByText("Expand all")).toBeVisible();
     const reads = vi
       .mocked(fetch)
       .mock.calls.filter(

@@ -223,7 +223,7 @@ function countThinking(entries: (Message | BadLine)[]): number {
   for (const entry of entries) {
     if (entry.kind !== "message") continue;
     for (const block of entry.blocks) {
-      if (block.kind === "thinking") count++;
+      if (block.kind === "thinking" && block.text.trim() !== "") count++;
       if (block.kind === "tool") count += countThinking(block.children);
     }
   }
