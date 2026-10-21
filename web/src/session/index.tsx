@@ -5,7 +5,7 @@ import { type ReactNode, useMemo } from "react";
 import { ApiError, urls, useLoaded } from "../api/client";
 import type { Project } from "../api/types";
 import { parseTrace } from "./parse";
-import { SessionBody } from "./Session";
+import { SessionBody, type SessionTotals } from "./Session";
 
 const STREAM_JSON = "claude-code-stream-json";
 
@@ -31,8 +31,10 @@ export function SessionView({
   format,
   badge,
   startOpen,
+  totals,
 }: {
-  project: Project;
+  /** The project's ID and how its sessions show thinking. */
+  project: Pick<Project, "id" | "session">;
   attempt: string;
   /** The trace, relative to the attempt's directory. */
   path: string;
@@ -41,6 +43,8 @@ export function SessionView({
   badge?: ReactNode;
   /** Whether every fold starts open, as in SessionBody. */
   startOpen?: boolean;
+  /** Which totals the header shows, as in SessionBody. */
+  totals?: SessionTotals;
 }) {
   const url = urls.files(project.id, attempt, path);
   const loaded = useLoaded(url, (signal) => getText(url, signal));
@@ -70,6 +74,7 @@ export function SessionView({
         thinking={project.session.thinking}
         badge={badge}
         {...(startOpen === undefined ? {} : { startOpen })}
+        {...(totals === undefined ? {} : { totals })}
       />
     );
   }

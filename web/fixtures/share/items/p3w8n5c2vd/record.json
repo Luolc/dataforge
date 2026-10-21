@@ -1,0 +1,81 @@
+{
+  "id": "p3w8n5c2vd",
+  "revision": 1,
+  "deliverables": [
+    {
+      "name": "task",
+      "kind": "files",
+      "title": "Harbor task",
+      "path": "task"
+    },
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@K",
+      "k": 4,
+      "value": {
+        "value": 4
+      },
+      "trials": [
+        {
+          "id": "1",
+          "path": "trials/1",
+          "model": "example-model",
+          "trace": {
+            "path": "trials/1/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1,
+            "exception": null
+          }
+        },
+        {
+          "id": "2",
+          "path": "trials/2",
+          "model": "example-model",
+          "trace": {
+            "path": "trials/2/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1,
+            "exception": null
+          }
+        },
+        {
+          "id": "3",
+          "path": "trials/3",
+          "model": "example-model",
+          "trace": {
+            "path": "trials/3/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1,
+            "exception": null
+          }
+        },
+        {
+          "id": "4",
+          "path": "trials/4",
+          "model": "example-model",
+          "trace": {
+            "path": "trials/4/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "result": {
+            "reward": 1,
+            "exception": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "reviews",
+      "kind": "report",
+      "title": "Quality reviews",
+      "path": "review.md"
+    }
+  ]
+}

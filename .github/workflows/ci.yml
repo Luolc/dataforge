@@ -120,15 +120,16 @@ jobs:
           uv run --locked pytest
 
       # The viewer's frontend, as docs/design-viz.md section 6 lists its
-      # checks. Node is the release machine/versions.yml pins (nodejs_version);
-      # change both together.
+      # checks, and the share site's build from the same sources. Node is the
+      # release machine/versions.yml pins (nodejs_version); change both
+      # together.
       - if: fromJSON(steps.changes.outputs.groups).web
         uses: actions/setup-node@v7
         with:
           node-version: "26.12.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Web checks (lint, typecheck, test, build)
+      - name: Web checks (lint, typecheck, test, build, build:share)
         if: fromJSON(steps.changes.outputs.groups).web
         working-directory: web
         run: |
@@ -137,6 +138,7 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+          npm run build:share
 
       # The setup test image is a clean Ubuntu plus sudo, its layers cached
       # in the Actions cache.

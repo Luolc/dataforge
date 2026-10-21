@@ -1,5 +1,6 @@
 // The report view: a report's Markdown under its title, where a table cell
 // whose whole text is a key of the project's statuses shows as its label.
+import type { Deliverable, Project } from "../../api/types";
 import { Card } from "../../ui/card";
 import { NOT_RUN } from "../../ui/status";
 import { size, useFile } from "../files/file";
@@ -12,6 +13,21 @@ export default function ReportView({
   attempt,
   deliverable,
 }: DeliverableProps) {
+  return (
+    <ReportCard project={project} attempt={attempt} deliverable={deliverable} />
+  );
+}
+
+/** The report view's card, for a caller with no record, as the share site. */
+export function ReportCard({
+  project,
+  attempt,
+  deliverable,
+}: {
+  project: Pick<Project, "id" | "statuses">;
+  attempt: string;
+  deliverable: Pick<Deliverable, "title" | "path" | "reason">;
+}) {
   const path = deliverable.path;
   const loaded = useFile(project.id, attempt, path);
   const content = loaded.state === "ok" ? loaded.data : null;

@@ -20,13 +20,22 @@ export interface Failed {
   read: number;
 }
 
-/** A failed request; body is the response's JSON, null when it had none. */
+/**
+ * A failed request; body is the response's JSON, null when it had none, and
+ * status the status of a response that was not OK, null for any other failure.
+ */
 export class ApiError extends Error {
   readonly body: unknown;
+  readonly status: number | null;
 
-  constructor(message: string, body: unknown = null) {
+  constructor(
+    message: string,
+    body: unknown = null,
+    status: number | null = null,
+  ) {
     super(message);
     this.body = body;
+    this.status = status;
   }
 }
 
@@ -81,7 +90,11 @@ async function parse<T>(response: Response, schema: z.ZodType<T>) {
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const reason = reasonOf(body) ?? response.statusText;
-    throw new ApiError(`${response.status.toString()}: ${reason}`, body);
+    throw new ApiError(
+      `${response.status.toString()}: ${reason}`,
+      body,
+      response.status,
+    );
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {

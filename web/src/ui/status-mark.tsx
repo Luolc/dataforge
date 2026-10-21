@@ -25,7 +25,7 @@ export function StatusLabel({
   word,
   ended = false,
 }: {
-  project: Project;
+  project: Pick<Project, "statuses">;
   word: string | null;
   ended?: boolean;
 }) {
@@ -54,7 +54,7 @@ export function StatusIcon({
   word,
   ended = false,
 }: {
-  project: Project;
+  project: Pick<Project, "statuses">;
   word: string | null;
   ended?: boolean;
 }) {

@@ -12,7 +12,7 @@ import { SessionBody, type ThinkingMode } from "./Session";
 function show(
   text: string,
   thinking: ThinkingMode = "collapsed",
-  options: { startOpen?: boolean } = {},
+  options: { startOpen?: boolean; totals?: "all" | "model" } = {},
 ) {
   return render(
     <SessionBody
@@ -73,6 +73,12 @@ const emptyThinking = [
 ]
   .map((line) => JSON.stringify(line))
   .join("\n");
+
+/** The text of each message's time in the gutter. */
+const gutter = (container: HTMLElement) =>
+  [...container.querySelectorAll("ol > li > span:first-child")].map(
+    (cell) => cell.textContent,
+  );
 
 const toolLine = (name: string | RegExp) =>
   screen.getByRole("button", { name });
@@ -227,6 +233,34 @@ describe("the session view", () => {
     expect(screen.getByRole("button", { name: "Collapse all" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
     expect(folds().every((b) => b.ariaExpanded === "false")).toBe(true);
+  });
+
+  it("shows every total in the header by default", () => {
+    const { container } = show(solved);
+
+    const header = container.querySelector("header");
+    expect(header).toHaveTextContent("duration 9m 3s");
+    expect(header).toHaveTextContent("cost $0.31");
+    expect(header).toHaveTextContent("turns 9");
+    expect(header).toHaveTextContent("tokens 195K in · 14K out");
+    expect(header).toHaveTextContent("model example-model");
+    expect(header).toHaveTextContent("12 tool calls · 1 failed");
+    expect(
+      gutter(container).filter((cell) => cell !== "").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("shows the model alone in the header when told to", () => {
+    const { container } = show(solved, "collapsed", { totals: "model" });
+
+    const header = container.querySelector("header");
+    expect(header).toHaveTextContent("model example-model");
+    expect(header).not.toHaveTextContent(
+      /duration|cost|turns|tokens|tool calls/,
+    );
+    expect(header).toHaveTextContent("the badge");
+    expect(screen.getByRole("button", { name: "Expand all" })).toBeVisible();
+    expect(gutter(container).every((cell) => cell === "")).toBe(true);
   });
 
   it("renders a trace with no thinking as usual", () => {

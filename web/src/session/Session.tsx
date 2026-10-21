@@ -18,6 +18,9 @@ import type { BadLine, Block, Message, Session, ToolCall } from "./parse";
 
 export type ThinkingMode = Project["session"]["thinking"];
 
+/** The totals a session's header shows: all of them, or the model alone. */
+export type SessionTotals = "all" | "model";
+
 /** More tool calls than this in one message fold into one line. */
 const FOLD_OVER = 4;
 
@@ -32,6 +35,9 @@ const FoldContext = createContext({
   startOpen: false,
 });
 
+/** Whether the gutter shows each message's time since the start. */
+const TimesContext = createContext(true);
+
 const count = new Intl.NumberFormat("en-US", { notation: "compact" });
 
 export function SessionBody({
@@ -39,12 +45,18 @@ export function SessionBody({
   thinking,
   badge,
   startOpen = false,
+  totals: shownTotals = "all",
 }: {
   session: Session;
   thinking: ThinkingMode;
   badge?: ReactNode;
   /** Whether every fold starts open; the buttons still change it after. */
   startOpen?: boolean;
+  /**
+   * Which totals the header shows: all of them, or the model alone, and then
+   * no message's time in the gutter either.
+   */
+  totals?: SessionTotals;
 }) {
   const [fold, setFold] = useState({ serial: 0, open: startOpen, startOpen });
   const { totals } = session;
@@ -55,27 +67,36 @@ export function SessionBody({
       <section className="flex flex-col rounded-panel border border-line bg-panel">
         <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
           {badge}
-          <Total label="duration">
-            {totals.seconds === null ? "—" : duration(totals.seconds)}
-          </Total>
-          <Total label="cost">
-            {totals.costUsd === null ? "—" : usd(totals.costUsd)}
-          </Total>
-          <Total label="turns">{totals.turns ?? "—"}</Total>
-          <Total label="tokens">
-            {totals.tokensIn === null ? "—" : count.format(totals.tokensIn)} in
-            · {totals.tokensOut === null ? "—" : count.format(totals.tokensOut)}{" "}
-            out
-          </Total>
+          {shownTotals === "all" && (
+            <>
+              <Total label="duration">
+                {totals.seconds === null ? "—" : duration(totals.seconds)}
+              </Total>
+              <Total label="cost">
+                {totals.costUsd === null ? "—" : usd(totals.costUsd)}
+              </Total>
+              <Total label="turns">{totals.turns ?? "—"}</Total>
+              <Total label="tokens">
+                {totals.tokensIn === null ? "—" : count.format(totals.tokensIn)}{" "}
+                in ·{" "}
+                {totals.tokensOut === null
+                  ? "—"
+                  : count.format(totals.tokensOut)}{" "}
+                out
+              </Total>
+            </>
+          )}
           <Total label="model">
             <span className="font-mono">{totals.model ?? "—"}</span>
           </Total>
-          <span>
-            {session.tools} tool calls
-            {session.failed > 0 && (
-              <span className={toneText.bad}> · {session.failed} failed</span>
-            )}
-          </span>
+          {shownTotals === "all" && (
+            <span>
+              {session.tools} tool calls
+              {session.failed > 0 && (
+                <span className={toneText.bad}> · {session.failed} failed</span>
+              )}
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <FoldButton
               label="Expand all"
@@ -93,16 +114,20 @@ export function SessionBody({
             />
           </div>
         </header>
-        <ol className="flex flex-col py-2">
-          {session.preamble.length > 0 && <Preamble lines={session.preamble} />}
-          {session.entries.map((entry, i) =>
-            entry.kind === "bad" ? (
-              <BadRow key={i} entry={entry} />
-            ) : (
-              <MessageRow key={i} message={entry} thinking={shownThinking} />
-            ),
-          )}
-        </ol>
+        <TimesContext value={shownTotals === "all"}>
+          <ol className="flex flex-col py-2">
+            {session.preamble.length > 0 && (
+              <Preamble lines={session.preamble} />
+            )}
+            {session.entries.map((entry, i) =>
+              entry.kind === "bad" ? (
+                <BadRow key={i} entry={entry} />
+              ) : (
+                <MessageRow key={i} message={entry} thinking={shownThinking} />
+              ),
+            )}
+          </ol>
+        </TimesContext>
       </section>
     </FoldContext>
   );
@@ -139,10 +164,11 @@ function Total({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Row({ at, children }: { at: number | null; children: ReactNode }) {
+  const times = use(TimesContext);
   return (
     <li className="grid grid-cols-[calc(var(--spacing)*16)_1fr] gap-3 px-5 py-1.5">
       <span className="pt-0.5 text-right font-mono text-2xs text-fg-3 tabular-nums">
-        {at === null ? "" : duration(at / 1000)}
+        {at === null || !times ? "" : duration(at / 1000)}
       </span>
       <div className="flex min-w-0 flex-col gap-1.5">{children}</div>
     </li>

@@ -5,6 +5,7 @@
 import { useSearchParams } from "react-router";
 
 import { useLoaded } from "../../api/client";
+import type { Deliverable } from "../../api/types";
 import { Card, Note } from "../../ui/card";
 import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
@@ -18,6 +19,25 @@ export default function FilesView({
   attempt,
   deliverable,
 }: DeliverableProps) {
+  return (
+    <FilesCard
+      project={project.id}
+      attempt={attempt}
+      deliverable={deliverable}
+    />
+  );
+}
+
+/** The files view's card, for a caller with no record, as the share site. */
+export function FilesCard({
+  project,
+  attempt,
+  deliverable,
+}: {
+  project: string;
+  attempt: string;
+  deliverable: Pick<Deliverable, "title" | "path" | "reason">;
+}) {
   const root = deliverable.path;
   return (
     <Card title={deliverable.title} flush={root !== null}>
@@ -26,7 +46,7 @@ export default function FilesView({
           {`${NOT_RUN}${deliverable.reason !== null && deliverable.reason !== "" ? `: ${deliverable.reason}` : ""}`}
         </p>
       ) : (
-        <Files project={project.id} attempt={attempt} root={root} />
+        <Files project={project} attempt={attempt} root={root} />
       )}
     </Card>
   );
