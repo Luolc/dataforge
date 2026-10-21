@@ -537,6 +537,25 @@ describe("the home page while an attempt runs", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps an item's attempts open when the listing is read again", async () => {
+    const two = [
+      row("t-run/2", { started_at: at(9), live: "running", status: null }),
+      row("t-run/1", { started_at: at(7), ended_at: at(8) }),
+    ];
+    const fetch = serve(two, two);
+    show();
+    await screen.findByText("t-run");
+    const toggle = screen.getByRole("button", { name: "2 attempts of t-run" });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await tick();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole("button", { name: "2 attempts of t-run" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("reads it on no timer when no attempt runs", async () => {
     const fetch = serve(ROWS.slice(1));
     show();

@@ -134,6 +134,36 @@ describe("the Summary of a running attempt", () => {
     expect(item("Cost")).toHaveTextContent("$");
   });
 
+  it("counts the total on from the job's start before any action has one", () => {
+    const first = {
+      ...inReview,
+      visits: [{ ...must(inReview.visits[0]), outcome: null, actions: [] }],
+    };
+    render(
+      <MemoryRouter>
+        <Summary
+          project={sampleProject}
+          attempt="batch-1/task-0001"
+          record={first}
+          live={runningIn({
+            index: 0,
+            recorded: true,
+            since: "2026-03-02T09:30:00+00:00",
+          })}
+        />
+      </MemoryRouter>,
+    );
+    const item = (key: string) =>
+      must(screen.getByText(key).nextElementSibling);
+
+    expect(item("Started")).toHaveTextContent("2026-03-02 09:30 UTC");
+    expect(item("Total duration")).toHaveTextContent("15m 0s");
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(item("Total duration")).toHaveTextContent("15m 3s");
+  });
+
   it("draws the state it runs as running, the transition into it taken", () => {
     const { graph } = showLive(runningIn());
     const review = must(
