@@ -728,7 +728,7 @@ def test_each_state_names_the_outcomes_it_may_give_after_rename(
   limits = Limits(1)
   rubric = tmp_path / "rubric.toml"
   _ = rubric.write_text(
-    'system = "S"\n[[criteria]]\nid = "a"\nseverity = "error"\nquestion = "Q"\n'
+    'system = "S"\n[[criteria]]\nid = "a"\nquestion = "Q"\n'
   )
   states = {
     "agent": AgentState("s", {}, actions=actions, rename={"failed": "invalid"}),

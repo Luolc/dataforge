@@ -48,7 +48,6 @@ system = "Review the task."
 
 [[criteria]]
 id = "sound"
-severity = "error"
 question = "Is it sound?"
 """
 
