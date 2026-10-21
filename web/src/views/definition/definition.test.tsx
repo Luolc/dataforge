@@ -319,6 +319,51 @@ describe("an attempt's definition in the Runs column", () => {
         "Author · prompts and rubrics",
       ),
     ).toBeVisible();
+    // A template puts a value in place in code too: in a code span and in a
+    // fenced block, the variable is a block with the attempt's value.
+    const commits = within(card).getAllByRole("button", {
+      name: "commit: abc1234",
+    });
+    expect(
+      commits.map((b) => b.closest("code")?.parentElement?.tagName),
+    ).toEqual(["P", "PRE"]);
+    const rendered = card.querySelector(".md");
+    expect(rendered).not.toBeNull();
+    expect(rendered?.textContent).not.toContain("${commit}");
+  });
+
+  it("draws a Jinja variable in a code span as a block", async () => {
+    serveAttempt(text);
+    showAttempt(project, "&tab=runs&defn=solve");
+
+    const card = await screen.findByRole("region", { name: "solve.md.j2" });
+    const workdir = within(card).getByRole("button", { name: "workdir: work" });
+    expect(workdir.closest("code")?.parentElement?.tagName).toBe("P");
+    expect(card.querySelector(".md")?.textContent).not.toContain("{{");
+  });
+
+  it("opens a variable's box over the page, named only while it is open", async () => {
+    serveAttempt(text);
+    showAttempt(project, "&tab=runs&defn=author");
+
+    const card = await screen.findByRole("region", { name: "author.md" });
+    const repo = within(card).getByRole("button", {
+      name: "repo: example/tinyparse",
+    });
+    expect(repo).toHaveAttribute("aria-expanded", "false");
+    expect(repo).not.toHaveAttribute("aria-controls");
+    fireEvent.click(repo);
+    const box = screen.getByRole("note");
+    expect(repo).toHaveAttribute("aria-expanded", "true");
+    expect(repo).toHaveAttribute("aria-controls", box.id);
+    // Outside the card, so that the card's edge does not cut it.
+    expect(card).not.toContainElement(box);
+    expect(box).toHaveTextContent("In this attempt: example/tinyparse");
+    fireEvent.keyDown(box, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("note")).toBeNull();
+    });
+    expect(repo).not.toHaveAttribute("aria-controls");
   });
 
   it("shows the definition over a run when the link names both", async () => {

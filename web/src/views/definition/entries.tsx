@@ -11,6 +11,7 @@ import { Highlighted } from "../../ui/code";
 import { fileTypeOf } from "../../ui/file-kind";
 import { languageOf } from "../../ui/language";
 import { Markdown } from "../../ui/markdown";
+import { NOT_RUN } from "../../ui/status";
 import { ToneLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import {
@@ -609,7 +610,7 @@ export function NotRecorded({ children }: { children: ReactNode }) {
         aria-hidden
       />
       <div>
-        <p className="font-medium">Not run</p>
+        <p className="font-medium">{NOT_RUN}</p>
         <p className="text-fg-2">{children}</p>
       </div>
     </div>

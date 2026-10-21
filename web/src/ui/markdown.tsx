@@ -47,45 +47,80 @@ export interface Variables {
 interface MdNode {
   type: string;
   value?: string;
+  lang?: string | null;
   children?: MdNode[];
-  data?: { hName?: string };
+  data?: { hName?: string; hProperties?: Record<string, unknown> };
 }
 
 const nameOf = (spelled: string) =>
   spelled.replace(/^\$\{?|\{\{|\}\}|\}$/g, "").trim();
 
-// Splits plain text (never code) at each variable into a node the
-// HTML side draws as <var>, whose one child is the variable's name.
+/** text split at each variable into text and a node the HTML side draws as
+ * <var>, whose one child is the variable's name; null when it has none. */
+function split(text: string, pattern: RegExp): MdNode[] | null {
+  const out: MdNode[] = [];
+  let at = 0;
+  for (const m of text.matchAll(pattern)) {
+    if (m.index > at)
+      out.push({ type: "text", value: text.slice(at, m.index) });
+    out.push({
+      type: "variable",
+      data: { hName: "var" },
+      children: [{ type: "text", value: nameOf(m[0]) }],
+    });
+    at = m.index + m[0].length;
+  }
+  if (out.length === 0) return null;
+  if (at < text.length) out.push({ type: "text", value: text.slice(at) });
+  return out;
+}
+
+// Splits text at each variable, in code too: a template puts a value in
+// place wherever its variable is written, a code span or block included. A
+// code holding one is drawn as <code> (in <pre> for a block) of those parts,
+// with no highlighting.
 function splitVariables(node: MdNode, pattern: RegExp) {
   if (node.children === undefined) return;
-  node.children = node.children.flatMap((child) => {
-    if (child.type !== "text" || child.value === undefined) {
+  node.children = node.children.flatMap((child): MdNode[] => {
+    if (child.value === undefined) {
       splitVariables(child, pattern);
       return [child];
     }
-    const text = child.value;
-    const out: MdNode[] = [];
-    let at = 0;
-    for (const m of text.matchAll(pattern)) {
-      if (m.index > at)
-        out.push({ type: "text", value: text.slice(at, m.index) });
-      out.push({
-        type: "variable",
-        data: { hName: "var" },
-        children: [{ type: "text", value: nameOf(m[0]) }],
-      });
-      at = m.index + m[0].length;
+    const parts = split(child.value, pattern);
+    if (parts === null) return [child];
+    if (child.type === "text") return parts;
+    if (child.type === "inlineCode")
+      return [
+        { type: "variableCode", data: { hName: "code" }, children: parts },
+      ];
+    if (child.type === "code") {
+      const lang = child.lang ?? undefined;
+      return [
+        {
+          type: "variableBlock",
+          data: { hName: "pre" },
+          children: [
+            {
+              type: "variableCode",
+              data: {
+                hName: "code",
+                hProperties:
+                  lang === undefined ? {} : { className: [`language-${lang}`] },
+              },
+              children: parts,
+            },
+          ],
+        },
+      ];
     }
-    if (out.length === 0) return [child];
-    if (at < text.length) out.push({ type: "text", value: text.slice(at) });
-    return out;
+    return [child];
   });
 }
 
 /**
  * Untrusted Markdown, rendered safely. cell may draw a table cell whose whole
  * text is plain: what it returns replaces the text, and null keeps it.
- * variables, when given, draws each template variable outside code in place.
+ * variables, when given, draws each template variable in place, in code too.
  */
 export function Markdown({
   text,

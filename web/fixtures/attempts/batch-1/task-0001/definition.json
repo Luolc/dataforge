@@ -45,7 +45,7 @@
               "per_round": true
             }
           ],
-          "text": "# Write a task for ${task}\n\nYou are writing one task for a sample dataset. Read the project at ${repo},\nchecked out at `${commit}`, and write a task whose tests fail before the fix\nand pass after it.\n\n## Notes\n\n${notes}\n\n## What the check said\n\n${feedback}\n\nHand in `instruction.md`, `tests/` and `solution/`. A line written as\n<b>raw HTML</b> stays text, and so does $$task, a dollar sign and a word.\n"
+          "text": "# Write a task for ${task}\n\nYou are writing one task for a sample dataset. Read the project at ${repo},\nchecked out at `${commit}`, and write a task whose tests fail before the fix\nand pass after it.\n\n```sh\ngit -C work checkout ${commit}\n```\n\n## Notes\n\n${notes}\n\n## What the check said\n\n${feedback}\n\nHand in `instruction.md`, `tests/` and `solution/`. A line written as\n<b>raw HTML</b> stays text, and so does $$task, a dollar sign and a word.\n"
         },
         {
           "title": "notes.toml",
@@ -184,9 +184,14 @@
               "name": "instruction",
               "source": "the task's instruction.md",
               "per_round": true
+            },
+            {
+              "name": "workdir",
+              "source": "the attempt's work directory",
+              "value": "work"
             }
           ],
-          "text": "Solve the task below. Change only the files it names.\n\n{{ instruction }}\n"
+          "text": "Solve the task below. Change only the files it names, under `{{ workdir }}`.\n\n{{ instruction }}\n"
         }
       ]
     }
