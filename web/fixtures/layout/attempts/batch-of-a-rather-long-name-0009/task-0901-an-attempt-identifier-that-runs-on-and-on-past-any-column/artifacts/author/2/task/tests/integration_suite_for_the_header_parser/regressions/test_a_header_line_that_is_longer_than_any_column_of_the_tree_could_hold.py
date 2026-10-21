@@ -1,0 +1,2 @@
+def test_long_header_line():
+    assert parse('x' * 4096) is not None  # a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code a long line of made-up code 
