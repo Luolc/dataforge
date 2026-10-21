@@ -1,14 +1,25 @@
 """A data item's actions: whether each may be submitted, and submitting one.
 
 An action puts one job in a queue of dataforge.queue. Its command is the
-project file's argv with the item's ID in place of the placeholder, run with
-no shell; nothing of a request but the action's name and the item's ID goes
-into the job.
+project file's argv with the item's ID in place of the placeholder, then each
+of its parameters as "<flag>=<value>", run with no shell; nothing of a request
+but the action's name, the item's ID and a number for each parameter it
+declares goes into the job.
 """
+
+from collections.abc import Mapping
 
 from dataforge import queue
 from dataforge.viz import live
-from dataforge.viz.config import Action, PLACEHOLDER, Project, split_relative
+from dataforge.viz.config import (
+  Action,
+  number,
+  NUMBER_LIMIT,
+  PLACEHOLDER,
+  plain,
+  Project,
+  split_relative,
+)
 from dataforge.viz.paths import RefusedError
 
 ITEM_LIMIT = 200
@@ -44,6 +55,43 @@ def check_item(project: Project, item: str) -> None:
     or not pattern.fullmatch(item)
   ):
     raise RefusedError(400, f"{item!r} is not an item ID of {project.id}")
+
+
+def param_args(action: Action, given: Mapping[str, str]) -> tuple[str, ...]:
+  """Turn the numbers a submit gives into the arguments of the command.
+
+  Args:
+    action: The action.
+    given: Each parameter's value as the request carries it, by name; one
+      not there takes its default. Names the action does not declare must
+      have been refused already.
+
+  Returns:
+    "<flag>=<value>" for each of the action's parameters, in order, the
+    value in plain decimal notation.
+
+  Raises:
+    RefusedError: 400 when a value is not NUMBER of at most NUMBER_LIMIT
+      characters, or is not from its parameter's min to max.
+  """
+  args: list[str] = []
+  for param in action.params:
+    text = given.get(param.name)
+    value = param.default if text is None else number(text)
+    if value is None:
+      raise RefusedError(
+        400,
+        f"{param.name}: {text!r} is not a decimal number of at most"
+        + f" {NUMBER_LIMIT} characters and 6 decimal places, as 12 or 12.5",
+      )
+    if not param.min <= value <= param.max:
+      raise RefusedError(
+        400,
+        f"{param.name}: {plain(value)} is not from {plain(param.min)}"
+        + f" to {plain(param.max)}",
+      )
+    args.append(f"{param.flag}={plain(value)}")
+  return tuple(args)
 
 
 def fill(template: str, item: str) -> str:
@@ -95,7 +143,11 @@ def unavailable(
 
 
 def submit(
-  config: queue.Config, project: Project, action: Action, item: str
+  config: queue.Config,
+  project: Project,
+  action: Action,
+  item: str,
+  args: tuple[str, ...] = (),
 ) -> queue.Job:
   """Put an action for an item in its queue.
 
@@ -104,6 +156,7 @@ def submit(
     project: The project.
     action: The action, one of the project's.
     item: The item's ID, which check_item passed.
+    args: The arguments param_args made of the action's parameters.
 
   Returns:
     The job queued.
@@ -114,7 +167,7 @@ def submit(
   return queue.submit(
     config,
     action.queue,
-    [fill(arg, item) for arg in action.argv],
+    [*(fill(arg, item) for arg in action.argv), *args],
     cwd=action.cwd,
     memory_mib=action.memory_mib,
     key=fill(action.key, item),

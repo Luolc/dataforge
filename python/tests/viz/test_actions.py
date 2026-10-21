@@ -15,7 +15,7 @@ from dataforge import queue
 from dataforge.viz import app
 from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
-from tests.viz.sites import FIXTURES, make_queue_tree, QueueTree
+from tests.viz.sites import FIXTURES, make_queue_tree, QueueTree, with_params
 
 ORIGIN = "http://127.0.0.1:8800"
 WRITE = {"X-Viz-Write": "1", "Origin": ORIGIN}
@@ -569,3 +569,148 @@ def test_a_running_attempt_with_no_action_yet_starts_with_its_job(
   running = next(r for r in rows if r["id"] == "batch-1/task-2")
   assert (running["live"], running["started_at"]) == ("running", expected)
   assert live["current"]["since"] == expected
+
+
+def test_an_action_s_parameters_go_into_its_command_as_flags(
+  made: QueueTree, static: Path
+) -> None:
+  with_params(made)
+  web = client(made, static)
+
+  [shown, _] = cast(
+    list[dict[str, object]],
+    web.get(ACTIONS, params={"item": "batch-1"}).json(),
+  )
+  set_ = web.post(
+    f"{ACTIONS}/again",
+    params={"item": "batch-1", "budget": "12.50", "tries": "-0.25"},
+    headers=WRITE,
+  )
+  _ = web.post(f"/api/queue/jobs/{jobs(made)[0].id}/cancel", headers=WRITE)
+  default = web.post(
+    f"{ACTIONS}/again", params={"item": "batch-1"}, headers=WRITE
+  )
+
+  # The page reads each parameter but its flag, which is the command's.
+  assert shown["params"] == [
+    {
+      "name": "budget",
+      "label": "Budget",
+      "min": 1,
+      "max": 150,
+      "default": 75,
+      "format": "usd",
+    },
+    {
+      "name": "tries",
+      "label": "Tries",
+      "min": -2,
+      "max": 0.5,
+      "default": 0,
+      "format": "number",
+    },
+  ]
+  assert (set_.status_code, default.status_code) == (201, 201)
+  first, second = sorted(jobs(made), key=lambda j: j.id)
+  base = ("run-item", "--item", "batch-1", "--note=from batch-1")
+  assert first.argv == (*base, "--max-usd=12.5", "--tries=-0.25")
+  assert second.argv == (*base, "--max-usd=75", "--tries=0")
+  assert first.labels == {
+    "project": "example",
+    "action": "again",
+    "item": "batch-1",
+  }
+
+
+@pytest.mark.parametrize(
+  ("value", "why"),
+  [
+    ("0.99", "is not from 1 to 150"),
+    ("150.01", "is not from 1 to 150"),
+    ("-75", "is not from 1 to 150"),
+    ("1e2", "is not a decimal number"),
+    ("+75", "is not a decimal number"),
+    ("75.", "is not a decimal number"),
+    (".5", "is not a decimal number"),
+    (" 75", "is not a decimal number"),
+    ("75\n", "is not a decimal number"),
+    ("7_5", "is not a decimal number"),
+    ("0x4b", "is not a decimal number"),
+    ("\uff17\uff15", "is not a decimal number"),
+    ("NaN", "is not a decimal number"),
+    ("Infinity", "is not a decimal number"),
+    ("", "is not a decimal number"),
+    ("--help", "is not a decimal number"),
+    ("75 --tries=9", "is not a decimal number"),
+    ("1" + "0" * 20, "is not a decimal number"),
+    ("75." + "0" * 12, "is not a decimal number"),
+    ("1.0000001", "is not a decimal number"),
+  ],
+)
+def test_a_value_that_is_not_a_decimal_within_bounds_is_refused(
+  made: QueueTree, static: Path, value: str, why: str
+) -> None:
+  with_params(made)
+  web = client(made, static)
+
+  response = web.post(
+    f"{ACTIONS}/again",
+    params={"item": "batch-1", "budget": value},
+    headers=WRITE,
+  )
+
+  assert response.status_code == 400
+  assert why in cast(dict[str, str], response.json())["reason"]
+  assert jobs(made) == []
+
+
+@pytest.mark.parametrize(
+  ("value", "arg"),
+  [
+    ("1", "--max-usd=1"),
+    ("150", "--max-usd=150"),
+    ("150.000", "--max-usd=150"),
+    ("075", "--max-usd=75"),
+    ("1.000000", "--max-usd=1"),
+    ("149.999999", "--max-usd=149.999999"),
+    ("100.10", "--max-usd=100.1"),
+  ],
+)
+def test_a_value_at_a_bound_or_padded_is_taken_plain(
+  made: QueueTree, static: Path, value: str, arg: str
+) -> None:
+  with_params(made)
+
+  response = client(made, static).post(
+    f"{ACTIONS}/again",
+    params={"item": "batch-1", "budget": value},
+    headers=WRITE,
+  )
+
+  assert response.status_code == 201
+  [job] = jobs(made)
+  assert job.argv[-2:] == (arg, "--tries=0")
+
+
+@pytest.mark.parametrize(
+  ("action", "params"),
+  [
+    ("again", {"item": "batch-1", "budget2": "75"}),
+    ("again", {"item": "batch-1", "max-usd": "75"}),
+    ("again", [("item", "batch-1"), ("budget", "75"), ("budget", "9")]),
+    ("go-on", {"item": "batch-1", "budget": "75"}),
+  ],
+)
+def test_a_parameter_the_action_does_not_declare_is_refused(
+  made: QueueTree, static: Path, action: str, params: object
+) -> None:
+  with_params(made)
+
+  response = client(made, static).post(
+    f"{ACTIONS}/{action}",
+    params=cast(dict[str, str], params),
+    headers=WRITE,
+  )
+
+  assert response.status_code == 400
+  assert jobs(made) == []
