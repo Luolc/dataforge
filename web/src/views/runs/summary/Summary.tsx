@@ -88,7 +88,13 @@ function TopRow({
 }) {
   const first = record.visits[0];
   const last = record.visits.at(-1);
-  const started = first ? visitStart(first) : undefined;
+  // A first visit with no action yet has no start of its own: /live gives
+  // the one the attempt's job has.
+  const started =
+    (first ? visitStart(first) : undefined) ??
+    (live?.current?.index === 0
+      ? (live.current.since ?? undefined)
+      : undefined);
   const ended = last ? visitEnd(last) : undefined;
   const seconds =
     started !== undefined && ended !== undefined ? span(started, ended) : null;

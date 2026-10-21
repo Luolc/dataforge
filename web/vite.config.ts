@@ -5,6 +5,10 @@ import { defineConfig } from "vite";
 
 // The dev server forwards the API to a backend started with
 // `dataforge viz serve` at the address of fixtures/site.yaml.
+// Times show in the browser's zone: the tests, in worker threads that share
+// this process's, read them in UTC.
+process.env["TZ"] = "UTC";
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { proxy: { "/api": "http://127.0.0.1:8800" } },
