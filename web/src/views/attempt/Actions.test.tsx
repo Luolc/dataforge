@@ -223,6 +223,25 @@ describe("a data item's actions", () => {
     expect(
       calls.filter((c) => c.init?.method === "POST").map((c) => c.url),
     ).toEqual([submit]);
+    // Opened again after it queued, the question is back at the defaults.
+    fireEvent.click(screen.getByRole("button", { name: "Run again" }));
+    expect(screen.getByRole("textbox", { name: "Budget" })).toHaveValue("75");
+  });
+
+  it("opens the question at the defaults again after Keep", async () => {
+    serve({ [ACTIONS]: [[200, states(null, params)]] });
+    show();
+
+    const again = await screen.findByRole("button", { name: "Run again" });
+    fireEvent.click(again);
+    fireEvent.change(screen.getByRole("textbox", { name: "Budget" }), {
+      target: { value: "151" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    fireEvent.click(again);
+
+    expect(screen.getByRole("textbox", { name: "Budget" })).toHaveValue("75");
+    expect(screen.getByRole("button", { name: "Queue" })).toBeEnabled();
   });
 
   it.each([
@@ -232,7 +251,7 @@ describe("a data item's actions", () => {
     [" 75"],
     ["75."],
     [""],
-    ["1" + "0".repeat(15)],
+    ["000000075.000000"],
     ["1.0000001"],
   ])("queues no number the backend would refuse, such as %j", async (value) => {
     const calls = serve({ [ACTIONS]: [[200, states(null, params)]] });

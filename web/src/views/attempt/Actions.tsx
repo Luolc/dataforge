@@ -126,8 +126,8 @@ export function ItemActions({
 
 /**
  * An action's button and its reason; its question holds an input per
- * parameter, each first at its default, and queues only when every value is
- * one the backend takes.
+ * parameter, each at its default whenever the question opens, and queues only
+ * when every value is one the backend takes.
  */
 function ActionButton({
   action,
@@ -139,11 +139,11 @@ function ActionButton({
   onYes: (values: Record<string, string>) => Promise<void>;
 }) {
   const baseId = useId();
-  const [values, setValues] = useState<Record<string, string>>(() =>
+  const defaults = () =>
     Object.fromEntries(
       action.params.map((p) => [p.name, p.default.toString()]),
-    ),
-  );
+    );
+  const [values, setValues] = useState<Record<string, string>>(defaults);
   const reasonId = `${baseId}-reason`;
   const ready = action.params.every(
     (p) => paramValue(p, values[p.name] ?? "") !== null,
@@ -168,6 +168,9 @@ function ActionButton({
         question={`Queue ${action.label} for ${item} in ${action.queue}?`}
         yes="Queue"
         onYes={() => onYes(values)}
+        onAsk={() => {
+          setValues(defaults());
+        }}
         fields={fields}
         ready={ready}
         disabled={action.reason !== null}

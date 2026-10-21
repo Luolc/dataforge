@@ -74,8 +74,8 @@ export function Question({
 }
 
 /**
- * children labels the button; once clicked, the question shows beside it
- * (Question).
+ * children labels the button; once clicked, onAsk runs and the question shows
+ * beside it (Question).
  */
 export function Confirm({
   children,
@@ -84,6 +84,7 @@ export function Confirm({
   onYes,
   fields,
   ready = true,
+  onAsk,
   disabled = false,
   describedBy,
 }: {
@@ -93,6 +94,7 @@ export function Confirm({
   onYes: () => Promise<void>;
   fields?: ReactNode;
   ready?: boolean;
+  onAsk?: () => void;
   disabled?: boolean;
   describedBy?: string;
 }) {
@@ -105,6 +107,10 @@ export function Confirm({
         disabled={disabled}
         aria-describedby={describedBy}
         {...triggerProps(ask)}
+        onClick={() => {
+          onAsk?.();
+          ask.ask();
+        }}
       >
         {children}
       </button>
