@@ -39,7 +39,7 @@ export function SessionView({
   format: string | null;
   /** The result at the head of the session, such as a trial's reward. */
   badge?: ReactNode;
-  /** Passed to SessionBody. */
+  /** Whether every fold starts open, as in SessionBody. */
   startOpen?: boolean;
 }) {
   const url = urls.files(project.id, attempt, path);

@@ -220,6 +220,18 @@ describe("the session view", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  it("reaches the folded lines before the session with Expand all and Collapse all", () => {
+    show(`first line\nsecond line\n${unsolved}`);
+    const line = screen.getByRole("button", { name: /^first line/ });
+    expect(line).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(line).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(line).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("shows a trace with no JSON object line by line, not folded", () => {
     show("Error: no session\nsecond line\n");
 

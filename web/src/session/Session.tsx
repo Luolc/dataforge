@@ -43,7 +43,7 @@ export function SessionBody({
   session: Session;
   thinking: ThinkingMode;
   badge?: ReactNode;
-  /** Whether every fold starts open. */
+  /** Whether every fold starts open; the buttons still change it after. */
   startOpen?: boolean;
 }) {
   const [fold, setFold] = useState({ serial: 0, open: startOpen, startOpen });
