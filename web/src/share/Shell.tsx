@@ -1,54 +1,57 @@
-// The share site's frame: before a sign-in the landing page alone; after it
-// a sidebar with the token's projects, and the page in the viewer's panel.
+// The share site's frame: a sidebar with the projects, and the page in the
+// viewer's panel. With a token, the landing page alone until a sign-in.
 import { ChevronDown, Diamond, LogOut } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import { useCallback, useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 
-import { getJson, type Loaded, urls, useLoaded } from "../api/client";
+import { getJson, type Loaded, useLoaded } from "../api/client";
 import { toneGlyph, toneText } from "../ui/status";
 import {
   isRefused,
   type ShareProject,
   shareProjects,
   SignedContext,
-  signOut,
+  type TokenAccess,
+  useShareSource,
 } from "./api";
 import { Sidebar } from "../shell/sidebar";
-import { Landing } from "./Landing";
 
 const BadGlyph = toneGlyph.bad;
 
 const navItem =
   "target flex min-h-row w-full items-center gap-2 rounded-row px-1.5 font-medium hover:bg-hover aria-[current=page]:bg-active";
 
-/** The token's projects; null when the server refuses the token. */
-async function readProjects(signal: AbortSignal) {
+/** The projects; null when the server refuses a token, with access by one. */
+async function readProjects(url: string, token: boolean, signal: AbortSignal) {
   try {
-    return await getJson(urls.projects(), shareProjects, signal);
+    return await getJson(url, shareProjects, signal);
   } catch (error) {
-    if (isRefused(error)) return null;
+    if (token && isRefused(error)) return null;
     throw error;
   }
 }
 
 export function ShareShell() {
+  const source = useShareSource();
+  const { access } = source;
   // Each sign-in, sign-out and refusal reads the projects again from the
   // start, so nothing read with one token shows with another.
   const [generation, setGeneration] = useState(0);
   const again = useCallback(() => {
     setGeneration((g) => g + 1);
   }, []);
-  const read = useLoaded(`projects:${String(generation)}`, readProjects);
-  const [signOutFailed, setSignOutFailed] = useState<string | null>(null);
+  const read = useLoaded(`projects:${String(generation)}`, (signal) =>
+    readProjects(source.projects, access.kind === "token", signal),
+  );
   const signed = useMemo(() => {
     const projects: Loaded<ShareProject[]> =
       read.state === "ok" ? { state: "ok", data: read.data ?? [] } : read;
     return { projects, refused: again };
   }, [read, again]);
   if (read.state === "loading") return null;
-  if (read.state === "ok" && read.data === null)
-    return <Landing onSignedIn={again} />;
+  if (read.state === "ok" && read.data === null && access.kind === "token")
+    return <access.Landing onSignedIn={again} />;
   const { projects } = signed;
   return (
     <SignedContext value={signed}>
@@ -87,29 +90,52 @@ export function ShareShell() {
             </ul>
           </Collapsible.Content>
         </Collapsible.Root>
-        {signOutFailed !== null && (
-          <p
-            role="alert"
-            className={`mt-auto flex items-start gap-1.5 px-1.5 text-xs ${toneText.bad}`}
-          >
-            <BadGlyph className="mt-px size-3.5 flex-none" aria-hidden />
-            {`Signing out failed: ${signOutFailed}. You are still signed in.`}
-          </p>
+        {access.kind === "token" ? (
+          <SignOut access={access} signedOut={again} />
+        ) : (
+          <a href={access.logout} className={`mt-auto text-fg-2 ${navItem}`}>
+            <LogOut className="size-4 text-icon" aria-hidden />
+            Sign out
+          </a>
         )}
-        <button
-          type="button"
-          onClick={() => {
-            void signOut().then((failed) => {
-              setSignOutFailed(failed);
-              if (failed === null) again();
-            });
-          }}
-          className={`${signOutFailed === null ? "mt-auto" : ""} text-fg-2 ${navItem}`}
-        >
-          <LogOut className="size-4 text-icon" aria-hidden />
-          Sign out
-        </button>
       </Sidebar>
     </SignedContext>
+  );
+}
+
+/** Sign out of the server, or say why it failed and stay signed in. */
+function SignOut({
+  access,
+  signedOut,
+}: {
+  access: TokenAccess;
+  signedOut: () => void;
+}) {
+  const [failed, setFailed] = useState<string | null>(null);
+  return (
+    <>
+      {failed !== null && (
+        <p
+          role="alert"
+          className={`mt-auto flex items-start gap-1.5 px-1.5 text-xs ${toneText.bad}`}
+        >
+          <BadGlyph className="mt-px size-3.5 flex-none" aria-hidden />
+          {`Signing out failed: ${failed}. You are still signed in.`}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          void access.signOut().then((reason) => {
+            setFailed(reason);
+            if (reason === null) signedOut();
+          });
+        }}
+        className={`${failed === null ? "mt-auto" : ""} text-fg-2 ${navItem}`}
+      >
+        <LogOut className="size-4 text-icon" aria-hidden />
+        Sign out
+      </button>
+    </>
   );
 }

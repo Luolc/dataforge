@@ -91,6 +91,22 @@ describe("the files view", () => {
     );
   });
 
+  it("lists a file listed only by its name and size, and opens another", async () => {
+    const { fetch } = show({
+      [`${root}/a/source.tar.gz`]: { type: "listed", size: 3 * 1024 * 1024 },
+      [`${root}/z.txt`]: "z",
+    });
+
+    expect(await preview()).toHaveTextContent("z.txt");
+    fireEvent.click(await screen.findByRole("button", { name: "a" }));
+    const row = await screen.findByText("source.tar.gz");
+    expect(row.closest("a")).toBeNull();
+    expect(row).toHaveTextContent("source.tar.gz3.0 MiB");
+    expect(
+      fetch.mock.calls.some(([url]) => url.includes("source.tar.gz")),
+    ).toBe(false);
+  });
+
   it("opens the file the page names, and its folders", async () => {
     show(task, `${root}/src/tinyparse/header.py`);
 

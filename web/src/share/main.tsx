@@ -1,22 +1,5 @@
-import "@fontsource-variable/mona-sans";
-import "@fontsource-variable/fira-code";
-import "../ui/theme.css";
+// The share site served by `dataforge share serve`, which reads the API.
+import { apiSource } from "./api-source";
+import { mount } from "./mount";
 
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router";
-
-import { applyTemplate, savedTemplate } from "../ui/template";
-import { ShareApp } from "./App";
-
-applyTemplate(savedTemplate());
-
-const root = document.getElementById("root");
-if (root === null) throw new Error("share.html has no #root");
-createRoot(root).render(
-  <StrictMode>
-    <BrowserRouter>
-      <ShareApp />
-    </BrowserRouter>
-  </StrictMode>,
-);
+mount(apiSource);

@@ -2,7 +2,7 @@
 // browser and drawn as a session, any other format shown as text.
 import { type ReactNode, useMemo } from "react";
 
-import { ApiError, urls, useLoaded } from "../api/client";
+import { ApiError, useFileSource, useLoaded } from "../api/client";
 import type { Project } from "../api/types";
 import { parseTrace } from "./parse";
 import { SessionBody, type SessionTotals } from "./Session";
@@ -10,8 +10,8 @@ import { SessionBody, type SessionTotals } from "./Session";
 const STREAM_JSON = "claude-code-stream-json";
 
 /** A file's text; a refusal, such as a 413 for a file over FILE_LIMIT, is an ApiError with its reason. */
-async function getText(url: string, signal?: AbortSignal): Promise<string> {
-  const response = await fetch(url, signal ? { signal } : {});
+async function getText(read: Promise<Response>): Promise<string> {
+  const response = await read;
   if (response.ok) return response.text();
   const body: unknown = await response.json().catch(() => null);
   const reason =
@@ -46,8 +46,11 @@ export function SessionView({
   /** Which totals the header shows, as in SessionBody. */
   totals?: SessionTotals;
 }) {
-  const url = urls.files(project.id, attempt, path);
-  const loaded = useLoaded(url, (signal) => getText(url, signal));
+  const source = useFileSource();
+  const loaded = useLoaded(
+    JSON.stringify([project.id, attempt, path]),
+    (signal) => getText(source.file(project.id, attempt, path, signal)),
+  );
   const text = loaded.state === "ok" ? loaded.data : null;
   const session = useMemo(
     () => (text !== null && format === STREAM_JSON ? parseTrace(text) : null),

@@ -5,7 +5,7 @@ import type { z } from "zod";
 
 import { duration } from "../ui/format";
 import { POLL_MS } from "./poll";
-import { listing } from "./types";
+import { type Listing, listing } from "./types";
 
 export type Loaded<T> =
   | { state: "loading" }
@@ -64,6 +64,55 @@ export const urls = {
   queue: () => "/api/queue",
   cancel: (job: number) => `/api/queue/jobs/${job.toString()}/cancel`,
 };
+
+/**
+ * Where the views read an attempt's files: a directory's listing, and a
+ * file's bytes as the response that carries them, where a path that is no
+ * file the source serves, a directory included, is a 404 with its reason.
+ */
+export interface FileSource {
+  listing: (
+    p: string,
+    attempt: string,
+    dir: string,
+    signal?: AbortSignal,
+  ) => Promise<Listing>;
+  file: (
+    p: string,
+    attempt: string,
+    path: string,
+    signal?: AbortSignal,
+  ) => Promise<Response>;
+}
+
+/** The files of the viewer's and the share server's files route. */
+export const apiFiles: FileSource = {
+  listing: (p, attempt, dir, signal) =>
+    getJson(urls.files(p, attempt, dir), listing, signal),
+  file: async (p, attempt, path, signal) => {
+    const response = await fetch(
+      urls.files(p, attempt, path),
+      signal ? { signal } : {},
+    );
+    // The route answers a directory with its listing, as JSON.
+    if (
+      response.ok &&
+      response.headers.get("content-type")?.startsWith("application/json") ===
+        true
+    )
+      return Response.json(
+        { error: "not found", reason: `${path}: a directory, not a file` },
+        { status: 404 },
+      );
+    return response;
+  },
+};
+
+/** The source the views read files from: the files route, unless given. */
+export const FileSourceContext = createContext<FileSource>(apiFiles);
+
+/** The page's source of files. */
+export const useFileSource = () => use(FileSourceContext);
 
 /**
  * The header a write carries: a page of another origin cannot send it

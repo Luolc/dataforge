@@ -1,13 +1,14 @@
 // The file tree of a files deliverable: each directory is read when it is
 // first opened, and again with the page's reads while the attempt runs,
-// directories before the other entries, each group by name.
+// directories before the other entries, each group by name. A file the
+// source only lists shows its name and size, and opens nothing.
 import { ChevronRight } from "lucide-react";
 import { type CSSProperties, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import { urls, useJson, useRefresh } from "../../api/client";
-import { listing } from "../../api/types";
+import { useFileSource, useLoaded, useRefresh } from "../../api/client";
 import { type Entry, inTreeOrder } from "./entries";
+import { size } from "./file";
 import { FileIcon, FolderIcon, OtherIcon } from "./FileIcon";
 
 interface TreeProps {
@@ -35,9 +36,10 @@ function Entries({
   depth,
   ...props
 }: TreeProps & { dir: string; depth: number }) {
-  const loaded = useJson(
-    urls.files(props.project, props.attempt, dir),
-    listing,
+  const source = useFileSource();
+  const loaded = useLoaded(
+    JSON.stringify([props.project, props.attempt, dir]),
+    (signal) => source.listing(props.project, props.attempt, dir, signal),
     useRefresh(),
   );
   if (loaded.state !== "ok") {
@@ -82,6 +84,19 @@ function EntryRow({
   const [query] = useSearchParams();
   if (entry.type === "dir") {
     return <DirRow name={entry.name} path={path} depth={depth} {...props} />;
+  }
+  if (entry.type === "file" && entry.listed_only === true) {
+    return (
+      <span style={indent(depth)} className={`${row} text-fg-3`}>
+        <FileIcon name={entry.name} />
+        {entry.name}
+        {entry.size !== null && (
+          <span className="ml-auto flex-none text-xs tabular-nums">
+            {size(entry.size)}
+          </span>
+        )}
+      </span>
+    );
   }
   if (entry.type === "file") {
     const next = new URLSearchParams(query);

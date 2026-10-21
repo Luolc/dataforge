@@ -1,6 +1,6 @@
 // The order of a files deliverable's tree, and the file it opens with.
-import { getJson, urls } from "../../api/client";
-import { type Listing, listing } from "../../api/types";
+import type { FileSource } from "../../api/client";
+import type { Listing } from "../../api/types";
 
 export type Entry = Listing["entries"][number];
 
@@ -17,8 +17,10 @@ const MAX_DIRS = 50;
 /**
  * The file a tree opens with: instruction.md or README.md at the top, else
  * the first file in the tree's order, reading at most MAX_DIRS directories.
+ * A file the source only lists is never opened.
  */
 export async function firstFile(
+  source: FileSource,
   project: string,
   attempt: string,
   root: string,
@@ -27,11 +29,8 @@ export async function firstFile(
   let read = 0;
   async function walk(dir: string): Promise<string | null> {
     if (read++ >= MAX_DIRS) return null;
-    const { entries } = await getJson(
-      urls.files(project, attempt, dir),
-      listing,
-      signal,
-    );
+    const listed = await source.listing(project, attempt, dir, signal);
+    const entries = listed.entries.filter((e) => e.listed_only !== true);
     if (dir === root) {
       for (const name of ["instruction.md", "README.md"]) {
         if (entries.some((e) => e.type === "file" && e.name === name)) {

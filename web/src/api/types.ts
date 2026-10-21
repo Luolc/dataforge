@@ -219,6 +219,8 @@ export const listing = z.looseObject({
       name: z.string(),
       type: z.enum(["file", "dir", "symlink", "other"]),
       size: z.number().nullable(),
+      // A file the source lists by its name and size but does not serve.
+      listed_only: z.boolean().optional(),
     }),
   ),
 });

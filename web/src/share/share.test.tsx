@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { apiSource } from "./api-source";
 import { ShareApp } from "./App";
 import { fakeShare, GOOD_TOKEN } from "./fake-api";
 import { REFUSED } from "./Landing";
@@ -10,7 +11,7 @@ function open(path: string, signedIn = true) {
   const fake = fakeShare(signedIn);
   const shown = render(
     <MemoryRouter initialEntries={[path]}>
-      <ShareApp />
+      <ShareApp source={apiSource} />
     </MemoryRouter>,
   );
   return { ...shown, ...fake };

@@ -14,10 +14,10 @@ import {
   listedItems,
   read,
   type ShareProject,
-  shareUrls,
   shownId,
   SignedContext,
   useShareProject,
+  useShareSource,
 } from "./api";
 
 const control =
@@ -40,17 +40,13 @@ export function ItemsPage() {
 
 function Items({ project }: { project: ShareProject }) {
   const { refused } = use(SignedContext);
+  const source = useShareSource();
   // A refresh reads again, and the last read stays shown until it lands.
   const [generation, setGeneration] = useState(0);
   const loaded = useLoaded(
     project.id,
     async (signal) => ({
-      items: await read(
-        shareUrls.items(project.id),
-        listedItems,
-        refused,
-        signal,
-      ),
+      items: await read(source.items(project.id), listedItems, refused, signal),
       at: new Date().toISOString(),
     }),
     generation,

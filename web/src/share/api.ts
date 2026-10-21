@@ -1,11 +1,11 @@
-// Every request the share site's frontend makes (design-share.md section 4,
-// "The API"): sign in and out, a token's projects, a project's items and an
-// item's record. The files of an item are read through urls.files, as the
-// viewer's views read an attempt's.
-import { createContext, use } from "react";
+// What the share site's pages read, and the source they read it from: the
+// share server's API (api-source.ts) or the files of a static site
+// (static-source.ts). The files of an item are read through the source's
+// files, as the viewer's views read an attempt's.
+import { type ComponentType, createContext, use } from "react";
 import { z } from "zod";
 
-import { ApiError, getJson, type Loaded } from "../api/client";
+import { ApiError, type FileSource, getJson, type Loaded } from "../api/client";
 import { project } from "../api/types";
 
 /** A project as /api/projects serves it, from its export.json. */
@@ -57,23 +57,20 @@ const deliverable = z.looseObject({
 });
 export type ShareDeliverable = z.infer<typeof deliverable>;
 
-/** An item's record.json. */
+/** An item's record.json; download is the file that holds all of it. */
 export const itemRecord = z.looseObject({
   id: z.string(),
   revision: z.number(),
   deliverables: z.array(deliverable),
+  download: z
+    .looseObject({ path: z.string(), size: z.number() })
+    .nullable()
+    .default(null),
 });
+export type ItemRecord = z.infer<typeof itemRecord>;
 
 /** An item's ID as the site shows it and searches it: with its revision. */
 export const shownId = (item: Listed) => `${item.id}-r${String(item.revision)}`;
-
-const api = (p: string) => `/api/projects/${encodeURIComponent(p)}`;
-
-export const shareUrls = {
-  login: "/api/login",
-  logout: "/api/logout",
-  items: (p: string) => `${api(p)}/items`,
-};
 
 /** The URL of an item's page, with its tab when given. */
 export function itemHref(p: string, item: string, tab?: string): string {
@@ -83,42 +80,44 @@ export function itemHref(p: string, item: string, tab?: string): string {
     : `${path}?${new URLSearchParams({ tab }).toString()}`;
 }
 
-/** What a sign-in came to: in, refused, or failed for another reason. */
-export type SignIn =
-  { state: "in" } | { state: "refused" } | { state: "failed"; message: string };
-
 /**
- * Sign in with a token: the server sets the cookie that carries it. The
- * token goes in the body alone, never in a URL.
+ * Where the site reads from: the URLs of the projects, a project's items
+ * and an item's record, an item's files, and how a person signs in and out.
  */
-export async function signIn(token: string): Promise<SignIn> {
-  let response: Response;
-  try {
-    response = await fetch(shareUrls.login, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-  } catch (error) {
-    return { state: "failed", message: messageOf(error) };
-  }
-  if (response.ok) return { state: "in" };
-  // Every refusal, whatever its reason, is the same 401.
-  if (response.status === 401) return { state: "refused" };
-  return { state: "failed", message: response.status.toString() };
+export interface ShareSource {
+  projects: string;
+  items: (p: string) => string;
+  record: (p: string, item: string) => string;
+  files: FileSource;
+  /** The URL of an item's download, by its path; null for a site with none. */
+  download: ((p: string, item: string, path: string) => string) | null;
+  access: TokenAccess | HostAccess;
 }
 
-/**
- * Sign out: the server clears the cookie. Null once it has, else why it
- * failed, and the cookie is still set.
- */
-export async function signOut(): Promise<string | null> {
-  try {
-    const response = await fetch(shareUrls.logout, { method: "POST" });
-    return response.ok ? null : response.status.toString();
-  } catch (error) {
-    return messageOf(error);
-  }
+/** A person signs in with a token, which the server checks on every read. */
+export interface TokenAccess {
+  kind: "token";
+  /** The page shown before a sign-in, and after a refusal. */
+  Landing: ComponentType<{ onSignedIn: () => void }>;
+  /** Sign out: null once signed out, else why it failed. */
+  signOut: () => Promise<string | null>;
+}
+
+/** The host decides who reads the site, before any page loads. */
+interface HostAccess {
+  kind: "host";
+  /** The host's page that signs a person out. */
+  logout: string;
+}
+
+/** The site's source, which ShareApp gives the pages under it. */
+export const ShareSourceContext = createContext<ShareSource | null>(null);
+
+/** The site's source; only a page under ShareApp has one. */
+export function useShareSource(): ShareSource {
+  const source = use(ShareSourceContext);
+  if (source === null) throw new Error("no ShareSource above this page");
+  return source;
 }
 
 /** What the shell knows of the person: the projects their token names. */
@@ -163,8 +162,4 @@ export async function read<T>(
     if (isRefused(error)) refused();
     throw error;
   }
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

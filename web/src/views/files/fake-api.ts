@@ -6,7 +6,9 @@ export type FakeEntry =
   | string
   | Uint8Array<ArrayBuffer>
   | { type: "symlink" }
-  | { type: "too-large"; reason: string };
+  | { type: "too-large"; reason: string }
+  /** A file the listing marks as listed only, of a size. */
+  | { type: "listed"; size: number };
 
 /** Stub the global fetch with the files under each path of files. */
 export function fakeFiles(files: Record<string, FakeEntry>) {
@@ -30,6 +32,7 @@ function answer(files: Record<string, FakeEntry>, path: string): Response {
     );
   }
   const found = new Map<string, string>();
+  const listed = new Map<string, number>();
   for (const [key, value] of Object.entries(files)) {
     if (!key.startsWith(`${path}/`)) continue;
     const [name = "", ...rest] = key.slice(path.length + 1).split("/");
@@ -42,6 +45,8 @@ function answer(files: Record<string, FakeEntry>, path: string): Response {
             : "file"
           : "file";
     found.set(name, type);
+    if (rest.length === 0 && typeof value === "object" && "type" in value)
+      if (value.type === "listed") listed.set(name, value.size);
   }
   if (found.size === 0) {
     return Response.json(
@@ -51,6 +56,11 @@ function answer(files: Record<string, FakeEntry>, path: string): Response {
   }
   const entries = [...found]
     .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([name, type]) => ({ name, type, size: type === "file" ? 1 : null }));
+    .map(([name, type]) => {
+      const size = listed.get(name);
+      return size === undefined
+        ? { name, type, size: type === "file" ? 1 : null }
+        : { name, type, size, listed_only: true };
+    });
   return Response.json({ entries });
 }

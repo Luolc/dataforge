@@ -4,7 +4,7 @@
 // deliverable's path.
 import { useSearchParams } from "react-router";
 
-import { useLoaded } from "../../api/client";
+import { useFileSource, useLoaded } from "../../api/client";
 import type { Deliverable } from "../../api/types";
 import { Card, Note } from "../../ui/card";
 import { NOT_RUN } from "../../ui/status";
@@ -64,9 +64,10 @@ function Files({
   const [query] = useSearchParams();
   const asked = query.get("file");
   const chosen = asked?.startsWith(`${root}/`) === true ? asked : null;
+  const source = useFileSource();
   const first = useLoaded(
     chosen === null ? JSON.stringify([project, attempt, root]) : null,
-    (signal) => firstFile(project, attempt, root, signal),
+    (signal) => firstFile(source, project, attempt, root, signal),
   );
   const selected = chosen ?? (first.state === "ok" ? first.data : null);
   return (
