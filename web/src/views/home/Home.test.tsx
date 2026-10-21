@@ -295,6 +295,25 @@ describe("the home page", () => {
     );
   });
 
+  it("says above a table wider than the page that it scrolls sideways", async () => {
+    show();
+    const box = (await screen.findByText("t-run")).closest(
+      "table",
+    )?.parentElement;
+    if (!box) throw new Error("no box");
+    Object.defineProperty(box, "scrollWidth", { value: 1600 });
+    Object.defineProperty(box, "clientWidth", { value: 1100 });
+
+    fireEvent.scroll(box);
+
+    expect(
+      screen.getByRole("button", { name: "Scroll the table right" }),
+    ).toHaveAttribute("aria-controls", box.id);
+    expect(
+      screen.getByText("The table is wider than the page; scroll it sideways."),
+    ).toBeVisible();
+  });
+
   it("draws the project's columns in their formats", async () => {
     const withColumns: Project = {
       ...project,
@@ -346,6 +365,8 @@ describe("the home page", () => {
         "null",
         "$2.00",
       ]);
+      // A word of the viewer's, kept on one line.
+      expect(cells[0]?.firstElementChild).toHaveClass("whitespace-nowrap");
     } finally {
       ROWS[3] = { ...must(ROWS[3]), values: [], reads: null };
     }

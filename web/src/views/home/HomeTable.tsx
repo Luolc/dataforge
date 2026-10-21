@@ -33,6 +33,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { Group } from "../../ui/group";
+import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
@@ -204,9 +205,14 @@ function specs(project: Project): Spec[] {
       },
       cell: (l) => {
         const read = l.row.reads?.[index] ?? null;
-        return read === null
-          ? formatValue(raw(l), column.format)
-          : readValue(read, raw(l), column.format);
+        if (read === null) return formatValue(raw(l), column.format);
+        const shown = readValue(read, raw(l), column.format);
+        // A value it has not read is a word of the viewer's, kept whole.
+        return read === "found" ? (
+          shown
+        ) : (
+          <span className="whitespace-nowrap text-fg-3">{shown}</span>
+        );
       },
     };
   });
@@ -594,7 +600,7 @@ export function HomeTable({
           </p>
         )}
         {/* The table scrolls sideways on its own, under the filters. */}
-        <div className="overflow-x-auto">
+        <Sideways label="the table">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-line bg-head text-xs text-fg-2">
@@ -663,7 +669,7 @@ export function HomeTable({
               );
             })}
           </table>
-        </div>
+        </Sideways>
         {rows.length === 0 && (
           <p className="py-6 text-center text-fg-3">
             {read.rows.length === 0
