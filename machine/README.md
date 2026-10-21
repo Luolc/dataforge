@@ -98,7 +98,7 @@ Done when `echo $SHELL; id -nG` prints `/usr/bin/zsh` and a group list containin
 
 The setup writes the agent user's `~/.zshenv`, `~/.zshrc`, `~/.p10k.zsh`, oh-my-zsh and powerlevel10k (the last three only with `zsh_personal`, the default), and its own keys in Claude Code's `~/.claude/settings.json` and `~/.claude.json`, from the chezmoi source in [`machine/dotfiles/`](dotfiles/), with the chezmoi it installs at `/usr/local/bin/chezmoi` (`machine/tasks/dotfiles.yml`). It runs chezmoi with a config, state and cache of its own, `~/.config/dataforge/chezmoi.toml`, `~/.local/state/dataforge/chezmoistate.boltdb` and `~/.cache/dataforge/chezmoi`, so a chezmoi the machine's owner uses for their own dotfiles is neither read nor written. In the two Claude Code files it only merges in its keys, and leaves a file that already has them as it is.
 
-The first run copies each file it is about to replace, when its content differs from the setup's, to `~/.local/state/dataforge/backup/<date and time>/`, under the same path and with the same mode, and lists the copies in its output.
+Before it replaces a file it has never written, as on the first run, the setup copies the file, when its content differs from the setup's, to `~/.local/state/dataforge/backup/<date and time>/`, under the same path and with the same mode, and lists the copies in its output.
 
 After that, the setup does not overwrite a dotfile changed since it wrote it: the run stops and names the file. To see what changed, run the `diff` command the message gives, which is the setup's chezmoi with its paths:
 

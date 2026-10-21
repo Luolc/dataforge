@@ -167,7 +167,7 @@ backups=$(cd "$HOME/.local/state/dataforge/backup" 2>/dev/null && find . -type f
 backup=$(ls -d "$HOME"/.local/state/dataforge/backup/*/.zshrc)
 cmp -s "$out/owner-zshrc" "$backup" || fail "the backup of ~/.zshrc is not the owner's"
 [ "$(stat -c %a "$backup")" = 640 ] || fail "the backup of ~/.zshrc does not keep its mode"
-grep -q 'Copied before the first apply replaced them: .*/\.zshrc' "$out/run0.log" || fail "run0 did not report the backup"
+grep -q 'Copied before the apply replaces them: .*/\.zshrc' "$out/run0.log" || fail "run0 did not report the backup"
 ok "run without machine settings: $(recap run0.log), statute $(tag_of statute run0.log), gateway client $(tag_of "gateway client" run0.log)"
 
 serve
@@ -178,12 +178,16 @@ sudo touch /opt/google-chrome/google-chrome-stable_1.0.0.0-1_amd64.deb
 
 setup run1.log || { tail -n 40 "$out/run1.log"; fail "first run"; }
 ok "first run: $(recap run1.log)"
+cache_mtimes() { find "$HOME/.cache/dataforge/chezmoi" -type f -exec stat -c '%n %Y' {} + | sort; }
+cache_mtimes >"$out/cache-mtimes"
 setup run2.log || { tail -n 40 "$out/run2.log"; fail "second run"; }
 recap run2.log | grep -Eq 'changed=0 +unreachable=0 +failed=0' || {
   grep -A1 -E '^TASK ' "$out/run2.log" | grep -B1 -E '^changed:' || true
   fail "second run changed something: $(recap run2.log)"
 }
 ok "second run: $(recap run2.log)"
+cache_mtimes | cmp -s - "$out/cache-mtimes" || fail "the second run downloaded the externals again"
+ok "the second run downloaded no external again"
 setup run2c.log --check || { tail -n 40 "$out/run2c.log"; fail "check-mode run"; }
 recap run2c.log | grep -Eq 'changed=0 +unreachable=0 +failed=0' || {
   grep -A1 -E '^TASK ' "$out/run2c.log" | grep -B1 -E '^changed:' || true
@@ -237,6 +241,22 @@ done
 dcz apply --force "$HOME/.zshrc" || fail "the command the message gives did not write ~/.zshrc again"
 [ -z "$(dcz status)" ] || fail "chezmoi status after writing ~/.zshrc again: $(dcz status)"
 ok "a hand-changed ~/.zshrc stops the run, also in check mode, and is left as it is"
+
+# A file of the owner's that the setup's chezmoi never wrote, on a machine it
+# has already set up, as when a later source or zsh_personal adds a file:
+# the run copies it to a backup before replacing it. Removing ~/.zshrc's
+# record from the setup's state makes it such a file.
+dcz state delete --bucket=entryState --key="$HOME/.zshrc" || fail "could not remove ~/.zshrc from the setup's state"
+printf '# Another zshrc of the owner'"'"'s.\n' >"$HOME/.zshrc"
+cp -p "$HOME/.zshrc" "$out/owner-zshrc-2"
+setup run2b.log || { tail -n 40 "$out/run2b.log"; fail "run with a ~/.zshrc the setup never wrote"; }
+grep -q 'source $ZSH/oh-my-zsh.sh' "$HOME/.zshrc" || fail "run2b did not write ~/.zshrc"
+found=
+for f in "$HOME"/.local/state/dataforge/backup/*/.zshrc; do
+  cmp -s "$out/owner-zshrc-2" "$f" && found=$f
+done
+[ -n "$found" ] || fail "run2b replaced a ~/.zshrc the setup never wrote without a backup"
+ok "a ~/.zshrc the setup never wrote is backed up before a later run replaces it: ${found#"$HOME"/}"
 
 # Check mode when the latest release of the gateway client and of statute (a
 # tarball tool) is not the installed one, and gh and Pi are pinned to

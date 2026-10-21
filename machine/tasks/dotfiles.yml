@@ -15,11 +15,12 @@
 #   stops the run, naming the file: the setup never overwrites a change it
 #   did not make. The two modify templates merge into the file as it is, so
 #   another program rewriting those files is not such a change.
-# - On the first run (no state yet), each existing file whose content differs
-#   from what chezmoi would write is copied to a dated directory under
-#   ~/.local/state/dataforge/backup/, with its path and mode, before chezmoi
-#   overwrites it. The modify templates keep the files' other keys, so their
-#   files are not copied.
+# - Each existing file chezmoi has never written (none in its state, as on
+#   the first run, or for a file the source or zsh_personal adds later) whose
+#   content differs from what chezmoi would write is copied to a dated
+#   directory under ~/.local/state/dataforge/backup/, with its path and mode,
+#   before chezmoi overwrites it. The modify templates keep the files' other
+#   keys, so their files are not copied.
 # The first run applies everything, so that chezmoi records the state of
 # every file, also those it did not need to change; later runs apply only the
 # files that differ. Check mode leaves the externals out (the data's
@@ -153,17 +154,21 @@
           `{{ chezmoi_cmd }} apply --force {{ edited | join(' ') }}` (machine/README.md, "The dotfiles").
         quiet: true
 
-    - name: Dotfiles | back up the files the first run replaces
-      when: chezmoi_bin.stat.exists and not chezmoi_state_file.stat.exists and not ansible_check_mode
+    - name: Dotfiles | back up the files chezmoi never wrote
+      when: chezmoi_bin.stat.exists and not ansible_check_mode and dotfiles_status.stdout != ""
       ansible.builtin.shell:
         cmd: |
           set -eu
+          cz() {
+            /usr/local/bin/chezmoi --no-tty --source "$SOURCE" --destination "$HOME" \
+              --config "$CONFIG" --persistent-state "$STATE" --cache "$CACHE" \
+              --override-data "$DATA" "$@" </dev/null
+          }
           backup=$HOME/.local/state/dataforge/backup/$(date +%Y-%m-%dT%H%M%S)
           printf '%s\n' "$DIFFERING" | while IFS= read -r path; do
             [ -n "$path" ] && [ -f "$HOME/$path" ] && [ ! -L "$HOME/$path" ] || continue
-            if ! /usr/local/bin/chezmoi --no-tty --source "$SOURCE" --destination "$HOME" \
-              --config "$CONFIG" --persistent-state "$STATE" --cache "$CACHE" \
-              --override-data "$DATA" cat "$HOME/$path" </dev/null | cmp -s - "$HOME/$path"; then
+            [ -z "$(cz state get --bucket=entryState --key="$HOME/$path")" ] || continue
+            if ! cz cat "$HOME/$path" | cmp -s - "$HOME/$path"; then
               mkdir -p -m 700 "$backup"
               (cd "$HOME" && cp -p --parents -- "$path" "$backup")
               echo "$backup/$path"
@@ -177,7 +182,7 @@
     - name: Dotfiles | backed up
       when: dotfiles_backup is not skipped and dotfiles_backup.stdout != ""
       ansible.builtin.debug:
-        msg: "Copied before the first apply replaced them: {{ dotfiles_backup.stdout_lines | join(', ') }}"
+        msg: "Copied before the apply replaces them: {{ dotfiles_backup.stdout_lines | join(', ') }}"
 
     - name: Dotfiles | apply
       when: >-
