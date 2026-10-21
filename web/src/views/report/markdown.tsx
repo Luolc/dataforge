@@ -10,7 +10,7 @@ export function ReportMarkdown({
   project,
   text,
 }: {
-  project: Project;
+  project: Pick<Project, "statuses">;
   text: string;
 }) {
   return (

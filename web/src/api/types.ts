@@ -6,7 +6,7 @@ import { z } from "zod";
 const TONES = ["good", "bad", "warn", "neutral"] as const;
 export type Tone = (typeof TONES)[number];
 
-const project = z.looseObject({
+export const project = z.looseObject({
   id: z.string(),
   name: z.string(),
   color: z.string(),

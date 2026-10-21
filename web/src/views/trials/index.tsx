@@ -4,7 +4,7 @@
 import { Tabs } from "radix-ui";
 import { type ReactNode, useState } from "react";
 
-import type { Action, LiveInfo, Tone, Trial } from "../../api/types";
+import type { Action, LiveInfo, Trial } from "../../api/types";
 import { SessionView } from "../../session";
 import { Note } from "../../ui/card";
 import { DiffView } from "../../ui/diff";
@@ -15,36 +15,7 @@ import { StatusLabel } from "../../ui/status-mark";
 import { DeliverableCard } from "../DeliverableCard";
 import { size, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
-
-// A trial's status words, the only place they are named.
-const SOLVED = "solved";
-const NOT_SOLVED = "not solved";
-const EXCEPTION = "exception";
-const NO_REWARD = "no reward";
-const RUNNING = "running";
-const NOT_FINISHED = "not finished";
-
-/**
- * A trial's status: solved when its reward is at least 1.0, as the default
- * `solved` accepts; an exception before anything else. One with no result
- * yet runs while the attempt runs, and else never finished.
- */
-function trialStatus(
-  trial: Trial,
-  live: LiveInfo | null | undefined,
-): { word: string; tone: Tone } {
-  if (trial.result === null) {
-    return isRunning(live)
-      ? { word: RUNNING, tone: "neutral" }
-      : { word: NOT_FINISHED, tone: "neutral" };
-  }
-  const { reward, exception } = trial.result;
-  if (exception !== null) return { word: EXCEPTION, tone: "warn" };
-  if (reward === null) return { word: NO_REWARD, tone: "neutral" };
-  return reward >= 1
-    ? { word: SOLVED, tone: "good" }
-    : { word: NOT_SOLVED, tone: "bad" };
-}
+import { RUNNING, trialStatus } from "./status";
 
 function isRunning(live: LiveInfo | null | undefined): boolean {
   return live?.live === "running";
@@ -59,7 +30,7 @@ function TrialStatus({
   live: LiveInfo | null | undefined;
   reward?: boolean;
 }) {
-  const { word, tone } = trialStatus(trial, live);
+  const { word, tone } = trialStatus(trial.result, isRunning(live));
   const Glyph = toneGlyph[tone];
   const value = trial.result?.reward ?? null;
   return (

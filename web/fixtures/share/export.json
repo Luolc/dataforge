@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "project": { "id": "demo", "name": "Sample collection", "color": "#4b8be5" },
+  "session": { "thinking": "expanded" },
+  "statuses": {
+    "pass": { "label": "Pass", "tone": "good" },
+    "fail": { "label": "Fail", "tone": "bad" }
+  },
+  "items": [
+    { "id": "k7m2q9xr4t", "revision": 2 },
+    { "id": "p3w8n5c2vd", "revision": 1 },
+    { "id": "h6t1z4b9qm", "revision": 1 }
+  ]
+}

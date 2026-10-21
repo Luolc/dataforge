@@ -33,7 +33,7 @@ export const RAISED = "raised";
  * bad, and no status (null) is Not ended, neutral.
  */
 export function statusOf(
-  project: Project,
+  project: Pick<Project, "statuses">,
   word: string | null,
 ): { label: string; tone: Tone } {
   if (word === null) return { label: NOT_ENDED, tone: "neutral" };
@@ -92,7 +92,7 @@ export const viewerStatus = {
  * attempt has ended (design-viz.md section 4).
  */
 export function outcomeOf(
-  project: Project,
+  project: Pick<Project, "statuses">,
   outcome: string | null,
   ended: boolean,
 ): { label: string; tone: Tone } {
