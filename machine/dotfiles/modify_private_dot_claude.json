@@ -1,0 +1,18 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /*
+  ~/.claude.json: the keys in machine/files/claude-state.json are the setup's
+  (machine/tasks/claude-code.yml says why) and are merged into the file as it
+  is; every other key stays. When that changes nothing,
+  the file is passed on byte for byte, so a file Claude Code wrote in its own
+  format is not rewritten.
+*/ -}}
+{{- $current := dict -}}
+{{- if trim .chezmoi.stdin -}}
+{{- $current = fromJson .chezmoi.stdin -}}
+{{- end -}}
+{{- $merged := mergeOverwrite (deepCopy $current) (fromJson (include "../files/claude-state.json")) -}}
+{{- if eq (toJson $current) (toJson $merged) -}}
+{{- .chezmoi.stdin -}}
+{{- else -}}
+{{- toPrettyJson "    " $merged -}}
+{{- end -}}

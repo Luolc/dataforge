@@ -9,6 +9,10 @@
 # A Pi or Codex CLI tarball with the wrong sha256 must stop the run and
 # leave the installed version in use, and rg and fdfind, which Pi would
 # otherwise download, must be on PATH.
+# The dotfiles, written through the setup's own chezmoi, must leave the
+# owner's own chezmoi alone; the first run must back up the file it replaces,
+# a run must leave a file Claude Code rewrote and stop at a file changed by
+# hand, and check mode must write no file, state or cache.
 # Then it drives the gateway client install from a fake release (a missing
 # checksum file or a tampered download must not replace it), the zshenv
 # extension point, fednet being brought to its latest release and the
@@ -98,10 +102,38 @@ tag_of() { sed -n "s/^ *\"msg\": \"$1 \(.*\)\"$/\1/p" "$out/$2" | tail -n 1; }
 
 # A setting the setup does not own, which it must keep, and
 # DISABLE_AUTOUPDATER, which the gateway client refuses to start with and the
-# setup must remove.
+# setup must remove. ~/.claude is private, and must stay so.
 settings=$HOME/.claude/settings.json
-mkdir -p "$HOME/.claude"
+mkdir -m 700 "$HOME/.claude"
 echo '{"env": {"EXISTING_SETTING": "kept", "DISABLE_AUTOUPDATER": "1"}}' >"$settings"
+
+# The dotfiles the setup writes with chezmoi (tasks/dotfiles.yml), through
+# its own config, state and cache. dcz runs that chezmoi as the setup's
+# error messages tell a person to.
+dcz() {
+  /usr/local/bin/chezmoi --source "$m/dotfiles" --destination "$HOME" \
+    --config "$HOME/.config/dataforge/chezmoi.toml" \
+    --persistent-state "$HOME/.local/state/dataforge/chezmoistate.boltdb" \
+    --cache "$HOME/.cache/dataforge/chezmoi" --no-tty "$@" </dev/null
+}
+chezmoi_state=$HOME/.local/state/dataforge/chezmoistate.boltdb
+# The owner's own chezmoi, which the setup must neither read nor write: a
+# state file that is no chezmoi database, so that a chezmoi that opened it
+# would fail.
+mkdir -p "$HOME/.config/chezmoi" "$HOME/.local/share/chezmoi" "$HOME/.cache/chezmoi"
+printf '[data]\nzsh_personal = false\n' >"$HOME/.config/chezmoi/chezmoi.toml"
+echo 'not a chezmoi state database' >"$HOME/.config/chezmoi/chezmoistate.boltdb"
+echo 'export OWNER=1' >"$HOME/.local/share/chezmoi/dot_zshenv"
+echo 'owner cache' >"$HOME/.cache/chezmoi/entry"
+owner_chezmoi() { (cd "$HOME" && find .config/chezmoi .local/share/chezmoi .cache/chezmoi -type f -exec sha256sum {} +) | sort; }
+owner_chezmoi >"$out/owner-chezmoi.sha256"
+# Files already in place before the first run: a ~/.zshrc of the owner's,
+# which the first run must copy to its backup before replacing it, and a
+# ~/.zshenv the same as the setup's, which it must not.
+printf '# The owner'"'"'s own zshrc.\n' >"$HOME/.zshrc"
+chmod 640 "$HOME/.zshrc"
+cp -p "$HOME/.zshrc" "$out/owner-zshrc"
+cp "$m/dotfiles/dot_zshenv" "$HOME/.zshenv"
 
 # A Docker daemon setting the setup does not own, which it must keep, next
 # to the log options it owns.
@@ -124,6 +156,18 @@ case "$(tag_of statute run0.log)" in statute-v*) ;; *) fail "run0 took statute f
 grep -q 'No redcoast_client_address' "$out/run0.log" || fail "run0 did not report the missing gateway address"
 [ ! -e "$HOME/.config/redcoast-client/shim.env" ] || fail "shim.env written without a gateway address"
 [ "$(sha256sum <"$HOME/.gitconfig")" = "$gitconfig_sha" ] || fail "run0 changed ~/.gitconfig"
+# The first run's dotfiles, and the backup of the one file it replaced.
+cmp -s "$m/dotfiles/dot_zshenv" "$HOME/.zshenv" || fail "run0 did not write ~/.zshenv"
+grep -q 'source $ZSH/oh-my-zsh.sh' "$HOME/.zshrc" || fail "run0 did not write ~/.zshrc"
+cmp -s "$m/dotfiles/dot_p10k.zsh" "$HOME/.p10k.zsh" || fail "run0 did not write ~/.p10k.zsh"
+[ -f "$HOME/.oh-my-zsh/oh-my-zsh.sh" ] && [ -f "$HOME/.oh-my-zsh/custom/themes/powerlevel10k/powerlevel10k.zsh-theme" ] ||
+  fail "run0 did not install oh-my-zsh and powerlevel10k"
+backups=$(cd "$HOME/.local/state/dataforge/backup" 2>/dev/null && find . -type f | sort || true)
+[ "$(printf '%s\n' "$backups" | sed 's|^\./[^/]*/||')" = .zshrc ] || fail "run0 backed up: ${backups:-nothing}, not ~/.zshrc alone"
+backup=$(ls -d "$HOME"/.local/state/dataforge/backup/*/.zshrc)
+cmp -s "$out/owner-zshrc" "$backup" || fail "the backup of ~/.zshrc is not the owner's"
+[ "$(stat -c %a "$backup")" = 640 ] || fail "the backup of ~/.zshrc does not keep its mode"
+grep -q 'Copied before the first apply replaced them: .*/\.zshrc' "$out/run0.log" || fail "run0 did not report the backup"
 ok "run without machine settings: $(recap run0.log), statute $(tag_of statute run0.log), gateway client $(tag_of "gateway client" run0.log)"
 
 serve
@@ -146,6 +190,53 @@ recap run2c.log | grep -Eq 'changed=0 +unreachable=0 +failed=0' || {
   fail "check-mode run would change something: $(recap run2c.log)"
 }
 ok "check-mode run: $(recap run2c.log)"
+[ -z "$(dcz status)" ] || fail "chezmoi status after the second run: $(dcz status)"
+ok "chezmoi status is empty"
+
+# Check mode with a dotfile to change (a setup key gone from ~/.claude.json)
+# and no cache of the externals: it shows the change, and writes neither the
+# file nor chezmoi's state or cache.
+claude_state=$HOME/.claude.json
+cp "$claude_state" "$out/claude.json"
+echo '{"numStartups": 3}' >"$claude_state"
+before=$(sha256sum "$claude_state" "$chezmoi_state")
+mv "$HOME/.cache/dataforge/chezmoi" "$out/chezmoi-cache"
+setup run2d.log --check || { tail -n 40 "$out/run2d.log"; fail "check-mode run with a dotfile to change"; }
+grep -A1 -F 'TASK [Dotfiles | what a run would change]' "$out/run2d.log" | grep -q '^changed:' ||
+  fail "check mode did not report the dotfile it would change"
+[ "$(sha256sum "$claude_state" "$chezmoi_state")" = "$before" ] || fail "check mode wrote ~/.claude.json or chezmoi's state"
+[ ! -e "$HOME/.cache/dataforge/chezmoi" ] || fail "check mode wrote chezmoi's cache"
+mv "$out/chezmoi-cache" "$HOME/.cache/dataforge/chezmoi"
+cp "$out/claude.json" "$claude_state"
+ok "check mode shows a dotfile change and writes no file, state or cache"
+
+# ~/.claude.json as Claude Code writes it, in its own format and with keys of
+# its own: with the setup's keys in it, a run leaves it byte for byte.
+printf '{\n  "numStartups": 4,\n  "hasCompletedOnboarding": true\n}\n' >"$claude_state"
+before=$(sha256sum "$claude_state")
+setup run2p.log || { tail -n 40 "$out/run2p.log"; fail "run after Claude Code rewrote ~/.claude.json"; }
+[ "$(sha256sum "$claude_state")" = "$before" ] || fail "the setup rewrote ~/.claude.json with its keys in it"
+recap run2p.log | grep -Eq 'changed=0 +unreachable=0 +failed=0' || fail "run after Claude Code rewrote ~/.claude.json: $(recap run2p.log)"
+ok "~/.claude.json in Claude Code's own format left as it is"
+
+# A dotfile changed by hand after the setup wrote it: a run, also in check
+# mode, stops naming the file and the command that shows the change, and
+# leaves the file as it is; the command the message gives to write it again
+# does so.
+echo '# changed by hand' >>"$HOME/.zshrc"
+cp "$HOME/.zshrc" "$out/zshrc-edited"
+for mode in "" --check; do
+  # shellcheck disable=SC2086 # mode is one option or none
+  if setup "run2e$mode.log" $mode; then fail "a run ${mode:+in check mode }overwrote or accepted a changed ~/.zshrc"; fi
+  grep -q 'Dotfiles: ~/.zshrc changed since the setup last wrote it' "$out/run2e$mode.log" ||
+    { tail -n 20 "$out/run2e$mode.log"; fail "run2e$mode failed for another reason"; }
+  grep -q "/usr/local/bin/chezmoi --source $m/dotfiles .* diff ~/.zshrc" "$out/run2e$mode.log" ||
+    fail "run2e$mode does not give the command that shows the change"
+  cmp -s "$out/zshrc-edited" "$HOME/.zshrc" || fail "run2e$mode changed the edited ~/.zshrc"
+done
+dcz apply --force "$HOME/.zshrc" || fail "the command the message gives did not write ~/.zshrc again"
+[ -z "$(dcz status)" ] || fail "chezmoi status after writing ~/.zshrc again: $(dcz status)"
+ok "a hand-changed ~/.zshrc stops the run, also in check mode, and is left as it is"
 
 # Check mode when the latest release of the gateway client and of statute (a
 # tarball tool) is not the installed one, and gh and Pi are pinned to
@@ -186,6 +277,7 @@ check_version() { # <label> <expected substring> <command...>
 }
 check_version uv "uv $(pin uv_version)" uv --version
 check_version herdr "$(pin herdr_version)" herdr --version
+check_version chezmoi "chezmoi version v$(pin chezmoi_version)," /usr/local/bin/chezmoi --version
 check_version gh "gh version $(pin gh_version)" gh --version
 check_version claude "$(pin claude_code_version) (Claude Code)" claude --version
 pi_got=$("$HOME/.local/bin/pi" --version 2>&1)
@@ -302,6 +394,10 @@ ok "Docker logs rotate: $(jq -c '."log-opts"' "$daemon"), existing keys kept"
 [ "$(jq -r '.env | has("DISABLE_AUTOUPDATER")' "$settings")" = false ] || fail "env.DISABLE_AUTOUPDATER still in settings"
 [ "$(jq -r .hasCompletedOnboarding "$HOME/.claude.json")" = true ] || fail "onboarding"
 ok "Claude Code settings merged, existing key kept, DISABLE_AUTOUPDATER removed"
+[ "$(stat -c %a "$HOME/.claude")" = 700 ] || fail "~/.claude is $(stat -c %a "$HOME/.claude"), not 700"
+ok "~/.claude still 700"
+owner_chezmoi | cmp -s - "$out/owner-chezmoi.sha256" || fail "the setup changed the owner's own chezmoi files"
+ok "the owner's own chezmoi config, state, source and cache unchanged"
 
 # Gateway client: the shim resolves first in every zsh, interactive or not.
 shim() { zsh -i -c 'command -v claude' 2>/dev/null | tail -n 1; }

@@ -1,4 +1,4 @@
-# Release binaries: herdr, gh, Pi and Codex CLI pinned by sha256 in
+# Release binaries: herdr, chezmoi, gh, Pi and Codex CLI pinned by sha256 in
 # versions.yml, then the setup's own tools at their latest release. get_url
 # skips the download when the file at dest already has the expected digest,
 # so a rerun changes nothing.
@@ -9,6 +9,16 @@
     url: "https://github.com/herdrdev/herdr/releases/download/v{{ herdr_version }}/herdr-linux-x86_64"
     dest: /usr/local/bin/herdr
     checksum: "sha256:{{ herdr_sha256 }}"
+    mode: "0755"
+
+# Installed for the setup's own use (tasks/dotfiles.yml), which calls it by
+# this path: a chezmoi in ~/.local/bin may be the owner's own.
+- name: chezmoi
+  become: true
+  ansible.builtin.get_url:
+    url: "https://github.com/twpayne/chezmoi/releases/download/v{{ chezmoi_version }}/chezmoi-linux-amd64"
+    dest: /usr/local/bin/chezmoi
+    checksum: "sha256:{{ chezmoi_sha256 }}"
     mode: "0755"
 
 - name: gh directory

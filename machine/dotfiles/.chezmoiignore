@@ -1,0 +1,3 @@
+{{- if not .zsh_personal }}
+.p10k.zsh
+{{- end }}

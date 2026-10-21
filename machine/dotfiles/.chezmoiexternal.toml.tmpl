@@ -1,0 +1,17 @@
+{{- /* The personal zsh layer's oh-my-zsh and powerlevel10k, at the commits
+  and with the archive digests pinned in machine/versions.yml. The setup's
+  check mode sets externals to false, since chezmoi downloads an external it
+  has not cached for any command that reads the source. */ -}}
+{{- if and .zsh_personal .externals }}
+[".oh-my-zsh"]
+    type = "archive"
+    url = "https://github.com/ohmyzsh/ohmyzsh/archive/{{ .oh_my_zsh_commit }}.tar.gz"
+    checksum.sha256 = "{{ .oh_my_zsh_sha256 }}"
+    stripComponents = 1
+
+[".oh-my-zsh/custom/themes/powerlevel10k"]
+    type = "archive"
+    url = "https://github.com/romkatv/powerlevel10k/archive/{{ .powerlevel10k_commit }}.tar.gz"
+    checksum.sha256 = "{{ .powerlevel10k_sha256 }}"
+    stripComponents = 1
+{{- end }}

@@ -1,0 +1,214 @@
+# The agent user's dotfiles, from the chezmoi source in machine/dotfiles/:
+# ~/.zshenv, ~/.zshrc and, with zsh_personal, ~/.p10k.zsh, oh-my-zsh and
+# powerlevel10k (externals pinned in versions.yml), and the setup's keys in
+# ~/.claude/settings.json and ~/.claude.json (modify templates).
+#
+# chezmoi runs with a config, state and cache of the setup's own, each named
+# on every call, so the owner's own chezmoi (~/.config/chezmoi,
+# ~/.local/share/chezmoi, ~/.cache/chezmoi) is never read or written. The
+# config only holds the template data, which every call here also passes
+# with --override-data, so that check mode, which does not write the config,
+# renders the same files as a real run, the externals aside.
+#
+# Before applying, the setup asks chezmoi which files differ (`status`):
+# - A file chezmoi wrote and someone changed since (first column of `status`)
+#   stops the run, naming the file: the setup never overwrites a change it
+#   did not make. The two modify templates merge into the file as it is, so
+#   another program rewriting those files is not such a change.
+# - On the first run (no state yet), each existing file whose content differs
+#   from what chezmoi would write is copied to a dated directory under
+#   ~/.local/state/dataforge/backup/, with its path and mode, before chezmoi
+#   overwrites it. The modify templates keep the files' other keys, so their
+#   files are not copied.
+# The first run applies everything, so that chezmoi records the state of
+# every file, also those it did not need to change; later runs apply only the
+# files that differ. Check mode leaves the externals out (the data's
+# `externals`), since chezmoi downloads an archive it has not cached for any
+# command that reads the source, --dry-run and --exclude=externals included,
+# and only shows the diff.
+
+- name: Dotfiles
+  vars:
+    chezmoi_data:
+      zsh_personal: "{{ zsh_personal | bool }}"
+      oh_my_zsh_commit: "{{ oh_my_zsh_commit }}"
+      oh_my_zsh_sha256: "{{ oh_my_zsh_sha256 }}"
+      powerlevel10k_commit: "{{ powerlevel10k_commit }}"
+      powerlevel10k_sha256: "{{ powerlevel10k_sha256 }}"
+      externals: "{{ not ansible_check_mode }}"
+    chezmoi_config: "{{ home }}/.config/dataforge/chezmoi.toml"
+    chezmoi_state: "{{ home }}/.local/state/dataforge/chezmoistate.boltdb"
+    chezmoi_cache: "{{ home }}/.cache/dataforge/chezmoi"
+    chezmoi_argv:
+      - /usr/local/bin/chezmoi
+      - --no-tty
+      - --source
+      - "{{ playbook_dir }}/dotfiles"
+      - --destination
+      - "{{ home }}"
+      - --config
+      - "{{ chezmoi_config }}"
+      - --persistent-state
+      - "{{ chezmoi_state }}"
+      - --cache
+      - "{{ chezmoi_cache }}"
+      - --override-data
+      - "{{ chezmoi_data | to_json }}"
+    # The command for a person to run, as the error messages give it; the
+    # config it names holds the data.
+    chezmoi_cmd: >-
+      /usr/local/bin/chezmoi --source {{ playbook_dir }}/dotfiles --destination {{ home }}
+      --config {{ chezmoi_config }} --persistent-state {{ chezmoi_state }} --cache {{ chezmoi_cache }}
+  environment:
+    SOURCE: "{{ playbook_dir }}/dotfiles"
+    CONFIG: "{{ chezmoi_config }}"
+    STATE: "{{ chezmoi_state }}"
+    CACHE: "{{ chezmoi_cache }}"
+    DATA: "{{ chezmoi_data | to_json }}"
+  block:
+    - name: Dotfiles | chezmoi installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/chezmoi
+        get_checksum: false
+      register: chezmoi_bin
+
+    # Check mode on a machine chezmoi was never installed on: the tools task
+    # reports it, and there is nothing to compare with.
+    - name: Dotfiles | chezmoi missing
+      when: not chezmoi_bin.stat.exists
+      ansible.builtin.debug:
+        msg: "chezmoi is not installed yet; the dotfiles are not compared in check mode."
+
+    - name: Dotfiles | config and state directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ home }}/.config/dataforge"
+        - "{{ home }}/.local/state/dataforge"
+
+    - name: Dotfiles | chezmoi config
+      ansible.builtin.copy:
+        dest: "{{ chezmoi_config }}"
+        mode: "0600"
+        content: |
+          # The setup's own chezmoi config (machine/tasks/dotfiles.yml), written
+          # on each run from machine/playbook.yml and machine/versions.yml.
+          [data]
+          {% for key, value in (chezmoi_data | combine({'externals': true})).items() %}
+          {{ key }} = {{ value | to_json }}
+          {% endfor %}
+
+    - name: Dotfiles | state
+      ansible.builtin.stat:
+        path: "{{ chezmoi_state }}"
+        get_checksum: false
+      register: chezmoi_state_file
+
+    # One line per file that differs: "edited <path>" when it was changed
+    # since chezmoi wrote it, "modify <path>" for a modify template, and
+    # "pending A <path>" (missing) or "pending M <path>" (differs) otherwise.
+    # Paths are relative to the home directory.
+    - name: Dotfiles | compare with the source
+      when: chezmoi_bin.stat.exists
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          cz() {
+            /usr/local/bin/chezmoi --no-tty --source "$SOURCE" --destination "$HOME" \
+              --config "$CONFIG" --persistent-state "$STATE" --cache "$CACHE" \
+              --override-data "$DATA" "$@" </dev/null
+          }
+          status=$(cz status)
+          [ -n "$status" ] || exit 0
+          # shellcheck disable=SC2046 # the source's file names have no spaces
+          modify=$(cz target-path $(find "$SOURCE" -name 'modify_*'))
+          printf '%s\n' "$status" | while IFS= read -r line; do
+            path=${line#???}
+            case $line in ?" "*) continue ;; esac
+            if printf '%s\n' "$modify" | grep -qxF -- "$HOME/$path"; then
+              echo "modify $path"
+            elif [ "${line%"${line#?}"}" = " " ]; then
+              echo "pending $(printf %s "$line" | cut -c2) $path"
+            else
+              echo "edited $path"
+            fi
+          done
+      register: dotfiles_status
+      changed_when: false
+      check_mode: false
+
+    - name: Dotfiles | not changed since the setup wrote them
+      when: chezmoi_bin.stat.exists
+      vars:
+        edited: "{{ dotfiles_status.stdout_lines | select('match', '^edited ') | map('regex_replace', '^edited ', '~/') | list }}"
+      ansible.builtin.assert:
+        that: edited | length == 0
+        fail_msg: >-
+          Dotfiles: {{ edited | join(', ') }} changed since the setup last wrote
+          {{ 'them' if edited | length > 1 else 'it' }}, and the setup does not overwrite a change it
+          did not make. See the change with `{{ chezmoi_cmd }} diff {{ edited | join(' ') }}`
+          (the diff shows what the setup would write over it); then either undo it, or keep it
+          somewhere the setup does not write and let the setup write the file again with
+          `{{ chezmoi_cmd }} apply --force {{ edited | join(' ') }}` (machine/README.md, "The dotfiles").
+        quiet: true
+
+    - name: Dotfiles | back up the files the first run replaces
+      when: chezmoi_bin.stat.exists and not chezmoi_state_file.stat.exists and not ansible_check_mode
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          backup=$HOME/.local/state/dataforge/backup/$(date +%Y-%m-%dT%H%M%S)
+          printf '%s\n' "$DIFFERING" | while IFS= read -r path; do
+            [ -n "$path" ] && [ -f "$HOME/$path" ] && [ ! -L "$HOME/$path" ] || continue
+            if ! /usr/local/bin/chezmoi --no-tty --source "$SOURCE" --destination "$HOME" \
+              --config "$CONFIG" --persistent-state "$STATE" --cache "$CACHE" \
+              --override-data "$DATA" cat "$HOME/$path" </dev/null | cmp -s - "$HOME/$path"; then
+              mkdir -p -m 700 "$backup"
+              (cd "$HOME" && cp -p --parents -- "$path" "$backup")
+              echo "$backup/$path"
+            fi
+          done
+      environment:
+        DIFFERING: "{{ dotfiles_status.stdout_lines | select('match', '^pending M ') | map('regex_replace', '^pending M ', '') | join('\n') }}"
+      register: dotfiles_backup
+      changed_when: dotfiles_backup.stdout != ""
+
+    - name: Dotfiles | backed up
+      when: dotfiles_backup is not skipped and dotfiles_backup.stdout != ""
+      ansible.builtin.debug:
+        msg: "Copied before the first apply replaced them: {{ dotfiles_backup.stdout_lines | join(', ') }}"
+
+    - name: Dotfiles | apply
+      when: >-
+        chezmoi_bin.stat.exists and not ansible_check_mode
+        and (dotfiles_status.stdout != "" or not chezmoi_state_file.stat.exists)
+      ansible.builtin.command:
+        argv: >-
+          {{ chezmoi_argv + ['apply', '--recursive=false'] + ([] if not chezmoi_state_file.stat.exists else
+             dotfiles_status.stdout_lines | select('match', '^(pending [AM]|modify) ')
+             | map('regex_replace', '^(pending [AM]|modify) ', home ~ '/') | list) }}
+        stdin: ""
+      register: dotfiles_apply
+      failed_when: false
+
+    - name: Dotfiles | applied
+      when: dotfiles_apply is not skipped
+      ansible.builtin.assert:
+        that: dotfiles_apply.rc == 0
+        fail_msg: >-
+          Dotfiles: chezmoi apply failed: {{ dotfiles_apply.stdout }} {{ dotfiles_apply.stderr }}
+          {%- if 'has changed since chezmoi last wrote it' in dotfiles_apply.stdout ~ dotfiles_apply.stderr %}
+          A file changed while the setup ran. Run the setup again to see which, or see every
+          difference with `{{ chezmoi_cmd }} diff` (machine/README.md, "The dotfiles").
+          {%- endif %}
+        quiet: true
+
+    - name: Dotfiles | what a run would change
+      when: chezmoi_bin.stat.exists and ansible_check_mode and dotfiles_status.stdout != ""
+      ansible.builtin.command:
+        argv: "{{ chezmoi_argv + ['--no-pager', 'diff'] }}"
+        stdin: ""
+      register: dotfiles_diff
+      changed_when: true
+      check_mode: false

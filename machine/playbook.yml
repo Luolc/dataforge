@@ -69,5 +69,6 @@
     - ansible.builtin.import_tasks: tasks/claude-code.yml
     - ansible.builtin.import_tasks: tasks/gateway-client.yml
     - ansible.builtin.import_tasks: tasks/zsh.yml
+    - ansible.builtin.import_tasks: tasks/dotfiles.yml
     - ansible.builtin.import_tasks: tasks/identity.yml
     - ansible.builtin.import_tasks: tasks/agent-files.yml

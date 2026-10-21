@@ -1,4 +1,4 @@
-# Installed by the dataforge data machine setup (machine/files/zsh/zshenv);
+# Installed by the dataforge data machine setup (machine/dotfiles/dot_zshenv);
 # edit the source, not this file.
 # uv, Claude Code and other per-user tools live in ~/.local/bin. Every zsh
 # reads .zshenv, so non-interactive shells (ssh commands, scripts) find them too.

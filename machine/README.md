@@ -22,7 +22,7 @@ Done when `git -C ~/dev/dataforge log --oneline -1` prints a commit.
 ~/dev/dataforge/machine/bootstrap.sh
 ```
 
-This installs Docker, gh, herdr, Claude Code, Pi and Codex CLI (the clients the gateway client starts for Codex sessions), Tailscale, the 1Password CLI `op`, Node.js (from NodeSource, with npm), Google Chrome (`google-chrome-stable`, Google's `.deb`, with no apt source) and direnv at the versions pinned in `machine/versions.yml`, the Noto CJK fonts, ripgrep and fd (as `fdfind`, both for Pi) from the Ubuntu archive, and the tools the repository owner publishes, the gateway client, Agent Fleet (`fleet`), fednet, atb and statute, at the latest release of each, checked against the checksum file published in that release. It needs no GitHub token for that: it reads the latest release from the release pages, and statute's from one anonymous GitHub API call. Claude Code, Pi and Codex CLI are the agent user's own, at `~/.local/bin/claude`, `~/.local/bin/pi` and `~/.local/bin/codex`. Programs that other setups refer to by absolute path are at `/usr/local/bin/<name>` (`fleet`, `fednet`, `atb`, `statute`, `herdr`, `gh`) and `/usr/bin/<name>` (`tailscale`, `op`, `direnv`, `node`, `npm`, `npx`, `google-chrome`). The setup only installs them: it joins no tailnet, signs in to no account, and writes no config for fleet, fednet, Pi or Codex CLI or starts any service of theirs. It does configure Docker's log rotation, `log-driver` and `log-opts` in `/etc/docker/daemon.json` (`docker_log_max_size` and `docker_log_max_file` in `machine/playbook.yml`), keeping the file's other keys, and restarts dockerd when those change, which stops the running containers.
+This installs Docker, gh, herdr, chezmoi, Claude Code, Pi and Codex CLI (the clients the gateway client starts for Codex sessions), Tailscale, the 1Password CLI `op`, Node.js (from NodeSource, with npm), Google Chrome (`google-chrome-stable`, Google's `.deb`, with no apt source) and direnv at the versions pinned in `machine/versions.yml`, the Noto CJK fonts, ripgrep and fd (as `fdfind`, both for Pi) from the Ubuntu archive, and the tools the repository owner publishes, the gateway client, Agent Fleet (`fleet`), fednet, atb and statute, at the latest release of each, checked against the checksum file published in that release. It needs no GitHub token for that: it reads the latest release from the release pages, and statute's from one anonymous GitHub API call. Claude Code, Pi and Codex CLI are the agent user's own, at `~/.local/bin/claude`, `~/.local/bin/pi` and `~/.local/bin/codex`. Programs that other setups refer to by absolute path are at `/usr/local/bin/<name>` (`fleet`, `fednet`, `atb`, `statute`, `herdr`, `chezmoi`, `gh`) and `/usr/bin/<name>` (`tailscale`, `op`, `direnv`, `node`, `npm`, `npx`, `google-chrome`). The setup only installs them: it joins no tailnet, signs in to no account, and writes no config for fleet, fednet, Pi or Codex CLI or starts any service of theirs. It does configure Docker's log rotation, `log-driver` and `log-opts` in `/etc/docker/daemon.json` (`docker_log_max_size` and `docker_log_max_file` in `machine/playbook.yml`), keeping the file's other keys, and restarts dockerd when those change, which stops the running containers. It also writes the agent user's dotfiles (see "The dotfiles" below).
 
 With no settings yet, the run skips the gh login, and leaves the gateway client without its config; it says so in its output.
 
@@ -93,6 +93,24 @@ Done when `git config --global user.email` prints the email and `git config --gl
 Log out and SSH in again, so the login shell is zsh and the agent user is in the `docker` group.
 
 Done when `echo $SHELL; id -nG` prints `/usr/bin/zsh` and a group list containing `docker`, and `zsh -i -c 'command -v claude'` prints `~/.local/libexec/redcoast-client/current/claude` (with the home directory expanded).
+
+## The dotfiles
+
+The setup writes the agent user's `~/.zshenv`, `~/.zshrc`, `~/.p10k.zsh`, oh-my-zsh and powerlevel10k (the last three only with `zsh_personal`, the default), and its own keys in Claude Code's `~/.claude/settings.json` and `~/.claude.json`, from the chezmoi source in [`machine/dotfiles/`](dotfiles/), with the chezmoi it installs at `/usr/local/bin/chezmoi` (`machine/tasks/dotfiles.yml`). It runs chezmoi with a config, state and cache of its own, `~/.config/dataforge/chezmoi.toml`, `~/.local/state/dataforge/chezmoistate.boltdb` and `~/.cache/dataforge/chezmoi`, so a chezmoi the machine's owner uses for their own dotfiles is neither read nor written. In the two Claude Code files it only merges in its keys, and leaves a file that already has them as it is.
+
+The first run copies each file it is about to replace, when its content differs from the setup's, to `~/.local/state/dataforge/backup/<date and time>/`, under the same path and with the same mode, and lists the copies in its output.
+
+After that, the setup does not overwrite a dotfile changed since it wrote it: the run stops and names the file. To see what changed, run the `diff` command the message gives, which is the setup's chezmoi with its paths:
+
+```sh
+/usr/local/bin/chezmoi --source ~/dev/dataforge/machine/dotfiles --destination ~ --config ~/.config/dataforge/chezmoi.toml --persistent-state ~/.local/state/dataforge/chezmoistate.boltdb --cache ~/.cache/dataforge/chezmoi diff ~/.zshrc
+```
+
+Then either undo the change, or keep it somewhere the setup does not write, such as `~/.config/dataforge/zshenv.local`, and let the setup write the file again by running the same command with `apply --force ~/.zshrc` in place of `diff ~/.zshrc`. A change that belongs on every data machine is a PR to `machine/dotfiles/`.
+
+In check mode (`bootstrap.sh --check`) the setup only shows the diff of the dotfiles, without oh-my-zsh and powerlevel10k, and writes no file and nothing of chezmoi's.
+
+Done when the same `diff` command without a file prints nothing.
 
 ## Upgrades
 
