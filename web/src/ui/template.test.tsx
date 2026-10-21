@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyTemplate, KEY, savedTemplate, TEMPLATES } from "./template";
@@ -13,17 +13,29 @@ afterEach(() => {
   delete document.documentElement.dataset["template"];
 });
 
+const open = (el: Element) => {
+  fireEvent.pointerDown(el, { button: 0, ctrlKey: false });
+};
+const press = (el: Element | null, key: string) => {
+  if (el) fireEvent.keyDown(el, { key });
+};
+
 describe("the colour templates", () => {
-  it("default to the high contrast template", () => {
-    expect(TEMPLATES[0].id).toBe("contrast");
-    expect(savedTemplate()).toBe("contrast");
+  it("default to Light, in the order Light, Dark, High contrast, Neutral light", () => {
+    expect(TEMPLATES.map((t) => [t.id, t.label])).toEqual([
+      ["ac", "Light"],
+      ["dark", "Dark"],
+      ["contrast", "High contrast"],
+      ["neutral", "Neutral light"],
+    ]);
+    expect(savedTemplate()).toBe("ac");
   });
 
   it("read the choice kept in localStorage, and ignore one they do not know", () => {
     localStorage.setItem(KEY, "dark");
     expect(savedTemplate()).toBe("dark");
     localStorage.setItem(KEY, "sepia");
-    expect(savedTemplate()).toBe("contrast");
+    expect(savedTemplate()).toBe("ac");
   });
 
   it("draw the page in a template by the root's data-template", () => {
@@ -31,19 +43,60 @@ describe("the colour templates", () => {
     expect(document.documentElement.dataset["template"]).toBe("neutral");
   });
 
-  it("switch on the page, and keep the choice for the next visit", () => {
+  it("open a menu of the templates, and keep the choice for the next visit", () => {
     render(<TemplateSwitch />);
-    const select = screen.getByRole("combobox", { name: "Colour template" });
-    expect(select).toHaveValue("contrast");
-    expect(
-      screen.getAllByRole("option").map((o) => o.getAttribute("value")),
-    ).toEqual(["contrast", "ac", "neutral", "dark"]);
+    const button = screen.getByRole("button", { name: /Colour template/ });
+    expect(button).toHaveTextContent("Light");
+    expect(button).toHaveAttribute("aria-expanded", "false");
 
-    fireEvent.change(select, { target: { value: "ac" } });
+    open(button);
 
-    expect(select).toHaveValue("ac");
-    expect(document.documentElement.dataset["template"]).toBe("ac");
-    expect(localStorage.getItem(KEY)).toBe("ac");
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button).toHaveAttribute("aria-controls");
+    const items = screen.getAllByRole("menuitemradio");
+    expect(items.map((i) => i.textContent)).toEqual([
+      "Light",
+      "Dark",
+      "High contrast",
+      "Neutral light",
+    ]);
+    expect(items[0]).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Dark" }));
+
+    expect(button).toHaveTextContent("Dark");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.documentElement.dataset["template"]).toBe("dark");
+    expect(localStorage.getItem(KEY)).toBe("dark");
+  });
+
+  it("work from the keyboard: arrows move, Enter chooses, Escape closes", async () => {
+    render(<TemplateSwitch />);
+    const button = screen.getByRole("button", { name: /Colour template/ });
+    button.focus();
+
+    press(button, "Enter");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    press(document.activeElement, "ArrowDown");
+    // The menu moves focus on the next tick.
+    await waitFor(() => {
+      expect(document.activeElement).toHaveTextContent("Dark");
+    });
+    press(document.activeElement, "ArrowDown");
+    await waitFor(() => {
+      expect(document.activeElement).toHaveTextContent("High contrast");
+    });
+    press(document.activeElement, "Enter");
+    expect(localStorage.getItem(KEY)).toBe("contrast");
+    expect(button).toHaveTextContent("High contrast");
+
+    press(button, "Enter");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    press(document.activeElement, "Escape");
+    expect(screen.queryByRole("menu")).toBeNull();
+    await waitFor(() => {
+      expect(button).toHaveFocus();
+    });
   });
 
   // Tests run from web/.
