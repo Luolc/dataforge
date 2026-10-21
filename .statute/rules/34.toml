@@ -1,8 +1,9 @@
 id = 34
 slug = "design-files-invariants-name-their-tests"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 54
 lang = "en"
 parent = "R232"
 default = "on"
