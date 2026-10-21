@@ -57,6 +57,7 @@ def test_every_route_is_a_get_and_writes_nothing(
     f"{API}/record?attempt=batch-1/task-1",
     f"{API}/live?attempt=batch-1/task-1",
     f"{API}/files?attempt=batch-1/task-1&path=artifacts",
+    f"{API}/tabs?attempt=batch-1/task-1",
     "/index.html",
   ]
 
@@ -152,6 +153,7 @@ def test_projects_leave_out_where_the_files_are(
     "definition": None,
     "monitor": False,
     "actions": [],
+    "tabs": [],
   }
 
 
