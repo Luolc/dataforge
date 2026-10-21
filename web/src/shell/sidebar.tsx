@@ -8,13 +8,15 @@ import {
   type ReactNode,
   use,
   useId,
+  useMemo,
   useState,
 } from "react";
 
 /** The sidebar's label, and the ID of the box its drawer opens in. */
-const SidebarContext = createContext<{ label: string; drawer: string } | null>(
-  null,
-);
+const SidebarContext = createContext<{
+  label: string;
+  drawerId: string;
+} | null>(null);
 
 const nav = "flex w-sidebar flex-col gap-0.5 px-2 py-inset";
 
@@ -34,7 +36,8 @@ export function Sidebar({
   const [open, setOpen] = useState(false);
   // The drawer opens in a box that is always in the page, so that the
   // button names it by aria-controls when the drawer is closed too.
-  const drawer = useId();
+  const drawerId = useId();
+  const sidebar = useMemo(() => ({ label, drawerId }), [label, drawerId]);
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   // A link followed in the drawer closes it, as the page it opens is shown.
   const followed = (event: MouseEvent) => {
@@ -42,7 +45,7 @@ export function Sidebar({
       setOpen(false);
   };
   return (
-    <SidebarContext value={{ label, drawer }}>
+    <SidebarContext value={sidebar}>
       <Dialog.Root open={open} onOpenChange={setOpen}>
         <nav
           aria-label={label}
@@ -52,7 +55,7 @@ export function Sidebar({
         </nav>
         {page}
         {/* After the page, so that the drawer is drawn over it. */}
-        <div id={drawer} ref={setBox} className="lg:hidden" />
+        <div id={drawerId} ref={setBox} className="lg:hidden" />
         <Dialog.Portal container={box}>
           <Dialog.Overlay className="fixed inset-0 lg:hidden" />
           <Dialog.Content
@@ -80,7 +83,7 @@ export function SidebarButton() {
   return (
     <Dialog.Trigger
       aria-label={`Open the ${sidebar.label.toLowerCase()} menu`}
-      aria-controls={sidebar.drawer}
+      aria-controls={sidebar.drawerId}
       className="mr-1 grid target flex-none place-items-center rounded-row hover:bg-hover lg:hidden"
     >
       <PanelLeft className="size-icon-md text-icon" aria-hidden />
