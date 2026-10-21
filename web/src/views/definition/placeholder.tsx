@@ -67,17 +67,20 @@ export function Placeholder({
         onBlur={() => {
           setHovered(false);
         }}
-        className="my-0.5 inline-flex target items-center gap-1.5 rounded-code bg-code-gutter px-1.5 align-baseline font-mono text-code leading-none ring-1 ring-line-subtle hover:bg-hover aria-expanded:ring-line"
+        className="my-0.5 inline-flex target max-w-full items-center gap-1.5 rounded-code bg-code-gutter px-1.5 align-baseline font-mono text-code leading-none ring-1 ring-line-subtle hover:bg-hover aria-expanded:ring-line"
       >
-        <span className="text-syn-variable">{name}</span>
+        <span className="min-w-0 wrap-anywhere text-syn-variable">{name}</span>
         {shown !== null && (
           <span
-            className={`max-w-56 truncate border-l border-line pr-0.5 pl-1.5 ${shown.faint ? "text-fg-3 italic" : "text-fg"}`}
+            className={`max-w-56 min-w-0 truncate border-l border-line pr-0.5 pl-1.5 ${shown.faint ? "text-fg-3 italic" : "text-fg"}`}
           >
             {shown.text}
           </span>
         )}
-        <SlidersHorizontal className="size-3.5 text-icon" aria-hidden />
+        <SlidersHorizontal
+          className="size-3.5 flex-none text-icon"
+          aria-hidden
+        />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

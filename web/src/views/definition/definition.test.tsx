@@ -126,8 +126,72 @@ describe("an older snapshot whose rubric ranks its criteria", () => {
       within(tests)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["Open", "ID", "Question"]);
+    ).toEqual(["Open", "ID and question"]);
     expect(within(tests).queryByText(/error/i)).toBeNull();
+  });
+});
+
+describe("a rubric's criteria", () => {
+  it("show each ID over its whole question, wrapped, and open to the rest", async () => {
+    // A long ID and question, and many reads, of no break but at its end.
+    const id = "every_widget_is_painted_blue_on_all_sides";
+    const question = `${"Does the work hold up? ".repeat(20)}Answer.`;
+    const reads = Array.from(
+      { length: 22 },
+      (_, i) => `input_block_${String(i)}`,
+    );
+    const long = text
+      .replace('"id":"T01"', `"id":"${id}"`)
+      .replace(
+        /"question":"Does the work meet made-up rule 1\?[^"]*"/,
+        `"question":"${question}"`,
+      )
+      .replace(
+        '"reads":["tests","solution"]',
+        `"reads":${JSON.stringify(reads)}`,
+      );
+    expect(long).toContain(question);
+    expect(long).toContain(reads[21]);
+    serve([row("t/1")], { "t/1": long });
+    show(project, "?defn=review");
+
+    const tests = await screen.findByRole("region", { name: "tests.toml" });
+    const cell = within(tests).getByText(id).closest("td");
+    expect(cell).toHaveTextContent(`${id}${question}`);
+    expect(cell).toHaveClass("wrap-anywhere");
+    expect(cell).not.toHaveClass("truncate");
+    expect(cell?.parentElement?.children).toHaveLength(2);
+    const reading = within(tests)
+      .getByText(reads[21] ?? "")
+      .closest("p");
+    expect(reading).toHaveClass("min-w-0", "wrap-anywhere");
+
+    const opener = within(tests).getByRole("button", {
+      name: `${id}: check, pass if and fail if`,
+    });
+    expect(opener).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(opener);
+    const detail = document.getElementById(
+      opener.getAttribute("aria-controls") ?? "",
+    );
+    expect(detail).toBeVisible();
+    expect(detail).toHaveTextContent("Rule 1 holds everywhere it applies.");
+    expect(detail?.querySelector("td:last-child")).toHaveClass("wrap-anywhere");
+  });
+
+  it("put the card's aside under its title, whole, when the two do not fit", async () => {
+    serve([row("t/1")], { "t/1": text });
+    show(project, "?defn=review");
+
+    const brief = await screen.findByRole("region", { name: "brief.toml" });
+    const header = within(brief).getByRole("heading", {
+      name: "brief.toml",
+    }).parentElement;
+    expect(header).toHaveClass("flex-wrap");
+    expect(within(brief).getByText(/3 criteria/)).toHaveClass(
+      "ml-auto",
+      "flex-wrap",
+    );
   });
 });
 
@@ -368,6 +432,28 @@ describe("an attempt's definition in the Runs column", () => {
       expect(screen.queryByRole("note")).toBeNull();
     });
     expect(repo).not.toHaveAttribute("aria-controls");
+  });
+
+  it("keeps a variable's block inside its card, its value cut and shown whole in the box", async () => {
+    // A value of no space, past what the block shows.
+    const value = "x".repeat(300);
+    serveAttempt(
+      text.replace('"value":"example/tinyparse"', `"value":"${value}"`),
+    );
+    showAttempt(project, "&tab=runs&defn=author");
+
+    const card = await screen.findByRole("region", { name: "author.md" });
+    const repo = within(card).getByRole("button", { name: `repo: ${value}` });
+    expect(repo).toHaveClass("inline-flex", "max-w-full");
+    expect(within(repo).getByText("repo")).toHaveClass(
+      "min-w-0",
+      "wrap-anywhere",
+    );
+    expect(within(repo).getByText(value)).toHaveClass("min-w-0", "truncate");
+    fireEvent.click(repo);
+    expect(screen.getByRole("note")).toHaveTextContent(
+      `In this attempt: ${value}`,
+    );
   });
 
   it("shows the definition over a run when the link names both", async () => {

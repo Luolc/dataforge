@@ -77,4 +77,22 @@ describe("Markdown", () => {
     expect(screen.getByRole("table")).toHaveTextContent("<b>pass</b>");
     expect(screen.getByText("the pass").tagName).toBe("TD");
   });
+
+  it("keeps a code span with a variable whole, so a line breaks around it", () => {
+    render(
+      <Markdown
+        text={"Check out `${commit}` and `plain` code."}
+        variables={{
+          pattern: /\$\{\s*\w+\s*\}/g,
+          draw: (name) => <span>{`[${name}]`}</span>,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("[commit]").closest("code")).toHaveClass(
+      "inline-block",
+      "max-w-full",
+    );
+    expect(screen.getByText("plain")).not.toHaveClass("inline-block");
+  });
 });

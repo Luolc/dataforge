@@ -1,0 +1,34 @@
+# A synthetic attempt whose names, criteria, variables and paths all run long,
+# for checking the viewer's layout at every width; made up, it ran nowhere.
+id: layout
+name: Layout sample, with names longer than any column holds
+color: "#e5a54b"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+definition: definition.json
+states:
+  author: { title: Author }
+  check: { title: Check }
+  review: { title: Review }
+  solve: { title: Pass@k }
+statuses:
+  passed: { label: Passed, tone: good }
+  too_easy: { label: Too easy, tone: warn }
+  too_hard: { label: Too hard, tone: warn }
+  exhausted: { label: Exhausted, tone: bad }
+  error: { label: Error, tone: bad }
+  done: { label: Done, tone: good }
+  pass: { label: Pass, tone: good }
+  fail: { label: Fail, tone: bad }
+  in_range: { label: In range, tone: good }
+  all_solved: { label: All solved, tone: warn }
+  none_solved: { label: None solved, tone: warn }
+item: { depth: 2, title: Task }
+columns:
+  - { title: Cap, field: [budget, max_usd], format: usd }
+# What an attempt delivers once it ends, so a running one shows its tabs.
+deliverables:
+  - { name: task, kind: files, title: Task }
+  - { name: pass_at_k, kind: trials, title: Pass@k }
+  - { name: review, kind: report, title: Review }

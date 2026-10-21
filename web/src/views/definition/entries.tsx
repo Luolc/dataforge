@@ -156,9 +156,14 @@ function EntryFrame({
       aria-label={title}
       className="@container overflow-hidden rounded-panel border border-line bg-card"
     >
-      <header className="flex items-center justify-between gap-3 border-b border-line bg-head px-5 py-2.5">
-        <h3 className="font-mono text-md font-medium">{title}</h3>
-        <div className="flex items-center gap-3 text-xs text-fg-3">{aside}</div>
+      {/* The aside goes under the title, whole, when the two do not fit. */}
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-line bg-head px-5 py-2.5">
+        <h3 className="min-w-0 font-mono text-md font-medium wrap-anywhere">
+          {title}
+        </h3>
+        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-fg-3">
+          {aside}
+        </div>
       </header>
       {children}
     </section>
@@ -448,7 +453,7 @@ function RubricCard({ entry }: { entry: RubricEntry }) {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-1.5">
         <System text={entry.rubric.system} />
         {entry.reads !== undefined && (
-          <p className="text-xs text-fg-3">
+          <p className="min-w-0 text-xs wrap-anywhere text-fg-3">
             Reads{" "}
             {entry.reads.map((r, i) => (
               <Fragment key={r}>
@@ -501,7 +506,10 @@ function System({ text }: { text: string }) {
   );
 }
 
-/** One row per criterion; a row opens to its check, pass_if and fail_if. */
+/**
+ * One row per criterion, its ID over its whole question; a row opens to its
+ * check, pass_if and fail_if.
+ */
 function Criteria({ criteria }: { criteria: Criterion[] }) {
   const baseId = useId();
   const [open, setOpen] = useState(() => new Set<string>());
@@ -517,7 +525,6 @@ function Criteria({ criteria }: { criteria: Criterion[] }) {
     <table className="w-full table-fixed border-collapse text-sm">
       <colgroup>
         <col className="w-10" />
-        <col className="w-16" />
         <col />
       </colgroup>
       <thead>
@@ -525,8 +532,7 @@ function Criteria({ criteria }: { criteria: Criterion[] }) {
           <th className="py-1">
             <span className="sr-only">Open</span>
           </th>
-          <th className="px-2 py-1 text-left font-medium">ID</th>
-          <th className="px-2 py-1 text-left font-medium">Question</th>
+          <th className="px-2 py-1 text-left font-medium">ID and question</th>
         </tr>
       </thead>
       <tbody>
@@ -563,18 +569,16 @@ function Criteria({ criteria }: { criteria: Criterion[] }) {
                     )}
                   </button>
                 </td>
-                <td className="px-2 py-1.5 align-top font-mono text-xs">
-                  {c.id}
-                </td>
-                <td
-                  className={`px-2 py-1.5 pr-5 align-top ${isOpen ? "" : "truncate"}`}
-                >
+                <td className="px-2 py-1.5 pr-5 align-top wrap-anywhere">
+                  <code className="block font-mono text-xs text-fg-2">
+                    {c.id}
+                  </code>
                   {c.question}
                 </td>
               </tr>
               <tr id={detail} hidden={!isOpen} className="bg-active">
-                <td colSpan={2} />
-                <td className="px-2 pt-0.5 pr-5 pb-3">
+                <td />
+                <td className="px-2 pt-0.5 pr-5 pb-3 wrap-anywhere">
                   <dl className="flex flex-col gap-2">
                     {[
                       ["check", c.check],

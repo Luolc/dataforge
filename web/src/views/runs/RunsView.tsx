@@ -70,8 +70,10 @@ export function RunsView({
     snapshot?.shape === "definition" ? snapshot.definition : null;
   const ended = attemptStatus(project, record) !== null;
   // The run or discarded visit shown is scrolled to the top of the list,
-  // which may reach below the frame until the page scrolls.
+  // which may reach below the frame until the page scrolls; again once the
+  // definition's links above the list have loaded, as they make it shorter.
   const listRef = useRef<HTMLDivElement>(null);
+  const definitionState = definition?.state;
   useEffect(() => {
     const box = listRef.current;
     const shown = box?.querySelector<HTMLElement>("[aria-current=page]");
@@ -79,7 +81,7 @@ export function RunsView({
     const top = shown.offsetTop;
     if (top < box.scrollTop || top > box.scrollTop + box.clientHeight / 2)
       box.scrollTop = top;
-  }, [run, discarded]);
+  }, [run, discarded, definitionState]);
   // The visit the attempt is in while it runs: the record's last, or one
   // after it that the record does not hold yet.
   const current = currentOf(record, live);

@@ -80,61 +80,64 @@ export default function TrialsView({
       ? String(value.value)
       : "—";
   return (
-    <div className="grid grid-cols-[calc(var(--spacing)*64)_1fr] items-start gap-6">
-      <nav aria-label="Trials" className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <p className="text-xl font-semibold tabular-nums">
-            {shown} / {deliverable.k ?? trials.length} solved
-          </p>
-          {/* A visit that has not ended has no value to read yet. */}
-          {value?.reason != null && visit?.outcome !== null && (
-            <p className="text-xs text-fg-3">{value.reason}</p>
-          )}
-          {visit !== undefined && (
-            <p className="flex items-center gap-2 text-xs text-fg-3">
-              Outcome{" "}
-              <StatusLabel
-                project={project}
-                word={visit.outcome}
-                ended={attemptStatus(project, record) !== null}
-              />
+    // The list goes above the trial where the two do not fit side by side.
+    <div className="@container">
+      <div className="grid items-start gap-6 @3xl:grid-cols-[calc(var(--spacing)*64)_minmax(0,1fr)]">
+        <nav aria-label="Trials" className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xl font-semibold tabular-nums">
+              {shown} / {deliverable.k ?? trials.length} solved
             </p>
-          )}
-        </div>
-        <ul className="flex flex-col gap-0.5">
-          {trials.map((t) => (
-            <li key={t.output}>
-              <button
-                type="button"
-                aria-pressed={t.output === trial?.output}
-                onClick={() => {
-                  setChosen(t.output);
-                }}
-                className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
-              >
-                <span className="min-w-0 font-mono text-xs break-all">
-                  {t.id ?? t.output}
-                </span>
-                <TrialStatus trial={t} live={live} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      {trial !== undefined && (
-        <TrialPane
-          key={trial.output}
-          trial={trial}
-          live={live}
-          action={
-            visit === undefined ? undefined : actionOf(visit.actions, trial)
-          }
-          project={project}
-          attempt={attempt}
-          pane={pane}
-          onPane={setPane}
-        />
-      )}
+            {/* A visit that has not ended has no value to read yet. */}
+            {value?.reason != null && visit?.outcome !== null && (
+              <p className="text-xs text-fg-3">{value.reason}</p>
+            )}
+            {visit !== undefined && (
+              <p className="flex items-center gap-2 text-xs text-fg-3">
+                Outcome{" "}
+                <StatusLabel
+                  project={project}
+                  word={visit.outcome}
+                  ended={attemptStatus(project, record) !== null}
+                />
+              </p>
+            )}
+          </div>
+          <ul className="flex flex-col gap-0.5">
+            {trials.map((t) => (
+              <li key={t.output}>
+                <button
+                  type="button"
+                  aria-pressed={t.output === trial?.output}
+                  onClick={() => {
+                    setChosen(t.output);
+                  }}
+                  className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
+                >
+                  <span className="min-w-0 font-mono text-xs break-all">
+                    {t.id ?? t.output}
+                  </span>
+                  <TrialStatus trial={t} live={live} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        {trial !== undefined && (
+          <TrialPane
+            key={trial.output}
+            trial={trial}
+            live={live}
+            action={
+              visit === undefined ? undefined : actionOf(visit.actions, trial)
+            }
+            project={project}
+            attempt={attempt}
+            pane={pane}
+            onPane={setPane}
+          />
+        )}
+      </div>
     </div>
   );
 }

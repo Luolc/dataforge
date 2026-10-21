@@ -236,3 +236,19 @@ describe("the theme's tokens", () => {
     expect(value("color-focus")).toBe("var(--color-accent)");
   });
 });
+
+describe("rendered Markdown", () => {
+  const rule = (selector: string) =>
+    new RegExp(`\\${selector} \\{([^}]*)\\}`).exec(theme)?.[1] ?? "";
+
+  it("breaks a word longer than its line, and scrolls a wide table on its own", () => {
+    expect(rule(".md")).toMatch(/overflow-wrap: break-word;/);
+    expect(rule(".md table")).toMatch(/display: block;/);
+    expect(rule(".md table")).toMatch(/max-width: 100%;/);
+    expect(rule(".md table")).toMatch(/overflow-x: auto;/);
+    expect(rule(".md a")).toMatch(/max-width: 100%;/);
+    expect(rule(".md :where\\(th, td\\) code")).toMatch(
+      /overflow-wrap: anywhere;/,
+    );
+  });
+});

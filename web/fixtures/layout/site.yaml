@@ -1,0 +1,5 @@
+# The layout sample's attempt, whose names run long everywhere, for checking
+# the viewer at every width: `dataforge viz serve --config
+# web/fixtures/layout/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8814 }
+projects: [project.yaml]

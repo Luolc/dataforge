@@ -89,9 +89,18 @@ function splitVariables(node: MdNode, pattern: RegExp) {
     const parts = split(child.value, pattern);
     if (parts === null) return [child];
     if (child.type === "text") return parts;
+    // Kept whole on a line where it fits, so that a line break falls
+    // around it and not between its edge and the variable it starts with.
     if (child.type === "inlineCode")
       return [
-        { type: "variableCode", data: { hName: "code" }, children: parts },
+        {
+          type: "variableCode",
+          data: {
+            hName: "code",
+            hProperties: { className: ["inline-block", "max-w-full"] },
+          },
+          children: parts,
+        },
       ];
     if (child.type === "code") {
       const lang = child.lang ?? undefined;

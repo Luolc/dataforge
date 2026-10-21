@@ -280,6 +280,19 @@ describe("the home page", () => {
 
     expect(await roundOf("t-done")).toHaveTextContent("Pass@kNo outcome");
     expect(await roundOf("t-live")).toHaveTextContent("Pass@kNot ended");
+    // Each round on one line, as its height is one line: Not / ended
+    // folded over two ran into the round below it.
+    expect(await roundOf("t-live")).toHaveClass("h-5", "whitespace-nowrap");
+  });
+
+  it("scrolls a table wider than the page sideways on its own, under the filters", async () => {
+    show();
+    const table = (await screen.findByText("t-run")).closest("table");
+
+    expect(table?.parentElement).toHaveClass("overflow-x-auto");
+    expect(table?.parentElement).not.toContainElement(
+      screen.getByRole("group", { name: "Filter by status" }),
+    );
   });
 
   it("draws the project's columns in their formats", async () => {

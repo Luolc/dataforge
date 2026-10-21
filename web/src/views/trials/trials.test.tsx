@@ -74,6 +74,17 @@ describe("the trials view", () => {
     ]);
   });
 
+  it("puts the list above the trial when the two do not fit side by side", () => {
+    show();
+    const grid = screen.getByRole("navigation", {
+      name: "Trials",
+    }).parentElement;
+
+    expect(grid?.parentElement).toHaveClass("@container");
+    expect(grid?.className).toMatch(/(^| )@3xl:grid-cols-\[/);
+    expect(grid?.className).not.toMatch(/(^| )grid-cols-/);
+  });
+
   it("heads a visit with no outcome as No outcome once its attempt ended", () => {
     const open = structuredClone(attempt);
     open.status = null;

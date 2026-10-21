@@ -246,9 +246,11 @@ function Outputs({ outputs }: { outputs: Record<string, string> }) {
   return (
     <ul className="flex flex-col gap-1">
       {names.map((name) => (
-        <li key={name} className="break-all">
-          <span className="text-fg">{name}</span>{" "}
-          <code className="font-mono text-xs text-fg-3">{outputs[name]}</code>
+        <li key={name} className="flex flex-wrap items-baseline gap-x-2">
+          <span className="wrap-anywhere text-fg">{name}</span>
+          <code className="min-w-0 font-mono text-xs wrap-anywhere text-fg-3">
+            {outputs[name]}
+          </code>
         </li>
       ))}
     </ul>

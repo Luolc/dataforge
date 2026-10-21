@@ -37,7 +37,7 @@ export function ToneLabel({ label, tone }: { label: string; tone: Tone }) {
   const Glyph = toneGlyph[tone];
   return (
     <span
-      className={`inline-flex h-5 items-center gap-1 rounded-row px-2 text-xs font-medium ${toneLabel[tone]}`}
+      className={`inline-flex h-5 items-center gap-1 rounded-row px-2 text-xs font-medium whitespace-nowrap ${toneLabel[tone]}`}
     >
       <Glyph className="size-icon-sm" aria-hidden />
       {label}

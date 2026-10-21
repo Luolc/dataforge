@@ -281,7 +281,7 @@ function RoundsCell({ project, row }: { project: Project; row: AttemptRow }) {
         return (
           <li
             key={r.round}
-            className="inline-flex h-5 items-center gap-1 rounded-row bg-neutral-bg px-1.5 text-xs"
+            className="inline-flex h-5 items-center gap-1 rounded-row bg-neutral-bg px-1.5 text-xs whitespace-nowrap"
           >
             {r.state !== null && (
               <span className="text-fg-2">{stateTitle(project, r.state)}</span>
@@ -600,74 +600,77 @@ export function HomeTable({
             </button>
           </p>
         )}
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-line bg-head text-xs text-fg-2">
-              {table.getHeaderGroups()[0]?.headers.map((header, i) => {
-                const spec = columnSpecs[i];
-                const sorted = header.column.getIsSorted();
-                const Arrow = sorted === "desc" ? ArrowDown : ArrowUp;
-                if (spec?.id === "icon")
+        {/* The table scrolls sideways on its own, under the filters. */}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-line bg-head text-xs text-fg-2">
+                {table.getHeaderGroups()[0]?.headers.map((header, i) => {
+                  const spec = columnSpecs[i];
+                  const sorted = header.column.getIsSorted();
+                  const Arrow = sorted === "desc" ? ArrowDown : ArrowUp;
+                  if (spec?.id === "icon")
+                    return (
+                      <th key={header.id} scope="col" className="w-8">
+                        <span className="sr-only">Status icon</span>
+                      </th>
+                    );
                   return (
-                    <th key={header.id} scope="col" className="w-8">
-                      <span className="sr-only">Status icon</span>
+                    <th
+                      key={header.id}
+                      scope="col"
+                      aria-sort={
+                        sorted === "asc"
+                          ? "ascending"
+                          : sorted === "desc"
+                            ? "descending"
+                            : "none"
+                      }
+                      className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={header.column.getToggleSortingHandler()}
+                        className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
+                      >
+                        {spec?.title}
+                        {sorted !== false && (
+                          <Arrow className="size-3" aria-hidden />
+                        )}
+                      </button>
                     </th>
                   );
-                return (
-                  <th
-                    key={header.id}
-                    scope="col"
-                    aria-sort={
-                      sorted === "asc"
-                        ? "ascending"
-                        : sorted === "desc"
-                          ? "descending"
-                          : "none"
-                    }
-                    className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"}`}
-                  >
-                    <button
-                      type="button"
-                      onClick={header.column.getToggleSortingHandler()}
-                      className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
-                    >
-                      {spec?.title}
-                      {sorted !== false && (
-                        <Arrow className="size-3" aria-hidden />
-                      )}
-                    </button>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          {GROUPS.map(({ group, title }) => {
-            const inGroup = rows.filter((r) => r.original.group === group);
-            if (inGroup.length === 0) return null;
-            const n = inGroup.length;
-            const k = flagged(
-              project,
-              inGroup.map((r) => r.original),
-            );
-            const summary =
-              k > 0
-                ? `${k.toString()} of ${n.toString()} bad or warn`
-                : n.toString();
-            return (
-              <Group
-                key={group}
-                id={`${baseId}-${group}`}
-                title={title}
-                summary={summary}
-                width={columnSpecs.length}
-              >
-                {inGroup.map((row, r) =>
-                  itemRows(row, `${baseId}-${group}-${r.toString()}`),
-                )}
-              </Group>
-            );
-          })}
-        </table>
+                })}
+              </tr>
+            </thead>
+            {GROUPS.map(({ group, title }) => {
+              const inGroup = rows.filter((r) => r.original.group === group);
+              if (inGroup.length === 0) return null;
+              const n = inGroup.length;
+              const k = flagged(
+                project,
+                inGroup.map((r) => r.original),
+              );
+              const summary =
+                k > 0
+                  ? `${k.toString()} of ${n.toString()} bad or warn`
+                  : n.toString();
+              return (
+                <Group
+                  key={group}
+                  id={`${baseId}-${group}`}
+                  title={title}
+                  summary={summary}
+                  width={columnSpecs.length}
+                >
+                  {inGroup.map((row, r) =>
+                    itemRows(row, `${baseId}-${group}-${r.toString()}`),
+                  )}
+                </Group>
+              );
+            })}
+          </table>
+        </div>
         {rows.length === 0 && (
           <p className="py-6 text-center text-fg-3">
             {read.rows.length === 0

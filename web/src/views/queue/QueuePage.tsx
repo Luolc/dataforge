@@ -186,55 +186,58 @@ function Queues({
           No job has been queued yet.
         </p>
       ) : (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-line bg-head text-xs text-fg-2">
-              {HEADS.map((h) => (
-                <th
-                  key={h.title}
-                  scope="col"
-                  className={`px-2 py-1 font-medium whitespace-nowrap ${h.numeric === true ? "text-right" : "text-left"}`}
-                >
-                  {h.title}
-                </th>
-              ))}
-              <th scope="col">
-                <span className="sr-only">Cancel</span>
-              </th>
-            </tr>
-          </thead>
-          {GROUPS.map(({ title, has }) => {
-            const jobs = data.jobs.filter(has);
-            if (jobs.length === 0) return null;
-            const n = jobs.length;
-            const k = jobs.filter((j) => {
-              const { tone } = jobLabel(j);
-              return tone === "bad" || tone === "warn";
-            }).length;
-            return (
-              <Group
-                key={title}
-                id={`${baseId}-${title}`}
-                title={title}
-                summary={
-                  k > 0
-                    ? `${k.toString()} of ${n.toString()} bad or warn`
-                    : n.toString()
-                }
-                width={HEADS.length + 1}
-              >
-                {jobs.map((job) => (
-                  <JobRow
-                    key={job.id}
-                    job={job}
-                    projects={known}
-                    onCancel={cancel}
-                  />
+        // The table scrolls sideways on its own, under the counts.
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-line bg-head text-xs text-fg-2">
+                {HEADS.map((h) => (
+                  <th
+                    key={h.title}
+                    scope="col"
+                    className={`px-2 py-1 font-medium whitespace-nowrap ${h.numeric === true ? "text-right" : "text-left"}`}
+                  >
+                    {h.title}
+                  </th>
                 ))}
-              </Group>
-            );
-          })}
-        </table>
+                <th scope="col">
+                  <span className="sr-only">Cancel</span>
+                </th>
+              </tr>
+            </thead>
+            {GROUPS.map(({ title, has }) => {
+              const jobs = data.jobs.filter(has);
+              if (jobs.length === 0) return null;
+              const n = jobs.length;
+              const k = jobs.filter((j) => {
+                const { tone } = jobLabel(j);
+                return tone === "bad" || tone === "warn";
+              }).length;
+              return (
+                <Group
+                  key={title}
+                  id={`${baseId}-${title}`}
+                  title={title}
+                  summary={
+                    k > 0
+                      ? `${k.toString()} of ${n.toString()} bad or warn`
+                      : n.toString()
+                  }
+                  width={HEADS.length + 1}
+                >
+                  {jobs.map((job) => (
+                    <JobRow
+                      key={job.id}
+                      job={job}
+                      projects={known}
+                      onCancel={cancel}
+                    />
+                  ))}
+                </Group>
+              );
+            })}
+          </table>
+        </div>
       )}
       {older > 0 && (
         <p className="text-xs text-fg-3">
