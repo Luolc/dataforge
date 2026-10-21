@@ -40,8 +40,9 @@
 #   started without --model.
 # - promptSuggestionEnabled false: the suggested prompt in the input box reads
 #   back like a typed draft when an agent reads a pane.
-# - showThinkingSummaries true: while it is false, the default, the API masks
-#   the thinking blocks, so the sessions record no thinking text.
+# - showThinkingSummaries true: requests thinking summaries from the API and
+#   shows them in the conversation and the transcript view; the default is
+#   false.
 # - disableRemoteControl: data machines have no Remote Control.
 #
 # Keys the setup does not own stay as they are. The one exception is
