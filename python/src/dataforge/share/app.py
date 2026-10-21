@@ -19,6 +19,7 @@ from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from dataforge.share import tokens
 from dataforge.share.config import Site
@@ -88,6 +89,8 @@ def create_app(
   app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
   api = _Api(site, static, clock)
   app.add_exception_handler(RefusedError, _refused)
+  # Its response is made outside the middleware that adds HEADERS.
+  app.add_exception_handler(Exception, _failed)
   _ = app.middleware("http")(_headers)
   app.add_api_route("/api/login", api.login, methods=["POST"])
   app.add_api_route("/api/logout", api.logout, methods=["POST"])
@@ -136,7 +139,8 @@ class _Api:
     if not isinstance(given, str):
       return _denied()
     now = self._clock()
-    found = self._check(given, now)
+    # SQLite blocks: off the event loop, as the other routes run.
+    found = await run_in_threadpool(self._check, given, now)
     if found is None:
       return _denied()
     response = Response(status_code=204)
@@ -305,6 +309,13 @@ async def _refused(request: Request, error: Exception) -> Response:
   return _error(refusal.status, refusal.reason)
 
 
+async def _failed(request: Request, error: Exception) -> Response:
+  del request, error
+  response = _error(500, "the server failed")
+  response.headers.update(HEADERS)
+  return response
+
+
 async def _headers(
   request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
@@ -319,6 +330,7 @@ def _error(status: int, reason: str) -> Response:
     401: "unauthorized",
     404: "not found",
     413: "too large",
+    500: "server error",
     503: "unavailable",
   }
   return JSONResponse(

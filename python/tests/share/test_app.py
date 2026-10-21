@@ -355,6 +355,50 @@ def test_no_symlink_is_followed_and_no_path_leaves_the_export(
     assert b"a host file" not in response.content
 
 
+def test_a_listed_item_that_is_a_symlink_or_missing_names_no_path(
+  tree: Tree,
+) -> None:
+  web = signed_in(tree)
+  items = tree.export / "items"
+  (items / "item-3").symlink_to(tree.item)
+  listed = ["item-1", "item-2", "item-3", "item-4"]
+  write_export(tree.export, export_json("example", listed))
+
+  responses = [
+    web.get(f"{API}/{route}", params={"attempt": item})
+    for route in ("record", "files")
+    for item in ("item-3", "item-4")
+  ]
+
+  for response in responses:
+    assert response.status_code == 404, response.url
+    assert response.json() == {"error": "not found", "reason": "no such item"}
+
+
+def test_a_failure_of_the_server_has_the_headers_too(
+  tree: Tree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  token, _ = tokens.create(tree.tokens, ["example"], "r1", now=NOW)
+  app = create_app(load_site(tree.site), None, lambda: NOW)
+  web = TestClient(app, raise_server_exceptions=False)
+  web.cookies.set(COOKIE, token)
+
+  def fail(db: Path, given: str, now: datetime) -> None:
+    del db, given, now
+    raise RuntimeError("a fault")
+
+  monkeypatch.setattr(tokens, "check", fail)
+  response = web.get(f"{API}/items")
+
+  assert response.status_code == 500
+  assert response.json() == {
+    "error": "server error",
+    "reason": "the server failed",
+  }
+  for name, value in HEADERS.items():
+    assert response.headers.get(name) == value, name
+
+
 def test_an_export_json_that_is_a_symlink_is_not_read(tree: Tree) -> None:
   web = signed_in(tree, "example", "other")
   real = tree.site.parent / "export.json"

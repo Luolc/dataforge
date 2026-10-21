@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 
 import pytest
+import uvicorn
 
 from dataforge.cli import main
 from dataforge.share import tokens
@@ -131,10 +132,19 @@ def test_no_token_and_no_request_reaches_the_log(tmp_path: Path) -> None:
   assert "token=" not in text
 
 
+def never_bind(*args: object, **kwargs: object) -> None:
+  del args, kwargs
+  raise AssertionError("serve went on to bind")
+
+
 @pytest.mark.parametrize("host", ["0.0.0.0", '"::"', "localhost"])
 def test_serve_refuses_a_wildcard_or_a_name_before_it_binds(
-  tmp_path: Path, host: str, capsys: pytest.CaptureFixture[str]
+  tmp_path: Path,
+  host: str,
+  capsys: pytest.CaptureFixture[str],
+  monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+  monkeypatch.setattr(uvicorn, "run", never_bind)
   tree = make_tree(tmp_path)
   _ = tree.site.write_text(tree.site.read_text().replace("127.0.0.1", host))
 
@@ -145,8 +155,11 @@ def test_serve_refuses_a_wildcard_or_a_name_before_it_binds(
 
 
 def test_serve_refuses_a_missing_token_database_or_frontend(
-  tmp_path: Path, capsys: pytest.CaptureFixture[str]
+  tmp_path: Path,
+  capsys: pytest.CaptureFixture[str],
+  monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+  monkeypatch.setattr(uvicorn, "run", never_bind)
   tree = make_tree(tmp_path)
   config = ["share", "serve", "--config", str(tree.site)]
 

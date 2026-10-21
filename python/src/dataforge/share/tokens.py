@@ -100,7 +100,8 @@ def create(
 ) -> tuple[str, Token]:
   """Make a token, and the database first when there is none.
 
-  A new database file is made readable and writable by its owner alone.
+  The database file is made readable and writable by its owner alone,
+  one that exists already included.
 
   Args:
     db: The database.
@@ -131,11 +132,14 @@ def create(
     raise ValueError(f"days {days} is not from 1 to {MOST_DAYS}")
   created = (now or datetime.now(UTC)).replace(microsecond=0)
   expires = created + timedelta(days=days)
+  fd = os.open(
+    db, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600
+  )
   try:
-    fd = os.open(db, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
+    # A database made before, or by another program, is tightened too.
+    os.fchmod(fd, 0o600)
+  finally:
     os.close(fd)
-  except FileExistsError:
-    pass
   with _connect(db, "rw") as connection:
     _ = connection.executescript(_SCHEMA)
     for _ in range(_TRIES - 1):

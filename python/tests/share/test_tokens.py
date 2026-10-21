@@ -37,6 +37,18 @@ def test_a_token_is_shown_once_and_kept_only_as_its_hash(
   assert stat.S_IMODE(db.stat().st_mode) == 0o600
 
 
+def test_a_database_that_exists_is_tightened_to_its_owner(
+  tmp_path: Path,
+) -> None:
+  db = tmp_path / "tokens.sqlite"
+  db.touch(mode=0o644)
+  db.chmod(0o644)
+
+  _ = tokens.create(db, ["example"], "r1", now=NOW)
+
+  assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+
 def test_a_token_is_valid_only_until_it_expires(tmp_path: Path) -> None:
   db = tmp_path / "tokens.sqlite"
   token, row = tokens.create(db, ["example", "other"], "r1", now=NOW)

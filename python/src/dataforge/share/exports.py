@@ -14,7 +14,7 @@ for every request, and an item it does not list is never served.
 """
 
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass
 import json
 import os
@@ -143,9 +143,14 @@ def open_item(top: int, export: Export, item: str) -> Generator[int]:
   """
   if not any(i.id == item for i in export.items):
     raise RefusedError(404, "no such item")
-  with open_path(top, f"items/{item}") as fd:
+  # dataforge.viz.paths names the path in its refusal; share names none.
+  with ExitStack() as stack:
+    try:
+      fd = stack.enter_context(open_path(top, f"items/{item}"))
+    except RefusedError:
+      raise RefusedError(404, "no such item") from None
     if not is_dir(fd):
-      raise RefusedError(404, "the item is not a directory")
+      raise RefusedError(404, "no such item")
     yield fd
 
 
