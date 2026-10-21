@@ -44,7 +44,7 @@ import { StatusIcon, ToneIcon } from "../../ui/status-mark";
 import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
-import { declaredMissing, tabKinds } from "./declared";
+import { declaredMissing, retitled, tabKinds } from "./declared";
 import { attemptHref } from "./href";
 import { WORKFLOW } from "../definition/details";
 import { useSnapshot } from "../definition/load";
@@ -197,7 +197,7 @@ function runOf(value: string | null): number | null {
 function Attempt({
   project,
   attempt,
-  record,
+  record: recordRead,
   live: read,
   failed,
   tab,
@@ -216,6 +216,7 @@ function Attempt({
   discarded: number | null;
   defn: string | null;
 }) {
+  const record = retitled(project, recordRead);
   // A record that has ended wins over a /live read before it ended: the page
   // then shows the record alone.
   const live = attemptStatus(project, record) === null ? read : null;
