@@ -4,6 +4,28 @@ import type { AttemptRecord, Deliverable, Project } from "../../api/types";
 import { attemptStatus } from "../../ui/status";
 
 /**
+ * The record with each deliverable titled as the project titles the one of its
+ * name; a deliverable the project does not list keeps the title it recorded.
+ */
+export function retitled(
+  project: Project,
+  record: AttemptRecord,
+): AttemptRecord {
+  const have = record.deliverables;
+  if (have === undefined) return record;
+  const titles = new Map(
+    (project.deliverables ?? []).map((d) => [d.name, d.title]),
+  );
+  return {
+    ...record,
+    deliverables: have.map((d) => ({
+      ...d,
+      title: titles.get(d.name) ?? d.title,
+    })),
+  };
+}
+
+/**
  * Each deliverable the project declares that the record lacks, as an entry
  * with no path and the reason it is missing; none for a record with no
  * deliverables key, which an older dataforge wrote.

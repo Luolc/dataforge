@@ -211,3 +211,46 @@ describe("a running attempt's record", () => {
     expect(screen.getByText("Not run: review was never visited")).toBeVisible();
   });
 });
+
+describe("a deliverable's title", () => {
+  const renamed: Project = {
+    ...sampleProject,
+    deliverables: [
+      { name: "task", kind: "files", title: "Task" },
+      { name: "pass_at_k", kind: "trials", title: "Pass@K" },
+      { name: "reviews", kind: "report", title: "Quality reviews" },
+    ],
+  };
+
+  it("is the project's, where the record titled it otherwise", async () => {
+    show(midway, "", renamed);
+
+    expect(await tabs()).toEqual([
+      "Runs3",
+      expect.stringMatching(/^Task\d*$/),
+      "Pass@K— / 4",
+      "Quality reviews1",
+    ]);
+    expect(
+      within(screen.getByRole("table")).getByText("Quality reviews"),
+    ).toBeVisible();
+  });
+
+  it("is the record's, where the project does not list the deliverable", async () => {
+    show(midway, "", {
+      ...renamed,
+      deliverables: [renamed.deliverables?.[0] ?? never()],
+    });
+
+    expect(await tabs()).toEqual([
+      "Runs3",
+      expect.stringMatching(/^Task\d*$/),
+      "pass@4— / 4",
+      "Reviews1",
+    ]);
+  });
+});
+
+function never(): never {
+  throw new Error("no deliverable");
+}
