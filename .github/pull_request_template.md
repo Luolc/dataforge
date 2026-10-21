@@ -12,6 +12,6 @@
 
 ## Checks
 
-<!-- The local checks you ran and their results (AGENTS.md, L56). -->
+<!-- The local checks you ran and their results (AGENTS.md, L57). -->
 
 Local leak pre-review: reviewer OK, head <sha>
