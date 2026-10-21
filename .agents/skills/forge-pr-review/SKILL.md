@@ -15,4 +15,4 @@ The review checks specific to this repo, on top of general review practice.
 
 ## Design doc
 
-- A PR that is not a design pass leaves `docs/design.md` and `docs/design-viz.md` untouched. Check that its "Design impact" names the section or invariant of either file the change really affects, with the guarding test, or says "none" only when nothing there changes.
+- A PR that is not a design pass leaves `docs/design.md`, `docs/design-viz.md` and `docs/design-share.md` untouched. Check that its "Design impact" names the section or invariant of any of them the change really affects, with the guarding test, or says "none" only when nothing there changes.

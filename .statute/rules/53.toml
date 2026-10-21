@@ -1,0 +1,31 @@
+id = 53
+slug = "design-three-files-cap"
+revision = 1
+kind = "rule"
+status = "trial"
+lang = "en"
+parent = "R232"
+default = "on"
+authority = ["simplicity"]
+constitution = ">=1"
+level = "project"
+check = "none"
+uses = ["instructions", "review"]
+
+[title]
+en = "Keep the design in docs/design.md, docs/design-viz.md and docs/design-share.md, at most 200 lines each"
+
+[text.statement]
+en = "Keep the whole design in `docs/design.md`, except the design of the viz, the web viewer of attempts and its server, which goes in `docs/design-viz.md`, and the design of the share site, the read-only site that shows an exported set of data to a holder of an access token, and its server, which goes in `docs/design-share.md`; keep each file at most 200 lines long."
+
+[text.reason]
+en = '''
+One short file is read whole before a change; the cap keeps it to what a reader needs. The viz and the share site are parts of their own, each with its own stack, and do not fit in the cap of `docs/design.md`; each gets one more file, and no other part does.
+'''
+
+[text.verification]
+en = '''
+`.github/scripts/design-length.sh` checks the cap of the three files, and CI's `check` job runs it.
+
+Violated when a change adds a design file other than these three, puts into `docs/design-viz.md` a part of the design other than the viz, puts into `docs/design-share.md` a part of the design other than the share site, or leaves any of the files longer than 200 lines.
+'''

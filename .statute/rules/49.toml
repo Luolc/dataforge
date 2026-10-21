@@ -1,8 +1,9 @@
 id = 49
 slug = "checks-by-path-web"
-revision = 1
+revision = 2
 kind = "rule"
-status = "trial"
+status = "superseded"
+superseded-by = 56
 lang = "en"
 parent = "R276"
 default = "on"
