@@ -62,6 +62,18 @@ def version(
   return found
 
 
+def found_(value: object) -> dict[str, object]:
+  return {"read": "found", "value": value, "reason": None}
+
+
+def not_run(reason: str) -> dict[str, object]:
+  return {"read": "not run", "value": None, "reason": reason}
+
+
+def missing(reason: str) -> dict[str, object]:
+  return {"read": "missing", "value": None, "reason": reason}
+
+
 def shown(tree: Tree) -> dict[str, object]:
   response = client(tree).get(f"{API}/tabs", params=ATTEMPT)
   assert response.status_code == 200
@@ -213,45 +225,38 @@ def test_fields_are_read_from_the_version_shown(tree: Tree) -> None:
     for v in cast(list[dict[str, object]], shown(tree)["versions"])
   }
 
-  no = "No such file or directory"
+  absent = "No such file or directory"
+  link = "a symlink or not a directory, which is never followed"
   assert found == {
     "notes": [
-      {"value": None, "missing": None},
-      {"value": None, "missing": "notes/status.json has no outcome"},
-      {"value": 1.5, "missing": None},
+      found_(None),
+      missing("notes/status.json has no outcome"),
+      found_(1.5),
     ],
     "notes-1": [
-      {"value": "n/a", "missing": None},
-      {"value": None, "missing": "notes-1/status.json has no outcome"},
-      {"value": None, "missing": "notes-1/status.json has no cost_usd"},
+      found_("n/a"),
+      missing("notes-1/status.json has no outcome"),
+      missing("notes-1/status.json has no cost_usd"),
     ],
     "notes-2": [
-      {"value": None, "missing": "notes-2/tags.json has no verdict.value"},
-      {"value": None, "missing": f"notes-2/status.json: {no}"},
-      {"value": None, "missing": f"notes-2/status.json: {no}"},
+      missing("notes-2/tags.json has no verdict.value"),
+      not_run(f"notes-2/status.json: {absent}"),
+      not_run(f"notes-2/status.json: {absent}"),
     ],
     "notes-3": [
-      {"value": None, "missing": "notes-3/tags.json is not JSON"},
-      {"value": "ok", "missing": None},
-      {"value": None, "missing": "notes-3/status.json has no cost_usd"},
+      missing("notes-3/tags.json is not JSON"),
+      found_("ok"),
+      missing("notes-3/status.json has no cost_usd"),
     ],
     "notes-4": [
-      {"value": None, "missing": f"notes-4/tags.json: {no}"},
-      {
-        "value": None,
-        "missing": "notes-4/status.json: a symlink or not a directory,"
-        + " which is never followed",
-      },
-      {
-        "value": None,
-        "missing": "notes-4/status.json: a symlink or not a directory,"
-        + " which is never followed",
-      },
+      not_run(f"notes-4/tags.json: {absent}"),
+      missing(f"notes-4/status.json: {link}"),
+      missing(f"notes-4/status.json: {link}"),
     ],
     "notes-5": [
-      {"value": None, "missing": "notes-5/tags.json is not JSON"},
-      {"value": None, "missing": f"notes-5/status.json: {no}"},
-      {"value": None, "missing": f"notes-5/status.json: {no}"},
+      missing("notes-5/tags.json is not JSON"),
+      not_run(f"notes-5/status.json: {absent}"),
+      not_run(f"notes-5/status.json: {absent}"),
     ],
   }
 
@@ -275,12 +280,33 @@ def test_a_column_reads_its_file_from_the_tab_s_first_version(
   )
 
   assert cast(list[object], row["values"])[3:] == ["newer", 7]
+  assert row["reads"] == [None, None, None, "found", "found"]
 
 
-def test_a_column_with_no_file_or_version_is_empty(tree: Tree) -> None:
+def test_a_column_s_null_is_not_its_file_not_there(tree: Tree) -> None:
+  _ = version(tree, "notes", tags={"verdict": {"value": None}})
+  _ = (tree.attempt / "own.json").write_text('{"m": 7}')
+
+  [row] = cast(
+    list[dict[str, object]], client(tree).get(f"{API}/attempts").json()
+  )
+
+  assert row["values"] == ["passed", 0.42, None, None, None]
+  assert row["reads"] == [None, None, None, "found", "missing"]
+
+
+def test_a_column_with_no_file_or_version_is_not_run(tree: Tree) -> None:
   [row] = cast(
     list[dict[str, object]], client(tree).get(f"{API}/attempts").json()
   )
 
   assert row["error"] is None
   assert row["values"] == ["passed", 0.42, None, None, None]
+  assert row["reads"] == [None, None, None, "not run", "not run"]
+  _ = version(tree, "notes")
+
+  [row] = cast(
+    list[dict[str, object]], client(tree).get(f"{API}/attempts").json()
+  )
+
+  assert row["reads"] == [None, None, None, "not run", "not run"]

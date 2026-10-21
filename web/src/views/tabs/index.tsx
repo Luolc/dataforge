@@ -12,7 +12,7 @@ import type {
   TabVersions,
 } from "../../api/types";
 import { Card, Note } from "../../ui/card";
-import { formatValue } from "../../ui/format";
+import { readValue } from "../../ui/format";
 import { ChoiceMenu } from "../../ui/menu";
 import { NOT_RUN } from "../../ui/status";
 import { fetchFile, size } from "../files/file";
@@ -108,14 +108,16 @@ function Fields({ tab, version }: { tab: ProjectTab; version: TabVersion }) {
             <div key={field.title} className="contents">
               <dt className="text-fg-3">{field.title}</dt>
               <dd className="wrap-anywhere">
-                {found?.missing !== null ? (
-                  <span className="text-fg-3">
-                    {found?.missing ?? "Not read"}
-                  </span>
-                ) : found.value === null ? (
-                  <code className="font-mono text-fg-3">null</code>
+                {found === undefined ? (
+                  <span className="text-fg-3">Not read</span>
+                ) : found.read === "found" ? (
+                  readValue(found.read, found.value, field.format)
                 ) : (
-                  formatValue(found.value, field.format)
+                  <span className="text-fg-3">
+                    {found.read === "not run"
+                      ? `${NOT_RUN}: ${found.reason ?? ""}`
+                      : (found.reason ?? "—")}
+                  </span>
                 )}
               </dd>
             </div>

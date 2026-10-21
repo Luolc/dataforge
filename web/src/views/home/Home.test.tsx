@@ -321,6 +321,36 @@ describe("the home page", () => {
     }
   });
 
+  it("tells a column's file not there from its value null", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        { title: "A", field: ["a"], format: "text" },
+        { title: "B", field: ["b"], format: "text" },
+        { title: "C", field: ["c"], format: "text" },
+        { title: "D", field: ["d"], format: "usd" },
+      ],
+    };
+    ROWS[3] = {
+      ...must(ROWS[3]),
+      values: [null, null, null, 2],
+      reads: ["not run", "missing", "found", "found"],
+    };
+    try {
+      show("/sample", withColumns);
+      const item = (await screen.findByText("t-new")).closest("tr");
+      const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-4);
+      expect(cells.map((c) => c.textContent)).toEqual([
+        "Not run",
+        "—",
+        "null",
+        "$2.00",
+      ]);
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [], reads: null };
+    }
+  });
+
   it("shows each row's status as an icon first, a spinner while it runs", async () => {
     // With older records shown, so the unreadable one has its row too.
     show("/sample?older=1");

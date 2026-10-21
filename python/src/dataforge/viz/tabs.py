@@ -48,6 +48,16 @@ def versions(tab: Tab, attempt: int) -> list[str]:
   return found
 
 
+FOUND = "found"
+"""A read that found its value, which may be JSON null."""
+
+NOT_RUN = "not run"
+"""A read whose file, or the tab's version it is in, is not there."""
+
+MISSING = "missing"
+"""A read whose file is there but refused, not JSON or without the keys."""
+
+
 def fields(tab: Tab, attempt: int, version: str) -> list[dict[str, object]]:
   """Read the values of a tab's fields for one version.
 
@@ -57,15 +67,17 @@ def fields(tab: Tab, attempt: int, version: str) -> list[dict[str, object]]:
     version: The version's directory, one of versions().
 
   Returns:
-    One {value, missing} per field, in order: value the JSON value found,
-    null among them, and missing null; or value null and missing why there
-    is none, for a file that is not there, not JSON or lacks the keys.
+    One {read, value, reason} per field, in order: read FOUND, NOT_RUN or
+    MISSING; value the JSON value found, null unless read is FOUND; reason
+    why there is none, null when read is FOUND.
   """
   read = _reader(attempt)
   return [_found(read, version, field) for field in tab.fields]
 
 
-def column_value(project: Project, column: Column, attempt: int) -> object:
+def column_value(
+  project: Project, column: Column, attempt: int
+) -> dict[str, object]:
   """Read a column's value from its file, as the listing shows it.
 
   Args:
@@ -74,18 +86,22 @@ def column_value(project: Project, column: Column, attempt: int) -> object:
     attempt: The attempt's directory.
 
   Returns:
-    The JSON value; None when there is none, as when the tab has no
-    version, or the file is not there, not JSON or lacks the keys.
+    The value as fields() gives one; NOT_RUN too when the column's tab has
+    no version.
   """
   base = ""
   if column.tab is not None:
     tab = next(t for t in project.tabs if t.name == column.tab)
     found = versions(tab, attempt)
     if not found:
-      return None
+      return {
+        "read": NOT_RUN,
+        "value": None,
+        "reason": f"no version of {tab.title}",
+      }
     base = found[0]
   field = TabField(column.title, column.file or (), column.field, column.format)
-  return _found(_reader(attempt), base, field)["value"]
+  return _found(_reader(attempt), base, field)
 
 
 class _NotJSONError(ValueError):
@@ -127,17 +143,16 @@ def _found(
   try:
     current = read(path)
   except RefusedError as error:
-    return {"value": None, "missing": error.reason}
+    state = NOT_RUN if error.absent else MISSING
+    return {"read": state, "value": None, "reason": error.reason}
   except _NotJSONError as error:
-    return {"value": None, "missing": str(error)}
+    return {"read": MISSING, "value": None, "reason": str(error)}
   for key in field.field:
     if not isinstance(current, dict) or key not in current:
-      return {
-        "value": None,
-        "missing": f"{path} has no {'.'.join(field.field)}",
-      }
+      reason = f"{path} has no {'.'.join(field.field)}"
+      return {"read": MISSING, "value": None, "reason": reason}
     current = cast(dict[str, object], current)[key]
-  return {"value": current, "missing": None}
+  return {"read": FOUND, "value": current, "reason": None}
 
 
 def _matches(pattern: str, name: str) -> bool:

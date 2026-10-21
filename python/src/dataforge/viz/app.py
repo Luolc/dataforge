@@ -524,6 +524,7 @@ def _row(
     "ended_at": None,
     "rounds": None,
     "values": None,
+    "reads": None,
     "live": None,
     "held": None,
     "error": None,
@@ -569,9 +570,10 @@ def _row(
     "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
     "rounds": _rounds(visits),
     "values": [
-      _field(data, c.field) if c.file is None else found
+      _field(data, c.field) if found is None else found["value"]
       for c, found in zip(project.columns, from_files, strict=True)
     ],
+    "reads": [None if found is None else found["read"] for found in from_files],
     "live": None if ended else live.NOT_ENDED,
   }, data
 

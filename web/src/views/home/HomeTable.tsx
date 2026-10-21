@@ -24,7 +24,7 @@ import { type MouseEvent, type ReactNode, useId, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import type { AttemptRow, Project } from "../../api/types";
-import { duration, formatValue, time, usd } from "../../ui/format";
+import { duration, formatValue, readValue, time, usd } from "../../ui/format";
 import {
   outcomeOf,
   stateTitle,
@@ -202,7 +202,12 @@ function specs(project: Project): Spec[] {
           return timeValue(v);
         return typeof v === "number" || typeof v === "string" ? v : undefined;
       },
-      cell: (l) => formatValue(raw(l), column.format),
+      cell: (l) => {
+        const read = l.row.reads?.[index] ?? null;
+        return read === null
+          ? formatValue(raw(l), column.format)
+          : readValue(read, raw(l), column.format);
+      },
     };
   });
   return [...fixed, ...extra];

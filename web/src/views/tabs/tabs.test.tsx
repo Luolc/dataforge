@@ -25,8 +25,21 @@ const project: Project = {
   ],
 };
 
-const field = (value: unknown) => ({ value, missing: null });
-const missing = (why: string) => ({ value: null, missing: why });
+const field = (value: unknown) => ({
+  read: "found" as const,
+  value,
+  reason: null,
+});
+const notRun = (why: string) => ({
+  read: "not run" as const,
+  value: null,
+  reason: why,
+});
+const missing = (why: string) => ({
+  read: "missing" as const,
+  value: null,
+  reason: why,
+});
 
 const three: TabVersions[] = [
   {
@@ -36,7 +49,7 @@ const three: TabVersions[] = [
         dir: "notes",
         fields: [
           field(null),
-          missing("notes/status.json: No such file or directory"),
+          notRun("notes/status.json: No such file or directory"),
           field(1.5),
         ],
       },
@@ -44,7 +57,14 @@ const three: TabVersions[] = [
         dir: "notes-2",
         fields: [field("n/a"), field("done"), field(0.25)],
       },
-      { dir: "notes-1", fields: [field("x"), field("y"), field(0)] },
+      {
+        dir: "notes-1",
+        fields: [
+          missing("notes-1/tags.json has no verdict.value"),
+          field("y"),
+          field(0),
+        ],
+      },
     ],
   },
 ];
@@ -129,9 +149,29 @@ describe("a project's tab of a Markdown file", () => {
       fields.getByText(title).nextElementSibling?.textContent;
     expect(value("Verdict")).toBe("null");
     expect(value("Outcome")).toBe(
-      "notes/status.json: No such file or directory",
+      "Not run: notes/status.json: No such file or directory",
     );
     expect(value("Spent")).toBe("$1.50");
+  });
+
+  it("tells a field whose file is there without its keys from one not run", async () => {
+    serve(three, { "notes-1/out/notes.md": "# Old notes\n" });
+    show();
+    const button = await screen.findByRole("button", {
+      name: "Version: notes",
+    });
+
+    fireEvent.pointerDown(button, { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "notes-1" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Old notes" }),
+    ).toBeVisible();
+    const fields = within(screen.getByRole("region", { name: "Notes fields" }));
+    expect(fields.getByText("Verdict").nextElementSibling).toHaveTextContent(
+      /^notes-1\/tags\.json has no verdict\.value$/,
+    );
+    expect(fields.getByText("$0.00")).toBeVisible();
   });
 
   it("shows another version chosen from its menu", async () => {

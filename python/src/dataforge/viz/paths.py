@@ -29,16 +29,19 @@ _ANY = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 class RefusedError(Exception):
   """A request the viewer refuses, with its HTTP status and reason."""
 
-  def __init__(self, status: int, reason: str) -> None:
+  def __init__(self, status: int, reason: str, *, absent: bool = False) -> None:
     """Make the refusal.
 
     Args:
       status: The HTTP status, 400, 404, 413 or 503.
       reason: Why, for the person reading it.
+      absent: Whether what was asked for is not there at all, as against
+        there but refused.
     """
     super().__init__(reason)
     self.status: int = status
     self.reason: str = reason
+    self.absent: bool = absent
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,7 +290,11 @@ def _open_at(base: int, parts: tuple[str, ...], last: int) -> Generator[int]:
       try:
         child = os.open(part, flags, dir_fd=fd)
       except OSError as error:
-        raise RefusedError(404, _why("/".join(parts[: i + 1]), error)) from None
+        raise RefusedError(
+          404,
+          _why("/".join(parts[: i + 1]), error),
+          absent=error.errno == errno.ENOENT,
+        ) from None
       if fd != base:
         os.close(fd)
       fd = child
