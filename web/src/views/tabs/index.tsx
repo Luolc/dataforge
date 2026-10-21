@@ -105,18 +105,18 @@ function Fields({ tab, version }: { tab: ProjectTab; version: TabVersion }) {
         {tab.fields.map((field, i) => {
           const found = version.fields[i];
           return (
-            <div key={field.title} className="contents">
+            // The project's fields, fixed for the page: two may share a title.
+            // eslint-disable-next-line @eslint-react/no-array-index-key
+            <div key={i} className="contents">
               <dt className="text-fg-3">{field.title}</dt>
               <dd className="wrap-anywhere">
-                {found === undefined ? (
-                  <span className="text-fg-3">Not read</span>
-                ) : found.read === "found" ? (
+                {found?.read === "found" ? (
                   readValue(found.read, found.value, field.format)
                 ) : (
                   <span className="text-fg-3">
-                    {found.read === "not run"
+                    {found?.read === "not run"
                       ? `${NOT_RUN}: ${found.reason ?? ""}`
-                      : (found.reason ?? "—")}
+                      : (found?.reason ?? "—")}
                   </span>
                 )}
               </dd>

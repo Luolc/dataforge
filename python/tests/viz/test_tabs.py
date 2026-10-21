@@ -18,13 +18,13 @@ deliverables:
 tabs:
   - name: notes
     title: Notes
-    versions: [notes, "notes-*"]
+    versions: [notes, "notes*"]
     file: out/notes.md
     fields:
       - {title: Verdict, file: tags.json, field: [verdict, value]}
       - {title: Outcome, file: status.json, field: [outcome]}
       - {title: Spent, file: status.json, field: [cost_usd], format: usd}
-  - {name: other, title: Other, versions: ["other-*"], file: other.md}
+  - {name: other, title: Other, versions: ["*", ".notes*"], file: other.md}
 """
 
 COLUMNS = """\
@@ -74,12 +74,12 @@ def missing(reason: str) -> dict[str, object]:
   return {"read": "missing", "value": None, "reason": reason}
 
 
-def shown(tree: Tree) -> dict[str, object]:
+def shown(tree: Tree, tab: int = 0) -> dict[str, object]:
   response = client(tree).get(f"{API}/tabs", params=ATTEMPT)
   assert response.status_code == 200
   body = cast(list[dict[str, object]], response.json())
   assert [t["name"] for t in body] == ["notes", "other"]
-  return body[0]
+  return body[tab]
 
 
 def dirs(tab: dict[str, object]) -> list[str]:
@@ -91,7 +91,7 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
   [project] = load_site(tree.site).projects
 
   [notes, other] = project.tabs
-  assert notes.versions == ("notes", "notes-*")
+  assert notes.versions == ("notes", "notes*")
   assert notes.file == ("out", "notes.md")
   assert [f.format for f in notes.fields] == ["text", "text", "usd"]
   assert other.fields == ()
@@ -99,7 +99,7 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
     {
       "name": "notes",
       "title": "Notes",
-      "versions": ["notes", "notes-*"],
+      "versions": ["notes", "notes*"],
       "file": "out/notes.md",
       "fields": [
         {"title": "Verdict", "format": "text"},
@@ -110,7 +110,7 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
     {
       "name": "other",
       "title": "Other",
-      "versions": ["other-*"],
+      "versions": ["*", ".notes*"],
       "file": "other.md",
       "fields": [],
     },
@@ -124,8 +124,8 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
     (("versions: [notes, ", "versions: [.., "), r"tabs\[0\]\.versions"),
     (("versions: [notes, ", "versions: [/notes, "), r"tabs\[0\]\.versions"),
     (("versions: [notes, ", "versions: ['', "), r"tabs\[0\]\.versions"),
-    (('versions: [notes, "notes-*"]', "versions: []"), r"tabs\[0\]\.versions"),
-    (('versions: [notes, "notes-*"]', "versions: notes"), r"tabs\[0\]\.vers"),
+    (('versions: [notes, "notes*"]', "versions: []"), r"tabs\[0\]\.versions"),
+    (('versions: [notes, "notes*"]', "versions: notes"), r"tabs\[0\]\.vers"),
     (("file: out/notes.md", "file: ../notes.md"), r"tabs\[0\]\.file"),
     (("file: out/notes.md", "file: /notes.md"), r"tabs\[0\]\.file"),
     (("file: out/notes.md", "file: out/../x.md"), r"tabs\[0\]\.file"),
@@ -183,9 +183,12 @@ def test_a_symlink_a_file_or_a_dot_name_is_no_version(tree: Tree) -> None:
   (tree.attempt / "notes-link").symlink_to(outside)
   _ = (tree.attempt / "notes-file").write_text("not a directory\n")
   (tree.attempt / ".notes-hidden").mkdir()
+  (tree.attempt / ".hidden").mkdir()
   _ = version(tree, "notes-1")
 
   assert dirs(shown(tree)) == ["notes-1"]
+  # "*" takes no name that starts with ".", ".notes*" does.
+  assert dirs(shown(tree, 1)) == ["notes-1", "artifacts", ".notes-hidden"]
   response = client(tree).get(
     f"{API}/files", params=ATTEMPT | {"path": "notes-link/out/notes.md"}
   )
