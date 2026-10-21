@@ -6,6 +6,7 @@ ConfigError naming the file and the key that is wrong.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 import ipaddress
 import os
 from pathlib import Path
@@ -33,7 +34,23 @@ may have stopped (it has not ended and the lock is not held)."""
 PLACEHOLDER = "{item}"
 """The one placeholder of an action's argv and key: the data item's ID."""
 
+PARAM_FORMATS = ("number", "usd")
+"""The formats an action's parameter may take."""
+
+NUMBER = re.compile(r"-?[0-9]+(\.[0-9]{1,6})?")
+"""A parameter's value as a request carries it: a plain decimal number, with
+no sign but a leading minus, at most 6 decimal places, no exponent and no
+space; a page's number, a double, writes each such value in this form."""
+
+NUMBER_LIMIT = 15
+"""The most characters a parameter's value may have: at most 15 digits, which
+a double holds exactly, so that a page reads each value as the server does."""
+
 _ID = re.compile(r"[a-z0-9-]+")
+_FLAG = re.compile(r"--[a-z0-9][a-z0-9-]*")
+# The query parameter a submit names its item by, which no parameter of an
+# action may take.
+_ITEM_PARAM = "item"
 # The frontend's own pages, at /monitor and /queue, where a project's home
 # page would be.
 _PAGES = ("monitor", "queue")
@@ -89,6 +106,74 @@ class Item:
 
 
 @dataclass(frozen=True, slots=True)
+class Param:
+  """A number a person may set when they submit an action.
+
+  Attributes:
+    name: Its name, the query parameter that carries it; of [a-z0-9-] and
+      never "item".
+    label: The text beside its input.
+    flag: The option the command takes it with, as "<flag>=<value>"; "--"
+      and [a-z0-9-].
+    min: The least value it may take.
+    max: The greatest value it may take.
+    default: Its value when the submit does not name it, from min to max.
+    format: How a page shows it, one of PARAM_FORMATS.
+  """
+
+  name: str
+  label: str
+  flag: str
+  min: Decimal
+  max: Decimal
+  default: Decimal
+  format: str
+
+  def public(self) -> dict[str, object]:
+    """Return what a page reads: all but the flag.
+
+    Returns:
+      The parameter as JSON data, its bounds and default as numbers.
+    """
+    return {
+      "name": self.name,
+      "label": self.label,
+      "min": float(self.min),
+      "max": float(self.max),
+      "default": float(self.default),
+      "format": self.format,
+    }
+
+
+def number(text: str) -> Decimal | None:
+  """Read a parameter's value as a request carries it.
+
+  Args:
+    text: The value.
+
+  Returns:
+    The number; None when the text is longer than NUMBER_LIMIT or is not
+    NUMBER as a whole.
+  """
+  if len(text) > NUMBER_LIMIT or not NUMBER.fullmatch(text):
+    return None
+  return Decimal(text)
+
+
+def plain(value: Decimal) -> str:
+  """Write a number as a command takes it: NUMBER, with no trailing zero.
+
+  Args:
+    value: A finite number.
+
+  Returns:
+    The number in plain decimal notation, as "75", "12.5" or "0".
+  """
+  # normalize() drops trailing zeros, and with them -0's sign.
+  return "0" if value == 0 else format(value.normalize(), "f")
+
+
+@dataclass(frozen=True, slots=True)
 class Action:
   """What a data item's page may put in a queue, as the project file says.
 
@@ -103,6 +188,8 @@ class Action:
     key: The job's key with PLACEHOLDER: no two jobs of one key are queued or
       running at once.
     when: One of WHEN, or None for the key's condition alone.
+    params: The numbers a person may set, each added to argv as its flag
+      and value, in order.
   """
 
   name: str
@@ -113,6 +200,7 @@ class Action:
   memory_mib: int
   key: str
   when: str | None
+  params: tuple[Param, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -638,7 +726,7 @@ def _action(path: Path, where: str, value: object) -> Action:
     where,
     entry,
     required={"name", "label", "queue", "argv", "cwd", "memory_mib", "key"},
-    optional={"when"},
+    optional={"when", "params"},
   )
   name = _str(path, f"{where}.name", entry["name"])
   if not _ID.fullmatch(name):
@@ -672,7 +760,84 @@ def _action(path: Path, where: str, value: object) -> Action:
     memory_mib=_positive(path, f"{where}.memory_mib", entry["memory_mib"]),
     key=key,
     when=when,
+    params=_params(path, f"{where}.params", entry.get("params"), args),
   )
+
+
+def _params(
+  path: Path, where: str, value: object, argv: tuple[str, ...]
+) -> tuple[Param, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: {where}: not a non-empty list")
+  found: list[Param] = []
+  for i, entry in enumerate(cast(list[object], value)):
+    param = _param(path, f"{where}[{i}]", entry)
+    if any(p.name == param.name for p in found):
+      raise ConfigError(f"{path}: {where}[{i}].name: {param.name!r} repeated")
+    # Once in the command, so that what the person set is what it reads.
+    if any(p.flag == param.flag for p in found) or any(
+      a == param.flag or a.startswith(f"{param.flag}=") for a in argv
+    ):
+      raise ConfigError(
+        f"{path}: {where}[{i}].flag: {param.flag!r} already in the command"
+      )
+    found.append(param)
+  return tuple(found)
+
+
+def _param(path: Path, where: str, value: object) -> Param:
+  entry = _mapping(path, where, value)
+  _keys(
+    path,
+    where,
+    entry,
+    required={"name", "label", "flag", "min", "max", "default"},
+    optional={"format"},
+  )
+  name = _str(path, f"{where}.name", entry["name"])
+  if not _ID.fullmatch(name) or name == _ITEM_PARAM:
+    raise ConfigError(
+      f"{path}: {where}.name: {name!r} is not of [a-z0-9-] or is"
+      + f" {_ITEM_PARAM!r}"
+    )
+  flag = _str(path, f"{where}.flag", entry["flag"])
+  if not _FLAG.fullmatch(flag):
+    raise ConfigError(f"{path}: {where}.flag: {flag!r} is not -- and [a-z0-9-]")
+  least = _number(path, f"{where}.min", entry["min"])
+  most = _number(path, f"{where}.max", entry["max"])
+  default = _number(path, f"{where}.default", entry["default"])
+  if not least <= default <= most:
+    raise ConfigError(
+      f"{path}: {where}: not min <= default <= max:"
+      + f" {plain(least)}, {plain(default)}, {plain(most)}"
+    )
+  form = _str(path, f"{where}.format", entry.get("format", "number"))
+  _one_of(path, f"{where}.format", form, PARAM_FORMATS)
+  return Param(
+    name=name,
+    label=_str(path, f"{where}.label", entry["label"]),
+    flag=flag,
+    min=least,
+    max=most,
+    default=default,
+    format=form,
+  )
+
+
+def _number(path: Path, key: str, value: object) -> Decimal:
+  # A bound or a default is one a request could carry too, so a page can
+  # send it back as it reads it.
+  if not isinstance(value, int | float) or isinstance(value, bool):
+    raise ConfigError(f"{path}: {key}: not a number")
+  found = Decimal(repr(value)) if isinstance(value, float) else Decimal(value)
+  if not found.is_finite() or number(plain(found)) is None:
+    raise ConfigError(
+      f"{path}: {key}: {value!r} is not a decimal number of at most"
+      + f" {NUMBER_LIMIT} characters and 6 decimal places"
+    )
+  return found
 
 
 def _template(path: Path, key: str, value: object) -> str:

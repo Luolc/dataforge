@@ -1,5 +1,6 @@
 # project.yaml's synthetic dataset with two actions, which only print the
-# item's ID; its attempts were made up and ran nowhere.
+# item's ID and, for Run again, the budget a person sets; its attempts were
+# made up and ran nowhere.
 id: sample
 name: Sample dataset
 color: "#e5a54b"
@@ -41,6 +42,14 @@ actions:
     memory_mib: 2048
     key: "sample:{item}"
     when: idle
+    params:
+      - name: budget
+        label: Budget per attempt
+        flag: --max-usd
+        min: 1
+        max: 150
+        default: 75
+        format: usd
   - name: go-on
     label: Go on
     queue: slow
