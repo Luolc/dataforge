@@ -2,8 +2,13 @@
 // one row per message with the time since the start in a narrow gutter. Every
 // text in it is from the trace, untrusted: Markdown goes through the shared
 // renderer, everything else is shown as text.
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+} from "lucide-react";
+import { createContext, type ReactNode, use, useId, useState } from "react";
 
 import type { Project } from "../api/types";
 import { duration, usd } from "../ui/format";
@@ -16,71 +21,126 @@ export type ThinkingMode = Project["session"]["thinking"];
 /** More tool calls than this in one message fold into one line. */
 const FOLD_OVER = 4;
 
+/**
+ * What the header's Expand all and Collapse all say to the folds below: the
+ * last one pressed (`open`, counted by `serial`, 0 before any) and whether
+ * every fold starts open.
+ */
+const FoldContext = createContext({
+  serial: 0,
+  open: false,
+  startOpen: false,
+});
+
 const count = new Intl.NumberFormat("en-US", { notation: "compact" });
 
 export function SessionBody({
   session,
   thinking,
   badge,
+  startOpen = false,
 }: {
   session: Session;
   thinking: ThinkingMode;
   badge?: ReactNode;
+  /** Whether every fold starts open. */
+  startOpen?: boolean;
 }) {
+  const [fold, setFold] = useState({ serial: 0, open: startOpen, startOpen });
   const [hidden, setHidden] = useState(thinking === "hidden");
   const { totals } = session;
   // How thinking shows now; null while all of it is hidden.
   const shownThinking = hidden ? null : thinking;
   return (
-    <section className="flex flex-col rounded-panel border border-line bg-panel">
-      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
-        {badge}
-        <Total label="duration">
-          {totals.seconds === null ? "—" : duration(totals.seconds)}
-        </Total>
-        <Total label="cost">
-          {totals.costUsd === null ? "—" : usd(totals.costUsd)}
-        </Total>
-        <Total label="turns">{totals.turns ?? "—"}</Total>
-        <Total label="tokens">
-          {totals.tokensIn === null ? "—" : count.format(totals.tokensIn)} in ·{" "}
-          {totals.tokensOut === null ? "—" : count.format(totals.tokensOut)} out
-        </Total>
-        <Total label="model">
-          <span className="font-mono">{totals.model ?? "—"}</span>
-        </Total>
-        <span>
-          {session.tools} tool calls
-          {session.failed > 0 && (
-            <span className={toneText.bad}> · {session.failed} failed</span>
+    <FoldContext value={fold}>
+      <section className="flex flex-col rounded-panel border border-line bg-panel">
+        <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
+          {badge}
+          <Total label="duration">
+            {totals.seconds === null ? "—" : duration(totals.seconds)}
+          </Total>
+          <Total label="cost">
+            {totals.costUsd === null ? "—" : usd(totals.costUsd)}
+          </Total>
+          <Total label="turns">{totals.turns ?? "—"}</Total>
+          <Total label="tokens">
+            {totals.tokensIn === null ? "—" : count.format(totals.tokensIn)} in
+            · {totals.tokensOut === null ? "—" : count.format(totals.tokensOut)}{" "}
+            out
+          </Total>
+          <Total label="model">
+            <span className="font-mono">{totals.model ?? "—"}</span>
+          </Total>
+          <span>
+            {session.tools} tool calls
+            {session.failed > 0 && (
+              <span className={toneText.bad}> · {session.failed} failed</span>
+            )}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <FoldButton
+              label="Expand all"
+              Icon={ChevronsUpDown}
+              onClick={() => {
+                setFold({ serial: fold.serial + 1, open: true, startOpen });
+              }}
+            />
+            <FoldButton
+              label="Collapse all"
+              Icon={ChevronsDownUp}
+              onClick={() => {
+                setFold({ serial: fold.serial + 1, open: false, startOpen });
+              }}
+            />
+            {session.thinking > 0 && (
+              <button
+                type="button"
+                aria-pressed={hidden}
+                onClick={() => {
+                  setHidden(!hidden);
+                }}
+                className="target rounded-row border border-line px-2.5 font-medium hover:bg-hover"
+              >
+                {hidden
+                  ? `Show thinking · ${session.thinking} hidden`
+                  : "Hide thinking"}
+              </button>
+            )}
+          </div>
+        </header>
+        <ol className="flex flex-col py-2">
+          {session.preamble.length > 0 && <Preamble lines={session.preamble} />}
+          {session.entries.map((entry, i) =>
+            entry.kind === "bad" ? (
+              <BadRow key={i} entry={entry} />
+            ) : (
+              <MessageRow key={i} message={entry} thinking={shownThinking} />
+            ),
           )}
-        </span>
-        {session.thinking > 0 && (
-          <button
-            type="button"
-            aria-pressed={hidden}
-            onClick={() => {
-              setHidden(!hidden);
-            }}
-            className="ml-auto target rounded-row border border-line px-2.5 font-medium hover:bg-hover"
-          >
-            {hidden
-              ? `Show thinking · ${session.thinking} hidden`
-              : "Hide thinking"}
-          </button>
-        )}
-      </header>
-      <ol className="flex flex-col py-2">
-        {session.preamble.length > 0 && <Preamble lines={session.preamble} />}
-        {session.entries.map((entry, i) =>
-          entry.kind === "bad" ? (
-            <BadRow key={i} entry={entry} />
-          ) : (
-            <MessageRow key={i} message={entry} thinking={shownThinking} />
-          ),
-        )}
-      </ol>
-    </section>
+        </ol>
+      </section>
+    </FoldContext>
+  );
+}
+
+function FoldButton({
+  label,
+  Icon,
+  onClick,
+}: {
+  label: string;
+  Icon: typeof ChevronsUpDown;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex target items-center gap-1.5 rounded-row border border-line px-2.5 font-medium hover:bg-hover"
+    >
+      <Icon className="size-3.5 flex-none text-icon" aria-hidden />
+      {label}
+    </button>
   );
 }
 
@@ -109,22 +169,16 @@ function Row({ at, children }: { at: number | null; children: ReactNode }) {
  * to show them as they are.
  */
 function Preamble({ lines }: { lines: BadLine[] }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  const Chevron = open ? ChevronDown : ChevronRight;
+  const { open, id, button } = useToggle(false);
   const more = lines.length - 1;
   return (
     <Row at={null}>
       <button
         type="button"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => {
-          setOpen(!open);
-        }}
+        {...button}
         className="flex target min-w-0 items-center gap-1.5 text-left text-xs text-fg-3 hover:text-fg-2"
       >
-        <Chevron className="size-3.5 flex-none text-icon" aria-hidden />
+        <Chevron open={open} />
         <span className="min-w-0 truncate">{lines[0]?.text}</span>
         {more > 0 && (
           <span className="flex-none">
@@ -213,9 +267,22 @@ function BlockView({
   }
 }
 
-/** A toggle's button and the part it opens, tied by aria-controls. */
+/**
+ * A toggle's button and the part it opens, tied by aria-controls. It follows
+ * the header's Expand all and Collapse all: a press after it was last
+ * rendered sets it, and one that came before it was mounted sets where it
+ * starts.
+ */
 function useToggle(initial: boolean) {
-  const [open, setOpen] = useState(initial);
+  const fold = use(FoldContext);
+  const [open, setOpen] = useState(
+    fold.serial > 0 ? fold.open : fold.startOpen || initial,
+  );
+  const [serial, setSerial] = useState(fold.serial);
+  if (serial !== fold.serial) {
+    setSerial(fold.serial);
+    setOpen(fold.open);
+  }
   const id = useId();
   const button = {
     "aria-expanded": open,

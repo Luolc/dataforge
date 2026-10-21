@@ -148,7 +148,7 @@ describe("the trials view", () => {
     expect(
       await screen.findByText("All tests pass, the task is done."),
     ).toBeVisible();
-    const header = must(screen.getByText("Hide thinking").parentElement);
+    const header = must(screen.getByText("Hide thinking").closest("header"));
     expect(within(header).getByText(/not solved · reward 0/)).toBeVisible();
   });
 

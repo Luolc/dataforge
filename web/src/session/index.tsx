@@ -30,6 +30,7 @@ export function SessionView({
   path,
   format,
   badge,
+  startOpen,
 }: {
   project: Project;
   attempt: string;
@@ -38,6 +39,8 @@ export function SessionView({
   format: string | null;
   /** The result at the head of the session, such as a trial's reward. */
   badge?: ReactNode;
+  /** Passed to SessionBody. */
+  startOpen?: boolean;
 }) {
   const url = urls.files(project.id, attempt, path);
   const loaded = useLoaded(url, (signal) => getText(url, signal));
@@ -66,6 +69,7 @@ export function SessionView({
         session={session}
         thinking={project.session.thinking}
         badge={badge}
+        {...(startOpen === undefined ? {} : { startOpen })}
       />
     );
   }

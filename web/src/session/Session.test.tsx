@@ -9,15 +9,25 @@ import { SessionView } from ".";
 import { parseTrace } from "./parse";
 import { SessionBody, type ThinkingMode } from "./Session";
 
-function show(text: string, thinking: ThinkingMode = "collapsed") {
+function show(
+  text: string,
+  thinking: ThinkingMode = "collapsed",
+  options: { startOpen?: boolean } = {},
+) {
   return render(
     <SessionBody
       session={parseTrace(text)}
       thinking={thinking}
       badge={<span>the badge</span>}
+      {...options}
     />,
   );
 }
+
+const folds = () =>
+  screen
+    .getAllByRole("button")
+    .filter((button) => button.hasAttribute("aria-expanded"));
 
 const call = (id: string, name = "Bash") =>
   JSON.stringify({
@@ -125,6 +135,45 @@ describe("the session view", () => {
 
     show(solved, "hidden");
     expect(screen.queryByText(/Thinking ·/)).toBeNull();
+  });
+
+  it("opens every fold with Expand all and closes every one with Collapse all", () => {
+    show(solved, "collapsed");
+    expect(folds().some((b) => b.ariaExpanded === "false")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(folds().every((b) => b.ariaExpanded === "true")).toBe(true);
+    expect(screen.getByText(/41 passed in 3.02s/)).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(folds().every((b) => b.ariaExpanded === "false")).toBe(true);
+
+    fireEvent.click(toolLine(/^Bashpython -m pytest -q$/));
+    expect(toolLine(/^Bashpython -m pytest -q$/)).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("opens the thinking shown again after Expand all", () => {
+    show(solved, "collapsed");
+    fireEvent.click(screen.getByRole("button", { name: "Hide thinking" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Show thinking/ }));
+
+    expect(toolLine(/^Thinking · 21 words$/)).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("starts with every fold open when told to", () => {
+    show(solved, "collapsed", { startOpen: true });
+
+    expect(folds().every((b) => b.ariaExpanded === "true")).toBe(true);
+    expect(screen.getByRole("button", { name: "Collapse all" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(folds().every((b) => b.ariaExpanded === "false")).toBe(true);
   });
 
   it("renders a trace with no thinking as usual, with no toggle", () => {
