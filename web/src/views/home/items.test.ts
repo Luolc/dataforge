@@ -105,6 +105,16 @@ describe("toItems", () => {
     expect(item?.group).toBe("open");
   });
 
+  it("takes an ended attempt with no started_at as older than one that has", () => {
+    const [item] = toItems([
+      row("a/1", { started_at: null, ended_at: null, status: "error" }),
+      row("a/2", { started_at: at(9), ended_at: at(10), status: "too_easy" }),
+    ]);
+    expect(item?.newest.id).toBe("a/2");
+    expect(item?.attempts.map((r) => r.id)).toEqual(["a/2", "a/1"]);
+    expect(item?.group).toBe("ended");
+  });
+
   it("orders not ended by start, ended by end, unreadable last", () => {
     const items = toItems([
       unreadable("z/1"),
