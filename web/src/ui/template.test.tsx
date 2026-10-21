@@ -109,8 +109,16 @@ describe("the colour templates", () => {
 
     const script = readFileSync("public/template.js", "utf8");
     expect(script).toContain(`"${KEY}"`);
-    localStorage.setItem(KEY, "dark");
-    runInNewContext(script, { localStorage, document });
-    expect(document.documentElement.dataset["template"]).toBe("dark");
+    // The script and template.ts agree on every value: none, one unknown, each id.
+    for (const stored of [null, "sepia", ...TEMPLATES.map((t) => t.id)]) {
+      localStorage.clear();
+      if (stored !== null) localStorage.setItem(KEY, stored);
+      delete document.documentElement.dataset["template"];
+      runInNewContext(script, { localStorage, document });
+      expect(document.documentElement.dataset["template"]).toBe(
+        savedTemplate(),
+      );
+    }
+    expect(document.documentElement.dataset["template"]).toBe("neutral");
   });
 });
