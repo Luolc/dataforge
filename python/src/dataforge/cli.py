@@ -13,6 +13,7 @@ from dataforge.curation.actions import Actions
 from dataforge.curation.graph import mermaid
 from dataforge.curation.loader import load, SpecError
 from dataforge.queue import command as queue_command
+from dataforge.share import command as share_command
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -27,7 +28,9 @@ def main(argv: Sequence[str] | None = None) -> int:
   --config <site file> --static <dir>" starts the viewer; it needs the extra
   viz. "dataforge queue submit|list|cancel|serve --config <queue file>"
   puts a command in a queue, lists the jobs, cancels one, or runs the
-  scheduler; see dataforge.queue.command.
+  scheduler; see dataforge.queue.command. "dataforge share serve|token"
+  serves the read-only site of exports, or makes, lists or revokes its
+  access tokens; see dataforge.share.command.
 
   Args:
     argv: The arguments; None for the command line's.
@@ -77,10 +80,15 @@ def main(argv: Sequence[str] | None = None) -> int:
   queue_command.add_arguments(
     commands.add_parser("queue", help="a queue of jobs on this machine")
   )
+  share_command.add_arguments(
+    commands.add_parser("share", help="the read-only site of exports")
+  )
   args = parser.parse_args(argv)
   command = cast(str, args.command)
   if command == "queue":
     return queue_command.run(args)
+  if command == "share":
+    return share_command.run(args)
   if command == "viz":
     return _viz(cast(Path, args.config), cast(Path, args.static))
   file = cast(Path, args.file)
