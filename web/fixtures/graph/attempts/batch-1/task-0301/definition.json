@@ -1,0 +1,358 @@
+{
+  "version": {
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "dirty": false,
+    "prompt_version": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+  },
+  "workflow": {
+    "path": "sample/workflow.yaml",
+    "format": "yaml",
+    "text": "# A made-up workflow for the viewer's fixtures; it ran nowhere.\ndataforge: 1\nname: sample\nstart: author\ninputs:\n  task: string\nmax_cost_usd: 20\n\nstates:\n  author:\n    uses: agent\n    with:\n      prompt: prompts/author.md\n      notes: prompts/notes.toml\n    max_visits: 3\n    feedback: |\n      The check found a problem, round ${round}:\n      ${evidence}\n    transitions:\n      done: { goto: check, report: true }\n  check:\n    uses: script\n    with: { run: [make, check] }\n    max_visits: 3\n    feedback: \"The check failed: ${evidence}\"\n    transitions:\n      pass: { goto: review }\n      fail: { goto: author, report: true }\n  review:\n    uses: rubric\n    with:\n      reviews:\n        - { name: tests, rubric: rubrics/tests.toml, inputs: [tests, solution] }\n        - { name: brief, rubric: rubrics/brief.toml, inputs: [instruction] }\n    max_visits: 2\n    transitions:\n      pass: { goto: solve }\n      fail: { goto: author, report: true }\n  solve:\n    uses: pass_at_k\n    with: { k: 4, prompt: prompts/solve.md.j2 }\n    transitions:\n      in_range: { end: passed }\n      all_solved: { end: too_easy }\n      none_solved: { end: too_hard }\n"
+  },
+  "stages": [
+    {
+      "state": "draft",
+      "entries": [
+        {
+          "title": "author.md",
+          "kind": "text",
+          "format": "md",
+          "template": "dollar",
+          "variables": [
+            {
+              "name": "task",
+              "source": "the attempt's task ID",
+              "value": "task-0001"
+            },
+            {
+              "name": "repo",
+              "source": "the task's project",
+              "value": "example/tinyparse"
+            },
+            {
+              "name": "commit",
+              "source": "the task's fix commit",
+              "value": "abc1234"
+            },
+            {
+              "name": "notes",
+              "source": "notes.toml, one per topic of the task",
+              "value": "Name each test after what it checks."
+            },
+            {
+              "name": "feedback",
+              "source": "every report handed back so far",
+              "per_round": true
+            }
+          ],
+          "text": "# Write a task for ${task}\n\nYou are writing one task for a sample dataset. Read the project at ${repo},\nchecked out at `${commit}`, and write a task whose tests fail before the fix\nand pass after it.\n\n## Notes\n\n${notes}\n\n## What the check said\n\n${feedback}\n\nHand in `instruction.md`, `tests/` and `solution/`. A line written as\n<b>raw HTML</b> stays text, and so does $$task, a dollar sign and a word.\n"
+        },
+        {
+          "title": "notes.toml",
+          "kind": "text",
+          "note": "2 notes, one per topic",
+          "format": "toml",
+          "template": null,
+          "variables": [],
+          "text": "[[note]]\ntopic = \"naming\"\ntext = \"Name each test after what it checks.\"\n\n[[note]]\ntopic = \"layout\"\ntext = \"Keep one test file per module of the change.\"\n"
+        }
+      ]
+    },
+    {
+      "state": "build",
+      "entries": [
+        {
+          "title": "Feedback on return",
+          "kind": "text",
+          "format": "md",
+          "template": "dollar",
+          "variables": [
+            {
+              "name": "round",
+              "source": "the round handed back",
+              "per_round": true
+            },
+            {
+              "name": "evidence",
+              "source": "the check's report",
+              "per_round": true
+            }
+          ],
+          "text": "The check failed on this attempt, round ${round}.\n\n${evidence}\n"
+        }
+      ]
+    },
+    {
+      "state": "smoke",
+      "entries": [
+        {
+          "title": "Feedback on return",
+          "kind": "text",
+          "format": "md",
+          "template": "dollar",
+          "variables": [
+            {
+              "name": "round",
+              "source": "the round handed back",
+              "per_round": true
+            },
+            {
+              "name": "evidence",
+              "source": "the check's report",
+              "per_round": true
+            }
+          ],
+          "text": "The check failed on this attempt, round ${round}.\n\n${evidence}\n"
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "entries": [
+        {
+          "title": "Feedback on return",
+          "kind": "text",
+          "format": "md",
+          "template": "dollar",
+          "variables": [
+            {
+              "name": "round",
+              "source": "the round handed back",
+              "per_round": true
+            },
+            {
+              "name": "evidence",
+              "source": "the check's report",
+              "per_round": true
+            }
+          ],
+          "text": "The check failed on this attempt, round ${round}.\n\n${evidence}\n"
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "entries": [
+        {
+          "title": "Feedback on return",
+          "kind": "text",
+          "format": "md",
+          "template": "dollar",
+          "variables": [
+            {
+              "name": "round",
+              "source": "the round handed back",
+              "per_round": true
+            },
+            {
+              "name": "evidence",
+              "source": "the check's report",
+              "per_round": true
+            }
+          ],
+          "text": "The check failed on this attempt, round ${round}.\n\n${evidence}\n"
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "entries": [
+        {
+          "title": "Feedback on return",
+          "kind": "text",
+          "format": "md",
+          "template": "dollar",
+          "variables": [
+            {
+              "name": "round",
+              "source": "the round handed back",
+              "per_round": true
+            },
+            {
+              "name": "evidence",
+              "source": "the check's report",
+              "per_round": true
+            }
+          ],
+          "text": "The check failed on this attempt, round ${round}.\n\n${evidence}\n"
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "entries": [
+        {
+          "title": "tests.toml",
+          "kind": "rubric",
+          "reads": ["tests", "solution"],
+          "rubric": {
+            "system": "You review the tests of a made-up task.\nJudge each criterion on the inputs alone.\n",
+            "criteria": [
+              {
+                "id": "T01",
+                "question": "Does the work meet made-up rule 1? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 1 holds everywhere it applies.",
+                "fail_if": "Rule 1 is broken at least once.",
+                "check": "Read each file the rule 1 names."
+              },
+              {
+                "id": "T02",
+                "question": "Does the work meet made-up rule 2? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 2 holds everywhere it applies.",
+                "fail_if": "Rule 2 is broken at least once.",
+                "check": "Read each file the rule 2 names."
+              },
+              {
+                "id": "T03",
+                "question": "Does the work meet made-up rule 3? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 3 holds everywhere it applies.",
+                "fail_if": "Rule 3 is broken at least once."
+              },
+              {
+                "id": "T04",
+                "question": "Does the work meet made-up rule 4? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 4 holds everywhere it applies.",
+                "fail_if": "Rule 4 is broken at least once.",
+                "check": "Read each file the rule 4 names."
+              },
+              {
+                "id": "T05",
+                "question": "Does the work meet made-up rule 5? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 5 holds everywhere it applies.",
+                "fail_if": "Rule 5 is broken at least once.",
+                "check": "Read each file the rule 5 names."
+              }
+            ]
+          }
+        },
+        {
+          "title": "brief.toml",
+          "kind": "rubric",
+          "note": "Reads the instruction only",
+          "reads": ["instruction"],
+          "rubric": {
+            "system": "You review the instruction of a made-up task.\n",
+            "criteria": [
+              {
+                "id": "B01",
+                "question": "Does the work meet made-up rule 1? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 1 holds everywhere it applies.",
+                "fail_if": "Rule 1 is broken at least once.",
+                "check": "Read each file the rule 1 names."
+              },
+              {
+                "id": "B02",
+                "question": "Does the work meet made-up rule 2? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 2 holds everywhere it applies.",
+                "fail_if": "Rule 2 is broken at least once.",
+                "check": "Read each file the rule 2 names."
+              },
+              {
+                "id": "B03",
+                "question": "Does the work meet made-up rule 3? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 3 holds everywhere it applies.",
+                "fail_if": "Rule 3 is broken at least once."
+              }
+            ]
+          }
+        },
+        {
+          "title": "A later kind",
+          "kind": "checklist"
+        }
+      ]
+    },
+    {
+      "state": "polish",
+      "entries": [
+        {
+          "title": "author.md",
+          "kind": "text",
+          "format": "md",
+          "template": "dollar",
+          "variables": [
+            {
+              "name": "task",
+              "source": "the attempt's task ID",
+              "value": "task-0001"
+            },
+            {
+              "name": "repo",
+              "source": "the task's project",
+              "value": "example/tinyparse"
+            },
+            {
+              "name": "commit",
+              "source": "the task's fix commit",
+              "value": "abc1234"
+            },
+            {
+              "name": "notes",
+              "source": "notes.toml, one per topic of the task",
+              "value": "Name each test after what it checks."
+            },
+            {
+              "name": "feedback",
+              "source": "every report handed back so far",
+              "per_round": true
+            }
+          ],
+          "text": "# Write a task for ${task}\n\nYou are writing one task for a sample dataset. Read the project at ${repo},\nchecked out at `${commit}`, and write a task whose tests fail before the fix\nand pass after it.\n\n## Notes\n\n${notes}\n\n## What the check said\n\n${feedback}\n\nHand in `instruction.md`, `tests/` and `solution/`. A line written as\n<b>raw HTML</b> stays text, and so does $$task, a dollar sign and a word.\n"
+        }
+      ]
+    },
+    {
+      "state": "solve",
+      "entries": [
+        {
+          "title": "solve.md.j2",
+          "kind": "text",
+          "format": "md",
+          "template": "jinja",
+          "variables": [
+            {
+              "name": "instruction",
+              "source": "the task's instruction.md",
+              "per_round": true
+            }
+          ],
+          "text": "Solve the task below. Change only the files it names.\n\n{{ instruction }}\n"
+        }
+      ]
+    },
+    {
+      "state": "audit",
+      "entries": [
+        {
+          "title": "audit.toml",
+          "kind": "rubric",
+          "rubric": {
+            "system": "You audit a made-up task.\n",
+            "criteria": [
+              {
+                "id": "A01",
+                "question": "Does the work meet made-up rule 1? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 1 holds everywhere it applies.",
+                "fail_if": "Rule 1 is broken at least once.",
+                "check": "Read each file the rule 1 names."
+              },
+              {
+                "id": "A02",
+                "question": "Does the work meet made-up rule 2? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 2 holds everywhere it applies.",
+                "fail_if": "Rule 2 is broken at least once.",
+                "check": "Read each file the rule 2 names."
+              },
+              {
+                "id": "A03",
+                "question": "Does the work meet made-up rule 3? This question runs long on purpose, so that a row of the table cuts it and its row opens to show the whole of it.",
+                "pass_if": "Rule 3 holds everywhere it applies.",
+                "fail_if": "Rule 3 is broken at least once."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

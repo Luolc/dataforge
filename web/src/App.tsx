@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router";
 import { Frame, Shell } from "./shell/Shell";
 import { Note } from "./ui/card";
 import { AttemptPage } from "./views/attempt/AttemptPage";
+import { DefinitionPage } from "./views/definition/DefinitionPage";
 import { HomePage } from "./views/HomePage";
 import { ProjectsPage } from "./views/ProjectsPage";
 import { QueuePage } from "./views/queue/QueuePage";
@@ -33,6 +34,7 @@ export function App() {
         <Route path="queue" element={<QueuePage />} />
         <Route path=":project" element={<HomePage />} />
         <Route path=":project/attempt" element={<AttemptPage />} />
+        <Route path=":project/definition" element={<DefinitionPage />} />
         <Route
           path="*"
           element={

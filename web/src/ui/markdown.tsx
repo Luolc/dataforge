@@ -4,7 +4,7 @@
 // react-markdown turns raw HTML into text unless a plugin such as rehype-raw
 // is added; none may be.
 import type { ReactNode } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Highlighted } from "./code";
@@ -37,18 +37,66 @@ const components: Components = {
   },
 };
 
+/** Template variables to draw in place: what matches them, and how. */
+export interface Variables {
+  /** A global pattern; a match's name is its text without $, braces or spaces. */
+  pattern: RegExp;
+  draw: (name: string) => ReactNode;
+}
+
+interface MdNode {
+  type: string;
+  value?: string;
+  children?: MdNode[];
+  data?: { hName?: string };
+}
+
+const nameOf = (spelled: string) =>
+  spelled.replace(/^\$\{?|\{\{|\}\}|\}$/g, "").trim();
+
+// Splits plain text (never code) at each variable into a node the
+// HTML side draws as <var>, whose one child is the variable's name.
+function splitVariables(node: MdNode, pattern: RegExp) {
+  if (node.children === undefined) return;
+  node.children = node.children.flatMap((child) => {
+    if (child.type !== "text" || child.value === undefined) {
+      splitVariables(child, pattern);
+      return [child];
+    }
+    const text = child.value;
+    const out: MdNode[] = [];
+    let at = 0;
+    for (const m of text.matchAll(pattern)) {
+      if (m.index > at)
+        out.push({ type: "text", value: text.slice(at, m.index) });
+      out.push({
+        type: "variable",
+        data: { hName: "var" },
+        children: [{ type: "text", value: nameOf(m[0]) }],
+      });
+      at = m.index + m[0].length;
+    }
+    if (out.length === 0) return [child];
+    if (at < text.length) out.push({ type: "text", value: text.slice(at) });
+    return out;
+  });
+}
+
 /**
  * Untrusted Markdown, rendered safely. cell may draw a table cell whose whole
  * text is plain: what it returns replaces the text, and null keeps it.
+ * variables, when given, draws each template variable outside code in place.
  */
 export function Markdown({
   text,
   cell,
+  variables,
 }: {
   text: string;
   cell?: (text: string) => ReactNode | null;
+  variables?: Variables | undefined;
 }) {
-  const all: Components =
+  let all: Components =
     cell === undefined
       ? components
       : {
@@ -60,9 +108,20 @@ export function Markdown({
             </td>
           ),
         };
+  const plugins: NonNullable<Options["remarkPlugins"]> = [remarkGfm];
+  if (variables !== undefined) {
+    plugins.push(() => (tree: MdNode) => {
+      splitVariables(tree, variables.pattern);
+    });
+    all = {
+      ...all,
+      var: ({ children }) =>
+        variables.draw(typeof children === "string" ? children : ""),
+    };
+  }
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={all}>
+      <ReactMarkdown remarkPlugins={plugins} components={all}>
         {text}
       </ReactMarkdown>
     </div>
