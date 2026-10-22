@@ -42,7 +42,9 @@ from dataforge.curation.engine import (
   Guard,
   Input,
   Machine,
+  measure,
   Outcome,
+  recorded_usd,
   RecordError,
   Report,
   ResumeError,
@@ -52,7 +54,13 @@ from dataforge.curation.engine import (
   Version,
   Visit,
 )
-from dataforge.curation.graph import Graph, GraphEdge, GraphState, mermaid
+from dataforge.curation.graph import (
+  Graph,
+  GraphEdge,
+  GraphState,
+  least_cap_usd,
+  mermaid,
+)
 from dataforge.curation.harbor import HarborRunner, TrialSetup
 from dataforge.curation.loader import load, SpecError
 from dataforge.curation.rubric import Review
@@ -127,7 +135,10 @@ __all__ = [
   "Version",
   "Visit",
   "fan_out",
+  "least_cap_usd",
   "load",
+  "measure",
   "mermaid",
+  "recorded_usd",
   "summary_path",
 ]
