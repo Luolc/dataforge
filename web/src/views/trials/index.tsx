@@ -1,6 +1,6 @@
 // The trials view: a deliverable's trials on the left, headed by its value and
 // its visit's outcome; on the right the chosen trial's numbers, then its trace
-// in the session view and its diff, each in a tab.
+// in the session view, its diff and its tests, each in a tab.
 import { Tabs } from "radix-ui";
 import { type ReactNode, useState } from "react";
 
@@ -16,6 +16,8 @@ import { DeliverableCard } from "../DeliverableCard";
 import { size, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
 import { RUNNING, trialStatus } from "./status";
+import { inTrial } from "./path";
+import { TrialTests } from "./tests";
 
 function isRunning(live: LiveInfo | null | undefined): boolean {
   return live?.live === "running";
@@ -142,10 +144,11 @@ export default function TrialsView({
   );
 }
 
-type Pane = "trace" | "diff";
+type Pane = "trace" | "diff" | "tests";
 const PANES: { key: Pane; title: string }[] = [
   { key: "trace", title: "Trace" },
   { key: "diff", title: "Diff" },
+  { key: "tests", title: "Tests" },
 ];
 
 function TrialPane({
@@ -167,6 +170,9 @@ function TrialPane({
 }) {
   const seconds =
     action === undefined ? null : span(action.started_at, action.ended_at);
+  const tests = project.trials?.tests ?? null;
+  // Only a project that names its trials' tests has the Tests tab.
+  const panes = PANES.filter((p) => p.key !== "tests" || tests !== null);
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <dl className="flex flex-wrap gap-x-6 gap-y-2 rounded-panel border border-line bg-panel px-5 py-3">
@@ -191,7 +197,7 @@ function TrialPane({
       <Tabs.Root
         value={pane}
         onValueChange={(value) => {
-          onPane(value === "diff" ? "diff" : "trace");
+          onPane(panes.find((p) => p.key === value)?.key ?? "trace");
         }}
         className="flex flex-col gap-4"
       >
@@ -199,7 +205,7 @@ function TrialPane({
           aria-label="Trial"
           className="flex h-9 gap-1 border-b border-line"
         >
-          {PANES.map((p) => (
+          {panes.map((p) => (
             <Tabs.Trigger
               key={p.key}
               value={p.key}
@@ -239,6 +245,20 @@ function TrialPane({
             <TrialDiff project={project} attempt={attempt} trial={trial} />
           )}
         </Tabs.Content>
+        {tests !== null && (
+          <Tabs.Content value="tests">
+            {trial.result === null ? (
+              <Unfinished live={live} />
+            ) : (
+              <TrialTests
+                project={project}
+                attempt={attempt}
+                trial={trial}
+                relative={tests}
+              />
+            )}
+          </Tabs.Content>
+        )}
       </Tabs.Root>
     </div>
   );
@@ -284,12 +304,7 @@ function TrialDiff({
   trial: Trial;
 }) {
   const relative = project.trials?.diff ?? null;
-  const path =
-    relative === null
-      ? null
-      : trial.path === ""
-        ? relative
-        : `${trial.path}/${relative}`;
+  const path = relative === null ? null : inTrial(trial, relative);
   const loaded = useFile(project.id, attempt, path);
   if (path === null)
     return <Note>The project names no diff for its trials.</Note>;

@@ -47,8 +47,15 @@ export function time(iso: string, timeZone?: string): string {
   return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")} ${get("timeZoneName")}`;
 }
 
-/** Seconds as "1h 37m", "35m 56s" or "12s". */
-export function duration(seconds: number): string {
+/**
+ * Seconds as "1h 37m", "35m 56s" or "12s"; with fine, a time under 10s as
+ * "340ms" or "1.4s", as a test's is read.
+ */
+export function duration(seconds: number, fine = false): string {
+  if (fine && seconds < 10) {
+    const ms = Math.max(0, Math.round(seconds * 1000));
+    return ms < 1000 ? `${ms.toString()}ms` : `${(ms / 1000).toFixed(1)}s`;
+  }
   const s = Math.max(0, Math.round(seconds));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
