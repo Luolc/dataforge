@@ -179,7 +179,16 @@ class _Api:
           {
             "name": tab.name,
             "versions": [
-              {"dir": version, "fields": tabs.fields(tab, root, version)}
+              {
+                "dir": version,
+                "parts": [
+                  {
+                    "name": part.name,
+                    "fields": tabs.fields(part, root, version),
+                  }
+                  for part in tab.parts
+                ],
+              }
               for version in tabs.versions(tab, root)
             ],
           }

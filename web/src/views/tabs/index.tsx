@@ -1,20 +1,26 @@
-// A project's own tab of the attempt page: a Markdown file found in one or
+// A project's own tab of the attempt page: Markdown files found in one or
 // more directories of the attempt, its versions, one shown at a time, with
-// the values the project names read from JSON files beside it.
-import { CircleAlert } from "lucide-react";
-import { useState } from "react";
+// the values the project names read from JSON files beside each. A tab of
+// two or more files, its parts, shows one at a time, chosen from a column
+// beside it.
+import { CircleAlert, FileText } from "lucide-react";
+import { type ReactNode, useState } from "react";
+import { Link } from "react-router";
 
 import { type Loaded, useLoaded, useRefresh } from "../../api/client";
 import type {
   Project,
   ProjectTab,
+  TabPart,
   TabVersion,
   TabVersions,
 } from "../../api/types";
 import { Card, Note } from "../../ui/card";
 import { readValue } from "../../ui/format";
 import { ChoiceMenu } from "../../ui/menu";
+import { SideColumn, sideEntry } from "../../ui/side-column";
 import { NOT_RUN } from "../../ui/status";
+import { attemptHref } from "../attempt/href";
 import { fetchFile, size } from "../files/file";
 import { ReportMarkdown } from "../report/markdown";
 import { versionsOf } from "./versions";
@@ -40,16 +46,22 @@ export function TabCount({
   return <>{count === 0 ? NOT_RUN : count}</>;
 }
 
-/** A tab's view: one version, the first unless another is chosen. */
+/**
+ * A tab's view: one version, the first unless another is chosen, and of it
+ * the part named, else the first; the version chosen stays as another part
+ * is shown.
+ */
 export function TabView({
   project,
   attempt,
   tab,
+  part: named,
   loaded,
 }: {
   project: Project;
   attempt: string;
   tab: ProjectTab;
+  part: string | null;
   loaded: Loaded<TabVersions[]>;
 }) {
   const [chosen, setChosen] = useState<string>();
@@ -63,7 +75,21 @@ export function TabView({
         {`${NOT_RUN}: this attempt has no ${tab.title} yet (no directory matching ${tab.versions.join(" or ")}).`}
       </Note>
     );
+  const part = tab.parts.find((p) => p.name === named) ?? tab.parts[0];
+  if (part === undefined) return null;
   const choices = versions.map((v) => ({ key: v.dir, title: v.dir }));
+  const view = (
+    <>
+      {part.fields.length > 0 && <Fields part={part} version={shown} />}
+      <TabMarkdown
+        key={`${shown.dir}/${part.name}`}
+        project={project}
+        attempt={attempt}
+        part={part}
+        version={shown}
+      />
+    </>
+  );
   return (
     <div className="flex flex-col gap-3 px-7 pt-5 pb-12">
       <div className="flex flex-wrap items-center gap-2">
@@ -82,28 +108,62 @@ export function TabView({
           {`${(versions.indexOf(shown) + 1).toString()} of ${versions.length.toString()}`}
         </span>
       </div>
-      {tab.fields.length > 0 && <Fields tab={tab} version={shown} />}
-      <TabMarkdown
-        key={shown.dir}
-        project={project}
-        attempt={attempt}
-        tab={tab}
-        version={shown}
-      />
+      {tab.parts.length > 1 ? (
+        <Parts project={project} attempt={attempt} tab={tab} shown={part}>
+          {view}
+        </Parts>
+      ) : (
+        view
+      )}
     </div>
   );
 }
 
+/** A tab's parts in a column, as the Runs tab's, beside the one shown. */
+function Parts({
+  project,
+  attempt,
+  tab,
+  shown,
+  children,
+}: {
+  project: Project;
+  attempt: string;
+  tab: ProjectTab;
+  shown: TabPart;
+  children: ReactNode;
+}) {
+  return (
+    <SideColumn
+      label={tab.title}
+      entries={tab.parts.map((p) => (
+        <Link
+          key={p.name}
+          to={attemptHref(project.id, attempt, { tab: tab.name, part: p.name })}
+          aria-current={p === shown ? "page" : undefined}
+          className={sideEntry}
+        >
+          <FileText className="size-4 flex-none" aria-hidden />
+          {p.title}
+        </Link>
+      ))}
+    >
+      <div className="flex min-w-0 flex-col gap-3">{children}</div>
+    </SideColumn>
+  );
+}
+
 /** Each field's title and value, or why it has none. */
-function Fields({ tab, version }: { tab: ProjectTab; version: TabVersion }) {
+function Fields({ part, version }: { part: TabPart; version: TabVersion }) {
+  const read = version.parts.find((p) => p.name === part.name)?.fields ?? [];
   return (
     <section
-      aria-label={`${tab.title} fields`}
+      aria-label={`${part.title} fields`}
       className="rounded-panel border border-line bg-card px-5 py-4"
     >
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5">
-        {tab.fields.map((field, i) => {
-          const found = version.fields[i];
+        {part.fields.map((field, i) => {
+          const found = read[i];
           return (
             // The project's fields, fixed for the page: two may share a title.
             // eslint-disable-next-line @eslint-react/no-array-index-key
@@ -132,16 +192,16 @@ function Fields({ tab, version }: { tab: ProjectTab; version: TabVersion }) {
 function TabMarkdown({
   project,
   attempt,
-  tab,
+  part,
   version,
 }: {
   project: Project;
   attempt: string;
-  tab: ProjectTab;
+  part: TabPart;
   version: TabVersion;
 }) {
   const refresh = useRefresh();
-  const path = `${version.dir}/${tab.file}`;
+  const path = `${version.dir}/${part.file}`;
   const loaded = useLoaded(
     JSON.stringify([project.id, attempt, path]),
     (signal) => fetchFile(project.id, attempt, path, signal),
@@ -159,7 +219,7 @@ function TabMarkdown({
     body = `Not shown: not UTF-8 text, ${size(loaded.data.size)}.`;
   return (
     <Card
-      title={tab.title}
+      title={part.title}
       aside={
         <>
           <code className="font-mono">{path}</code>

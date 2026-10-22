@@ -25,6 +25,16 @@ tabs:
       - {title: Outcome, file: status.json, field: [outcome]}
       - {title: Spent, file: status.json, field: [cost_usd], format: usd}
   - {name: other, title: Other, versions: ["*", ".notes*"], file: other.md}
+  - name: post
+    title: Post
+    versions: [post, "post-*"]
+    parts:
+      - name: report
+        title: Report
+        file: out/report.md
+        fields:
+          - {title: Verdict, file: out/report.json, field: [verdict]}
+      - {name: prompt, title: Prompt, file: prompt.md}
 """
 
 COLUMNS = """\
@@ -78,7 +88,7 @@ def shown(tree: Tree, tab: int = 0) -> dict[str, object]:
   response = client(tree).get(f"{API}/tabs", params=ATTEMPT)
   assert response.status_code == 200
   body = cast(list[dict[str, object]], response.json())
-  assert [t["name"] for t in body] == ["notes", "other"]
+  assert [t["name"] for t in body] == ["notes", "other", "post"]
   return body[tab]
 
 
@@ -90,31 +100,62 @@ def dirs(tab: dict[str, object]) -> list[str]:
 def test_a_project_file_s_tabs_load(tree: Tree) -> None:
   [project] = load_site(tree.site).projects
 
-  [notes, other] = project.tabs
+  [notes, other, post] = project.tabs
   assert notes.versions == ("notes", "notes*")
-  assert notes.file == ("out", "notes.md")
-  assert [f.format for f in notes.fields] == ["text", "text", "usd"]
-  assert other.fields == ()
+  [part] = notes.parts
+  assert part.file == ("out", "notes.md")
+  assert [f.format for f in part.fields] == ["text", "text", "usd"]
+  assert other.parts[0].fields == ()
+  assert [p.file for p in post.parts] == [("out", "report.md"), ("prompt.md",)]
   assert project.public()["tabs"] == [
     {
       "name": "notes",
       "title": "Notes",
       "versions": ["notes", "notes*"],
-      "file": "out/notes.md",
-      "fields": [
-        {"title": "Verdict", "format": "text"},
-        {"title": "Outcome", "format": "text"},
-        {"title": "Spent", "format": "usd"},
+      "parts": [
+        {
+          "name": "notes",
+          "title": "Notes",
+          "file": "out/notes.md",
+          "fields": [
+            {"title": "Verdict", "format": "text"},
+            {"title": "Outcome", "format": "text"},
+            {"title": "Spent", "format": "usd"},
+          ],
+        }
       ],
     },
     {
       "name": "other",
       "title": "Other",
       "versions": ["*", ".notes*"],
-      "file": "other.md",
-      "fields": [],
+      "parts": [
+        {"name": "other", "title": "Other", "file": "other.md", "fields": []}
+      ],
+    },
+    {
+      "name": "post",
+      "title": "Post",
+      "versions": ["post", "post-*"],
+      "parts": [
+        {
+          "name": "report",
+          "title": "Report",
+          "file": "out/report.md",
+          "fields": [{"title": "Verdict", "format": "text"}],
+        },
+        {
+          "name": "prompt",
+          "title": "Prompt",
+          "file": "prompt.md",
+          "fields": [],
+        },
+      ],
     },
   ]
+
+
+PARTS = r"tabs\[2\]\.parts: not a list of two or more"
 
 
 @pytest.mark.parametrize(
@@ -142,6 +183,14 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
     (("name: notes", "name: files"), r"tabs\[0\]\.name: 'files'"),
     (("name: other", "name: notes"), r"tabs\[1\]\.name: 'notes' is repeated"),
     (("    file: out/notes.md\n", ""), r"tabs\[0\]\.file: missing"),
+    (("      - {name: prompt, title: Prompt, file: prompt.md}\n", ""), PARTS),
+    (("    parts:\n", "    file: x.md\n    parts:\n"), r"\[2\]\.file: given"),
+    (("    parts:\n", "    fields: []\n    parts:\n"), r"\[2\]\.fields: given"),
+    (("name: prompt", "name: report"), r"parts\[1\]\.name: 'report' is rep"),
+    (("name: prompt", "name: Prompt"), r"parts\[1\]\.name: 'Prompt' is not"),
+    (("file: prompt.md", "file: ../prompt.md"), r"parts\[1\]\.file"),
+    (("file: prompt.md", "path: prompt.md"), r"parts\[1\]\.path: unknown"),
+    (("file: out/report.json", "file: /r.json"), r"parts\[0\]\.fields\[0\]"),
     ((TABS[TABS.index("tabs:") :], "tabs: []\n"), "tabs: not a non-empty list"),
     (("tab: notes, file: tags.json", "tab: none, file: x"), r"columns\[3\]"),
     (("tab: notes, file: tags.json", "tab: notes"), r"columns\[3\]\.file"),
@@ -224,7 +273,7 @@ def test_fields_are_read_from_the_version_shown(tree: Tree) -> None:
   _ = (version(tree, "notes-5") / "tags.json").write_text("{")
 
   found = {
-    cast(str, v["dir"]): v["fields"]
+    cast(str, v["dir"]): cast(list[dict[str, object]], v["parts"])[0]["fields"]
     for v in cast(list[dict[str, object]], shown(tree)["versions"])
   }
 
@@ -264,6 +313,40 @@ def test_fields_are_read_from_the_version_shown(tree: Tree) -> None:
   }
 
 
+def post(tree: Tree, name: str, verdict: str | None) -> None:
+  found = tree.attempt / name / "out"
+  found.mkdir(parents=True)
+  if verdict is not None:
+    _ = (found / "report.json").write_text(json.dumps({"verdict": verdict}))
+
+
+def test_each_part_of_a_tab_reads_its_own_fields(tree: Tree) -> None:
+  post(tree, "post-1", None)
+  post(tree, "post-2", "kept")
+
+  assert shown(tree, 2)["versions"] == [
+    {
+      "dir": "post-2",
+      "parts": [
+        {"name": "report", "fields": [found_("kept")]},
+        {"name": "prompt", "fields": []},
+      ],
+    },
+    {
+      "dir": "post-1",
+      "parts": [
+        {
+          "name": "report",
+          "fields": [
+            not_run("post-1/out/report.json: No such file or directory")
+          ],
+        },
+        {"name": "prompt", "fields": []},
+      ],
+    },
+  ]
+
+
 def test_the_tabs_route_reads_only_an_attempt(tree: Tree) -> None:
   web = client(tree)
 
@@ -284,6 +367,24 @@ def test_a_column_reads_its_file_from_the_tab_s_first_version(
 
   assert cast(list[object], row["values"])[3:] == ["newer", 7]
   assert row["reads"] == [None, None, None, "found", "found"]
+
+
+def test_a_column_reads_its_file_from_a_tab_of_parts_first_version(
+  tree: Tree,
+) -> None:
+  old = "tab: notes, file: tags.json, field: [verdict, value]"
+  text = tree.project.read_text()
+  assert old in text
+  new = "tab: post, file: out/report.json, field: [verdict]"
+  _ = tree.project.write_text(text.replace(old, new))
+  post(tree, "post-1", "older")
+  post(tree, "post-2", "newer")
+
+  [row] = cast(
+    list[dict[str, object]], client(tree).get(f"{API}/attempts").json()
+  )
+
+  assert cast(list[object], row["values"])[3] == "newer"
 
 
 def test_a_column_s_null_is_not_its_file_not_there(tree: Tree) -> None:

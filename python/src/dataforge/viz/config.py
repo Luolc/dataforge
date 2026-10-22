@@ -116,8 +116,25 @@ class TabField:
 
 
 @dataclass(frozen=True, slots=True)
+class TabPart:
+  """A Markdown file a tab shows from each of its versions.
+
+  Attributes:
+    name: Its name, in the URL; of [a-z0-9-].
+    title: Its title.
+    file: The Markdown file, relative to each version's directory.
+    fields: The values shown above the Markdown, in order.
+  """
+
+  name: str
+  title: str
+  file: tuple[str, ...]
+  fields: tuple[TabField, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Tab:
-  """A tab of the attempt page that shows a Markdown file of the attempt.
+  """A tab of the attempt page that shows Markdown files of the attempt.
 
   Attributes:
     name: Its name, in the URL; of [a-z0-9-].
@@ -126,15 +143,15 @@ class Tab:
       the attempt's directory, in order; a pattern may hold "*", which
       matches any run of characters, and matches no name that starts with
       "." unless it does too.
-    file: The Markdown file, relative to each version's directory.
-    fields: The values shown above the Markdown, in order.
+    parts: The Markdown files it shows from each version, in order: one,
+      named and titled as the tab, for a tab of one file; else two or more,
+      each an entry of the tab's column.
   """
 
   name: str
   title: str
   versions: tuple[str, ...]
-  file: tuple[str, ...]
-  fields: tuple[TabField, ...] = ()
+  parts: tuple[TabPart, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,8 +363,17 @@ class Project:
           "name": t.name,
           "title": t.title,
           "versions": list(t.versions),
-          "file": "/".join(t.file),
-          "fields": [{"title": f.title, "format": f.format} for f in t.fields],
+          "parts": [
+            {
+              "name": part.name,
+              "title": part.title,
+              "file": "/".join(part.file),
+              "fields": [
+                {"title": f.title, "format": f.format} for f in part.fields
+              ],
+            }
+            for part in t.parts
+          ],
         }
         for t in self.tabs
       ],
@@ -750,8 +776,8 @@ def _tabs(
       path,
       where,
       entry,
-      required={"name", "title", "versions", "file"},
-      optional={"fields"},
+      required={"name", "title", "versions"},
+      optional={"file", "fields", "parts"},
     )
     name = _str(path, f"{where}.name", entry["name"])
     if not _ID.fullmatch(name):
@@ -761,18 +787,59 @@ def _tabs(
         f"{path}: {where}.name: {name!r} is repeated, runs or a kind's"
       )
     taken.add(name)
+    title = _str(path, f"{where}.title", entry["title"])
+    if "parts" in entry:
+      for key in ("file", "fields"):
+        if key in entry:
+          raise ConfigError(f"{path}: {where}.{key}: given with parts")
+      parts = _tab_parts(path, f"{where}.parts", entry["parts"])
+    elif "file" not in entry:
+      raise ConfigError(f"{path}: {where}.file: missing, and no parts")
+    else:
+      parts = (_tab_part(path, where, entry, name, title),)
     found.append(
       Tab(
         name=name,
-        title=_str(path, f"{where}.title", entry["title"]),
+        title=title,
         versions=_versions(path, f"{where}.versions", entry["versions"]),
-        file=_relative(
-          path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
-        ),
-        fields=_tab_fields(path, f"{where}.fields", entry.get("fields")),
+        parts=parts,
       )
     )
   return tuple(found)
+
+
+def _tab_parts(path: Path, where: str, value: object) -> tuple[TabPart, ...]:
+  # One file is written as the tab's own file, so a tab of parts has two.
+  if not isinstance(value, list) or len(cast(list[object], value)) < 2:
+    raise ConfigError(f"{path}: {where}: not a list of two or more")
+  found: list[TabPart] = []
+  for i, item in enumerate(cast(list[object], value)):
+    at = f"{where}[{i}]"
+    entry = _mapping(path, at, item)
+    _keys(
+      path, at, entry, required={"name", "title", "file"}, optional={"fields"}
+    )
+    name = _str(path, f"{at}.name", entry["name"])
+    if not _ID.fullmatch(name):
+      raise ConfigError(f"{path}: {at}.name: {name!r} is not of [a-z0-9-]")
+    if any(p.name == name for p in found):
+      raise ConfigError(f"{path}: {at}.name: {name!r} is repeated")
+    title = _str(path, f"{at}.title", entry["title"])
+    found.append(_tab_part(path, at, entry, name, title))
+  return tuple(found)
+
+
+def _tab_part(
+  path: Path, where: str, entry: Mapping[str, object], name: str, title: str
+) -> TabPart:
+  return TabPart(
+    name=name,
+    title=title,
+    file=_relative(
+      path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
+    ),
+    fields=_tab_fields(path, f"{where}.fields", entry.get("fields")),
+  )
 
 
 def _versions(path: Path, where: str, value: object) -> tuple[str, ...]:
