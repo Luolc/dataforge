@@ -142,14 +142,14 @@ class _ActionState(State):
 class AgentState(_ActionState):
   """Runs one agent, on the spec it is given or the one a subclass makes.
 
-  Outcomes: "ok" (the run ended well and its outputs, answer and validator,
-  if any, pass), "failed" (they do not) or "error" (the run itself failed,
-  so there is nothing to judge: an API error, a refusal, a timeout or the
+  Outcomes: "ok" (the run ended well and its outputs, answer and validator, if
+  any, pass), "failed" (they do not) or "error" (the run itself failed, so
+  there is nothing to judge: an API error, a refusal, a timeout or the
   session's own spend cap, say; its reason gives the run's ending, fault and
-  error). Data: {"ending", "fixes", "cost_usd",
-  "fault", "stop_reason", "error"}: the last run's ending, its fault, the
-  model's stop reason and the error it ended on, as AgentRun has them, and
-  cost_usd None when a run did not report its cost. On "failed" the
+  error, and its fault is the run's, Outcome.fault). Data: {"ending", "fixes",
+  "cost_usd", "fault", "stop_reason", "error"}: the last run's ending, its
+  fault, the model's stop reason and the error it ended on, as AgentRun has
+  them, and cost_usd None when a run did not report its cost. On "failed" the
   outcome's feedback is {"details": the validator's last output, or the
   action's log when the validator passed or there is none}.
 
@@ -268,7 +268,8 @@ class AgentState(_ActionState):
     }
     last = self.last_if_unresumable and run is not None and not run.resumable
     if run is None or run.status != "ok":
-      return Outcome("error", data, last, reason=_why(run))
+      fault = None if run is None else run.fault
+      return Outcome("error", data, last, reason=_why(run), fault=fault)
     if result.ok:
       return Outcome("ok", data, last)
     check = result.validation
@@ -834,15 +835,17 @@ class RubricState(_ActionState):
   "### <name>"}; "error", with that feedback, where a review whose agent run
   failed, such as on a refusal, a timeout or no structured output, gives
   "<name> returned no verdicts (<how it ended>).", if one did, so there is
-  nothing to judge (judge_review), and those findings as its reason. A
-  review whose run failed is run once more in the same visit, as retries
-  chooses, and the reviews that gave verdicts are not; the retry's answer is
-  the call's. Data: each review's {"ending",
-  "cost_usd", "passed", "failed", "verdicts", "fault", "error", "retried"},
-  by name. Every visit, whatever its outcome, also writes the outputs
-  RUBRIC_TABLE (rubric_table), RUBRIC_REPORT (rubric_report), which gives
-  the finding of each review that gave no verdicts, and, for each review,
-  "<name>" CALL_SUFFIX, its Call, recorded as an action of kind "report".
+  nothing to judge (judge_review), and those findings as its reason; its fault
+  (Outcome.fault) is "budget" when each such review hit its own spend cap,
+  else the first other fault of their runs. A review whose run failed is run
+  once more in the same visit, as retries chooses, and the reviews that gave
+  verdicts are not; the retry's answer is the call's. Data: each review's
+  {"ending", "cost_usd", "passed", "failed", "verdicts", "fault", "error",
+  "retried"}, by name. Every visit, whatever its outcome, also writes the
+  outputs RUBRIC_TABLE (rubric_table), RUBRIC_REPORT (rubric_report), which
+  gives the finding of each review that gave no verdicts, and, for each
+  review, "<name>" CALL_SUFFIX, its Call, recorded as an action of kind
+  "report".
 
   Each visit calls each review once. A call compares its blocks with those
   of the last call of the review in this state that gave verdicts, one for
@@ -1152,7 +1155,13 @@ class RubricState(_ActionState):
     if errored := [j for j in failed if j.errored]:
       why = " ".join(j.findings for j in errored)
       return self.renamed(
-        Outcome("error", data, feedback={"details": details}, reason=why)
+        Outcome(
+          "error",
+          data,
+          feedback={"details": details},
+          reason=why,
+          fault=_fault(errored),
+        )
       )
     return self.renamed(Outcome("fail", data, feedback={"details": details}))
 
@@ -1165,6 +1174,15 @@ def _why(run: AgentRun | None) -> str:
   if run.fault is not None:
     why += f", {run.fault}"
   return why if run.error is None else f"{why}: {run.error}"
+
+
+def _fault(errored: Sequence[Judgment]) -> str | None:
+  # The fault of reviews that gave nothing to judge: `budget` when each hit
+  # its own cap, else the first other fault one of them has.
+  faults = [judgment.data["fault"] for judgment in errored]
+  if all(fault == BUDGET for fault in faults):
+    return BUDGET
+  return next((f for f in faults if isinstance(f, str) and f != BUDGET), None)
 
 
 def _errored(result: ActionResult) -> bool:
