@@ -39,6 +39,17 @@ scheduler's environment, not the submitter's; one that needs a PATH or a credent
 itself. A systemd unit that runs the scheduler needs `KillMode=process`, so that stopping or
 restarting it leaves the jobs running.
 
+`dataforge.testrunner` runs a Harbor task's tests with the project's own runner (pytest, Maven
+Surefire, PHPUnit) and writes them as CTRF to `/logs/verifier/ctrf.json`. It uses only Python
+3.12's standard library, so that a task runs on its own: a dataset writes `testrunner.files()`
+into each task's `tests/` and its harness imports `testrunner` there. `tests/manifest.toml`
+lists the tests (`[[test]]`: `suite`, `runner`, `id`, and optionally `dir`, `kind` and
+`principle`), the files to copy into the project before they run (`[[file]]`: `source`, `dest`)
+and why a suite has none (`[no_tests]`); `testrunner.run` runs them, a listed test the runner
+did not report counting as an error, and `testrunner.ctrf.suite_counts` gives each suite's
+passed and total counts, from which the dataset writes its `reward.json`. A dataset with no
+harness of its own runs `python -m testrunner` in `/tests`.
+
 A dataset repository depends on it at a commit of main:
 
 ```toml
