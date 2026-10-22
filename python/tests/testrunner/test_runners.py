@@ -161,6 +161,39 @@ def test_pytest_takes_the_nearest_configuration_of_the_first_test(
   assert f"--rootdir={ctx.app / 'a'}" in argv
 
 
+def test_pytest_looks_from_the_common_ancestor_of_the_tests(tmp_path: Path):
+  # As pytest does: a/pytest.ini is not on the way up from a and b's
+  # common ancestor, the root, which has no configuration.
+  ctx = context(tmp_path)
+  files = {"a/pytest.ini": "[pytest]\n", "a/test_a.py": "", "b/test_b.py": ""}
+  ctx = context(tmp_path, base=commit(ctx.app, files))
+  tests = [
+    Listed("p2p", "pytest", "a/test_a.py::test_one"),
+    Listed("p2p", "pytest", "b/test_b.py::test_one"),
+  ]
+  runner = Pytest()
+  assert runner.prepare(ctx, tests) == [ctx.app / f"{PREFIX}pytest.ini"]
+  assert runner.prepare(ctx, tests[:1]) == [
+    ctx.app / "a" / f"{PREFIX}pytest.ini"
+  ]
+
+
+def test_pytest_takes_a_file_with_a_dotted_directory_from_its_attribute(
+  tmp_path: Path,
+):
+  ctx = context(tmp_path)
+  write(ctx.app, {"v1.2/test_x.py": ""})
+  runner = Pytest()
+  _ = runner.prepare(ctx, [Listed("p2p", "pytest", "v1.2/test_x.py")])
+  report = """<testsuites><testsuite>
+<testcase classname="v1.2.test_x.TestK" name="test_m" file="v1.2/test_x.py"/>
+</testsuite></testsuites>"""
+  _ = (ctx.work / "pytest.xml").write_text(report)
+  cases = runner.cases(ctx)
+  assert cases is not None
+  assert [c.name for c in cases] == ["v1.2/test_x.py::TestK::test_m"]
+
+
 def test_pytest_runs_nothing_when_no_file_is_there(tmp_path: Path):
   ctx = context(tmp_path)
   runner = Pytest()
@@ -176,6 +209,8 @@ def test_pytest_runs_nothing_when_no_file_is_there(tmp_path: Path):
     ("t.py::test_a", "t.py::test_a[1]", True),
     ("t.py::TestK", "t.py::TestK::test_m", True),
     ("t.py", "t.py::test_a", True),
+    ("tests", "tests/t.py::test_a", True),
+    ("tests", "tests_more/t.py::test_a", False),
     ("t.py::test_a", "t.py::test_ab", False),
     ("t.py::test_a", "t.py", False),
   ],
@@ -223,6 +258,10 @@ def test_maven_names_the_tests_in_one_filter(tmp_path: Path):
     in argv
   )
   assert argv[0] == "mvn" and argv[-1] == "test"
+  # A class listed whole runs whole.
+  tests.append(Listed("p2p", "maven", "org.example.ParserTest"))
+  argv = only(Maven().commands(context(tmp_path), tests))
+  assert "-Dtest=org.example.ParserTest,org.example.LexerTest" in argv
 
 
 @pytest.mark.parametrize(
@@ -284,10 +323,30 @@ def test_phpunit_filters_the_tests_by_name(tmp_path: Path):
 def test_phpunit_runs_without_a_configuration_when_there_is_none(
   tmp_path: Path,
 ):
+  # PHPUnit is given the directory of the listed classes' files.
   ctx = context(tmp_path)
-  write(ctx.app, {"vendor/bin/phpunit": ""})
-  argv = only(PHPUnit().commands(ctx, [Listed("p2p", "phpunit", "A::b")]))
-  assert argv[:2] == [str(ctx.app / "vendor/bin/phpunit"), "--no-configuration"]
+  write(
+    ctx.app,
+    {
+      "vendor/bin/phpunit": "",
+      "vendor/x/tests/ParserTest.php": "",
+      "tests/Unit/ParserTest.php": "",
+      "tests/Unit/LexerTest.php": "",
+      "tests/Feature/LexerTest.php": "",
+    },
+  )
+  tests = [Listed("p2p", "phpunit", "App\\Tests\\ParserTest::testTag")]
+  argv = only(PHPUnit().commands(ctx, tests))
+  assert argv[:3] == [
+    str(ctx.app / "vendor/bin/phpunit"),
+    "--no-configuration",
+    "tests/Unit",
+  ]
+  tests.append(Listed("p2p", "phpunit", "App\\Tests\\LexerTest"))
+  argv = only(PHPUnit().commands(ctx, tests))
+  assert argv[2] == "tests"
+  gone = [Listed("p2p", "phpunit", "A\\GoneTest")]
+  assert PHPUnit().commands(ctx, gone) == []
 
 
 @pytest.mark.parametrize(

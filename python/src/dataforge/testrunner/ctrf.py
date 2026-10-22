@@ -167,8 +167,8 @@ def suite_counts(report: Mapping[str, object]) -> dict[str, tuple[int, int]]:
     not pass.
 
   Raises:
-    ValueError: When the report has no tests, or a test has no one-element
-      suite or no status.
+    ValueError: When the report has no results.tests list, or a test has no
+      one-element suite or no status.
   """
   results = report.get("results")
   tests = (

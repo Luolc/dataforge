@@ -7,11 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
-import { must, sampleProject } from "../../../../fixtures/sample";
+import { measured, must, sampleProject } from "../../../../fixtures/sample";
 import { type Project, record } from "../../../api/types";
 import { TEMPLATES } from "../../../ui/template";
 import { Graph } from "./Graph";
-import { type Layout, layout } from "./graph";
+import { END, type Layout, layout, TEXT_WIDTH } from "./graph";
 
 // As fixtures/graph/project.yaml, as /api/projects would serve it.
 const project: Project = {
@@ -106,6 +106,38 @@ describe("the machine's graph", () => {
     fireEvent.pointerLeave(node("check"));
     expect(lit(edge("check", "review"))).toBe("false");
     expect(node("build").innerHTML).not.toContain(
+      "opacity-[var(--opacity-idle)]",
+    );
+  });
+
+  it("lights a stub with the state it leaves and the state it names", () => {
+    const { graph, edge, node } = show(busy);
+    // An edge's key is its two ends with a NUL between; the end's own key
+    // starts with one.
+    const stubs = [...graph.querySelectorAll('[data-stub="true"]')].map(
+      (g): [string, string] => {
+        const key = must(g.getAttribute("data-edge"));
+        const i = key.indexOf("\0");
+        return [key.slice(0, i), key.slice(i + 1)];
+      },
+    );
+    // A stub back to another state, and a state at neither of its ends.
+    const [from, to] = must(stubs.find(([, t]) => t !== END));
+    const other = must(
+      busy.graph.states
+        .map((st) => st.name)
+        .find((k) => k !== from && k !== to),
+    );
+
+    fireEvent.pointerEnter(node(to));
+    expect(lit(edge(from, to))).toBe("true");
+    fireEvent.pointerLeave(node(to));
+    fireEvent.pointerEnter(node(from));
+    expect(lit(edge(from, to))).toBe("true");
+    fireEvent.pointerLeave(node(from));
+    fireEvent.pointerEnter(node(other));
+    expect(lit(edge(from, to))).toBe("false");
+    expect(edge(from, to).getAttribute("class")).toContain(
       "opacity-[var(--opacity-idle)]",
     );
   });
@@ -321,16 +353,16 @@ describe("a running attempt's machine", () => {
   }
 
   it("opens with the state it runs in the middle of the frame", () => {
-    frameOf(600, 300);
+    frameOf(240, 300);
     const { drawn, x } = showRunning();
     const node = must(drawn.nodes.find((n) => n.key === "smoke"));
 
     expect(x).toBeLessThan(0);
-    expect(x + (node.x + node.width / 2)).toBeCloseTo(300);
+    expect(x + (node.x + node.width / 2)).toBeCloseTo(120);
   });
 
   it("keeps its view when the attempt goes on to another state", () => {
-    frameOf(600, 300);
+    frameOf(240, 300);
     const { graph, x } = showRunning();
     const on = {
       ...smoke,
@@ -342,7 +374,7 @@ describe("a running attempt's machine", () => {
     const later = must(layout(record.parse(early), project, on));
     // The state it runs in now would sit elsewhere in the frame.
     const solve = must(later.nodes.find((n) => n.key === "solve"));
-    expect(300 - (solve.x + solve.width / 2)).not.toBeCloseTo(x);
+    expect(120 - (solve.x + solve.width / 2)).not.toBeCloseTo(x);
 
     rerenderWith(later);
 
@@ -354,6 +386,66 @@ describe("a running attempt's machine", () => {
     expect(must(graph.querySelector("g")).getAttribute("transform")).toMatch(
       new RegExp(`^translate\\(${String(x)} 0\\)`),
     );
+  });
+
+  it("keeps each line of a card within it, a running state's time on a line of its own", () => {
+    // Draft runs again, its second visit not recorded yet.
+    const draft = {
+      state: "draft",
+      visit: 2,
+      index: 3,
+      recorded: false,
+      since: "2026-03-09T13:16:40+00:00",
+    };
+    const drawn = must(layout(record.parse(early), project, draft, measured));
+    const { container } = render(
+      <MemoryRouter>
+        <Graph project={project} layout={drawn} runHref={() => "/run"} />
+      </MemoryRouter>,
+    );
+    const linesOf = (key: string) => {
+      const card = must(
+        [...container.querySelectorAll("[data-node]")].find(
+          (g) => g.getAttribute("data-node") === key,
+        ),
+      );
+      // A tspan with no y of its own goes on along its line, as SVG draws it.
+      return [...card.querySelectorAll("text")].flatMap((text) => {
+        const font = (text.getAttribute("class") ?? "").includes(
+          "font-semibold",
+        )
+          ? ("title" as const)
+          : ("sub" as const);
+        const spans = [...text.querySelectorAll("tspan")];
+        if (spans.length === 0)
+          return [
+            { text: text.textContent, y: Number(text.getAttribute("y")), font },
+          ];
+        const lines: { text: string; y: number; font: typeof font }[] = [];
+        for (const span of spans) {
+          const y = span.getAttribute("y");
+          const last = lines.at(-1);
+          if (y === null && last) last.text += span.textContent;
+          else lines.push({ text: span.textContent, y: Number(y), font });
+        }
+        return lines;
+      });
+    };
+
+    for (const n of drawn.nodes)
+      for (const line of linesOf(n.key)) {
+        expect(measured(line.text, line.font)).toBeLessThanOrEqual(TEXT_WIDTH);
+        // Its baseline in the card, room left under it for the descenders.
+        expect(line.y).toBeGreaterThan(0);
+        expect(line.y).toBeLessThanOrEqual(n.height - 4);
+      }
+    const under = linesOf("draft")
+      .filter((l) => l.font === "sub")
+      .map((l) => l.text);
+    expect(under).toEqual([
+      "2 runs · Running",
+      expect.stringMatching(/^\d+h \d+m$/),
+    ]);
   });
 
   it("opens at its left end when no state runs", () => {

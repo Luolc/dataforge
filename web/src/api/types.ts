@@ -49,8 +49,18 @@ export const project = z.looseObject({
       z.looseObject({ name: z.string(), kind: z.string(), title: z.string() }),
     )
     .optional(),
-  // A trial's diff, relative to its directory.
-  trials: z.looseObject({ diff: z.string() }).nullable().optional(),
+  // A trial's diff and its CTRF test results, each relative to its
+  // directory, and each test kind's label.
+  trials: z
+    .looseObject({
+      diff: z.string().nullable().optional(),
+      tests: z.string().nullable().optional(),
+      kinds: z
+        .record(z.string(), z.looseObject({ label: z.string() }))
+        .optional(),
+    })
+    .nullable()
+    .optional(),
   // The definition snapshot's path in an attempt's directory.
   definition: z.string().nullable().optional(),
   // Whether the project names a resource monitor database.
