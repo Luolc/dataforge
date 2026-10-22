@@ -657,11 +657,11 @@ function NodeCard({
         {node.running?.rows.map((row, i) => {
           const y = under + (node.under.length + i) * SUB_LINE;
           // An empty tspan does not move the pen: the row starts at its clock.
-          const at = row.lead === "" ? { x: 36, y } : {};
+          const at = row.lead === "" ? { x: 12, y } : {};
           return (
             <Fragment key={y}>
               {row.lead !== "" && (
-                <tspan x="36" y={y}>
+                <tspan x="12" y={y}>
                   {row.lead}
                 </tspan>
               )}

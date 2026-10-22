@@ -31,6 +31,8 @@ export const END = "\0end";
  */
 export const CARD_WIDTH = 176;
 export const TEXT_WIDTH = CARD_WIDTH - 36 - 12;
+/** The width of a running card's live lines, which start at its padding. */
+export const LIVE_WIDTH = CARD_WIDTH - 12 - 12;
 /**
  * The padding above and below a card's text, the height of a line of its
  * title and of a line under it.
@@ -265,7 +267,7 @@ export function layout(
         ...box,
         title: stateTitle(project, key),
         lines: wrap(stateTitle(project, key), "title", measure),
-        sub: `Run ${runs.toString()}, ${runsOf(runs)} ${IN_ALL}`,
+        sub: `Run ${runs.toString()} of ${runs.toString()}`,
         time: null,
         under: [],
         word: null,
@@ -455,8 +457,13 @@ const graphemes = new Intl.Segmenter();
  * width, and a word too wide for a line of its own broken between its
  * characters, so that none is cut.
  */
-function wrap(text: string, font: Font, measure: Measure): string[] {
-  const fits = (line: string) => measure(line, font) <= TEXT_WIDTH;
+function wrap(
+  text: string,
+  font: Font,
+  measure: Measure,
+  width = TEXT_WIDTH,
+): string[] {
+  const fits = (line: string) => measure(line, font) <= width;
   const lines: string[] = [];
   for (const word of text.split(/\s+/).filter((w) => w !== "")) {
     const last = lines.at(-1);
@@ -496,22 +503,24 @@ function liveRows(
   measure: Measure,
 ): LiveRow[] {
   if (live === null) {
-    return wrap(lead, "sub", measure).map((line) => ({
+    return wrap(lead, "sub", measure, LIVE_WIDTH).map((line) => ({
       lead: line,
       live: null,
       tail: "",
     }));
   }
-  return wrap(`${lead}${CLOCK}${tail}`, "sub", measure).map((line) => {
-    const at = line.indexOf(CLOCK);
-    return at < 0
-      ? { lead: line, live: null, tail: "" }
-      : {
-          lead: line.slice(0, at),
-          live,
-          tail: line.slice(at + CLOCK.length),
-        };
-  });
+  return wrap(`${lead}${CLOCK}${tail}`, "sub", measure, LIVE_WIDTH).map(
+    (line) => {
+      const at = line.indexOf(CLOCK);
+      return at < 0
+        ? { lead: line, live: null, tail: "" }
+        : {
+            lead: line.slice(0, at),
+            live,
+            tail: line.slice(at + CLOCK.length),
+          };
+    },
+  );
 }
 
 /** The lines under a title: sub and time, on one line where they fit. */

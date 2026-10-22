@@ -690,7 +690,7 @@ describe("a running attempt's layout", () => {
     const review = must(drawn.nodes.find((n) => n.key === "review"));
 
     expect(review).toMatchObject({
-      sub: "Run 1, 1 run in all",
+      sub: "Run 1 of 1",
       under: [],
       status: { label: "Running" },
       idle: false,
@@ -718,7 +718,7 @@ describe("a running attempt's layout", () => {
     const drawn = must(layout(records.running, sampleProject, current));
 
     expect(drawn.nodes.find((n) => n.key === "check")).toMatchObject({
-      sub: "Run 1, 1 run in all",
+      sub: "Run 1 of 1",
       lastVisit: 1,
       running: { before: 0 },
     });
@@ -736,9 +736,9 @@ describe("a running attempt's layout", () => {
     const check = must(drawn.nodes.find((n) => n.key === "check"));
     const running = must(check.running);
 
-    const n = check.sub.split(",")[0]?.replace("Run ", "");
+    const n = check.sub.split(" ")[1];
     expect(Number(n)).toBeGreaterThan(1);
-    expect(check.sub).toBe(`Run ${n ?? ""}, ${n ?? ""} runs in all`);
+    expect(check.sub).toBe(`Run ${n ?? ""} of ${n ?? ""}`);
     expect(running.rows).toEqual([
       { lead: `Run ${n ?? ""} · Running `, live: "now", tail: "" },
       { lead: `${n ?? ""} runs · `, live: "all", tail: " in all" },
@@ -747,6 +747,25 @@ describe("a running attempt's layout", () => {
       textHeight({ ...check, running: { ...running, rows: [] } }) +
         2 * SUB_LINE,
     );
+  });
+});
+
+describe("a running card's two lines", () => {
+  it("keeps the run now on one line with its clock at the widest, when that fits the card", () => {
+    // 6px a character: "Run 15 · Running 88m_88s" is 144px, over the 128px
+    // beside the icon and within the 152px of the card's live lines.
+    const six: Measure = (text) => text.length * 6;
+    const current = {
+      state: "check",
+      visit: 15,
+      index: 4,
+      recorded: false,
+      since: reviewSince,
+    };
+    const drawn = must(layout(records.passed, sampleProject, current, six));
+    const rows = must(drawn.nodes.find((n) => n.key === "check")?.running).rows;
+
+    expect(rows.map((r) => r.live)).toEqual(["now", "all"]);
   });
 });
 
