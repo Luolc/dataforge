@@ -265,9 +265,31 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill(
   assert state(config, job).state == "running"
   until(ended(config, job), scheduler)
   done = state(config, job)
-  # The SIGKILL took the wrapper too: the scheduler wrote the end.
+  # The SIGKILL took the wrapper too: the end has no exit code.
   assert (done.state, done.exit_code) == ("canceled", None)
   assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
+
+
+def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
+  config: Config, scheduler: Scheduler
+):
+  job = put(config, "alpha", "sh", "-c", "trap '' TERM; echo ready; sleep 30")
+  until(lambda: "ready" in log(config, job), scheduler)
+  started = state(config, job).leader()
+  assert started is not None
+  # No tick from here on, as with the scheduler stopped.
+  _ = cancel(config, job.id)
+  deadline = time.monotonic() + 20
+  while state(config, job).ended_at is None:
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("canceled", None)
+  assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
+  assert not group_alive(started)
+  # A scheduler that runs again changes nothing of the ended job.
+  scheduler.tick()
+  assert state(config, job) == done
 
 
 def log(config: Config, job: Job) -> str:
