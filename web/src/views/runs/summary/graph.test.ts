@@ -7,6 +7,7 @@ import rollout from "../../../../fixtures/graph/attempts/batch-1/task-0304/recor
 import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
   inReview,
+  measured,
   must,
   records,
   reviewSince,
@@ -23,8 +24,11 @@ import {
   LINE,
   LOOP_WIDTH,
   takenCounts,
+  TEXT_WIDTH,
   textHeight,
+  textTop,
 } from "./graph";
+import { widest } from "./measure";
 
 describe("the graph", () => {
   it("counts the transitions the visits took", () => {
@@ -490,7 +494,7 @@ describe("the layout's shapes", () => {
             }),
           ),
           height: Math.max(
-            textHeight(n.lines.length),
+            textHeight(n),
             (loops.get(n.key) ?? 0) * LINE + LOOP_WIDTH,
           ),
         },
@@ -513,23 +517,124 @@ describe("the layout's shapes", () => {
     ).toBe(true);
   });
 
-  it("break a long title into lines that fit its card, cutting nothing", () => {
-    const drawn = must(
-      layout(record.parse(tangle), { ...sampleProject, states: long }),
-    );
+  it("break each line of a card to fit its width, cutting nothing", () => {
+    const states = {
+      ...long,
+      assemble: { title: "MMMMMMMMMMMMMMM" },
+      refine: { title: "WWWWW mmmmm" },
+    };
+    const project = { ...sampleProject, states };
+    const words = (text: string) => text.replaceAll(" ", "");
+    for (const measure of [measured, widest]) {
+      const drawn = must(layout(record.parse(tangle), project, null, measure));
+      // No card grows for its text, each line fits beside the icon, and
+      // the lines hold the whole text.
+      for (const n of drawn.nodes) {
+        expect(n.width).toBe(CARD_WIDTH);
+        for (const line of n.lines)
+          expect(measure(line, "title")).toBeLessThanOrEqual(TEXT_WIDTH);
+        for (const line of n.under)
+          expect(measure(line, "sub")).toBeLessThanOrEqual(TEXT_WIDTH);
+        expect(words(n.lines.join(""))).toBe(words(n.title));
+        // On one line, runs and time are joined by a dot; on two, not.
+        expect([
+          words(n.time === null ? n.sub : `${n.sub} · ${n.time}`),
+          words(n.sub + (n.time ?? "")),
+        ]).toContain(words(n.under.join("")));
+      }
+    }
+
+    const drawn = must(layout(record.parse(tangle), project, null, measured));
     const lines = (key: string) =>
       must(drawn.nodes.find((n) => n.key === key)).lines;
-
     expect(lines("critique")).toEqual(["Second pass on", "the edits"]);
-    expect(lines("probe").join("")).toBe(long.probe.title);
-    expect(lines("probe").length).toBeGreaterThan(1);
-    // No card grows for its title, and each line fits beside the icon, at
-    // 8.2 a character as the layout counts them.
-    for (const n of drawn.nodes) {
-      expect(n.width).toBe(CARD_WIDTH);
-      for (const line of n.lines)
-        expect(line.length * 8.2).toBeLessThanOrEqual(CARD_WIDTH - 48);
+    for (const key of ["probe", "assemble", "refine"])
+      expect(lines(key).length).toBeGreaterThan(1);
+  });
+
+  it("centre each card's text in its height", () => {
+    let taller = 0;
+    for (let seed = 0; seed < 100; seed++) {
+      const drawn = must(
+        layout(
+          machine(5000000 + seed, 8, 5, true),
+          sampleProject,
+          null,
+          measured,
+        ),
+      );
+      for (const n of drawn.nodes) {
+        if (n.height <= textHeight(n)) continue;
+        taller++;
+        // Its padding, where the card is only as tall as its text.
+        const pad = textTop({ ...n, height: textHeight(n) });
+        const text = textHeight(n) - 2 * pad;
+        expect(textTop(n)).toBeCloseTo(n.height - textTop(n) - text);
+      }
     }
+    expect(taller).toBeGreaterThan(0);
+  });
+
+  it("lay the cards out top to bottom, those a state leads to from left to right in the order of its transitions", () => {
+    // a forks to b and c, which both go to the end; first is the state the
+    // transition a lists first leads to.
+    const fork = (states: string[], first: string, second: string) =>
+      must(
+        layout(
+          {
+            ...records.passed,
+            visits: [],
+            graph: {
+              start: "a",
+              states: states.map((name) => ({
+                name,
+                kind: "AgentState",
+                max_visits: 3,
+                on_exhausted: "exhausted",
+                max_cost_usd: null,
+              })),
+              edges: [
+                ["a", "one", first],
+                ["a", "two", second],
+                ["b", "done", null],
+                ["c", "done", null],
+              ].map(([from, outcome, to]) => ({
+                from: must(from),
+                outcome: must(outcome),
+                to: to ?? null,
+                end: to === null ? "passed" : null,
+                report: false,
+                mark: null,
+                end_on_last_visit: false,
+              })),
+            },
+          },
+          sampleProject,
+          null,
+          measured,
+        ),
+      );
+    for (const states of [
+      ["a", "b", "c"],
+      ["a", "c", "b"],
+    ])
+      for (const [first, second] of [
+        ["b", "c"],
+        ["c", "b"],
+      ] as const) {
+        const drawn = fork(states, first, second);
+        const node = (key: string) =>
+          must(drawn.nodes.find((n) => n.key === key));
+        const [a, one, two, end] = ["a", first, second, END].map(node);
+
+        for (const below of [must(one), must(two)])
+          expect(must(a).y + must(a).height).toBeLessThan(below.y);
+        for (const above of [must(one), must(two)])
+          expect(above.y + above.height).toBeLessThan(must(end).y);
+        // The two share a layer, the first one's card left of the other's.
+        expect(must(one).y).toBe(must(two).y);
+        expect(must(one).x + must(one).width).toBeLessThan(must(two).x);
+      }
   });
 
   it("keep apart two edges that swap heights between two layers", () => {

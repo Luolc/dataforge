@@ -14,7 +14,14 @@ import { Link } from "react-router";
 import type { Project } from "../../../api/types";
 import { Elapsed, RunningIcon } from "../../../ui/running";
 import { StatusIcon } from "../../../ui/status-mark";
-import { type Edge, type Layout, LINE, textTop, TITLE_LINE } from "./graph";
+import {
+  type Edge,
+  type Layout,
+  LINE,
+  SUB_LINE,
+  textTop,
+  TITLE_LINE,
+} from "./graph";
 
 /** The scales the buttons step through, and the bounds of every zoom. */
 const MIN = 0.25;
@@ -482,6 +489,7 @@ function NodeCard({
         : "stroke-icon";
   const top = textTop(node);
   const icon = top + 1;
+  const under = top + node.lines.length * TITLE_LINE + 12;
   return (
     <g
       transform={`translate(${node.x} ${node.y})`}
@@ -533,17 +541,18 @@ function NodeCard({
             </tspan>
           ))}
       </text>
-      <text
-        x="36"
-        y={top + node.lines.length * TITLE_LINE + 12}
-        className="fill-fg-3 text-xs [font-variant-numeric:tabular-nums]"
-      >
-        {node.sub}
-        {(node.time !== null || node.running?.since != null) && " · "}
-        {node.running?.since != null ? (
-          <Elapsed since={node.running.since} before={node.running.before} />
-        ) : (
-          node.time
+      <text className="fill-fg-3 text-xs [font-variant-numeric:tabular-nums]">
+        {node.under
+          .map((line, i) => ({ line, y: under + i * SUB_LINE }))
+          .map(({ line, y }) => (
+            <tspan key={y} x="36" y={y}>
+              {line}
+            </tspan>
+          ))}
+        {node.running?.since != null && (
+          <tspan x="36" y={under + node.under.length * SUB_LINE}>
+            <Elapsed since={node.running.since} before={node.running.before} />
+          </tspan>
         )}
       </text>
     </g>
