@@ -5,9 +5,9 @@ container) are independent. Memory is shared through a ResourcePool, whose
 reservations every process of the machine counts: a Docker env reserves its
 memory_gb from start to stop, a trial what its runner's memory_gb gives, a host
 script its memory_gb; each waits while the pool is short. CPUs are not
-reserved; a container's cpus and cpu_shares divide them. A Docker env's
-write_limit caps how fast it writes to its disk; image builds, whose writes no
-cap reaches, take one of the pool's build slots each.
+reserved; a container's cpus and cpu_shares divide them. Image builds, whose
+writes to the disk no limit of a container reaches, take one of the pool's
+build slots each.
 """
 
 import codecs
@@ -64,10 +64,13 @@ class ActionResult:
     log: What the action printed, and why it failed if it did.
     value: The parsed JSON answer of an agent run with an output_schema, such
       as a judge.
-    cost_usd: What it cost, in US dollars.
+    cost_usd: What it cost, in US dollars; for an agent whose runs did not
+      all report their cost, what those that did cost.
     run: An agent's last run.
     validation: The last run of an agent's validator on the host, if it ran.
     fixes: How many times the validator resumed an agent's session.
+    cost_known: Whether cost_usd is all it cost: False when a run of the
+      agent did not report its cost.
   """
 
   status: str
@@ -78,6 +81,7 @@ class ActionResult:
   run: AgentRun | None = None
   validation: CommandResult | None = None
   fixes: int = 0
+  cost_known: bool = True
 
   @property
   def ok(self) -> bool:
@@ -85,7 +89,7 @@ class ActionResult:
     return self.status == "ok"
 
 
-BUILDS = 2
+BUILDS = 1
 """How many image builds a pool lets run at once unless it is given another
 number."""
 
@@ -206,7 +210,7 @@ class ResourcePool:
   def build(self, memory_gb: float | None) -> Generator[None]:
     """Hold a build slot and a reservation while the with block runs.
 
-    For an image build, whose writes to the disk no write_limit caps: it
+    For an image build, whose writes to the disk no container limit caps: it
     waits for a slot first and then for the memory, so that a build waiting
     for a slot holds no memory. A caller that holds memory of this pool
     already must not take a slot, as it would wait for one while holding
@@ -465,93 +469,6 @@ class Mount:
   read_only: bool = True
 
 
-CONTAINER_STORAGE = Path("/var/lib/containerd")
-"""Where containerd keeps its snapshots, which hold the writable layers of
-Docker's containers when Docker stores its images in containerd."""
-
-SYSFS = Path("/sys")
-
-
-@dataclass(frozen=True)
-class WriteLimit:
-  """A cap on how fast a container writes to the disk of its storage.
-
-  The kernel caps a whole disk, not a partition, so the cap is on the disk
-  that holds root (`write_device`). Neither bps nor iops set, it caps nothing
-  and gives no arguments.
-
-  Attributes:
-    bps: Bytes written per second, or None for no cap on them.
-    iops: Writes per second, or None for no cap on them.
-    root: A directory on the disk the container's writes go to.
-  """
-
-  bps: int | None = None
-  iops: int | None = None
-  root: Path = CONTAINER_STORAGE
-
-  def __post_init__(self) -> None:
-    """Check the caps.
-
-    Raises:
-      ValueError: When bps or iops is set and not positive.
-    """
-    for name, value in (("bps", self.bps), ("iops", self.iops)):
-      if value is not None and value <= 0:
-        raise ValueError(f"write limit {name} {value} is not positive")
-
-  @property
-  def caps(self) -> bool:
-    """Whether it sets a cap."""
-    return self.bps is not None or self.iops is not None
-
-  def docker_args(self) -> list[str]:
-    """Return the arguments of `docker create` that set the caps.
-
-    Returns:
-      `--device-write-bps` and `--device-write-iops`, each only when set.
-    """
-    if not self.caps:
-      return []
-    device = write_device(self.root)
-    args: list[str] = []
-    if self.bps is not None:
-      args += ["--device-write-bps", f"{device}:{self.bps}"]
-    if self.iops is not None:
-      args += ["--device-write-iops", f"{device}:{self.iops}"]
-    return args
-
-
-def write_device(root: Path, sysfs: Path = SYSFS) -> str:
-  """Return the disk that holds a directory, as a path under /dev.
-
-  The device of root's file system, or the disk it is a partition of.
-
-  Args:
-    root: The directory.
-    sysfs: Where sysfs is mounted.
-
-  Returns:
-    The disk, such as /dev/nvme0n1.
-
-  Raises:
-    ValueError: When root does not exist, or its file system is on no block
-      device, as a tmpfs or an overlay is not.
-  """
-  try:
-    number = root.stat().st_dev
-  except FileNotFoundError as error:
-    hint = "give the write limit a root on the disk the containers write to"
-    raise ValueError(f"{root} does not exist: {hint}") from error
-  node = sysfs / "dev" / "block" / f"{os.major(number)}:{os.minor(number)}"
-  if not node.exists():
-    raise ValueError(f"{root} is on no block device ({node} is missing)")
-  device = node.resolve()
-  if (device / "partition").exists():
-    device = device.parent
-  return f"/dev/{device.name}"
-
-
 def run_docker(args: Sequence[str]) -> CommandResult:
   """Run one docker command.
 
@@ -603,8 +520,6 @@ class Docker:
     memory_swap_gb: Memory plus swap, as docker's --memory-swap counts it;
       needs memory_gb. Equal to it, the container gets no swap.
     pids: Its --pids-limit.
-    write_limit: Its --device-write-bps and --device-write-iops; None, as
-      a WriteLimit that sets neither, caps nothing.
     network: Whether it has a network.
     labels: Its labels.
     security: Its --security-opt options.
@@ -629,7 +544,6 @@ class Docker:
   memory_gb: float | None = None
   memory_swap_gb: float | None = None
   pids: int | None = None
-  write_limit: WriteLimit | None = None
   network: bool = False
   labels: Mapping[str, str] = field(default_factory=dict[str, str])
   security: Sequence[str] = ()
@@ -669,8 +583,7 @@ class Docker:
     the network (none without network, any but the host's with it), and the
     user, the working directory, the bind mounts, the security options
     (exactly security), and each of cap_drop (the container may drop more),
-    cpus, cpu_shares, memory_gb, memory_swap_gb, pids and each cap of
-    write_limit that this env sets, on the disk write_limit gives now.
+    cpus, cpu_shares, memory_gb, memory_swap_gb and pids that this env sets.
     It also refuses a container isolated less than create_args leaves one:
     privileged, with a capability added, a device, a mount other than the
     env's bind mounts or volumes from another container, a PID or IPC
@@ -741,7 +654,6 @@ class Docker:
         host.get("MemorySwap"), _bytes(self.memory_swap_gb)
       ),
       "pids": _same(host.get("PidsLimit"), self.pids),
-      **self._write_checks(host),
       # What create_args never asks for, whatever the env.
       "privileged": host.get("Privileged") is not True,
       "cap_add": not host.get("CapAdd"),
@@ -755,22 +667,6 @@ class Docker:
       "cgroupns_mode": host.get("CgroupnsMode") != "host",
     }
     return [name for name, same in checks.items() if same is False]
-
-  def _write_checks(self, host: dict[str, object]) -> dict[str, bool | None]:
-    limit = self.write_limit
-    if limit is None or not limit.caps:
-      return {}
-    device = write_device(limit.root)
-
-    def rates(key: str, rate: int | None) -> bool | None:
-      if rate is None:
-        return None
-      return host.get(key) == [{"Path": device, "Rate": rate}]
-
-    return {
-      "write_limit bps": rates("BlkioDeviceWriteBps", limit.bps),
-      "write_limit iops": rates("BlkioDeviceWriteIOps", limit.iops),
-    }
 
   def create_args(self) -> list[str]:
     """Return the arguments of the `docker create` that makes the container.
@@ -802,8 +698,6 @@ class Docker:
       args += ["--memory-swap", f"{round(self.memory_swap_gb * 1024)}m"]
     if self.pids is not None:
       args += ["--pids-limit", str(self.pids)]
-    if self.write_limit is not None:
-      args += self.write_limit.docker_args()
     return args
 
   def _run_args(self) -> list[str]:
@@ -1111,14 +1005,27 @@ class AgentTask:
   resume_prompt: str | None = None
 
 
+# Why a run of an agent or a trial gave nothing that can be judged, when the
+# cause lies outside the task: the model's side (an API error, a refusal, rate
+# limits that outlasted the retries), our own timeout, the machine (Harbor,
+# Docker, the environment, the agent's tool itself) or a spend cap of the
+# session's own. dataforge.curation.faults reads a trial's exception as one.
+MODEL = "model"
+TIMEOUT = "timeout"
+INFRA = "infra"
+BUDGET = "budget"
+FAULTS = (MODEL, TIMEOUT, INFRA, BUDGET)
+
+
 @dataclass(frozen=True)
 class AgentRun:
   """One run of an agent.
 
   Attributes:
     session: Whatever the runner needs to resume it.
-    status: "ok" when it finished normally.
-    cost_usd: What it cost, in US dollars.
+    status: "ok" when it finished normally; not "ok" whenever it has a fault.
+    cost_usd: What it cost, in US dollars, or None when the runner could not
+      tell, as for a session killed before it reported its cost.
     trace: Its trace, if the runner keeps one.
     result: Its answer.
     ending: How it ended, in the runner's words, if the runner says.
@@ -1126,17 +1033,26 @@ class AgentRun:
     trace_format: The trace's format, such as "claude-code-stream-json".
     resumed: Whether it went on with the session of an earlier run rather
       than start one, as a resume does and a start may (AgentSpec.session).
+    fault: One of FAULTS when it ended for a cause outside the task, or None
+      when it ended normally or the runner does not say.
+    stop_reason: Why the model stopped its last message, such as "refusal",
+      if the runner says.
+    error: The error the run ended on, such as an API error's message, cut
+      to a length the runner sets, if it ended on one.
   """
 
   session: object
   status: str
-  cost_usd: float
+  cost_usd: float | None
   trace: Path | None
   result: str
   ending: str | None = None
   resumable: bool = True
   trace_format: str | None = None
   resumed: bool = False
+  fault: str | None = None
+  stop_reason: str | None = None
+  error: str | None = None
 
 
 class AgentRunner(Protocol):
@@ -1380,7 +1296,7 @@ class Actions:
         prompt, staged.inputs, staged.outdir, staged.validator, resume_prompt
       )
       run = runner.start(spec, task, env)
-      cost, log, fixes = run.cost_usd, [run.result], 0
+      runs, log, fixes = [run], [run.result], 0
       check: CommandResult | None = None
       stale: list[str] = []
       first = run
@@ -1397,7 +1313,7 @@ class Actions:
             break
           fixes += 1
           run = runner.resume(run.session, fix)
-          cost += run.cost_usd
+          runs.append(run)
           log.append(run.result)
         # Only once every run of the action has returned.
         session = _checkpoint(runner, run.session)
@@ -1408,6 +1324,9 @@ class Actions:
     finally:
       env.stop()
     trace = _trace_inside(ctx.attempt.root, first)
+    costs = [r.cost_usd for r in runs]
+    cost = sum(c for c in costs if c is not None)
+    cost_known = None not in costs
     failures = _failures(fixes, check, stale)
     log.extend(failures)
     passed = run.status == "ok" and not failures
@@ -1430,6 +1349,7 @@ class Actions:
       session=session,
       trace=trace,
       trace_format=None if trace is None else first.trace_format,
+      cost_known=cost_known,
     )
     return dataclasses.replace(result, run=run, validation=check, fixes=fixes)
 
@@ -1445,7 +1365,11 @@ class Actions:
 
     Returns:
       Its result.
-    """
+
+    Raises:
+      ValueError: When the script builds an image (spec.build) and env is
+        not the host.
+    """  # noqa: DOC502
     started_at, done, summary = self._run(ctx, spec, env, {})
     passed = done.exit_code == 0
     return _finish(
@@ -1879,6 +1803,7 @@ def _finish(
   session: Data | None = None,
   trace: Path | None = None,
   trace_format: str | None = None,
+  cost_known: bool = True,
 ) -> ActionResult:
   outputs = {
     name: ctx.outdir / name for name in names if (ctx.outdir / name).exists()
@@ -1900,9 +1825,12 @@ def _finish(
       session=session,
       trace=trace,
       trace_format=trace_format,
+      cost_known=cost_known,
     )
   )
-  return ActionResult(status, outputs, log, value, cost_usd)
+  return ActionResult(
+    status, outputs, log, value, cost_usd, cost_known=cost_known
+  )
 
 
 def _summary(path: Path) -> str | None:

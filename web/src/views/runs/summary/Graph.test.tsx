@@ -219,6 +219,195 @@ describe("the machine's graph", () => {
   });
 });
 
+describe("the pulses along a hovered state's edges", () => {
+  const pulses = (el: Element) => el.querySelectorAll(".pulse").length;
+  const css = readFileSync("src/ui/theme.css", "utf8");
+  // The rule outside the reduced-motion block, which indents its own deeper.
+  // A value as one line, however the formatter wraps it.
+  const flat = (value: string | undefined) =>
+    must(value).replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")");
+  const rule = (selector: string) =>
+    flat(must(new RegExp(`\\n {2}\\.${selector} \\{([^}]*)\\}`).exec(css))[1]);
+  const keyframes = (name: string) =>
+    must(
+      new RegExp(
+        `@keyframes ${name} \\{\\s*from \\{\\s*stroke-dashoffset: ([^;]+);\\s*\\}\\s*to \\{\\s*stroke-dashoffset: ([^;]+);`,
+      ).exec(css),
+    )
+      .slice(1)
+      .map(flat);
+  const token = (name: string) =>
+    flat(must(new RegExp(`\\n {2}--${name}: ([^;]+);`).exec(css))[1]);
+
+  it("run only along the lit edges taken once the attempt has ended", () => {
+    const { edge, node } = show(busy);
+    expect(pulses(edge("regrade", "recheck"))).toBe(0);
+
+    fireEvent.pointerEnter(node("recheck"));
+
+    expect(pulses(edge("regrade", "recheck"))).toBeGreaterThan(0);
+    expect(pulses(edge("recheck", "draft"))).toBeGreaterThan(0);
+    expect(pulses(edge("recheck", "review"))).toBe(0);
+    expect(pulses(edge("check", "review"))).toBe(0);
+  });
+
+  it("run along lit edges not taken too while it runs, but not a stub's", () => {
+    const { edge, node } = show(early);
+
+    fireEvent.pointerEnter(node("smoke"));
+
+    expect(
+      edge("build", "smoke").querySelector(".stroke-pulse .pulse"),
+    ).not.toBeNull();
+    expect(
+      edge("smoke", "check").querySelector(".stroke-pulse-not-taken .pulse"),
+    ).not.toBeNull();
+    expect(edge("smoke", "draft").getAttribute("data-stub")).toBe("true");
+    expect(pulses(edge("smoke", "draft"))).toBe(0);
+  });
+
+  it("go when the hover ends", () => {
+    const { edge, node } = show(busy);
+    fireEvent.pointerEnter(node("recheck"));
+    expect(pulses(edge("regrade", "recheck"))).toBeGreaterThan(0);
+
+    fireEvent.pointerLeave(node("recheck"));
+
+    expect(pulses(edge("regrade", "recheck"))).toBe(0);
+  });
+
+  it("glow along the edges taken only", () => {
+    const { edge, node } = show(early);
+
+    fireEvent.pointerEnter(node("smoke"));
+
+    expect(edge("build", "smoke").querySelector(".pulse-glow")).not.toBeNull();
+    expect(edge("smoke", "check").querySelector(".pulse-glow")).toBeNull();
+  });
+
+  it("run from the state an edge leaves to the one it goes to, at one speed, again and again", () => {
+    // A dash offset that falls moves the dashes on along the path.
+    const [from, to] = keyframes("pulse-run");
+    expect(to).toBe(`calc(${String(from)} - var(--pulse-spacing))`);
+    expect(rule("pulse")).toMatch(
+      /animation: pulse-run var\(--duration-pulse\) var\(--ease-pulse\) infinite;/,
+    );
+    expect(token("ease-pulse")).toBe("linear");
+
+    const { graph, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const drawn = [...graph.querySelectorAll<SVGElement>(".pulse")];
+    expect(drawn.length).toBeGreaterThan(0);
+    for (const path of drawn) {
+      expect(path.getAttribute("style")).not.toMatch(
+        /--pulse-spacing|--duration-pulse|animation/,
+      );
+    }
+  });
+
+  it("come out of the state an edge leaves", () => {
+    // The mask's dash opens from the start, falling by the multiple of the
+    // spacing it runs over in as many periods: the dashes' own speed.
+    expect(keyframes("pulse-open")).toEqual([
+      "calc(var(--pulse-spacing) * var(--pulse-open) - var(--pulse-lead))",
+      "calc(0px - var(--pulse-lead))",
+    ]);
+    expect(rule("pulse-open")).toMatch(
+      /animation: pulse-open calc\(var\(--duration-pulse\) \* var\(--pulse-open\)\)\s+var\(--ease-pulse\);/,
+    );
+
+    const { edge, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const masked = must(edge("build", "smoke").querySelector("g[mask]"));
+    const id = must(
+      /^url\(#(.+)\)$/.exec(masked.getAttribute("mask") ?? ""),
+    )[1];
+    const mask = must(
+      [...document.querySelectorAll("mask")].find((m) => m.id === id),
+    );
+    expect(mask.querySelector("path.pulse-open")).not.toBeNull();
+    expect(masked.querySelector(".pulse")).not.toBeNull();
+  });
+
+  it("leave the start of an edge open once the mask has opened", () => {
+    // Held at its last frame, the mask would hide the lead it ran ahead by;
+    // at rest its dash starts where the path does.
+    expect(rule("pulse-open")).not.toMatch(/forwards|both|stroke-dashoffset/);
+  });
+
+  it("fade from the head to the tail", () => {
+    const { edge, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const comet = [
+      ...must(
+        edge("build", "smoke").querySelector(".stroke-pulse"),
+      ).querySelectorAll<SVGElement>(".pulse"),
+    ].map((path) => ({
+      // How much of the tail is cut from this dash: the more, the shorter.
+      cut: Number(
+        must(
+          /var\(--pulse-tail\) \* ([\d.]+)\)\)$/.exec(
+            path.style.getPropertyValue("--pulse-dash"),
+          ),
+        )[1],
+      ),
+      opacity: Number(path.style.opacity),
+    }));
+    expect(comet.length).toBeGreaterThan(1);
+
+    const longestFirst = comet.toSorted((a, b) => a.cut - b.cut);
+    for (const [longer, shorter] of longestFirst
+      .slice(1)
+      .map((dash, i) => [must(longestFirst[i]), dash] as const)) {
+      expect(shorter.cut).toBeGreaterThan(longer.cut);
+      expect(shorter.opacity).toBeGreaterThan(longer.opacity);
+    }
+  });
+
+  it("are as wide as a lit edge taken, and 3px, wider than its dashed line, on one not taken", () => {
+    expect(token("pulse-width")).toBe("var(--stroke-lit)");
+    expect(token("pulse-width-not-taken")).toBe("3px");
+    expect(parseFloat(token("pulse-width-not-taken"))).toBeGreaterThan(
+      parseFloat(token("stroke-lit-not-taken")),
+    );
+
+    const { edge, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const line = (g: Element) => must(g.querySelector(":scope > path"));
+    expect(line(edge("build", "smoke")).getAttribute("class")).toContain(
+      "[stroke-width:var(--stroke-lit)]",
+    );
+    expect(line(edge("smoke", "check")).getAttribute("class")).toContain(
+      "[stroke-width:var(--stroke-lit-not-taken)]",
+    );
+    expect(
+      edge("build", "smoke")
+        .querySelector(".stroke-pulse")
+        ?.getAttribute("class"),
+    ).not.toContain("--pulse-width");
+    expect(
+      edge("smoke", "check")
+        .querySelector(".stroke-pulse-not-taken")
+        ?.getAttribute("class"),
+    ).toContain("[--pulse-width:var(--pulse-width-not-taken)]");
+  });
+
+  it("stand still and stay in sight for reduced motion", () => {
+    const reduced =
+      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n {2}\}/.exec(
+        css,
+      )?.[1];
+
+    expect(reduced).toMatch(
+      /\.pulse \{\s*animation: none;\s*stroke-dashoffset: calc\(var\(--pulse-dash\) - var\(--pulse-spacing\) \/ 2\);/,
+    );
+    expect(reduced).not.toMatch(/display: none|visibility: hidden|opacity: 0/);
+    expect(reduced).toMatch(
+      /\.pulse-open \{\s*animation: none;\s*stroke-dashoffset: 0;/,
+    );
+  });
+});
+
 describe("edges not taken", () => {
   it("are drawn under the taken ones, lit or not", () => {
     const { graph, edge, node } = show(busy);

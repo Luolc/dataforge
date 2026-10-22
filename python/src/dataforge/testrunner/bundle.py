@@ -19,6 +19,6 @@ def files() -> dict[str, bytes]:
   here = Path(__file__).parent
   return {
     f"{PACKAGE}/{p.relative_to(here).as_posix()}": p.read_bytes()
-    for p in sorted(here.rglob("*.py"))
-    if "__pycache__" not in p.parts
+    for p in sorted(here.rglob("*"))
+    if p.suffix in (".py", ".cjs") and "__pycache__" not in p.parts
   }

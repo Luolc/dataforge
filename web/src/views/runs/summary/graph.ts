@@ -118,6 +118,8 @@ export interface Edge {
 export interface Layout {
   width: number;
   height: number;
+  /** Whether the attempt has ended: no transition but those taken is left. */
+  ended: boolean;
   nodes: Node[];
   edges: Edge[];
 }
@@ -389,7 +391,13 @@ export function layout(
     };
   });
 
-  return { width: drawn.width, height: drawn.height, nodes, edges };
+  return {
+    width: drawn.width,
+    height: drawn.height,
+    ended: attemptEnded,
+    nodes,
+    edges,
+  };
 }
 
 /** The height of a card's text: its title's lines and those under it. */
