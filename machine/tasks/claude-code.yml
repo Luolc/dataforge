@@ -38,6 +38,7 @@
 #   installs by download and symlink, which it does not affect.
 # - model and autoCompact*: the default model and context window for agents
 #   started without --model.
+# - effortLevel medium: the default effort for agents started without --effort.
 # - promptSuggestionEnabled false: the suggested prompt in the input box reads
 #   back like a typed draft when an agent reads a pane.
 # - showThinkingSummaries true: requests thinking summaries from the API and
