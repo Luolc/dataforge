@@ -451,9 +451,9 @@ function EdgeView({
   box: { width: number; height: number };
 }) {
   const stroke = edge.taken
-    ? `stroke-accent ${lit ? "stroke-[2.5]" : "stroke-2"}`
+    ? `stroke-accent ${lit ? "[stroke-width:var(--stroke-lit)]" : "stroke-2"}`
     : lit
-      ? "stroke-fg stroke-[1.5] [stroke-dasharray:var(--dash-not-taken)]"
+      ? "stroke-fg [stroke-width:var(--stroke-lit-not-taken)] [stroke-dasharray:var(--dash-not-taken)]"
       : "stroke-icon stroke-1 [stroke-dasharray:var(--dash-not-taken)]";
   const { label } = edge;
   return (

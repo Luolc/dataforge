@@ -79,6 +79,9 @@
   --opacity-idle: 0.45;
   --stroke-taken: 1.5px;
   --dash-not-taken: 3 3;
+  /* A lit edge of the Summary's machine, taken and not taken. */
+  --stroke-lit: 2.5px;
+  --stroke-lit-not-taken: 1.5px;
   /* A lit edge's pulses on the Summary's machine (runs/summary/Graph.tsx):
      a pulse's length and how much of it, from its tail, fades; its core,
      as wide as a lit edge taken, and on one not taken; the glow under the
@@ -89,7 +92,7 @@
      runs ahead of the first, so that it does not cut the first one's glow. */
   --pulse-length: 64px;
   --pulse-tail: 1;
-  --pulse-width: 2.5px;
+  --pulse-width: var(--stroke-lit);
   --pulse-width-not-taken: 3px;
   --pulse-glow-width: 9px;
   --pulse-glow-blur: 3px;
@@ -584,9 +587,9 @@ html[data-template="dark"] {
 
 /* A lit edge's pulses (runs/summary/Graph.tsx): each dash runs one spacing
    along its path a period, and the mask over them opens from the path's
-   start at that speed. Under reduced motion neither moves: the mask stands
-   open and the dashes stand where half a period leaves them, so that an
-   edge shorter than the spacing has one too. */
+   start at that speed, then rests open from the start. Under reduced motion
+   neither moves: the mask stands open and the dashes stand where half a
+   period leaves them, so that an edge shorter than the spacing has one too. */
 @layer components {
   .pulse {
     stroke-width: var(--pulse-width);
@@ -604,7 +607,7 @@ html[data-template="dark"] {
     stroke-dasharray: calc(var(--pulse-spacing) * var(--pulse-open))
       calc(var(--pulse-spacing) * var(--pulse-open));
     animation: pulse-open calc(var(--duration-pulse) * var(--pulse-open))
-      var(--ease-pulse) forwards;
+      var(--ease-pulse);
   }
   @media (prefers-reduced-motion: reduce) {
     .pulse {
