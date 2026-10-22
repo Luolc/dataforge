@@ -33,11 +33,12 @@ from dataforge.curation.harbor import (
 )
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json, starts the trial
-# (writes its config.json) and then does what FAKE_MODE says: "ok", "exception",
-# "no-reward", "exit" (exit 3 with no result) or "hang" (start a child, write
-# its own and the child's pid, sleep); "interrupt" also sends its parent SIGUSR1
-# before it sleeps, and "stubborn" does too, and again on SIGTERM instead of
-# exiting; "cancelled" sleeps, and on SIGTERM writes a result whose exception is
+# (writes its config.json, in a directory named FAKE_TRIAL, task__abc by
+# default) and then does what FAKE_MODE says: "ok", "exception", "no-reward",
+# "exit" (exit 3 with no result) or "hang" (start a child, write its own and the
+# child's pid, sleep); "interrupt" also sends its parent SIGUSR1 before it
+# sleeps, and "stubborn" does too, and again on SIGTERM instead of exiting;
+# "cancelled" sleeps, and on SIGTERM writes a result whose exception is
 # CancelledError, as Harbor does, and exits 1. With FAKE_NOT_STARTED, it prints
 # that many lines, each padded with FAKE_PAD x's, and then the text of
 # FAKE_LAST_FILE if given, instead of starting the trial. With FAKE_STRAGGLER,
@@ -51,7 +52,9 @@ FAKE_HARBOR = """\
 import json, os, pathlib, signal, subprocess, sys, time
 argv = sys.argv[1:]
 jobs = pathlib.Path(argv[argv.index("--jobs-dir") + 1])
-trial = jobs / argv[argv.index("--job-name") + 1] / "task__abc"
+trial = jobs / argv[argv.index("--job-name") + 1] / os.environ.get(
+    "FAKE_TRIAL", "task__abc"
+)
 (jobs / "fake.json").write_text(
     json.dumps({"argv": argv, "env": dict(os.environ)})
 )
@@ -144,6 +147,9 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 # "inspect-error" when there is one, exiting 1 when it said anything, and
 # `container rm` removes them unless "stuck" is there. `run` (the chown) writes
 # to alive.json which of the pids in the trial's "pids" still run.
+# projects.json maps a kind to the ids, or names, of what compose projects hold
+# and their projects: `<kind> ls` filtered by the project label prints them,
+# and `<kind> rm` removes them unless "stuck" is there.
 # `compose` goes to the real docker on PATH, which only reads compose files
 # here.
 FAKE_DOCKER = """\
@@ -169,6 +175,22 @@ if argv[0] == "run":
         (here / "alive.json").write_text(json.dumps(alive))
 if argv[0] == "compose":
     os.execvp("docker", ["docker", *argv])
+projects_file = here / "projects.json"
+projects = (
+    json.loads(projects_file.read_text()) if projects_file.exists() else {}
+)
+held = projects.get(argv[0], {})
+if "label=com.docker.compose.project" in argv or (
+    argv[1] == "rm" and set(argv[2:]) & set(held)
+):
+    if argv[1] == "ls":
+        for i, project in held.items():
+            print(f"{i}\\t{project}")
+    elif not (here / "stuck").exists():
+        for i in argv[2:]:
+            held.pop(i, None)
+        projects_file.write_text(json.dumps(projects))
+    sys.exit(0)
 mounts_file = here / "mounts.json"
 mounts = json.loads(mounts_file.read_text()) if mounts_file.exists() else {}
 gone_file = here / "gone.json"
@@ -798,7 +820,9 @@ def test_the_cleanup_chowns_and_removes_what_has_the_label(
   assert all(
     f"label={LABEL}={label}" in call
     for call in calls
-    if "ls" in call and call != release
+    if "ls" in call
+    and call != release
+    and f"label={harbor.PROJECT}" not in call
   )
 
 
@@ -1257,6 +1281,58 @@ def test_a_cleanup_past_its_timeout_raises_what_callers_caught_before(
     _ = harbor.cleanup("dataforge.trial=x", str(fakes[1]))
   assert isinstance(caught.value, subprocess.SubprocessError)
   assert isinstance(caught.value, RuntimeError)
+
+
+@pytest.mark.parametrize(
+  ("trial", "ours", "theirs"),
+  [
+    # A separate verifier's sidecar and network, which Harbor stopped in its
+    # stop left, and the agent's environment, beside those of trials whose
+    # names this one's is a prefix of, or the other way round.
+    (
+      "x__1",
+      ["x__1__env", "x__1__verifier__trial"],
+      ["x__10__env", "x__10__verifier__trial", "x__env", "x__1__verifier"],
+    ),
+    # Harbor's names are lower case, with "-" for "."; a long step's name is
+    # cut and hashed.
+    (
+      "Task.A__AbC1234",
+      ["task-a__abc1234__env", "task-a__abc1234__verifier__x-y__0123abcd"],
+      ["task-a__abc12345__env", "task.a__abc1234__env"],
+    ),
+  ],
+)
+def test_what_the_trials_compose_projects_hold_is_removed(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  trial: str,
+  ours: list[str],
+  theirs: list[str],
+) -> None:
+  projects = {
+    kind: {f"{kind[0]}{i}": p for i, p in enumerate(ours + theirs)}
+    for kind in ("container", "network", "volume")
+  }
+  file = fakes[1].parent / "projects.json"
+  _ = file.write_text(json.dumps(projects))
+  result = runner(fakes, env={"FAKE_TRIAL": trial}).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.exception is None
+  left = json.loads(file.read_text())
+  for kind in ("container", "network", "volume"):
+    assert sorted(left[kind].values()) == sorted(theirs)
+
+
+def test_what_is_left_in_the_trials_compose_projects_is_an_error(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  projects = {"network": {"n1": "task__abc__verifier__trial"}}
+  _ = (fakes[1].parent / "projects.json").write_text(json.dumps(projects))
+  _ = (fakes[1].parent / "stuck").write_text("")
+  with pytest.raises(DockerError, match="left in the compose projects"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
 
 
 def test_an_entry_of_a_trial_that_is_no_file_directory_or_link_is_removed(
