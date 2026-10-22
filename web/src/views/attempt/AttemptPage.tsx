@@ -396,7 +396,7 @@ function Tabs({
   return (
     <nav
       aria-label="Attempt"
-      className="sticky top-0 z-10 mt-3 flex h-11 gap-1 border-b border-line bg-panel px-5"
+      className="sticky top-0 z-10 mt-3 flex h-tabs gap-1 border-b border-line bg-panel px-5"
     >
       {tabs.map((t) => (
         <Link
