@@ -821,6 +821,43 @@ def test_a_state_that_raises_leaves_what_was_spent_in_the_record(
   assert seen == [0.0, 1.25]
 
 
+def test_a_resumed_attempt_is_capped_by_what_it_spent_since_its_record(
+  tmp_path: Path,
+) -> None:
+  ledger = {"usd": 0.0}
+  killed = [True]
+  steps: list[dict[str, object]] = []
+
+  def check(ctx: Context) -> Outcome:
+    if killed[0]:
+      raise RuntimeError("killed")
+    return Outcome("y")
+
+  def machine() -> Machine:
+    return Machine(
+      [
+        Step("a", metered(ledger, 1.0, 1.0, "x"), {"x": Goto("b")}),
+        Step("b", check, {"y": End("passed")}, max_cost_usd=1.5),
+      ],
+      on_step=lambda attempt: steps.append(as_json(attempt)),
+      max_cost_usd=4.0,
+      spent_usd=lambda attempt: ledger["usd"],
+    )
+
+  with pytest.raises(RuntimeError, match="killed"):
+    _ = machine().run(tmp_path)
+  record = Attempt.from_json(tmp_path, steps[-1])
+  assert record.cost_usd == 1.0
+  # Calls the kill cut off reached the ledger after the last record.
+  ledger["usd"], killed[0] = 2.8, False
+  resumed = machine().resume(record)
+  reason = (
+    "b visit 1: $2.80 spent and up to $1.50 more would pass the $4.00 the"
+    " attempt may spend"
+  )
+  assert (resumed.status, resumed.stopped) == ("budget", reason)
+
+
 @pytest.mark.parametrize(
   ("metered_usd", "cost_usd"), [(None, 1.25), (4.0, 4.0)]
 )

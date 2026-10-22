@@ -27,7 +27,6 @@ from dataforge.gateway import Channel, Price, proxy, read_ledger, serve, Spend
 from dataforge.gateway.channels import DRAINED
 from dataforge.gateway.session import _Refuser, _Refusing, holders
 from dataforge.gateway.spend import Meter, Total, total
-from dataforge.gateway.spend import PRICES as GATEWAY_PRICES
 from tests.gateway.fakes import (
   call,
   Launcher,
@@ -907,14 +906,33 @@ def test_total_prices_each_line_as_its_ledger_has_it(tmp_path: Path):
   assert without.usd == pytest.approx(found.usd - 0.038 * 2)
 
 
-def test_total_prices_a_renamed_reply_at_the_requested_models_price(
-  tmp_path: Path,
-):
-  usage = {"input_tokens": 1_000_000}
+def test_total_prices_by_the_default_prices_the_reply_first(tmp_path: Path):
+  # A renamed reply takes the requested model's cache reads at $0.10, and
+  # one that names `claude-sonnet-5` its own, at $0.20.
+  usage = {"cache_read_input_tokens": 1_000_000}
   ledger = ledger_of(
     tmp_path / "spend.jsonl",
+    {"channel": "CLAUDE", "model": "renamed", "usage": usage,
+     "requested_model": "claude-sonnet-5-5", "cost_usd": None},
     {"channel": "CLAUDE", "model": "claude-sonnet-5", "usage": usage,
      "requested_model": "claude-sonnet-5-5", "cost_usd": None},
   )  # fmt: skip
-  assert total(ledger) == Total(GATEWAY_PRICES["claude-sonnet-5-5"].input, 0.0)
+  assert total(ledger).usd == pytest.approx(0.3)
+  assert total(ledger).fallback_usd == 0.0
   assert total(tmp_path / "none.jsonl") == Total(0.0, 0.0)
+
+
+def test_total_warns_of_a_ledgers_lines_once_as_they_come(
+  tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+  path = tmp_path / "spend.jsonl"
+  line = {"channel": "CLAUDE", "model": "renamed", "usage": CLAUDE_USAGE}
+  _ = ledger_of(path, line)
+  for _ in range(3):
+    _ = total(path, prices=PRICES, fallback=FALLBACK_PRICE)
+  _ = ledger_of(path, line, line)
+  _ = total(path, prices=PRICES, fallback=FALLBACK_PRICE)
+  assert [r.getMessage() for r in caplog.records] == [
+    f"{path}: 1 lines priced at the fallback, $0.0380",
+    f"{path}: 2 lines priced at the fallback, $0.0760",
+  ]

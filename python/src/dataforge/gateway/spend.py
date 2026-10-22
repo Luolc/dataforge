@@ -22,6 +22,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import threading
 from types import MappingProxyType
 from typing import cast, TypedDict
 
@@ -65,14 +66,16 @@ class Price:
 
 
 # The Claude API's list prices for global routing at the standard speed, read
-# on 2026-10-20 from https://platform.claude.com/docs/en/about-claude/pricing,
-# and, for Pi and Codex CLI, an estimate, since the gateway's `CODEX` channel
-# bills a ChatGPT subscription, not these prices: litellm's for OpenAI's API,
-# from the entry `gpt-6-astra` of `model_prices_and_context_window.json` at
-# its tag v1.106.0 (commit 955bdaafa8b72b2b6ff728048f272fbc06049f63), read on
-# 2026-10-20, the prices up to 272k input tokens a request, so that a request
-# past that, which that file prices at about twice as much, counts for less
-# than the API would charge; its one price for cache writes is both of them.
+# on 2026-10-20 from https://platform.claude.com/docs/en/about-claude/pricing
+# (`claude-sonnet-5` on 2026-10-22, whose $2 and $10 the page says are now its
+# standard price), and, for Pi and Codex CLI, an estimate, since the
+# gateway's `CODEX` channel bills a ChatGPT subscription, not these prices:
+# litellm's for OpenAI's API, from the entry `gpt-6-astra` of
+# `model_prices_and_context_window.json` at its tag v1.106.0 (commit
+# 955bdaafa8b72b2b6ff728048f272fbc06049f63), read on 2026-10-20, the prices up
+# to 272k input tokens a request, so that a request past that, which that file
+# prices at about twice as much, counts for less than the API would charge;
+# its one price for cache writes is both of them.
 PRICES: Mapping[str, Price] = MappingProxyType({
   "claude-opus-5-5": Price(
     input=4.0, output=20.0, cache_read=0.2, cache_write_5m=5.0,
@@ -84,6 +87,10 @@ PRICES: Mapping[str, Price] = MappingProxyType({
   ),
   "claude-sonnet-5-5": Price(
     input=2.0, output=10.0, cache_read=0.1, cache_write_5m=2.5,
+    cache_write_1h=4.0,
+  ),
+  "claude-sonnet-5": Price(
+    input=2.0, output=10.0, cache_read=0.2, cache_write_5m=2.5,
     cache_write_1h=4.0,
   ),
   "gpt-6-astra": Price(
@@ -536,6 +543,12 @@ def read_ledger(path: Path) -> list[dict[str, object]]:
   return found
 
 
+# What `total` last warned of each ledger, so that a ledger read at every
+# step of an attempt warns of its lines once, not at each step.
+_warned: dict[Path, tuple[int, int]] = {}
+_WARNED_LOCK = threading.Lock()
+
+
 @dataclass(frozen=True, slots=True)
 class Total:
   """What a ledger's replies cost together.
@@ -564,7 +577,9 @@ def total(
   or an earlier ledger's "highest" counts in `fallback_usd` too. A line with
   no cost that cannot be priced, such as one of a reply without usage, is not
   counted, and the line of a session the cap ended holds no reply; one
-  warning counts the lines not counted, and one those priced at the fallback.
+  warning counts the lines not counted, and one those priced at the fallback,
+  each only when its count for the ledger grew since this process last
+  warned of it, since a machine reads its measure at every step.
 
   Args:
     ledger: The ledger; none counts as empty.
@@ -586,9 +601,12 @@ def total(
     if found[1]:
       fallback_usd += found[0]
       at_fallback += 1
-  if skipped:
+  with _WARNED_LOCK:
+    before = _warned.get(ledger, (0, 0))
+    _warned[ledger] = (max(before[0], skipped), max(before[1], at_fallback))
+  if skipped > before[0]:
     _log.warning("%s: %d lines without a price, not counted", ledger, skipped)
-  if at_fallback:
+  if at_fallback > before[1]:
     _log.warning(
       "%s: %d lines priced at the fallback, $%.4f",
       ledger,
