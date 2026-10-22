@@ -159,6 +159,20 @@ def test_codex_takes_redcoast_clients_settings_over_the_datasets(
   assert config["cli_auth_credentials_store"] == "file"
 
 
+@pytest.mark.parametrize(
+  ("given", "found"), [(None, "disabled"), ("live", "live")]
+)
+def test_codex_declares_no_web_search_unless_the_dataset_asks(
+  tmp_path: Path, given: str | None, found: str
+):
+  agent = Codex(
+    logs_dir=tmp_path,
+    model_name="codex-model",
+    config={} if given is None else {"web_search": given},
+  )
+  assert agent._build_effective_config()["web_search"] == found
+
+
 def session_line(cost: float) -> str:
   # One assistant message's end, as Pi writes it, with its usage and cost.
   return json.dumps(

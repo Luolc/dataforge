@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 10.0,
+    "cost_usd": 0.42,
+    "stopped": null
+  },
+  "final": {},
+  "visits": [
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-02T09:46:00+00:00",
+          "ended_at": "2026-03-02T09:55:03+00:00",
+          "cost_usd": 0.42,
+          "summary": null
+        }
+      ]
+    }
+  ],
+  "deliverables": [],
+  "graph": null
+}

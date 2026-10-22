@@ -1,0 +1,435 @@
+{
+ "model": "placeholder",
+ "input": [
+  {
+   "type": "additional_tools",
+   "id": "placeholder",
+   "role": "developer",
+   "tools": [
+    {
+     "type": "namespace",
+     "name": "functions",
+     "description": "placeholder text",
+     "tools": [
+      {
+       "type": "custom",
+       "name": "exec",
+       "description": "placeholder text",
+       "format": {
+        "type": "grammar",
+        "syntax": "lark",
+        "definition": "placeholder text"
+       }
+      },
+      {
+       "type": "function",
+       "name": "wait",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "cell_id": {
+          "type": "string",
+          "description": "placeholder text"
+         },
+         "max_tokens": {
+          "type": "number",
+          "description": "placeholder text"
+         },
+         "terminate": {
+          "type": "boolean",
+          "description": "placeholder text"
+         },
+         "yield_time_ms": {
+          "type": "number",
+          "description": "placeholder text"
+         }
+        },
+        "required": [
+         "cell_id"
+        ],
+        "additionalProperties": false
+       }
+      },
+      {
+       "type": "function",
+       "name": "request_user_input",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "questions": {
+          "type": "array",
+          "description": "placeholder text",
+          "items": {
+           "type": "object",
+           "properties": {
+            "header": {
+             "type": "string",
+             "description": "placeholder text"
+            },
+            "id": {
+             "type": "string",
+             "description": "placeholder text"
+            },
+            "options": {
+             "type": "array",
+             "description": "placeholder text",
+             "items": {
+              "type": "object",
+              "properties": {
+               "description": {
+                "type": "string",
+                "description": "placeholder text"
+               },
+               "label": {
+                "type": "string",
+                "description": "placeholder text"
+               }
+              },
+              "required": [
+               "label",
+               "description"
+              ],
+              "additionalProperties": false
+             }
+            },
+            "question": {
+             "type": "string",
+             "description": "placeholder text"
+            }
+           },
+           "required": [
+            "id",
+            "header",
+            "question",
+            "options"
+           ],
+           "additionalProperties": false
+          }
+         }
+        },
+        "required": [
+         "questions"
+        ],
+        "additionalProperties": false
+       }
+      },
+      {
+       "type": "function",
+       "name": "request_user_input_async",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "questions": {
+          "type": "array",
+          "description": "placeholder text",
+          "items": {
+           "type": "object",
+           "properties": {
+            "options": {
+             "type": "array",
+             "description": "placeholder text",
+             "items": {
+              "type": "string"
+             },
+             "minItems": 1
+            },
+            "title": {
+             "type": "string",
+             "description": "placeholder text"
+            }
+           },
+           "required": [
+            "title"
+           ],
+           "additionalProperties": false
+          },
+          "minItems": 1
+         }
+        },
+        "required": [
+         "questions"
+        ],
+        "additionalProperties": false
+       }
+      }
+     ]
+    },
+    {
+     "type": "namespace",
+     "name": "clock",
+     "description": "placeholder text",
+     "tools": [
+      {
+       "type": "function",
+       "name": "sleep",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "duration_ms": {
+          "type": "number",
+          "description": "placeholder text"
+         }
+        },
+        "required": [
+         "duration_ms"
+        ],
+        "additionalProperties": false
+       }
+      }
+     ]
+    },
+    {
+     "type": "namespace",
+     "name": "collaboration",
+     "description": "placeholder text",
+     "tools": [
+      {
+       "type": "function",
+       "name": "followup_task",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "placeholder text",
+          "encrypted": true
+         },
+         "target": {
+          "type": "string",
+          "description": "placeholder text"
+         }
+        },
+        "required": [
+         "target",
+         "message"
+        ],
+        "additionalProperties": false
+       }
+      },
+      {
+       "type": "function",
+       "name": "interrupt_agent",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "target": {
+          "type": "string",
+          "description": "placeholder text"
+         }
+        },
+        "required": [
+         "target"
+        ],
+        "additionalProperties": false
+       }
+      },
+      {
+       "type": "function",
+       "name": "list_agents",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "path_prefix": {
+          "type": "string",
+          "description": "placeholder text"
+         }
+        },
+        "additionalProperties": false
+       }
+      },
+      {
+       "type": "function",
+       "name": "send_message",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "placeholder text",
+          "encrypted": true
+         },
+         "target": {
+          "type": "string",
+          "description": "placeholder text"
+         }
+        },
+        "required": [
+         "target",
+         "message"
+        ],
+        "additionalProperties": false
+       }
+      },
+      {
+       "type": "function",
+       "name": "spawn_agent",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "fork_turns": {
+          "type": "string",
+          "description": "placeholder text"
+         },
+         "message": {
+          "type": "string",
+          "description": "placeholder text",
+          "encrypted": true
+         },
+         "model": {
+          "type": "string",
+          "description": "placeholder text"
+         },
+         "reasoning_effort": {
+          "type": "string",
+          "description": "placeholder text"
+         },
+         "task_name": {
+          "type": "string",
+          "description": "placeholder text"
+         }
+        },
+        "required": [
+         "task_name",
+         "message"
+        ],
+        "additionalProperties": false
+       }
+      },
+      {
+       "type": "function",
+       "name": "wait_agent",
+       "description": "placeholder text",
+       "strict": false,
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "timeout_ms": {
+          "type": "number",
+          "description": "placeholder text"
+         }
+        },
+        "additionalProperties": false
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "developer",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "developer",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    },
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    },
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "developer",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "developer",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "user",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "user",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  }
+ ],
+ "tool_choice": "auto",
+ "parallel_tool_calls": false,
+ "reasoning": {
+  "effort": "low",
+  "context": "all_turns"
+ },
+ "store": false,
+ "stream": true,
+ "include": [
+  "reasoning.encrypted_content"
+ ],
+ "prompt_cache_key": "placeholder",
+ "text": {
+  "verbosity": "low"
+ },
+ "client_metadata": {
+  "thread_id": "placeholder",
+  "session_id": "placeholder",
+  "x-codex-window-id": "placeholder",
+  "turn_id": "placeholder",
+  "x-codex-installation-id": "placeholder",
+  "root_turn_id": "placeholder",
+  "x-codex-turn-metadata": "placeholder"
+ }
+}

@@ -63,6 +63,8 @@ export const project = z.looseObject({
     .optional(),
   // The definition snapshot's path in an attempt's directory.
   definition: z.string().nullable().optional(),
+  // The path of the task.toml of an attempt's task in its directory.
+  task: z.string().nullable().optional(),
   // Whether the project names a resource monitor database.
   monitor: z.boolean().optional(),
   // The attempt page's tabs of Markdown files, each found in the
@@ -119,6 +121,31 @@ export const tabVersions = z.array(
 );
 export type TabVersions = z.infer<typeof tabVersions>[number];
 export type TabVersion = TabVersions["versions"][number];
+
+// What an attempt's task.toml says of its tests and principles: read as a
+// field of a tab is, and, when found, the counts of each kind of test of
+// each suite the file has and its principles. A legacy file is of the
+// format before `tests`, which records no p2p and no test of its
+// principle.
+export const taskMeta = z.looseObject({
+  read: z.enum(READS),
+  reason: z.string().nullable(),
+  legacy: z.boolean(),
+  tests: z.record(z.string(), z.record(z.string(), z.number())).nullable(),
+  principles: z
+    .array(
+      z.looseObject({
+        id: z.string(),
+        text: z.string(),
+        type: z.string().nullable(),
+        source: z.string().nullable(),
+        tests: z.array(z.string()),
+      }),
+    )
+    .nullable(),
+});
+export type TaskMeta = z.infer<typeof taskMeta>;
+export type TaskPrinciple = NonNullable<TaskMeta["principles"]>[number];
 
 /** How an attempt that has not ended stands; null once it has ended. */
 const LIVE = ["running", "may have stopped", "not ended"] as const;
