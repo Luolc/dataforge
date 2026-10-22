@@ -855,7 +855,8 @@ class Docker:
     for number, (tree, head, local) in enumerate(taken):
       found = self._head(container, tree)
       if found != head:
-        raise RuntimeError(f"HEAD of {tree} has another tree: {found}, {head}")
+        why = f"{tree}: HEAD has the tree {head} in the old container"
+        raise RuntimeError(f"{why}, {found} in the new one")
       # What the image's build left in the tree that git does not ignore goes,
       # so the old tree's diff makes the new one's as the session left it.
       for argv in (
