@@ -56,12 +56,13 @@ only: `HarborRunner` reads the trial environment's (`harbor`'s `_read`).
 
 Then, before Harbor's stop removes it, this environment reads what `main`
 wrote and left, as the size of its writable layer, `docker inspect --size`'s
-`SizeRw`, which a stopped container gives as well as a running one; /tmp,
-a tmpfs, is not in it. Harbor's process writes it into the trial's directory
-as `<session_id>.written.json` (`harbor.WRITTEN_FILE`): `{"bytes": <SizeRw>}`,
-or `{"unknown": "<why>"}` when it could not be read, which the trial's log
-says too; a failed read never fails the stop. The trial's environment and a
-separate verifier's each write theirs, and `harbor.written` adds them up.
+`SizeRw`, which a stopped container gives as well as a running one; the
+tmpfs at /tmp, when there is one, is not in it. Harbor's process writes it
+into the trial's directory as `<session_id>.written.json`
+(`harbor.WRITTEN_FILE`): `{"bytes": <SizeRw>}`, or `{"unknown": "<why>"}`
+when it could not be read, which the trial's log says too; a failed read
+never fails the stop. The trial's environment and a separate verifier's each
+write theirs, and `harbor.written` adds them up.
 
 A task whose own compose file mounts something at /tmp of `main` keeps it and
 gets no tmpfs, since compose refuses two mounts at one target. The egress
@@ -97,7 +98,8 @@ _CGROUP = Path("/sys/fs/cgroup")
 # What the trial's log says of a `main` killed for memory, after its
 # environment's session ID.
 OOM_KILLED = "was killed for memory (State.OOMKilled)"
-# How long the read of State.OOMKilled may take, in seconds.
+# How long each inspect of main, and the listing before it, may take, in
+# seconds.
 _INSPECT_TIMEOUT = 60
 
 
