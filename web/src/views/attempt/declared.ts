@@ -1,13 +1,16 @@
 // The deliverables a project declares, set beside a record's (design-viz.md
 // section 5, "Attempt page"): a record has none until its attempt ends.
 import type { AttemptRecord, Deliverable, Project } from "../../api/types";
-import { attemptStatus } from "../../ui/status";
+import { runCount } from "../../ui/format";
+import { attemptStatus, stateTitle } from "../../ui/status";
 
 /**
- * The record with each deliverable titled as the project titles the one of its
- * name; a deliverable the project does not list keeps the title it recorded.
+ * The record as the page shows it: each deliverable titled as the project
+ * titles the one of its name, a deliverable the project does not list keeping
+ * the title it recorded, and each one without a path giving why in the
+ * viewer's words (notReached); the record keeps the engine's.
  */
-export function retitled(
+export function asShown(
   project: Project,
   record: AttemptRecord,
 ): AttemptRecord {
@@ -21,8 +24,46 @@ export function retitled(
     deliverables: have.map((d) => ({
       ...d,
       title: titles.get(d.name) ?? d.title,
+      reason: d.path === null ? notReached(project, record, d) : d.reason,
     })),
   };
+}
+
+/**
+ * Why a deliverable of the record has no path, after "Not run: ", by the
+ * title of the state it comes from: the attempt never reached the state, or
+ * has not yet while it runs; the state never finished a run, or has not
+ * finished its first yet; it ran only after the run the attempt kept; its
+ * runs are not the one the deliverable takes; or the run it takes wrote no
+ * such output.
+ */
+function notReached(
+  project: Project,
+  record: AttemptRecord,
+  item: Deliverable,
+): string {
+  const title = stateTitle(project, item.state);
+  const ended = attemptStatus(project, record) !== null;
+  if (item.visit_index === null) {
+    const mine = record.visits.flatMap((v, i) =>
+      v.state === item.state ? [{ v, i }] : [],
+    );
+    if (mine.length === 0)
+      return ended
+        ? `the attempt never reached ${title}.`
+        : `the attempt has not reached ${title} yet.`;
+    if (mine.every(({ v }) => v.outcome === null))
+      return ended
+        ? `${title} never finished a run.`
+        : `${title} has not finished a run yet.`;
+    const kept = record.kept_visit;
+    if (kept !== null && mine.every(({ i }) => i > kept))
+      return `${title} ran only after the run the attempt kept, run ${(kept + 1).toString()}.`;
+    const runs = `${title}'s ${runCount(mine.length)} ${mine.length === 1 ? "does" : "do"}`;
+    return `${runs} not include the one this takes${ended ? "" : " yet"}.`;
+  }
+  const run = (item.visit_index + 1).toString();
+  return `${title} · run ${run} wrote no ${item.output ?? "output"}.`;
 }
 
 /**
@@ -38,8 +79,8 @@ export function declaredMissing(
   if (have === undefined) return [];
   const reason =
     attemptStatus(project, record) === null
-      ? "This attempt has not reached the state that makes it."
-      : "This attempt ended without it.";
+      ? "the attempt has not reached the state that makes it yet."
+      : "the attempt ended without it.";
   return (project.deliverables ?? [])
     .filter((d) => !have.some((h) => h.name === d.name))
     .map((d) => ({

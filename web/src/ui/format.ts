@@ -110,12 +110,32 @@ export const visitStart = (v: Visit): string | undefined =>
 export const visitEnd = (v: Visit): string | undefined =>
   v.actions.at(-1)?.ended_at;
 
-/** A visit's seconds, from its first action's start to its last's end. */
+/**
+ * A visit's seconds, from its first action's start to its last's end; null
+ * for a visit that recorded no action, or whose actions' times do not read.
+ */
 export function visitSeconds(v: Visit): number | null {
   const from = visitStart(v);
   const to = visitEnd(v);
   return from === undefined || to === undefined ? null : span(from, to);
 }
+
+/** What stands for the time of a visit that recorded no action. */
+export const NO_ACTION = "no action recorded";
+
+/**
+ * A visit's time: its duration (visitSeconds), NO_ACTION when it recorded no
+ * action, "—" when its actions' times do not read.
+ */
+export function visitTime(v: Visit): string {
+  const seconds = visitSeconds(v);
+  if (seconds !== null) return duration(seconds);
+  return v.actions.length === 0 ? NO_ACTION : "—";
+}
+
+/** A count of runs: "1 run", "3 runs". */
+export const runCount = (n: number): string =>
+  `${n.toString()} ${n === 1 ? "run" : "runs"}`;
 
 export const visitCost = (v: Visit): number =>
   v.actions.reduce((sum: number, a: Action) => sum + a.cost_usd, 0);

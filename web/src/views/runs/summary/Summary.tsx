@@ -13,6 +13,7 @@ import {
 import { Card } from "../../../ui/card";
 import {
   duration,
+  runCount,
   span,
   time,
   usd,
@@ -65,7 +66,7 @@ export function Summary({
       <TopRow project={project} record={record} live={live} />
       <Card
         title="State machine"
-        aside={`${runs.toString()} runs · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
+        aside={`${runCount(runs)} · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
         flush
       >
         {machine ? (
