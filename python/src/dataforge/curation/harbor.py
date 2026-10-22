@@ -581,9 +581,10 @@ class HarborRunner:
 
   def _clean_up_stopped(self, outdir: Path, label: str) -> None:
     # For a stopped fan_out, within its budget: what may still run, and cost,
-    # goes first, the containers that mount the trial or have its label;
-    # giving the files back and removing the rest take what is left. What the
-    # budget does not reach is logged, not waited for.
+    # goes first, the containers that mount the trial, have its label or are
+    # in its compose projects; giving the files back and removing the rest
+    # take what is left. What the budget does not reach is logged, not waited
+    # for.
     selector = f"{LABEL}={label}"
     seen: dict[str, int] = {}
     held: list[str] = []
@@ -591,12 +592,17 @@ class HarborRunner:
     def mounting() -> None:
       held[:] = release(outdir, self.docker)
 
+    def projects() -> None:
+      for kind, n in remove_projects(outdir, self.docker).items():
+        seen[f"project {kind}"] = n
+
     steps: list[tuple[str, Callable[[], object]]] = [
       ("its mounting containers", mounting),
       (
         "its containers",
         lambda: cleanup(selector, self.docker, KINDS[:1], seen),
       ),
+      ("its compose projects", projects),
       ("its files", lambda: self._chown(outdir, label)),
       ("the rest", lambda: cleanup(selector, self.docker, KINDS, seen)),
     ]

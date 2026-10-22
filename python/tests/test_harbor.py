@@ -1027,6 +1027,28 @@ def test_a_stopped_trial_removes_its_containers_before_its_files_are_given_back(
   assert by_label < chown
 
 
+def test_a_stopped_trial_removes_its_compose_projects_before_its_files(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  projects = {
+    kind: {f"{kind[0]}0": "task__abc__env"}
+    for kind in ("container", "network", "volume")
+  }
+  file = fakes[1].parent / "projects.json"
+  _ = file.write_text(json.dumps(projects))
+  out = outdir(tmp_path)
+  trial = runner(fakes, "hang")
+  run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
+  with sigterm_once((out / "pids").exists), pytest.raises(SystemExit):
+    _ = fan_out([run])
+  left = json.loads(file.read_text())
+  assert all(not left[kind] for kind in ("container", "network", "volume"))
+  calls = docker_calls(fakes)
+  removed = calls.index(["container", "rm", "-f", "c0"])
+  chown = next(i for i, args in enumerate(calls) if args[0] == "run")
+  assert removed < chown
+
+
 def test_a_stopped_trial_logs_a_container_that_still_mounts_it(
   tmp_path: Path, fakes: tuple[Path, Path], caplog: pytest.LogCaptureFixture
 ) -> None:
