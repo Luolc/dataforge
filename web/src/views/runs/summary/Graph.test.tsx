@@ -11,7 +11,7 @@ import { measured, must, sampleProject } from "../../../../fixtures/sample";
 import { type Project, record } from "../../../api/types";
 import { TEMPLATES } from "../../../ui/template";
 import { Graph } from "./Graph";
-import { END, type Layout, layout, TEXT_WIDTH } from "./graph";
+import { END, type Layout, layout, LIVE_WIDTH, TEXT_WIDTH } from "./graph";
 
 // As fixtures/graph/project.yaml, as /api/projects would serve it.
 const project: Project = {
@@ -67,6 +67,7 @@ const scaleOf = (graph: Element) =>
   )?.[1];
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -161,7 +162,7 @@ describe("the machine's graph", () => {
     const { graph } = show(busy);
 
     const check = within(graph).getByRole("link", {
-      name: "check, Pass, 4 runs, 12m 0s: open its last run",
+      name: "check, Pass, 4 runs, 12m 0s in all: open its last run",
     });
     expect(check).toHaveAttribute("href", "/run/25");
   });
@@ -586,6 +587,7 @@ describe("a running attempt's machine", () => {
       recorded: false,
       since: "2026-03-09T13:16:40+00:00",
     };
+    vi.useFakeTimers({ now: Date.parse(draft.since) + 90 * 60_000 });
     const drawn = must(layout(record.parse(early), project, draft, measured));
     const { container } = render(
       <MemoryRouter>
@@ -608,14 +610,30 @@ describe("a running attempt's machine", () => {
         const spans = [...text.querySelectorAll("tspan")];
         if (spans.length === 0)
           return [
-            { text: text.textContent, y: Number(text.getAttribute("y")), font },
+            {
+              text: text.textContent,
+              x: Number(text.getAttribute("x")),
+              y: Number(text.getAttribute("y")),
+              font,
+            },
           ];
-        const lines: { text: string; y: number; font: typeof font }[] = [];
+        const lines: {
+          text: string;
+          x: number;
+          y: number;
+          font: typeof font;
+        }[] = [];
         for (const span of spans) {
           const y = span.getAttribute("y");
           const last = lines.at(-1);
           if (y === null && last) last.text += span.textContent;
-          else lines.push({ text: span.textContent, y: Number(y), font });
+          else
+            lines.push({
+              text: span.textContent,
+              x: Number(span.getAttribute("x")),
+              y: Number(y),
+              font,
+            });
         }
         return lines;
       });
@@ -623,7 +641,10 @@ describe("a running attempt's machine", () => {
 
     for (const n of drawn.nodes)
       for (const line of linesOf(n.key)) {
-        expect(measured(line.text, line.font)).toBeLessThanOrEqual(TEXT_WIDTH);
+        // The live lines of a running card start at its padding.
+        expect(measured(line.text, line.font)).toBeLessThanOrEqual(
+          line.x === 12 ? LIVE_WIDTH : TEXT_WIDTH,
+        );
         // Its baseline in the card, room left under it for the descenders.
         expect(line.y).toBeGreaterThan(0);
         expect(line.y).toBeLessThanOrEqual(n.height - 4);
@@ -632,8 +653,10 @@ describe("a running attempt's machine", () => {
       .filter((l) => l.font === "sub")
       .map((l) => l.text);
     expect(under).toEqual([
-      "2 runs · Running",
-      expect.stringMatching(/^\d+h \d+m$/),
+      "Run 2 · Running",
+      "1h 30m",
+      "2 runs · 1h 42m in",
+      "all",
     ]);
   });
 
