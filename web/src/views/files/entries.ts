@@ -70,3 +70,19 @@ export async function fileAt(
     ? firstFile(source, project, attempt, path, signal)
     : path;
 }
+
+/**
+ * The router state of a link to a path it knows is a file, as the tree's are,
+ * so the view opens it without asking whether it is a directory.
+ */
+export const knownFile = (path: string) => ({ file: path });
+
+/** Whether a router state says that path is a file, as knownFile puts it. */
+export function isKnownFile(state: unknown, path: string): boolean {
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    "file" in state &&
+    state.file === path
+  );
+}
