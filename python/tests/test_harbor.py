@@ -381,10 +381,11 @@ def test_a_failed_trial_returns_its_exception(
   assert result.rewards == {}
 
 
+@pytest.mark.parametrize("subtype", ["success", "error_during_execution"])
 def test_a_session_that_ended_on_an_error_without_an_exception_is_not_judged(
-  tmp_path: Path, fakes: tuple[Path, Path]
+  tmp_path: Path, fakes: tuple[Path, Path], subtype: str
 ) -> None:
-  trace = {"type": "result", "subtype": "success", "is_error": True}
+  trace = {"type": "result", "subtype": subtype, "is_error": True}
   env = {"FAKE_FILES": json.dumps({"agent/claude-code.txt": json.dumps(trace)})}
   result = runner(fakes, env=env).run(
     task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
