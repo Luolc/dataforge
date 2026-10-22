@@ -482,10 +482,9 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
 
   Returns:
     Those of files that hold the test's code: for pytest and the Node.js
-    runners, its ID's file;
-    for maven, a src/test/java or src/test/kotlin file of its outer class
-    under its directory; for phpunit, a file named for its class under its
-    directory, as PHPUnit wants.
+    runners, its ID's file; for maven, a src/test/java or src/test/kotlin
+    file of its outer class under its directory; for phpunit, a file named
+    for its class under its directory, as PHPUnit wants.
   """
   under = "" if test.dir == "." else test.dir + "/"
   if test.runner in ("pytest", "jest", "vitest", "jasmine", "node"):
