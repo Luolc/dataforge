@@ -200,6 +200,20 @@ def test_go_on_takes_the_interrupted_row_over_and_ends_it(
   assert len(cast(list[object], record["resumptions"])) == 1
 
 
+def test_a_new_row_gets_the_extra_given_and_one_gone_on_with_keeps_its_own(
+  store: Store, hooks: FakeHooks
+) -> None:
+  hooks.sigterm = True
+  with pytest.raises(SystemExit):
+    _ = run_attempt(store, ITEM, hooks, extra={"tone": "plain"})
+  hooks.sigterm = False
+  assert _only(store).extra == {"tone": "plain"}
+  gone_on = run_attempt(store, ITEM, hooks, go_on="only", extra={"tone": "x"})
+  assert gone_on.extra == {"tone": "plain"}
+  new = run_attempt(store, ITEM, hooks, go_on="never", extra={"tone": "x"})
+  assert new.extra == {"tone": "x"}
+
+
 def test_only_raises_when_there_is_nothing_to_go_on_with(
   store: Store, hooks: FakeHooks
 ) -> None:
