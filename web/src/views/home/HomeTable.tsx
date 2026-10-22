@@ -40,6 +40,7 @@ import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
+import { queuedShort } from "../queue/status";
 import {
   counted,
   filterItems,
@@ -234,7 +235,11 @@ function specs(project: Project): Spec[] {
       cell: (l) => {
         const read = l.row.reads?.[index] ?? null;
         if (read === null) return formatValue(raw(l), column.format);
-        const shown = readValue(read, raw(l), column.format);
+        const queued = l.row.queued?.[index] ?? null;
+        // A tab not run yet says how its job stands, when it names one.
+        const shown =
+          (queued === null ? null : queuedShort(queued)) ??
+          readValue(read, raw(l), column.format);
         // A value it has not read is a word of the viewer's, kept whole.
         return read === "found" ? (
           shown

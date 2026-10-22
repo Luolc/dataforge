@@ -7,7 +7,7 @@ but the action's name, the item's ID and a number for each parameter it
 declares goes into the job.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from dataforge import queue
 from dataforge.viz import live
@@ -205,3 +205,78 @@ def public(job: queue.Job) -> dict[str, object]:
     "exit_code": job.exit_code,
     "cancel_requested_at": job.cancel_requested_at,
   }
+
+
+def of_project(project: Project, job: queue.Job) -> bool:
+  """Return whether a job is a project's, as a page shows it.
+
+  Args:
+    project: The project.
+    job: The job.
+
+  Returns:
+    Whether its project label is the project's ID or, with no project
+    label, its action is one of the project's jobs.
+  """
+  named = job.labels.get("project")
+  if named is not None:
+    return named == project.id
+  return any(kind.action == job.labels.get("action") for kind in project.jobs)
+
+
+Queued = Callable[[str, str], dict[str, object]]
+"""Gives, for a job action of a project and an item label, what queued()
+gives."""
+
+
+def queued(
+  project: Project,
+  jobs: Sequence[queue.Job],
+  pauses: Sequence[queue.Pause],
+) -> Queued:
+  """Find the newest job of an action for an item, and its queue's pause.
+
+  Args:
+    project: The project, which names the actions in its jobs.
+    jobs: The queue's jobs, newest first.
+    pauses: The queue's pauses.
+
+  Returns:
+    A function that takes the action of one of the project's jobs and an
+    item label and gives {job, paused, reason}: job the newest of the
+    project's jobs of that action and item label, as public() gives it, or
+    null; paused the pause of its queue, or of the queue the project's jobs
+    name when there is none, {queue, paused_at, reason}, null when that
+    queue is not paused; reason null.
+  """
+  newest: dict[tuple[str, str], queue.Job] = {}
+  for job in jobs:
+    action, item = job.labels.get("action"), job.labels.get("item")
+    if action is not None and item is not None and of_project(project, job):
+      _ = newest.setdefault((action, item), job)
+  paused = {pause.queue: pause for pause in pauses}
+  named = {kind.action: kind.queue for kind in project.jobs}
+
+  def find(action: str, item: str) -> dict[str, object]:
+    job = newest.get((action, item))
+    pause = paused.get(named[action] if job is None else job.queue)
+    return {
+      "job": None if job is None else public(job),
+      "paused": None if pause is None else pause.to_json(),
+      "reason": None,
+    }
+
+  return find
+
+
+def unread(reason: str) -> Queued:
+  """Give what queued() gives when the queue cannot be read.
+
+  Args:
+    reason: Why.
+
+  Returns:
+    A function that gives {job, paused, reason}, job and paused null, for
+    any action and item.
+  """
+  return lambda _action, _item: {"job": None, "paused": None, "reason": reason}

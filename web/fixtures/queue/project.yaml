@@ -1,6 +1,7 @@
 # project.yaml's synthetic dataset with two actions, which only print the
-# item's ID and, for Run again, the budget a person sets; its attempts were
-# made up and ran nowhere.
+# item's ID and, for Run again, the budget a person sets, and two kinds of
+# job another tool would queue, of which notes makes the Notes tab's
+# versions; its attempts were made up and ran nowhere.
 id: sample
 name: Sample dataset
 color: "#e5a54b"
@@ -28,6 +29,7 @@ item: { depth: 2, title: Task, pattern: "batch-[0-9]+/task-[0-9]+" }
 lock: .lock
 columns:
   - { title: Cap, field: [budget, max_usd], format: usd }
+  - { title: Verdict, tab: notes, file: tags.json, field: [verdict, value] }
 # What an attempt delivers once it ends, so a running one shows its tabs.
 deliverables:
   - { name: task, kind: files, title: Task }
@@ -58,3 +60,13 @@ actions:
     memory_mib: 1024
     key: "sample:{item}"
     when: stopped
+jobs:
+  - { action: notes, label: Write notes, queue: slow, subject: attempt }
+  - { action: batch, label: Batch, queue: fast }
+tabs:
+  - name: notes
+    title: Notes
+    versions: [notes, "notes-*"]
+    version_title: { file: status.json, field: [ended_at], format: time }
+    file: out/notes.md
+    job: notes
