@@ -17,7 +17,7 @@ with no exit code, once nothing of the group runs, as a scheduler does for a
 wrapper that is gone.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import os
 from pathlib import Path
 import select
@@ -84,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
       if terminated:
         os.killpg(0, signal.SIGTERM)
-      code = _wait(child, path, job.id, grace)
+      code = _wait(child, path, job.id, grace, lambda: terminated)
       if code is None:
         print(
           f"wrapper: job {job.id}: SIGKILL after the grace period",
@@ -104,44 +104,56 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _wait(
-  child: subprocess.Popen[bytes], path: Path, job_id: int, grace: float | None
+  child: subprocess.Popen[bytes],
+  path: Path,
+  job_id: int,
+  grace: float | None,
+  terminated: Callable[[], bool],
 ) -> int | None:
   # Wait for the command, or until grace has passed since the job's
-  # cancellation was asked for. While the command runs, the row is read again
-  # each time a signal comes until it says when, since a cancellation's
-  # SIGTERM is one, and a read that fails is tried again at the next. A
-  # command that has ended is reaped first, before any read.
-  asked: float | None = None
+  # cancellation was asked for. A cancellation sends SIGTERM once it is in
+  # the row, so the wrapper reads the row only when grace has passed since
+  # SIGTERM came, not while a command that SIGTERM ends is exiting, and reads
+  # it again a grace period later when the read fails or finds no
+  # cancellation.
+  if grace is None:
+    return child.wait()
+  deadline: float | None = None
   wake, woken = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
   ended = os.pidfd_open(child.pid)
   previous = signal.set_wakeup_fd(woken)
   try:
     while (code := child.poll()) is None:
-      if grace is not None and asked is None:
-        try:
-          with connect(path) as conn:
-            now = row(conn, job_id)
-        except sqlite3.Error as error:
-          # The command runs on: a wrapper that exited here would leave the
-          # scheduler to take the job for lost and kill it.
-          print(f"wrapper: job {job_id}: {error}", file=sys.stderr)
-        else:
-          asked = None if now is None else now.cancel_requested_at
-      timeout = (
-        None
-        if grace is None or asked is None
-        else max(0.0, asked + grace - time.time())
-      )
+      if deadline is None and terminated():
+        deadline = time.time() + grace
+      timeout = None if deadline is None else max(0.0, deadline - time.time())
       ready, _, _ = select.select([ended, wake], [], [], timeout)
-      if not ready:
-        return None
       if wake in ready:
         _ = os.read(wake, 512)
+      if ready or deadline is None:
+        continue
+      asked = _asked(path, job_id)
+      if asked is not None and time.time() >= asked + grace:
+        return None
+      deadline = None if asked is None else asked + grace
     return code
   finally:
     _ = signal.set_wakeup_fd(previous)
     for fd in (wake, woken, ended):
       os.close(fd)
+
+
+def _asked(path: Path, job_id: int) -> float | None:
+  # When the job's cancellation was asked for. A read that fails gives None:
+  # the command runs on, and a wrapper that exited here would leave the
+  # scheduler to take the job for lost and kill it.
+  try:
+    with connect(path) as conn:
+      now = row(conn, job_id)
+  except sqlite3.Error as error:
+    print(f"wrapper: job {job_id}: {error}", file=sys.stderr)
+    return None
+  return None if now is None else now.cancel_requested_at
 
 
 def _kill_group(started: Leader) -> None:

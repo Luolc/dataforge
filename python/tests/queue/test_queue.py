@@ -29,6 +29,7 @@ from dataforge.queue import (
 from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
 from dataforge.queue.store import row as read_row
+from dataforge.queue.wrapper import _wait  # pyright: ignore[reportPrivateUsage]
 from dataforge.queue.wrapper import main as wrapper
 
 QUEUE_FILE = """
@@ -296,45 +297,31 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
 def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
   config: Config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+  job = put(config, "alpha", "true")
   go = tmp_path / "go"
-  job = put(
-    config,
-    "alpha",
-    "sh",
-    "-c",
-    f"until [ -e {go} ]; do sleep 0.05; done; exit 3",
-  )
-  me = leader(os.getpid())
-  assert me is not None
-  with closing(sqlite3.connect(config.database)) as conn, conn:
-    _ = conn.execute(
-      """
-      UPDATE jobs SET state = 'running', pid = ?, starttime = ?, boot_id = ?
-      WHERE id = ?
-      """,
-      (*me, job.id),
-    )
   reads = 0
 
   def flaky(conn: sqlite3.Connection, job_id: int) -> Job | None:
     nonlocal reads
     reads += 1
-    # The second read is the wrapper's while the command runs, which ends
-    # only after it.
-    if reads == 2:
+    if reads == 1:
+      # The command ends only after this read.
       go.touch()
       raise sqlite3.OperationalError("database is locked")
     return read_row(conn, job_id)
 
   monkeypatch.setattr("dataforge.queue.wrapper.row", flaky)
-  handler = signal.getsignal(signal.SIGTERM)
+  child = subprocess.Popen(
+    ["sh", "-c", f"until [ -e {go} ]; do sleep 0.05; done; exit 3"]
+  )
   try:
-    assert wrapper([str(config.database), str(job.id), "0.5"]) == 0
+    # As after a SIGTERM that was no cancellation, with a short grace period:
+    # the row is read each time it passes.
+    assert _wait(child, config.database, job.id, 0.1, lambda: True) == 3
   finally:
-    _ = signal.signal(signal.SIGTERM, handler)
-  assert reads == 3
-  done = state(config, job)
-  assert (done.state, done.exit_code) == ("failed", 3)
+    child.kill()
+    _ = child.wait()
+  assert reads >= 1
 
 
 def log(config: Config, job: Job) -> str:
