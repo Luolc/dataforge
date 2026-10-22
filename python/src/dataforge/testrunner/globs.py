@@ -5,7 +5,7 @@ A glob is a path relative to the project's root, `/`-separated. `*`, `?` and
 leading `.` too; a component that is `**` matches any number of components,
 none among them. So `spec/**` matches `spec` and everything under it, and
 `**/conftest.py` a conftest.py anywhere. A glob never names a `.git`, so
-that what a manifest's globs delete is never a repository's own.
+that a manifest's globs never delete the project's own repository.
 """
 
 from __future__ import annotations
