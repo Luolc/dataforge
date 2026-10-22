@@ -218,7 +218,7 @@ function TestTable({
           No test matches the filters.
         </p>
       ) : (
-        <Sideways label="the tests">
+        <Sideways label="the table">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-line bg-head text-xs text-fg-2">
@@ -306,7 +306,8 @@ function TestRow({
             {word}
           </span>
         </td>
-        <td className={cell}>
+        {/* Wide enough to read; a narrower tab scrolls the table sideways. */}
+        <td className={`${cell} min-w-72`}>
           <span className="font-mono text-xs break-all">{test.name}</span>
           {detail.length > 0 && (
             <button
@@ -316,18 +317,24 @@ function TestRow({
               onClick={() => {
                 setOpen((o) => !o);
               }}
-              className={`${control} ml-2`}
+              className={`${control} ml-2 whitespace-nowrap`}
             >
               {open ? "Hide message" : "Message"}
             </button>
           )}
         </td>
-        {has.kind && <td className={cell}>{kind ?? "—"}</td>}
+        {has.kind && (
+          <td className={`${cell} whitespace-nowrap`}>{kind ?? "—"}</td>
+        )}
         {has.principle && (
-          <td className={`${cell} font-mono text-xs`}>{label("principle")}</td>
+          <td className={`${cell} font-mono text-xs whitespace-nowrap`}>
+            {label("principle")}
+          </td>
         )}
         {has.runner && (
-          <td className={`${cell} font-mono text-xs`}>{label("runner")}</td>
+          <td className={`${cell} font-mono text-xs whitespace-nowrap`}>
+            {label("runner")}
+          </td>
         )}
         <td className={numeric}>{duration(test.duration / 1000, true)}</td>
       </tr>
