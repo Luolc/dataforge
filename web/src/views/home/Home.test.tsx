@@ -186,15 +186,22 @@ describe("the home page", () => {
     );
   });
 
-  it("sorts an item by its newest attempt's cost", async () => {
+  it("sorts an item by its newest attempt's cost, not by its attempts' sum", async () => {
+    // a's newest spent $2.00 and its two attempts $5.00; b's one $3.00.
+    const rows = [
+      row("a/2", { started_at: at(8), ended_at: at(9), cost_usd: 2 }),
+      row("a/1", { started_at: at(5), ended_at: at(6), cost_usd: 3 }),
+      row("b/1", { started_at: at(6), ended_at: at(7), cost_usd: 3 }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
     show("/sample?sort=-spent");
-    await screen.findByText("t-run");
-    // t-old's newest spent $2.00, t-new $0.50; t-old's attempts sum to $3.50.
-    expect(itemsOf("Ended")).toEqual(["t-old", "t-new"]);
-    act(() => {
-      screen.getByRole("button", { name: "Spent" }).click();
-    });
-    expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
+    await screen.findByText("a");
+    expect(itemsOf("Ended")).toEqual(["b", "a"]);
   });
 
   it("filters by a status chip and says how many it hides", async () => {
