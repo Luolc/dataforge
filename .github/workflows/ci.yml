@@ -106,6 +106,9 @@ jobs:
       # python/.python-version names. They run on every change, not only on
       # one that touches python/ (R343). The uv version is the rev of the
       # uv-lock hook in .pre-commit-config.yaml; change both together.
+      # A test that runs past 120 s gets every thread's traceback printed and
+      # ends pytest, so a hung test fails the step and names itself; timeout
+      # bounds the whole run, collection and teardown included.
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
@@ -117,7 +120,7 @@ jobs:
           uv run --locked ruff format --check
           uv run --locked pydoclint --config pyproject.toml --quiet src tests
           uv run --locked basedpyright
-          uv run --locked pytest
+          timeout --kill-after=30s 15m uv run --locked pytest -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true
 
       # The viewer's frontend, as docs/design-viz.md section 6 lists its
       # checks, and the share site's build from the same sources. Node is the
