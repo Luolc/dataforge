@@ -8,15 +8,17 @@ processes of the same user, as it does the launcher's. It listens on a Unix
 socket that a container reaches through `forward.py`, forwards only its
 channel's model calls (`ROUTES`), in origin form, to the gateway with the
 session's `Authorization` in place of the request's, and refuses every other
-request with 403, the session unsent. It ends when the process that started it
-ends, killed or not.
+request with 403, the session unsent. It also refuses a model call whose body
+asks the model's side to reach the network or run code for the container
+(`screen`), and forwards the others' bodies as they came. It ends when the
+process that started it ends, killed or not.
 
 With a `Spend`, it prices each reply as it passes it on. Once the session has
 cost `max_usd` or a reply could not be priced, and with a ledger once the
 ledger could not be written, it refuses every later request with 403, lets the
 replies under way finish and then prints `DRAINED`, on which `serve` takes the
 socket over and ends the session. With a ledger, it writes each reply down
-(`spend.record`).
+(`spend.record`), with the model the request named.
 
 Run as `python -I -m dataforge.gateway.proxy --channel <channel> --socket
 <path> --parent <pid>` with `--pause`, `--ledger` and `--spend` as given.
@@ -25,6 +27,7 @@ Run as `python -I -m dataforge.gateway.proxy --channel <channel> --socket
 import argparse
 from collections.abc import Generator
 import contextlib
+from email.message import Message
 import http.client
 import http.server
 import json
@@ -39,13 +42,15 @@ import threading
 from typing import cast, final, override
 import urllib.parse
 
-from dataforge.gateway import channels
+from dataforge.gateway import channels, screen
 from dataforge.gateway.channels import BILLED, Channel, DRAINED, ROUTES
 from dataforge.gateway.pause import Pause
 from dataforge.gateway.spend import Meter, NO_USAGE, now, price, record, Spend
 
 # How long the proxy waits for the gateway's answer to one request.
 UPSTREAM_TIMEOUT = 600
+# The largest request body whose model the proxy reads for the ledger.
+REQUEST_READ = 16 * 2**20
 # Request headers the proxy sets itself, that carry a credential, or that
 # belong to one hop only.
 _REQUEST_DROP = frozenset(
@@ -108,11 +113,29 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     ):
       self.send_error(403)
       return
+    channel = self.server.channel
+    # All of the header's lines, as the gateway may read them.
+    encoding = ",".join(self.headers.get_all("Content-Encoding", []))
+    if (refused := screen.refusal(channel, encoding, body)) is not None:
+      self._refuse(refused)
+      return
     with self.server.flight() as allowed:
       if not allowed:
         self.send_error(403, "the session's spend is capped")
         return
       self._send(body)
+
+  def _refuse(self, refused: screen.Refusal):
+    # The tool type or field only: the body is the caller's.
+    _ = sys.stderr.write(f"gateway: refused a model call: {refused.why}\n")
+    data = screen.answer(self.server.channel, refused)
+    self.close_connection = True
+    self.send_response(refused.status)
+    self.send_header("Content-Type", "application/json")
+    self.send_header("Content-Length", str(len(data)))
+    self.send_header("Connection", "close")
+    self.end_headers()
+    _ = self.wfile.write(data)
 
   def _body(self) -> bytes:
     # The request's body, read whole, chunked or not.
@@ -180,7 +203,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             continue
         elif server.pause is not None:
           server.pause.answered()
-        self._reply(response)
+        self._reply(response, body)
         return
       finally:
         connection.close()
@@ -195,9 +218,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     except OSError:
       return True
 
-  def _reply(self, response: http.client.HTTPResponse):
+  def _reply(self, response: http.client.HTTPResponse, body: bytes):
     server = self.server
     meter = server.meter(self.path, response)
+    if meter is not None:
+      meter.requested = _requested(body, self.headers)
     try:
       self.send_response(response.status, response.reason)
       for k, v in response.getheaders():
@@ -224,6 +249,29 @@ class _Handler(http.server.BaseHTTPRequestHandler):
   def log_message(self, format: str, *args: object):
     # The request line and status only; headers carry the session.
     _ = sys.stderr.write(f"gateway: {format % args}\n")
+
+
+def _requested(body: bytes, headers: Message) -> str | None:
+  # The model a request's body names, read only from JSON that is neither
+  # compressed nor larger than `REQUEST_READ`; None for anything else.
+  ctype = headers.get_content_type()
+  encoding = headers.get("Content-Encoding", "identity").lower()
+  if (
+    not (ctype == "application/json" or ctype.endswith("+json"))
+    or encoding != "identity"
+    or len(body) > REQUEST_READ
+  ):
+    return None
+  try:
+    found = cast(object, json.loads(body))
+  except ValueError, RecursionError:
+    return None
+  model = (
+    cast(dict[str, object], found).get("model")
+    if isinstance(found, dict)
+    else None
+  )
+  return model if isinstance(model, str) else None
 
 
 def _retry_after(response: http.client.HTTPResponse) -> float | None:
@@ -283,7 +331,9 @@ class _Server(socketserver.ThreadingUnixStreamServer):
           _ = sys.stderr.write(f"{DRAINED}\n")
 
   def meter(
-    self, path: str, response: http.client.HTTPResponse
+    self,
+    path: str,
+    response: http.client.HTTPResponse,
   ) -> Meter | None:
     # What reads a reply for the cap and the ledger: a model call's 200.
     if self.spend is None and self.ledger is None:
@@ -305,9 +355,9 @@ class _Server(socketserver.ThreadingUnixStreamServer):
     # no reply goes uncounted.
     try:
       meter.end()
-      usd, reason = price(meter, self.spend)
+      usd, reason, priced_as = price(meter, self.spend)
     except Exception as e:  # noqa: BLE001
-      usd, reason = None, f"the reply could not be read: {e!r}"
+      usd, reason, priced_as = None, f"the reply could not be read: {e!r}", None
     if reason == NO_USAGE:
       # Only the shape of the reply: its Content-Type, event types, counts,
       # the length and top-level keys of its first line, how it was read and
@@ -329,8 +379,10 @@ class _Server(socketserver.ThreadingUnixStreamServer):
       "at": now(),
       "channel": self.channel.value,
       "model": meter.model,
+      "requested_model": meter.requested,
       "usage": meter.usage,
       "cost_usd": usd,
+      "priced_as": priced_as,
       "reason": reason,
     }
     try:
