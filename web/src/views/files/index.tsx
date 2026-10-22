@@ -3,7 +3,7 @@
 // `file`, a path relative to the attempt, used only when it is under this
 // deliverable's path; a directory there opens its first file.
 import type { ReactNode } from "react";
-import { useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 
 import { useFileSource, useLoaded } from "../../api/client";
 import type { Deliverable } from "../../api/types";
@@ -12,7 +12,7 @@ import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
 import { fromARun } from "../source";
-import { fileAt, firstFile } from "./entries";
+import { fileAt, firstFile, isKnownFile } from "./entries";
 import { Preview } from "./Preview";
 import { Tree } from "./Tree";
 
@@ -87,18 +87,23 @@ export function Files({
     chosen === null ? JSON.stringify([project, attempt, root]) : null,
     (signal) => firstFile(source, project, attempt, root, signal),
   );
+  const state: unknown = useLocation().state;
+  const known = chosen !== null && isKnownFile(state, chosen);
   const opened = useLoaded(
-    chosen === null ? null : JSON.stringify([project, attempt, chosen]),
+    chosen === null || known
+      ? null
+      : JSON.stringify([project, attempt, chosen]),
     (signal) =>
       chosen === null
         ? Promise.resolve(null)
         : fileAt(source, project, attempt, chosen, signal),
   );
-  // The chosen path is shown as it is when it cannot be told a directory.
+  // The chosen path is shown as it is when the tree's link says it is a
+  // file, or when it cannot be told a directory.
   const shown =
     chosen === null
       ? first
-      : opened.state === "error"
+      : known || opened.state === "error"
         ? { state: "ok" as const, data: chosen }
         : opened;
   const selected = shown.state === "ok" ? shown.data : null;
