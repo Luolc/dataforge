@@ -107,15 +107,16 @@ def _wait(
   child: subprocess.Popen[bytes], path: Path, job_id: int, grace: float | None
 ) -> int | None:
   # Wait for the command, or until grace has passed since the job's
-  # cancellation was asked for. The row is read again each time a signal
-  # comes until it says when, since a cancellation's SIGTERM is one, and a
-  # read that fails is tried again at the next.
+  # cancellation was asked for. While the command runs, the row is read again
+  # each time a signal comes until it says when, since a cancellation's
+  # SIGTERM is one, and a read that fails is tried again at the next. A
+  # command that has ended is reaped first, before any read.
   asked: float | None = None
   wake, woken = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
   ended = os.pidfd_open(child.pid)
   previous = signal.set_wakeup_fd(woken)
   try:
-    while True:
+    while (code := child.poll()) is None:
       if grace is not None and asked is None:
         try:
           with connect(path) as conn:
@@ -132,11 +133,11 @@ def _wait(
         else max(0.0, asked + grace - time.time())
       )
       ready, _, _ = select.select([ended, wake], [], [], timeout)
-      if ended in ready:
-        return child.wait()
       if not ready:
         return None
-      _ = os.read(wake, 512)
+      if wake in ready:
+        _ = os.read(wake, 512)
+    return code
   finally:
     _ = signal.set_wakeup_fd(previous)
     for fd in (wake, woken, ended):

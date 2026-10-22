@@ -294,9 +294,16 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
 
 
 def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
-  config: Config, monkeypatch: pytest.MonkeyPatch
+  config: Config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-  job = put(config, "alpha", "sh", "-c", "sleep 0.2; exit 3")
+  go = tmp_path / "go"
+  job = put(
+    config,
+    "alpha",
+    "sh",
+    "-c",
+    f"until [ -e {go} ]; do sleep 0.05; done; exit 3",
+  )
   me = leader(os.getpid())
   assert me is not None
   with closing(sqlite3.connect(config.database)) as conn, conn:
@@ -312,8 +319,10 @@ def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
   def flaky(conn: sqlite3.Connection, job_id: int) -> Job | None:
     nonlocal reads
     reads += 1
-    # The second read is the wrapper's while the command runs.
+    # The second read is the wrapper's while the command runs, which ends
+    # only after it.
     if reads == 2:
+      go.touch()
       raise sqlite3.OperationalError("database is locked")
     return read_row(conn, job_id)
 
