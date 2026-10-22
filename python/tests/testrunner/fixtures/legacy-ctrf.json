@@ -1,0 +1,548 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.1.0",
+  "results": {
+    "tool": {
+      "name": "testrunner"
+    },
+    "summary": {
+      "tests": 38,
+      "passed": 15,
+      "failed": 16,
+      "pending": 0,
+      "skipped": 7,
+      "other": 0,
+      "start": 0,
+      "stop": 0
+    },
+    "tests": [
+      {
+        "name": "t/test_p.py::test_ok",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "t/test_p.py",
+        "labels": {
+          "id": "p2p::t/test_p.py::test_ok",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "t/test_p.py::test_some[1]",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "t/test_p.py",
+        "labels": {
+          "id": "p2p::t/test_p.py::test_some",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "t/test_p.py::test_some[2]",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "assert 2 == 1",
+        "trace": "x = 2\n\n    @pytest.mark.parametrize(\"x\", [1, 2])\n    def test_some(x):\n>     assert x == 1\nE     assert 2 == 1\n\nt/test_p.py:14: AssertionError",
+        "filePath": "t/test_p.py",
+        "labels": {
+          "id": "p2p::t/test_p.py::test_some",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "t/test_p.py::test_skips",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "not here",
+        "trace": "<app>/t/test_p.py:17: not here",
+        "filePath": "t/test_p.py",
+        "labels": {
+          "id": "p2p::t/test_p.py::test_skips",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "t/test_p.py::test_gone",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "rawStatus": "error",
+        "message": "listed in the manifest but not in the runner's report (the runner exited 1)",
+        "labels": {
+          "id": "p2p::t/test_p.py::test_gone",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "t/test_p.py::test_fails",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "f2p"
+        ],
+        "message": "AssertionError: one is not two\nassert 1 == 2",
+        "trace": "def test_fails():\n>     assert 1 == 2, \"one is not two\"\nE     AssertionError: one is not two\nE     assert 1 == 2\n\nt/test_p.py:9: AssertionError",
+        "filePath": "t/test_p.py",
+        "labels": {
+          "id": "f2p::t/test_p.py::test_fails",
+          "runner": "pytest",
+          "kind": "vulnerability",
+          "principle": "p1"
+        }
+      },
+      {
+        "name": "test/a.test.js > attr > nested > parses",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "test/a.test.js",
+        "labels": {
+          "id": "p2p::test/a.test.js > attr",
+          "runner": "node"
+        }
+      },
+      {
+        "name": "test/a.test.js > attr > fails",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "Expected values to be strictly equal:\n\n1 !== 2",
+        "trace": "Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:\n\n1 !== 2\n\n    at async Promise.all (index 0) {\n  code: 'ERR_TEST_FAILURE',\n  failureType: 'testCodeFailure',\n  cause: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  1 !== 2\n  \n      at TestContext.<anonymous> (<app>/test/a.test.js:8:12)\n      at Test.runInAsyncScope (node:async_hooks:226:14)\n      at Test.run (node:internal/test_runner/test:1402:25)\n      at Suite.processPendingSubtests (node:internal/test_runner/test:974:18)\n      at Suite.postRun (node:internal/test_runner/test:1542:19)\n      at Suite.run (node:internal/test_runner/test:1921:10)\n      at async Promise.all (index 0)\n      at async Suite.run (node:internal/test_runner/test:1905:7)\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 1,\n    expected: 2,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n}",
+        "filePath": "test/a.test.js",
+        "labels": {
+          "id": "p2p::test/a.test.js > attr",
+          "runner": "node"
+        }
+      },
+      {
+        "name": "test/a.test.js > attr > waits",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "true",
+        "filePath": "test/a.test.js",
+        "labels": {
+          "id": "p2p::test/a.test.js > attr",
+          "runner": "node"
+        }
+      },
+      {
+        "name": "test/broken.test.js",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "rawStatus": "error",
+        "message": "test failed",
+        "trace": "[Error: test failed] { code: 'ERR_TEST_FAILURE', failureType: 'testCodeFailure', cause: 'test failed', exitCode: 1, signal: null }",
+        "filePath": "test/broken.test.js",
+        "labels": {
+          "id": "p2p::test/broken.test.js > loads",
+          "runner": "node"
+        }
+      },
+      {
+        "name": "src/attr.test.js > attr > nested > parses",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "src/attr.test.js",
+        "labels": {
+          "id": "p2p::src/attr.test.js > attr",
+          "runner": "jest"
+        }
+      },
+      {
+        "name": "src/attr.test.js > attr > fails",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "Error: expected 1",
+        "trace": "Error: expected 1\n    at attr.test.js:3",
+        "filePath": "src/attr.test.js",
+        "labels": {
+          "id": "p2p::src/attr.test.js > attr",
+          "runner": "jest"
+        }
+      },
+      {
+        "name": "src/attr.test.js > attr > waits",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "src/attr.test.js",
+        "labels": {
+          "id": "p2p::src/attr.test.js > attr",
+          "runner": "jest"
+        }
+      },
+      {
+        "name": "src/broken.test.js",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "f2p"
+        ],
+        "rawStatus": "error",
+        "message": "Test suite failed to run",
+        "filePath": "src/broken.test.js",
+        "labels": {
+          "id": "f2p::src/broken.test.js > x",
+          "runner": "jest"
+        }
+      },
+      {
+        "name": "src/attr.test.js > attr > nested > parses",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "src/attr.test.js",
+        "labels": {
+          "id": "p2p::src/attr.test.js > attr > nested",
+          "runner": "vitest"
+        }
+      },
+      {
+        "name": "spec/a_spec.js > a > x",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "spec/a_spec.js",
+        "labels": {
+          "id": "p2p::spec/a_spec.js > a",
+          "runner": "jasmine"
+        }
+      },
+      {
+        "name": "spec/a_spec.js > a > y",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "Expected 1",
+        "trace": "at y",
+        "filePath": "spec/a_spec.js",
+        "labels": {
+          "id": "p2p::spec/a_spec.js > a",
+          "runner": "jasmine"
+        }
+      },
+      {
+        "name": "example.com/proj/calc::TestAdd",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "trace": "=== RUN   TestAdd\n--- PASS: TestAdd (0.00s)\n",
+        "labels": {
+          "id": "p2p::example.com/proj/calc::TestAdd",
+          "runner": "go"
+        }
+      },
+      {
+        "name": "example.com/proj/calc::TestSub",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "trace": "=== RUN   TestSub\n--- FAIL: TestSub (0.00s)\n",
+        "labels": {
+          "id": "p2p::example.com/proj/calc::TestSub",
+          "runner": "go"
+        }
+      },
+      {
+        "name": "example.com/proj/calc::TestSub/two_words",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "trace": "=== RUN   TestSub/two_words\n--- PASS: TestSub/two_words (0.00s)\n",
+        "labels": {
+          "id": "p2p::example.com/proj/calc::TestSub",
+          "runner": "go"
+        }
+      },
+      {
+        "name": "example.com/proj/calc::TestSub/bad",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "add_test.go:17: sub failed",
+        "trace": "=== RUN   TestSub/bad\n    add_test.go:17: sub failed\n--- FAIL: TestSub/bad (0.00s)\n",
+        "labels": {
+          "id": "p2p::example.com/proj/calc::TestSub",
+          "runner": "go"
+        }
+      },
+      {
+        "name": "example.com/proj/broken",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "f2p"
+        ],
+        "rawStatus": "error",
+        "message": "broken/broken_test.go:5:33: undefined: undefinedCall",
+        "trace": "# example.com/proj/broken [example.com/proj/broken.test]\nbroken/broken_test.go:5:33: undefined: undefinedCall\nFAIL\texample.com/proj/broken [build failed]\n",
+        "labels": {
+          "id": "f2p::example.com/proj/broken::TestNew",
+          "runner": "go"
+        }
+      },
+      {
+        "name": "crates/core/src/lib.rs::tests::ignored",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "crates/core/src/lib.rs",
+        "labels": {
+          "id": "p2p::crates/core/src/lib.rs::tests",
+          "runner": "cargo"
+        }
+      },
+      {
+        "name": "crates/core/src/lib.rs::tests::adds",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "crates/core/src/lib.rs",
+        "labels": {
+          "id": "p2p::crates/core/src/lib.rs::tests",
+          "runner": "cargo"
+        }
+      },
+      {
+        "name": "crates/core/src/lib.rs::tests::fails",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "assertion `left == right` failed",
+        "trace": "thread 'tests::fails' (249) panicked at crates/core/src/lib.rs:16:9:\nassertion `left == right` failed\n  left: 2\n right: 3\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+        "filePath": "crates/core/src/lib.rs",
+        "labels": {
+          "id": "p2p::crates/core/src/lib.rs::tests",
+          "runner": "cargo"
+        }
+      },
+      {
+        "name": "crates/core/src/lib.rs::tests::panics",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "crates/core/src/lib.rs",
+        "labels": {
+          "id": "p2p::crates/core/src/lib.rs::tests",
+          "runner": "cargo"
+        }
+      },
+      {
+        "name": "crates/core/tests/parse.rs",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "rawStatus": "error",
+        "message": "its test binary ended with no result",
+        "filePath": "crates/core/tests/parse.rs",
+        "labels": {
+          "id": "p2p::crates/core/tests/parse.rs::parses",
+          "runner": "cargo"
+        }
+      },
+      {
+        "name": "Math.Skips",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "SKIP_REGULAR_EXPRESSION_MATCHED",
+        "trace": "Running main() from ./googletest/src/gtest_main.cc\nNote: Google Test filter = Math.Skips\n[==========] Running 1 test from 1 test suite.\n[----------] Global test environment set-up.\n[----------] 1 test from Math\n[ RUN      ] Math.Skips\n<app>/tests/math_test.cc:5: Skipped\nnot here\n\n[  SKIPPED ] Math.Skips (0 ms)\n[----------] 1 test from Math (0 ms total)\n\n[----------] Global test environment tear-down\n[==========] 1 test from 1 test suite ran. (0 ms total)\n[  PASSED  ] 0 tests.\n[  SKIPPED ] 1 test, listed below:\n[  SKIPPED ] Math.Skips",
+        "labels": {
+          "id": "p2p::Math.Skips",
+          "runner": "ctest"
+        }
+      },
+      {
+        "name": "script_fail",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "f2p"
+        ],
+        "message": "Failed",
+        "labels": {
+          "id": "f2p::script_fail",
+          "runner": "ctest"
+        }
+      },
+      {
+        "name": "unit_tests::Math.Adds",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "tests/math_test.cc",
+        "labels": {
+          "id": "p2p::unit_tests::Math",
+          "runner": "gtest"
+        }
+      },
+      {
+        "name": "unit_tests::Math.Fails",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "<app>/tests/math_test.cc:4\nExpected equality of these values:\n  1 + 1\n    Which is: 2\n  3\none and one\n",
+        "trace": "<app>/tests/math_test.cc:4\nExpected equality of these values:\n  1 + 1\n    Which is: 2\n  3\none and one",
+        "filePath": "tests/math_test.cc",
+        "labels": {
+          "id": "p2p::unit_tests::Math",
+          "runner": "gtest"
+        }
+      },
+      {
+        "name": "unit_tests::Math.Skips",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "<app>/tests/math_test.cc:5\nnot here\n",
+        "trace": "<app>/tests/math_test.cc:5\nnot here",
+        "filePath": "tests/math_test.cc",
+        "labels": {
+          "id": "p2p::unit_tests::Math",
+          "runner": "gtest"
+        }
+      },
+      {
+        "name": "unit_tests::Math.DISABLED_Off",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "tests/math_test.cc",
+        "labels": {
+          "id": "p2p::unit_tests::Math",
+          "runner": "gtest"
+        }
+      },
+      {
+        "name": "unit_tests::Math.Unlisted",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "filePath": "tests/math_test.cc",
+        "labels": {
+          "id": "p2p::unit_tests::Math",
+          "runner": "gtest"
+        }
+      },
+      {
+        "name": "unit_tests::New.Added",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "f2p"
+        ],
+        "filePath": "tests/new_test.cc",
+        "labels": {
+          "id": "f2p::unit_tests::New.Added",
+          "runner": "gtest"
+        }
+      },
+      {
+        "name": "com.example.ParserTest#parses",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "labels": {
+          "id": "p2p::com.example.ParserTest",
+          "runner": "maven"
+        }
+      },
+      {
+        "name": "com.example.ParserTest#fails",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "message": "expected 1",
+        "trace": "at ParserTest.java:9",
+        "labels": {
+          "id": "p2p::com.example.ParserTest",
+          "runner": "maven"
+        }
+      },
+      {
+        "name": "Example\\ParserTest::testTag",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "p2p"
+        ],
+        "labels": {
+          "id": "p2p::Example\\ParserTest::testTag",
+          "runner": "phpunit"
+        }
+      }
+    ]
+  }
+}
+{"p2p": [14, 33], "f2p": [1, 5]}
