@@ -20,9 +20,11 @@ report: else each of its tests is an error.
 from __future__ import annotations
 
 from collections.abc import Collection
+import json
 from pathlib import Path, PurePosixPath
 import re
-from typing import final, override
+import tomllib
+from typing import cast, final, override
 
 from .adapter import Call, Context, rel, Runner
 from .ctrf import Case
@@ -294,3 +296,99 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
   if source.startswith(under + "tests/") and source in files:
     return [source]
   return []
+
+
+def overrides(text: str) -> set[str]:
+  """Return what a Cargo.toml puts in place of a dependency's source.
+
+  That is each entry of its `patch` and `replace` tables, and each
+  dependency of a dependency table (`dependencies`, `dev-dependencies` and
+  `build-dependencies`, with their old `_` spellings, those of each
+  `target`, and `workspace.dependencies`) taken from a path or a git
+  repository, with the keys that say which.
+
+  Args:
+    text: The Cargo.toml.
+
+  Returns:
+    Each as `<table>.<name> = <its value or keys as JSON>`.
+
+  Raises:
+    ValueError: When it is not TOML.
+  """  # noqa: DOC502
+  doc = tomllib.loads(text)
+  found: set[str] = set()
+  for key in ("patch", "replace"):
+    for name, value in _leaves(
+      doc.get(key), (key,), 2 if key == "patch" else 1
+    ):
+      found.add(f"{name} = {json.dumps(value, sort_keys=True)}")
+  for table, deps in _dependency_tables(doc):
+    for name, dep in deps.items():
+      if not isinstance(dep, dict):
+        continue
+      source = {
+        k: v for k, v in cast("dict[str, object]", dep).items() if k in _SOURCE
+      }
+      if "path" in source or "git" in source:
+        line = (
+          f"{'.'.join((*table, name))} = {json.dumps(source, sort_keys=True)}"
+        )
+        found.add(line)
+  return found
+
+
+_DEPENDENCIES = (
+  "dependencies",
+  "dev-dependencies",
+  "dev_dependencies",
+  "build-dependencies",
+  "build_dependencies",
+)
+# The keys that say where a dependency comes from, besides the registry.
+_SOURCE = frozenset({"path", "git", "branch", "tag", "rev"})
+
+
+def _leaves(
+  value: object, prefix: tuple[str, ...], depth: int
+) -> list[tuple[str, object]]:
+  # The entries depth tables below value, by their dotted names.
+  if not isinstance(value, dict):
+    return [] if value is None else [(".".join(prefix), value)]
+  table = cast("dict[str, object]", value)
+  if depth == 0:
+    return [(".".join(prefix), table)]
+  return [
+    leaf
+    for key, inner in table.items()
+    for leaf in _leaves(inner, (*prefix, key), depth - 1)
+  ]
+
+
+def _dependency_tables(
+  doc: dict[str, object],
+) -> list[tuple[tuple[str, ...], dict[str, object]]]:
+  # Each dependency table, by its path, with its entries.
+  found: list[tuple[tuple[str, ...], dict[str, object]]] = []
+  scopes: list[tuple[tuple[str, ...], object]] = [((), doc)]
+  targets = doc.get("target")
+  if isinstance(targets, dict):
+    scopes += [
+      (("target", cfg), inner)
+      for cfg, inner in cast("dict[str, object]", targets).items()
+    ]
+  for prefix, scope in scopes:
+    if not isinstance(scope, dict):
+      continue
+    for key in _DEPENDENCIES:
+      deps = cast("dict[str, object]", scope).get(key)
+      if isinstance(deps, dict):
+        found.append(((*prefix, key), cast("dict[str, object]", deps)))
+  workspace = doc.get("workspace")
+  if isinstance(workspace, dict):
+    deps = cast("dict[str, object]", workspace).get("dependencies")
+    if isinstance(deps, dict):
+      found.append(
+        (("workspace", "dependencies"), cast("dict[str, object]", deps))
+      )
+  return found

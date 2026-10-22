@@ -232,3 +232,88 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
         if f.endswith("_test.go") and PurePosixPath(f).parent == found
       )
   return []
+
+
+def replacements(text: str) -> set[str]:
+  """Return the replace directives of a go.mod.
+
+  The file is read as golang.org/x/mod's modfile reads it: `//` comments,
+  quoted paths, and a directive's block, `replace (` up to `)`, each line
+  of it a directive of its own.
+
+  Args:
+    text: The go.mod.
+
+  Returns:
+    Each directive as `<path> [<version>] => <path> [<version>]`.
+
+  Raises:
+    ValueError: When a string or a block is not closed.
+  """
+  found: set[str] = set()
+  verb: str | None = None  # the verb of the block being read
+  for line in _go_mod_lines(text):
+    if verb is not None:
+      if line == [")"]:
+        verb = None
+      else:
+        line = [verb, *line]
+    elif len(line) == 2 and line[1] == "(":
+      verb = line[0]
+      continue
+    if line[0] == "replace" and "=>" in line[1:]:
+      found.add(" ".join(line[1:]))
+  if verb is not None:
+    raise ValueError(f"go.mod: the {verb} block is not closed")
+  return found
+
+
+_GO_PUNCT = frozenset("()[]{},")
+
+
+def _go_mod_lines(text: str) -> list[list[str]]:
+  # The tokens of each line that has any, quoted strings unquoted.
+  lines: list[list[str]] = []
+  for raw in text.splitlines():
+    tokens: list[str] = []
+    i = 0
+    while i < len(raw):
+      c = raw[i]
+      if c in " \t\r":
+        i += 1
+      elif raw.startswith("//", i):
+        break
+      elif c in _GO_PUNCT:
+        tokens.append(c)
+        i += 1
+      elif c in '"`':
+        end = _go_string_end(raw, i)
+        quoted = raw[i : end + 1]
+        tokens.append(quoted[1:-1] if c == "`" else json.loads(quoted))
+        i = end + 1
+      else:
+        start = i
+        while (
+          i < len(raw)
+          and raw[i] not in " \t\r"
+          and raw[i] not in _GO_PUNCT
+          and not raw.startswith("//", i)
+        ):
+          i += 1
+        tokens.append(raw[start:i])
+    if tokens:
+      lines.append(tokens)
+  return lines
+
+
+def _go_string_end(line: str, start: int) -> int:
+  # The index of the quote that closes the string opening at start.
+  quote, i = line[start], start + 1
+  while i < len(line):
+    if line[i] == "\\" and quote == '"':
+      i += 2
+    elif line[i] == quote:
+      return i
+    else:
+      i += 1
+  raise ValueError(f"go.mod: a string is not closed: {line}")

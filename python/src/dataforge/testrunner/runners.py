@@ -56,7 +56,7 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
     "spec/support/jasmine.mjs",
   ),
   "node": (),
-  "go": (),
+  "go": ("go.work", "go.work.sum"),
   "cargo": (".cargo/config.toml", ".cargo/config"),
   "ctest": ("CTestCustom.cmake", "CTestCustom.ctest"),
   "gtest": (),
@@ -72,6 +72,44 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
 configuration, or, for jest, that of Babel, which jest's default transform
 reads by itself: a pattern without `/` matches a file's name, one with `/`
 the end of its path."""
+
+DEPENDENCY_FILES: dict[str, str] = {"go": "go.mod", "cargo": "Cargo.toml"}
+"""For each runner that builds its tests with the project's dependencies,
+the name of the build file that says where they come from: a fix may need to
+change it, so it is not one of RUNNER_FILES, and a dataset compares it with
+the base's through dependency_overrides."""
+
+
+def dependency_overrides(
+  runner: str, base_text: str | None, text: str
+) -> list[str]:
+  """Return what a build file puts in place of a dependency, beyond its base.
+
+  A fix that points a dependency, such as a test framework or an assertion
+  library, at a copy of its own makes the tests run against that copy; a
+  dataset judges such a fix as it sees fit. A dependency's new version is
+  not one, since it still comes from where the base's did.
+
+  Args:
+    runner: A runner of DEPENDENCY_FILES.
+    base_text: The file at the base; None when the base has none.
+    text: The file as the fix leaves it.
+
+  Returns:
+    The overrides text has and base_text has not, sorted: for go, the
+    replace directives of a go.mod (gotest.replacements); for cargo, the
+    patch and replace entries of a Cargo.toml and its dependencies taken
+    from a path or git (cargo.overrides).
+
+  Raises:
+    ValueError: When either text cannot be read, or the runner has no
+      dependency file.
+  """
+  read = {"go": gotest.replacements, "cargo": cargo.overrides}.get(runner)
+  if read is None:
+    raise ValueError(f"{runner} has no dependency file")
+  before: set[str] = set() if base_text is None else read(base_text)
+  return sorted(read(text) - before)
 
 
 def loaded_by_runner(runner: str, path: str) -> bool:
