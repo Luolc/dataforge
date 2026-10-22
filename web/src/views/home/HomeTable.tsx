@@ -248,10 +248,11 @@ function specs(project: Project): Spec[] {
 }
 
 // The status icon and the item stay at the left as the table scrolls
-// sideways, so a row is known at its right; the icon's column is w-8.
+// sideways, so a row is known at its right; the icon's column is
+// w-row-icon wide, the item's edged on its right.
 const STUCK: Partial<Record<string, string>> = {
   icon: "sticky left-0 z-1",
-  item: "sticky left-8 z-1",
+  item: "sticky left-row-icon z-1 shadow-stuck",
 };
 
 /** A heading's class when its column stays at the left, on the head's surface. */
@@ -488,7 +489,7 @@ export function HomeTable({
         ? ""
         : `${at} ${sub ? "bg-app" : "bg-panel"} group-hover/row:bg-hover`;
     return s.id === "icon"
-      ? `w-8 py-1.5 pr-0 pl-3 align-top ${stuck}`
+      ? `w-row-icon py-1.5 pr-0 pl-3 align-top ${stuck}`
       : `px-3 py-1.5 align-top ${s.numeric ? "text-right whitespace-nowrap tabular-nums" : ""} ${s.id === "status" || s.id === "item" ? "whitespace-nowrap" : ""} ${stuck}`;
   };
 
@@ -675,7 +676,7 @@ export function HomeTable({
                       <th
                         key={header.id}
                         scope="col"
-                        className={`w-8 ${stuckHead("icon")}`}
+                        className={`w-row-icon ${stuckHead("icon")}`}
                       >
                         <span className="sr-only">Status icon</span>
                       </th>

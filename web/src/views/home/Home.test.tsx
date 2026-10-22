@@ -399,7 +399,15 @@ describe("the home page", () => {
     const item = (await screen.findByText("t-old")).closest("tr");
     const [icon, id, status] = [...(item?.querySelectorAll("td") ?? [])];
     expect(icon).toHaveClass("sticky", "left-0", "bg-panel");
-    expect(id).toHaveClass("sticky", "left-8", "bg-panel");
+    // Beside the icon's column, as wide as it is for a fine or a coarse
+    // pointer, and edged on its right.
+    expect(icon).toHaveClass("w-row-icon");
+    expect(id).toHaveClass(
+      "sticky",
+      "left-row-icon",
+      "bg-panel",
+      "shadow-stuck",
+    );
     expect(status).not.toHaveClass("sticky");
     // On the row's surface as a pointer hovers it, and a sub-row's.
     expect(icon).toHaveClass("group-hover/row:bg-hover");
@@ -410,7 +418,8 @@ describe("the home page", () => {
     expect(sub?.closest("td")).toHaveClass("sticky", "bg-app");
     const heads = screen.getAllByRole("columnheader");
     expect(heads[0]).toHaveClass("sticky", "left-0", "bg-head");
-    expect(heads[1]).toHaveClass("sticky", "left-8", "bg-head");
+    expect(heads[0]).toHaveClass("w-row-icon");
+    expect(heads[1]).toHaveClass("sticky", "left-row-icon", "bg-head");
     expect(screen.getByRole("button", { name: /^Ended\d/ })).toHaveClass(
       "sticky",
       "left-1",
@@ -626,7 +635,7 @@ describe("the home page's empty attempts", () => {
     ).toHaveTextContent("Unreadable1");
   });
 
-  it("says when every attempt is an older record", async () => {
+  it("says when every attempt is an older attempt", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
