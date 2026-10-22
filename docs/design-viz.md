@@ -77,12 +77,10 @@ definition: definition.json   # optional: the attempt's definition snapshot, rel
 states: {author: {title: Author}}   # optional: a state's title in the graph and the run list; else its name
 statuses: {passed: {label: Passed, tone: good}, too_easy: {label: Too easy, tone: warn}}   # an attempt status or a visit outcome: its label and tone
 item: {depth: 1, title: Item, pattern: "item-[0-9]+"}   # an attempt ID's first `depth` components name its data item; `title` heads the ID column; `pattern`, optional, what an item's ID must match for an action
-columns:               # extra columns of the home page, after the fixed ones
-  - {title: Cap, field: [budget, max_usd], format: usd}
-  - {title: Kept visit, field: [kept_visit], format: number}
-  - {title: Verdict, tab: notes, file: tags.json, field: [verdict, value]}   # file, optional: read in place of the record; tab, optional, with file
+columns: [{title: Cap, field: [budget, max_usd], format: usd}, {title: Kept visit, field: [kept_visit], format: number}, {title: Verdict, tab: notes, file: tags.json, field: [verdict, value]}]   # extra columns of the home page, after the fixed ones; file, optional: read in place of the record; tab, optional, with file
 session: {thinking: hidden}      # hidden (default), collapsed or expanded
 not_ended: [running]   # optional: status words of an attempt that has not ended
+resumable: [canceled]    # optional: statuses of an ended attempt that a `when: stopped` action may go on with
 lock: .lock            # optional: the item's lock file, relative to the item's directory
 deliverables: [{name: task, kind: files, title: Task}]   # optional: what an attempt delivers once it ends
 trials: {diff: verifier/patch.diff}   # optional: a trial's diff, relative to its directory
