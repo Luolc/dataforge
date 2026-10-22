@@ -3,6 +3,7 @@ import re
 
 import pytest
 
+from dataforge.testrunner.adapter import Call, PREFIX
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.manifest import RUNNERS
 from dataforge.testrunner.manifest import Test as Listed
@@ -11,7 +12,6 @@ from dataforge.testrunner.runners import (
   loaded_by_runner,
   Maven,
   PHPUnit,
-  PREFIX,
   Pytest,
   restore_paths,
   RUNNER_FILES,
@@ -60,6 +60,11 @@ PHPUNIT_REPORT = """<?xml version="1.0" encoding="UTF-8"?>
     time="0.001"><error type="Error">boom</error></testcase>
 </testsuite></testsuites>
 """
+
+
+def only(calls: list[Call]) -> list[str]:
+  assert len(calls) == 1
+  return calls[0].argv
 
 
 def test_every_runner_has_an_adapter_and_its_files():
@@ -130,8 +135,7 @@ def test_pytest_takes_its_configuration_from_the_base(tmp_path: Path):
   copy = ctx.dir / f"{PREFIX}pyproject.toml"
   assert written == [copy]
   assert copy.read_text() == base_toml
-  argv = runner.command(ctx, tests)
-  assert argv is not None
+  argv = only(runner.commands(ctx, tests))
   assert argv[3:6] == ["t/test_a.py", f"-c={copy}", f"--rootdir={ctx.dir}"]
 
 
@@ -153,8 +157,8 @@ def test_pytest_takes_the_nearest_configuration_of_the_first_test(
   runner = Pytest()
   tests = [Listed("p2p", "pytest", "a/test_a.py::test_a")]
   assert runner.prepare(ctx, tests) == [ctx.app / "a" / f"{PREFIX}setup.cfg"]
-  argv = runner.command(ctx, tests)
-  assert argv is not None and f"--rootdir={ctx.app / 'a'}" in argv
+  argv = only(runner.commands(ctx, tests))
+  assert f"--rootdir={ctx.app / 'a'}" in argv
 
 
 def test_pytest_runs_nothing_when_no_file_is_there(tmp_path: Path):
@@ -162,7 +166,7 @@ def test_pytest_runs_nothing_when_no_file_is_there(tmp_path: Path):
   runner = Pytest()
   tests = [Listed("p2p", "pytest", "gone.py::test_a")]
   _ = runner.prepare(ctx, tests)
-  assert runner.command(ctx, tests) is None
+  assert runner.commands(ctx, tests) == []
 
 
 @pytest.mark.parametrize(
@@ -213,8 +217,7 @@ def test_maven_names_the_tests_in_one_filter(tmp_path: Path):
     Listed("p2p", "maven", "org.example.LexerTest"),
     Listed("p2p", "maven", "org.example.ParserTest#parsesTag"),
   ]
-  argv = Maven().command(context(tmp_path), tests)
-  assert argv is not None
+  argv = only(Maven().commands(context(tmp_path), tests))
   assert (
     "-Dtest=org.example.ParserTest#parsesAttr+parsesTag,org.example.LexerTest"
     in argv
@@ -260,8 +263,7 @@ def test_phpunit_filters_the_tests_by_name(tmp_path: Path):
     Listed("p2p", "phpunit", "Example\\Tests\\ParserTest::testTag"),
     Listed("p2p", "phpunit", "Example\\Tests\\LexerTest"),
   ]
-  argv = PHPUnit().command(ctx, tests)
-  assert argv is not None
+  argv = only(PHPUnit().commands(ctx, tests))
   assert argv[:2] == [
     "phpunit",
     f"--configuration={ctx.app / 'phpunit.xml.dist'}",
@@ -284,8 +286,7 @@ def test_phpunit_runs_without_a_configuration_when_there_is_none(
 ):
   ctx = context(tmp_path)
   write(ctx.app, {"vendor/bin/phpunit": ""})
-  argv = PHPUnit().command(ctx, [Listed("p2p", "phpunit", "A::b")])
-  assert argv is not None
+  argv = only(PHPUnit().commands(ctx, [Listed("p2p", "phpunit", "A::b")]))
   assert argv[:2] == [str(ctx.app / "vendor/bin/phpunit"), "--no-configuration"]
 
 

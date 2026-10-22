@@ -14,19 +14,19 @@ from __future__ import annotations
 
 from collections.abc import Collection
 import configparser
-from dataclasses import dataclass
 import fnmatch
 import os
 from pathlib import Path, PurePosixPath
 import re
-import subprocess
 import sys
 import tomllib
-from typing import final, override, Protocol
+from typing import final, override
 import xml.etree.ElementTree as ET
 
 from . import junit
+from .adapter import Call, Context, PREFIX, rel, Runner, write_new
 from .ctrf import Case
+from .js import Jasmine, Jest, Node, SEP, Vitest
 from .manifest import Test
 
 RUNNER_FILES: dict[str, tuple[str, ...]] = {
@@ -41,6 +41,14 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
     "usercustomize.py",
     "*.pth",
   ),
+  "jest": ("jest.config.*",),
+  "vitest": ("vitest.config.*", "vitest.workspace.*"),
+  "jasmine": (
+    "spec/support/jasmine.json",
+    "spec/support/jasmine.js",
+    "spec/support/jasmine.mjs",
+  ),
+  "node": (),
   "maven": (
     "junit-platform.properties",
     ".mvn/maven.config",
@@ -52,10 +60,6 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
 """For each runner, the files it loads by itself that hold only its own
 configuration: a pattern without `/` matches a file's name, one with `/`
 the end of its path."""
-
-PREFIX = ".testrunner-"
-"""The start of the name of each file testrunner writes into the project for
-a run, and removes once it ends."""
 
 
 def loaded_by_runner(runner: str, path: str) -> bool:
@@ -76,129 +80,6 @@ def loaded_by_runner(runner: str, path: str) -> bool:
     elif fnmatch.fnmatchcase(name, pattern):
       return True
   return False
-
-
-@dataclass(frozen=True, slots=True)
-class Context:
-  """Where a runner runs.
-
-  Attributes:
-    app: The project, an absolute path.
-    dir: The directory the runner starts in, inside the project.
-    work: An empty directory outside the project for the runner's report.
-    base: The project's base commit, whose files the configuration is taken
-      from, or None to take them as they are.
-  """
-
-  app: Path
-  dir: Path
-  work: Path
-  base: str | None
-
-  def base_text(self, path: Path) -> str | None:
-    """Return the text a file of the project has at the base.
-
-    Args:
-      path: The file, an absolute path inside the project.
-
-    Returns:
-      Its text, or None when it has none there.
-    """
-    rel = path.relative_to(self.app).as_posix()
-    if self.base is None:
-      if path.is_symlink() or not path.is_file():
-        return None
-      return path.read_text(encoding="utf-8", errors="replace")
-    done = subprocess.run(
-      [
-        "git",
-        "--no-replace-objects",
-        "-C",
-        str(self.app),
-        "cat-file",
-        "blob",
-        f"{self.base}:{rel}",
-      ],
-      capture_output=True,
-      check=False,
-      env=_git_env(),
-    )
-    if done.returncode != 0:
-      return None
-    return done.stdout.decode("utf-8", errors="replace")
-
-
-def _git_env() -> dict[str, str]:
-  # Only the repository's own configuration.
-  return {
-    **os.environ,
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_CONFIG_GLOBAL": "/dev/null",
-  }
-
-
-class Runner(Protocol):
-  """A runner's adapter."""
-
-  def prepare(self, ctx: Context, tests: list[Test]) -> list[Path]:
-    """Ready the project for a run.
-
-    Args:
-      ctx: Where it runs.
-      tests: The tests it runs.
-
-    Returns:
-      The files it wrote into the project, which go once the run ends.
-    """
-    ...
-
-  def command(self, ctx: Context, tests: list[Test]) -> list[str] | None:
-    """Return the command that runs tests.
-
-    Args:
-      ctx: Where it runs.
-      tests: The tests to run.
-
-    Returns:
-      The argv, run in ctx.dir; None when none of the tests is there to run.
-    """
-    ...
-
-  def cases(self, ctx: Context) -> list[Case] | None:
-    """Return the cases of the report a run wrote.
-
-    Args:
-      ctx: Where it ran.
-
-    Returns:
-      The cases, or None when there is no report.
-    """
-    ...
-
-  def covers(self, outer: str, inner: str) -> bool:
-    """Return whether one ID names a case of the test another names.
-
-    Args:
-      outer: An ID, such as a test's.
-      inner: Another, such as a case's.
-
-    Returns:
-      Whether inner is outer, or one of its cases, such as a parameter or a
-      method of a class.
-    """
-    ...
-
-
-def _rel(ctx: Context, path: Path) -> str:
-  return Path(os.path.relpath(path, ctx.app)).as_posix()
-
-
-def _write_new(path: Path, text: str) -> Path:
-  if os.path.lexists(path):
-    path.unlink()
-  with path.open("x", encoding="utf-8") as f:
-    _ = f.write(text)
-  return path
 
 
 @final
@@ -237,7 +118,7 @@ class Pytest(Runner):
     found = self._find(ctx, tests)
     if found is None:
       self._rootdir = ctx.dir
-      self._config = _write_new(ctx.dir / f"{PREFIX}pytest.ini", "[pytest]\n")
+      self._config = write_new(ctx.dir / f"{PREFIX}pytest.ini", "[pytest]\n")
       return [self._config]
     path, text = found
     self._rootdir = path.parent
@@ -245,7 +126,7 @@ class Pytest(Runner):
       self._config = path
       return []
     name = f"{PREFIX}{path.name.lstrip('.')}"
-    self._config = _write_new(path.parent / name, text)
+    self._config = write_new(path.parent / name, text)
     return [self._config]
 
   def _find(self, ctx: Context, tests: list[Test]) -> tuple[Path, str] | None:
@@ -264,7 +145,7 @@ class Pytest(Runner):
     return None
 
   @override
-  def command(self, ctx: Context, tests: list[Test]) -> list[str] | None:
+  def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
     # Files, not node IDs: pytest runs nothing when one ID is not found.
     paths: list[str] = []
     for test in tests:
@@ -273,8 +154,8 @@ class Pytest(Runner):
       if os.path.lexists(path) and arg not in paths:
         paths.append(arg)
     if not paths:
-      return None
-    return [
+      return []
+    argv = [
       sys.executable,
       "-m",
       "pytest",
@@ -289,6 +170,7 @@ class Pytest(Runner):
       f"--junitxml={ctx.work / self._REPORT}",
       "-rA",
     ]
+    return [Call(argv)]
 
   @override
   def cases(self, ctx: Context) -> list[Case] | None:
@@ -307,7 +189,7 @@ class Pytest(Runner):
       file = tc.get("file") or ""
       node = f"{file}::{name}" if classname else file or name
     path, sep, rest = node.partition("::")
-    node = _rel(ctx, self._rootdir / path) + sep + rest
+    node = rel(ctx, self._rootdir / path) + sep + rest
     end = junit.outcome(tc)
     return Case(
       node,
@@ -390,7 +272,7 @@ class Maven(Runner):
     return found
 
   @override
-  def command(self, ctx: Context, tests: list[Test]) -> list[str] | None:
+  def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
     methods: dict[str, list[str]] = {}
     for test in tests:
       cls, _, method = test.id.partition("#")
@@ -398,7 +280,7 @@ class Maven(Runner):
       if method:
         methods[cls].append(method)
     filters = [f"{c}#{'+'.join(m)}" if m else c for c, m in methods.items()]
-    return [
+    argv = [
       "mvn",
       "-o",
       "-B",
@@ -411,6 +293,7 @@ class Maven(Runner):
       "-Dmaven.test.failure.ignore=true",
       "test",
     ]
+    return [Call(argv)]
 
   @override
   def cases(self, ctx: Context) -> list[Case] | None:
@@ -456,7 +339,7 @@ class PHPUnit(Runner):
     return []
 
   @override
-  def command(self, ctx: Context, tests: list[Test]) -> list[str] | None:
+  def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
     local = ctx.dir / "vendor" / "bin" / "phpunit"
     argv = [str(local) if local.is_file() else "phpunit"]
     for name in RUNNER_FILES["phpunit"]:
@@ -466,12 +349,12 @@ class PHPUnit(Runner):
     else:
       argv.append("--no-configuration")
     names = "|".join(_pcre(t.id) for t in tests)
-    return [
-      *argv,
+    argv += [
       "--do-not-cache-result",
       f"--log-junit={ctx.work / self._REPORT}",
       f"--filter=/^(?:{names})(?:::| |$)/",
     ]
+    return [Call(argv)]
 
   @override
   def cases(self, ctx: Context) -> list[Case] | None:
@@ -494,7 +377,7 @@ class PHPUnit(Runner):
           end.error,
           end.message,
           end.trace,
-          _rel(ctx, Path(file)) if inside and file else None,
+          rel(ctx, Path(file)) if inside and file else None,
         )
       )
     return cases
@@ -516,6 +399,10 @@ def _pcre(text: str) -> str:
 
 ADAPTERS: dict[str, type[Runner]] = {
   "pytest": Pytest,
+  "jest": Jest,
+  "vitest": Vitest,
+  "jasmine": Jasmine,
+  "node": Node,
   "maven": Maven,
   "phpunit": PHPUnit,
 }
@@ -530,14 +417,15 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
     files: The paths, relative to the project, of the base's files.
 
   Returns:
-    Those of files that hold the test's code: for pytest, its ID's file;
+    Those of files that hold the test's code: for pytest and the Node.js
+    runners, its ID's file;
     for maven, a src/test/java or src/test/kotlin file of its outer class
     under its directory; for phpunit, a file named for its class under its
     directory, as PHPUnit wants.
   """
   under = "" if test.dir == "." else test.dir + "/"
-  if test.runner == "pytest":
-    path = test.id.split("::", 1)[0]
+  if test.runner in ("pytest", "jest", "vitest", "jasmine", "node"):
+    path = test.id.split("::" if test.runner == "pytest" else SEP, 1)[0]
     return [path] if path in files else []
   if test.runner == "maven":
     cls = test.id.split("#", 1)[0].split("$", 1)[0]

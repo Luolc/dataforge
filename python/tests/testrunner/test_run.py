@@ -8,11 +8,12 @@ from typing import cast
 import pytest
 
 from dataforge.testrunner import ctrf, files
+from dataforge.testrunner.adapter import PREFIX
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.manifest import File, load
 from dataforge.testrunner.manifest import Test as Listed
 from dataforge.testrunner.run import match, place, run
-from dataforge.testrunner.runners import PREFIX, Pytest
+from dataforge.testrunner.runners import Pytest
 from tests.testrunner.projects import commit, write
 
 BASE = {
@@ -209,8 +210,9 @@ def test_place_refuses_a_link_on_the_way(tmp_path: Path):
 
 
 def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
-  # A task's Python may be 3.12; this one has no pytest, so the test is an
-  # error, but the manifest is read and the report written all the same.
+  # A task's Python may be 3.12. With -S nothing but its standard library can
+  # be imported, pytest neither, so the test is an error, but the manifest is
+  # read and the report written all the same.
   python = shutil.which("python3.12")
   assert python is not None, "the tests need python3.12 on the PATH"
   tests, app, out = tmp_path / "tests", tmp_path / "app", tmp_path / "out"
@@ -225,7 +227,7 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
   write(tests, {"manifest.toml": manifest})
   args = ["--tests", str(tests), "--app", str(app), "--out", str(out)]
   done = subprocess.run(
-    [python, "-m", "testrunner", *args],
+    [python, "-S", "-m", "testrunner", *args],
     cwd=tests,
     capture_output=True,
     text=True,
