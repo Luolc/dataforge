@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime, UTC
 import hashlib
 import tomllib
@@ -461,6 +462,13 @@ def test_parse_legacy_of_an_early_task_has_no_principles_and_empty_tests():
       "provenance": {"cwe": [], "base_sha": "b" * 40},
     },
   )
+
+
+def test_parse_legacy_without_groups_leaves_out_the_dataset_s_keys():
+  found = parse_legacy(LEGACY, None, ["f2p::test_same_checks"])
+
+  grouped = parse_legacy(LEGACY, GROUPS, ["f2p::test_same_checks"])
+  assert found == dataclasses.replace(grouped, extra={})
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,352 @@
+{
+ "model": "placeholder",
+ "instructions": "placeholder text",
+ "input": [
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "developer",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    },
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "user",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "type": "message",
+   "id": "placeholder",
+   "role": "user",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  }
+ ],
+ "tools": [
+  {
+   "type": "function",
+   "name": "exec_command",
+   "description": "placeholder text",
+   "strict": false,
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "cmd": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "justification": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "login": {
+      "type": "boolean",
+      "description": "placeholder text"
+     },
+     "max_output_tokens": {
+      "type": "number",
+      "description": "placeholder text"
+     },
+     "prefix_rule": {
+      "type": "array",
+      "description": "placeholder text",
+      "items": {
+       "type": "string"
+      }
+     },
+     "sandbox_permissions": {
+      "type": "string",
+      "description": "placeholder text",
+      "enum": [
+       "use_default",
+       "require_escalated"
+      ]
+     },
+     "shell": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "tty": {
+      "type": "boolean",
+      "description": "placeholder text"
+     },
+     "workdir": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "yield_time_ms": {
+      "type": "number",
+      "description": "placeholder text"
+     }
+    },
+    "required": [
+     "cmd"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "function",
+   "name": "write_stdin",
+   "description": "placeholder text",
+   "strict": false,
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "chars": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "max_output_tokens": {
+      "type": "number",
+      "description": "placeholder text"
+     },
+     "session_id": {
+      "type": "number",
+      "description": "placeholder text"
+     },
+     "yield_time_ms": {
+      "type": "number",
+      "description": "placeholder text"
+     }
+    },
+    "required": [
+     "session_id"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "function",
+   "name": "request_user_input",
+   "description": "placeholder text",
+   "strict": false,
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "questions": {
+      "type": "array",
+      "description": "placeholder text",
+      "items": {
+       "type": "object",
+       "properties": {
+        "header": {
+         "type": "string",
+         "description": "placeholder text"
+        },
+        "id": {
+         "type": "string",
+         "description": "placeholder text"
+        },
+        "options": {
+         "type": "array",
+         "description": "placeholder text",
+         "items": {
+          "type": "object",
+          "properties": {
+           "description": {
+            "type": "string",
+            "description": "placeholder text"
+           },
+           "label": {
+            "type": "string",
+            "description": "placeholder text"
+           }
+          },
+          "required": [
+           "label",
+           "description"
+          ],
+          "additionalProperties": false
+         }
+        },
+        "question": {
+         "type": "string",
+         "description": "placeholder text"
+        }
+       },
+       "required": [
+        "id",
+        "header",
+        "question",
+        "options"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "questions"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "custom",
+   "name": "apply_patch",
+   "description": "placeholder text",
+   "format": {
+    "type": "grammar",
+    "syntax": "lark",
+    "definition": "placeholder text"
+   }
+  },
+  {
+   "type": "function",
+   "name": "view_image",
+   "description": "placeholder text",
+   "strict": false,
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "detail": {
+      "type": "string",
+      "description": "placeholder text",
+      "enum": [
+       "high",
+       "original"
+      ]
+     },
+     "path": {
+      "type": "string",
+      "description": "placeholder text"
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "function",
+   "name": "get_goal",
+   "description": "placeholder text",
+   "strict": false,
+   "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "function",
+   "name": "create_goal",
+   "description": "placeholder text",
+   "strict": false,
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "objective": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "token_budget": {
+      "type": "integer",
+      "description": "placeholder text"
+     }
+    },
+    "required": [
+     "objective"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "function",
+   "name": "update_goal",
+   "description": "placeholder text",
+   "strict": false,
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "status": {
+      "type": "string",
+      "description": "placeholder text",
+      "enum": [
+       "complete",
+       "blocked",
+       "paused"
+      ]
+     }
+    },
+    "required": [
+     "status"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "tool_search",
+   "execution": "client",
+   "description": "placeholder text",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "limit": {
+      "type": "number",
+      "description": "placeholder text"
+     },
+     "query": {
+      "type": "string",
+      "description": "placeholder text"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "type": "web_search",
+   "external_web_access": true,
+   "search_content_types": [
+    "text",
+    "image"
+   ]
+  }
+ ],
+ "tool_choice": "auto",
+ "parallel_tool_calls": true,
+ "reasoning": {
+  "effort": "medium"
+ },
+ "store": false,
+ "stream": true,
+ "include": [
+  "reasoning.encrypted_content"
+ ],
+ "prompt_cache_key": "placeholder",
+ "text": {
+  "verbosity": "low"
+ },
+ "client_metadata": {
+  "session_id": "placeholder",
+  "turn_id": "placeholder",
+  "thread_id": "placeholder",
+  "root_turn_id": "placeholder",
+  "x-codex-window-id": "placeholder",
+  "x-codex-turn-metadata": "placeholder",
+  "x-codex-installation-id": "placeholder"
+ }
+}

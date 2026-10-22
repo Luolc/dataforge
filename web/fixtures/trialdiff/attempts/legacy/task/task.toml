@@ -1,0 +1,11 @@
+# A made-up task.toml of the format before `tests`, with keys of the
+# dataset's own at the top level of [metadata].
+version = "1.0"
+
+[metadata]
+language = "Go"
+origin = "synthetic"
+tone = "bug_report"
+test_kinds = { security = 3, behavior = 1, alignment = 1 }
+alignment = "A limit the caller can raise is not a check the caller can skip."
+difference = "best_practice"

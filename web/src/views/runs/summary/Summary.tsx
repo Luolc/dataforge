@@ -1,5 +1,6 @@
 // The Summary of an attempt's runs: the top row, the machine with the
-// transitions taken, the summaries its actions wrote and its deliverables.
+// transitions taken, the task's tests and principles, the summaries its
+// actions wrote and its deliverables.
 import { Link } from "react-router";
 
 import {
@@ -35,6 +36,7 @@ import { carried } from "../resumed/resumed";
 import { Graph } from "./Graph";
 import { layout } from "./graph";
 import { useMeasure } from "./measure";
+import { TaskCard } from "./Task";
 
 interface Props {
   project: Project;
@@ -71,6 +73,7 @@ export function Summary({
           <p className="p-4 text-fg-3">This record has no graph.</p>
         )}
       </Card>
+      <TaskCard project={project} attempt={attempt} />
       <Summaries project={project} record={record} runHref={runHref} />
       <Deliverables project={project} attempt={attempt} record={record} />
     </div>

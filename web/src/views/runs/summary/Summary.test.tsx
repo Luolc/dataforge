@@ -88,6 +88,39 @@ describe("Summary", () => {
   });
 });
 
+describe("the Summary's Task card", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("follows the machine for a project that names a task", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            read: "not run",
+            reason: "task: No such file or directory",
+            legacy: false,
+            tests: null,
+            principles: null,
+          }),
+        ),
+      ),
+    );
+    show("passed", { ...sampleProject, task: "task/task.toml" });
+
+    const task = await screen.findByRole("heading", { name: "Task" });
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((h) => h.textContent);
+    expect(headings.indexOf("Task")).toBe(
+      headings.indexOf("State machine") + 1,
+    );
+    expect(task.closest("section")).toHaveTextContent("Not run");
+  });
+});
+
 describe("an attempt's status", () => {
   it("is raised when a state raised, else Not ended until it ends", () => {
     const { unmount } = show("raised");
