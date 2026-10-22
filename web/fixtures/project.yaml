@@ -41,6 +41,8 @@ tabs:
   - name: notes
     title: Notes
     versions: [notes, "notes-*"]
+    # Each version by when its notes were finished, not its directory.
+    version_title: { file: status.json, field: [ended_at], format: time }
     parts:
       - name: notes
         title: Notes
