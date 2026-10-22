@@ -19,6 +19,7 @@ from typing import cast
 
 from dataforge.curation.engine import Attempt
 from dataforge.queue.proc import alive, Leader, leader
+from dataforge.queue.wrapper import JOB_ID_ENV, QUEUE_DB_ENV
 from dataforge.runs.hooks import Hooks
 from dataforge.runs.render import newer
 from dataforge.runs.store import (
@@ -26,12 +27,6 @@ from dataforge.runs.store import (
   QueueJob,
   Store,
 )
-
-JOB_ID_ENV = "DATAFORGE_JOB_ID"
-"""The variable that gives the ID of the queue job a command runs in."""
-
-QUEUE_DB_ENV = "DATAFORGE_QUEUE_DB"
-"""The variable that gives that job's queue database."""
 
 _log = logging.getLogger(__name__)
 

@@ -31,6 +31,7 @@ from dataforge.queue.scheduler import Scheduler
 from dataforge.queue.store import row as read_row
 from dataforge.queue.wrapper import _wait  # pyright: ignore[reportPrivateUsage]
 from dataforge.queue.wrapper import main as wrapper
+from dataforge.runs import SCHEMA_MAJOR, Store
 
 QUEUE_FILE = """
 queues: {alpha: 1, beta: 2}
@@ -579,7 +580,14 @@ def test_the_database_and_the_logs_default_to_the_state_directory(
 
 @pytest.mark.parametrize(
   "line",
-  ["max_running: 0", "queues: {}", "max_load1: -1", "colour: blue"],
+  [
+    "max_running: 0",
+    "queues: {}",
+    "max_load1: -1",
+    "colour: blue",
+    "runs: runs.sqlite",
+    "runs: ['']",
+  ],
 )
 def test_a_queue_file_that_fails_a_check_is_refused(tmp_path: Path, line: str):
   path = tmp_path / "queue.yaml"
@@ -623,3 +631,86 @@ def test_count_reads_without_making_the_database(config: Config):
   with pytest.raises(FileNotFoundError):
     _ = count(config)
   assert not config.database.exists()
+
+
+# An attempt's process: it takes the item's row in the store given, ignores
+# SIGTERM, and runs until SIGKILL ends it, never writing the row again.
+HOLDER = """
+import signal, sys, time
+from pathlib import Path
+from dataforge.runs import Store
+from dataforge.runs.reconcile import job_from_env, this_process
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+store = Store(Path(sys.argv[1]))
+me, job = this_process(), job_from_env()
+assert store.insert("item/1", "item", Path("/r"), me, job)
+print("held", flush=True)
+time.sleep(600)
+"""
+
+
+def with_runs(tmp_path: Path, *stores: str) -> Config:
+  path = tmp_path / "runs.yaml"
+  _ = path.write_text(QUEUE_FILE + f"runs: [{', '.join(stores)}]\n")
+  return load_config(path)
+
+
+@pytest.mark.parametrize(
+  ("canceled", "stopped_by"), [(True, "person"), (False, "lost")]
+)
+def test_an_attempt_killed_with_sigkill_is_interrupted_within_a_tick(
+  config: Config,
+  scheduler: Scheduler,
+  tmp_path: Path,
+  canceled: bool,
+  stopped_by: str,
+):
+  scheduler.config = with_runs(tmp_path, "runs.sqlite")
+  store = Store(tmp_path / "runs.sqlite")
+  job = put(config, "alpha", sys.executable, "-c", HOLDER, str(store.path))
+  # The wrapper's first line quotes the code, held in it too.
+  until(lambda: "held" in log(config, job).splitlines(), scheduler)
+  [row] = store.rows()
+  holder = row.holder
+  assert holder is not None
+  # The wrapper set the variables the attempt's row holds.
+  assert (row.job_id, row.job_db) == (job.id, str(config.database.resolve()))
+  if canceled:
+    # SIGTERM is ignored, and the wrapper sends SIGKILL after the grace.
+    _ = cancel(config, job.id)
+  else:
+    os.kill(holder.pid, signal.SIGKILL)
+  deadline = time.monotonic() + 20
+  while alive(holder):
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
+  assert store.rows()[0].state == "running"
+  scheduler.tick()
+  [row] = store.rows()
+  assert (row.state, row.stopped_by) == ("interrupted", stopped_by)
+
+
+def test_a_store_that_cannot_be_reconciled_is_logged_once_and_jobs_start(
+  config: Config,
+  scheduler: Scheduler,
+  tmp_path: Path,
+  caplog: pytest.LogCaptureFixture,
+):
+  scheduler.config = with_runs(tmp_path, "runs.sqlite", "~/none/runs.sqlite")
+  store = Store(tmp_path / "runs.sqlite")
+  store.create()
+  with closing(sqlite3.connect(store.path, autocommit=True)) as conn:
+    _ = conn.execute(
+      "UPDATE meta SET value = ? WHERE name = 'schema_major'",
+      (SCHEMA_MAJOR + 1,),
+    )
+  job = put(config, "alpha", "true")
+  until(ended(config, job), scheduler)
+  scheduler.tick()
+  warnings = [
+    r.getMessage() for r in caplog.records if "runs" in r.getMessage()
+  ]
+  assert len(warnings) == 1
+  assert "schema_major" in warnings[0]
+  assert state(config, job).state == "done"
+  assert scheduler.config.runs[1] == Path.home() / "none" / "runs.sqlite"

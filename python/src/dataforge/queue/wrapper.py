@@ -5,7 +5,10 @@ The scheduler starts `python -m dataforge.queue.wrapper <database> <id>
 output, inside the transaction that claims the job. The wrapper runs the
 command only once that claim is committed with its own pid, waits for it, and
 writes its end: done for exit status 0, failed for any other, canceled when
-the job's cancellation was asked for. It outlives a scheduler that stops, so a
+the job's cancellation was asked for. The command runs with the wrapper's
+environment and DATAFORGE_JOB_ID, the job's ID, and DATAFORGE_QUEUE_DB, the
+database's absolute path, through which a store of attempts (dataforge.runs)
+knows the job an attempt runs in. It outlives a scheduler that stops, so a
 job's end is written also when no scheduler waits for it.
 
 A command still running cancel_grace_s after its cancellation was asked for
@@ -36,6 +39,12 @@ WHERE id = ? AND state = 'running' AND pid = ?
 """
 
 _POLL_S = 0.1
+
+JOB_ID_ENV = "DATAFORGE_JOB_ID"
+"""The variable that gives a command the ID of the job it runs in."""
+
+QUEUE_DB_ENV = "DATAFORGE_QUEUE_DB"
+"""The variable that gives a command its job's database, an absolute path."""
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -78,7 +87,14 @@ def main(argv: Sequence[str] | None = None) -> int:
   code: int | None = None
   if job.cancel_requested_at is None:
     try:
-      child = subprocess.Popen(job.argv, cwd=job.cwd, stdin=subprocess.DEVNULL)
+      env = {
+        **os.environ,
+        JOB_ID_ENV: str(job.id),
+        QUEUE_DB_ENV: str(path.resolve()),
+      }
+      child = subprocess.Popen(
+        job.argv, cwd=job.cwd, stdin=subprocess.DEVNULL, env=env
+      )
     except OSError as error:
       print(f"wrapper: job {job.id}: {error}", file=sys.stderr)
     else:
