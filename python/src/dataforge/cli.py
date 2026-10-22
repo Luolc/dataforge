@@ -2,7 +2,7 @@
 
 import argparse
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 import importlib
 import json
@@ -16,6 +16,7 @@ from dataforge.curation.graph import mermaid
 from dataforge.curation.loader import load, SpecError
 from dataforge.curation.redeliver import describe, redeliver
 from dataforge.queue import command as queue_command
+from dataforge.runs import command as runs_command
 from dataforge.share import command as share_command
 
 
@@ -36,7 +37,10 @@ def main(argv: Sequence[str] | None = None) -> int:
   --config <site file> --static <dir>" starts the viewer; it needs the extra
   viz. "dataforge queue submit|list|cancel|serve --config <queue file>"
   puts a command in a queue, lists the jobs, cancels one, or runs the
-  scheduler; see dataforge.queue.command. "dataforge share
+  scheduler; see dataforge.queue.command. "dataforge runs
+  list|show|reconcile|render <store>" lists a dataset's attempts, shows one,
+  makes the rows converge, or writes an attempt's record file; see
+  dataforge.runs.command. "dataforge share
   serve|site|token" serves the read-only site of exports, writes it as a
   static site, or makes, lists or revokes its access tokens; see
   dataforge.share.command.
@@ -48,7 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     The exit status: 0 when the declaration loads, 1 when it does not, 2 for
     bad arguments; for redeliver, also 1 when a record cannot be read or
     written; for viz serve, see dataforge.viz.serve; for queue, see
-    dataforge.queue.command.run.
+    dataforge.queue.command.run; for runs, see dataforge.runs.command.run.
   """
   parser = argparse.ArgumentParser(prog="dataforge")
   commands = parser.add_subparsers(dest="command", required=True)
@@ -132,15 +136,16 @@ def main(argv: Sequence[str] | None = None) -> int:
   queue_command.add_arguments(
     commands.add_parser("queue", help="a queue of jobs on this machine")
   )
+  runs_command.add_arguments(
+    commands.add_parser("runs", help="a dataset's store of attempts")
+  )
   share_command.add_arguments(
     commands.add_parser("share", help="the read-only site of exports")
   )
   args = parser.parse_args(argv)
   command = cast(str, args.command)
-  if command == "queue":
-    return queue_command.run(args)
-  if command == "share":
-    return share_command.run(args)
+  if (run := _COMMANDS.get(command)) is not None:
+    return run(args)
   if command == "viz":
     return _viz(cast(Path, args.config), cast(Path, args.static))
   file = cast(Path, args.file)
@@ -172,6 +177,13 @@ def main(argv: Sequence[str] | None = None) -> int:
   else:
     print(mermaid(machine.graph()), end="")
   return 0
+
+
+_COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
+  "queue": queue_command.run,
+  "runs": runs_command.run,
+  "share": share_command.run,
+}
 
 
 def _redeliver(machine: Machine, args: argparse.Namespace) -> int:
