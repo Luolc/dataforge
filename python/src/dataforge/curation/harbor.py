@@ -74,11 +74,11 @@ separate verifier's environment is a record only and is not read.
 
 DOCKER_ENVIRONMENT's also has Harbor's process write into the trial's
 directory what each of the trial's `main` containers, its own environment's
-and each separate verifier's, wrote and left outside /tmp, the size of its
-writable layer, `SizeRw`, read before the container is removed
-(WRITTEN_FILE, `harbor_env`). `written` adds them up, or says why it cannot,
-and the trial's result gives the total as `written_bytes`, None for a trial
-run without that environment. `SizeRw` counts less than was written for a file
+and each separate verifier's, wrote and left, the size of its writable
+layer, `SizeRw`, read before the container is removed (WRITTEN_FILE,
+`harbor_env`). `written` adds them up, or says why it cannot, and the
+trial's result gives the total as `written_bytes`, None for a trial run
+without that environment. `SizeRw` counts less than was written for a file
 written over or written and then deleted, and nothing written to a tmpfs or a
 bind mount; a dataset caps what a run writes with it, at a value of its own.
 
