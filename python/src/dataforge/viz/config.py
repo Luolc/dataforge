@@ -28,9 +28,16 @@ THINKING = ("collapsed", "expanded", "hidden")
 
 WHEN = ("idle", "stopped")
 """The conditions an action may take besides its own key's: idle, no attempt
-of the item runs (its lock is not held); stopped, the item's newest attempt
-may have stopped (it has not ended and the lock is not held), or has ended
-with a status the project calls resumable, and the lock is not held."""
+of the item runs; stopped, the item's newest attempt may go on. With a lock,
+idle is its lock not held, and stopped the newest attempt may have stopped
+(it has not ended and the lock is not held), or has ended with a status the
+project calls resumable, and the lock is not held; with runs, idle is no row
+of the item running, and stopped the item's newest row interrupted, its
+machine not ended and resumable true."""
+
+STOPPED_BY = ("person", "lost")
+"""How an interrupted attempt was stopped, as the store of attempts writes it
+(dataforge.runs.STOPPED_BY)."""
 
 PLACEHOLDER = "{item}"
 """The one placeholder of an action's argv and key: the data item's ID."""
@@ -315,6 +322,20 @@ class Deliverable:
 
 
 @dataclass(frozen=True, slots=True)
+class Runs:
+  """The store of the project's attempts, which their status comes from.
+
+  Attributes:
+    db: The store's SQLite file, opened read-only.
+    stopped_by: The status word of an interrupted attempt, by how it was
+      stopped, one of STOPPED_BY; one with no entry shows "interrupted".
+  """
+
+  db: Path
+  stopped_by: dict[str, str] = field(default_factory=dict[str, str])
+
+
+@dataclass(frozen=True, slots=True)
 class Trials:
   """What the trials view reads in a trial's directory besides its record.
 
@@ -354,6 +375,8 @@ class Project:
       with when "stopped" may still go on with; none by default.
     lock: The path of the lock file in an item's directory; None when the
       dataset names none.
+    runs: The store of the attempts; None when the dataset names none, and
+      then a record's status and the lock say how an attempt stands.
     deliverables: The deliverables an attempt has once it ends, in order.
     trials: What the trials view reads in a trial's directory; None when
       the dataset names nothing.
@@ -385,6 +408,7 @@ class Project:
   not_ended: tuple[str, ...] | None = None
   resumable: tuple[str, ...] = ()
   lock: tuple[str, ...] | None = None
+  runs: Runs | None = None
   deliverables: tuple[Deliverable, ...] = ()
   trials: Trials | None = None
   definition: tuple[str, ...] | None = None
@@ -400,8 +424,8 @@ class Project:
 
     Returns:
       The project as JSON data, without attempts_dir, attempts, record,
-      lock, the monitor's path, item.pattern and each action's command,
-      directory, memory and key.
+      lock, the paths of the monitor and the store, item.pattern and each
+      action's command, directory, memory and key.
     """
     return {
       "id": self.id,
@@ -439,6 +463,9 @@ class Project:
       ],
       "session": {"thinking": self.thinking},
       "not_ended": None if self.not_ended is None else list(self.not_ended),
+      "runs": None
+      if self.runs is None
+      else {"stopped_by": dict(self.runs.stopped_by)},
       "deliverables": [
         {
           "name": d.name,
@@ -568,6 +595,7 @@ def load_project(path: Path) -> Project:
       "not_ended",
       "resumable",
       "lock",
+      "runs",
       "deliverables",
       "trials",
       "definition",
@@ -596,7 +624,10 @@ def load_project(path: Path) -> Project:
     if data.get("lock") is None
     else _relative(path, "lock", _str(path, "lock", data["lock"]))
   )
-  actions = _actions(path, data.get("actions"), item, lock)
+  runs = _runs(path, data, attempts_dir)
+  actions = _actions(
+    path, data.get("actions"), item, lock is not None or runs is not None
+  )
   statuses = _statuses(path, data.get("statuses"))
   not_ended = _not_ended(path, data.get("not_ended"))
   deliverables = _deliverables(path, data.get("deliverables"))
@@ -617,6 +648,7 @@ def load_project(path: Path) -> Project:
     not_ended=not_ended,
     resumable=_resumable(path, data.get("resumable"), statuses, not_ended),
     lock=lock,
+    runs=runs,
     deliverables=deliverables,
     trials=_trials(path, data.get("trials")),
     definition=None
@@ -1148,9 +1180,36 @@ def _queue(path: Path, value: object) -> queue.Config | None:
     raise ConfigError(f"{path}: queue.config: {error}") from None
 
 
+def _runs(
+  path: Path, data: Mapping[str, object], attempts_dir: Path
+) -> Runs | None:
+  # Relative to attempts_dir, as monitor.db is. The store says how an
+  # attempt stands in place of the record's status words and the lock.
+  value = data.get("runs")
+  if value is None:
+    return None
+  for key in ("not_ended", "lock", "resumable"):
+    if key in data:
+      raise ConfigError(f"{path}: runs: given with {key}, which it replaces")
+  mapping = _mapping(path, "runs", value)
+  _keys(path, "runs", mapping, required={"db"}, optional={"stopped_by"})
+  db = _str(path, "runs.db", mapping["db"])
+  if "\0" in db:
+    raise ConfigError(f"{path}: runs.db: holds a NUL")
+  stopped_by: dict[str, str] = {}
+  if mapping.get("stopped_by") is not None:
+    words = _mapping(path, "runs.stopped_by", mapping["stopped_by"])
+    for how, word in words.items():
+      _one_of(path, "runs.stopped_by", how, STOPPED_BY)
+      stopped_by[how] = _str(path, f"runs.stopped_by.{how}", word)
+  return Runs(Path(os.path.abspath(attempts_dir / db)), stopped_by)
+
+
 def _actions(
-  path: Path, value: object, item: Item, lock: tuple[str, ...] | None
+  path: Path, value: object, item: Item, knows_live: bool
 ) -> tuple[Action, ...]:
+  # An action with when needs to know whether an attempt runs: from the
+  # lock, or from the store.
   if value is None:
     return ()
   if not isinstance(value, list) or not value:
@@ -1162,9 +1221,10 @@ def _actions(
     action = _action(path, f"actions[{i}]", entry)
     if any(a.name == action.name for a in found):
       raise ConfigError(f"{path}: actions[{i}].name: {action.name!r} repeated")
-    if action.when is not None and lock is None:
+    if action.when is not None and not knows_live:
       raise ConfigError(
         f"{path}: actions[{i}].when: {action.when} needs the project's lock"
+        + " or runs"
       )
     found.append(action)
   return tuple(found)

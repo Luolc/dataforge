@@ -51,13 +51,15 @@ export const notEnded = (row: AttemptRow): boolean =>
   row.error === null && (row.live ?? null) !== null;
 
 /**
- * An attempt's status word: UNREADABLE_KEY when its record cannot be read; while
- * it has not ended, live's word (null for not ended); else its record's
+ * An attempt's status word: UNREADABLE_KEY when its record cannot be read; the
+ * status of its row when that is interrupted, the word for how it was stopped;
+ * while it has not ended, live's word (null for not ended); else its record's
  * status, its last visit's outcome when that raised or was interrupted, or
  * NO_STATUS_KEY.
  */
 export function rowStatus(row: AttemptRow): string | null {
   if (row.error !== null) return UNREADABLE_KEY;
+  if (row.state === "interrupted" && row.status !== null) return row.status;
   if (row.live !== null && row.live !== undefined) return LIVE_WORD[row.live];
   if (row.status !== null) return row.status;
   const last = row.rounds?.at(-1)?.outcome;

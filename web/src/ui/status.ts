@@ -1,7 +1,13 @@
 // Statuses and outcomes: their words and tones, as the project file names them.
 import { CircleAlert, CircleCheck, CircleMinus, CircleX } from "lucide-react";
 
-import type { AttemptRecord, Live, Project, Tone } from "../api/types";
+import type {
+  AttemptRecord,
+  Live,
+  LiveInfo,
+  Project,
+  Tone,
+} from "../api/types";
 
 // The words the viewer itself gives a status; every other word comes from the
 // project file.
@@ -66,6 +72,20 @@ function endStatus(project: Project, record: AttemptRecord): string | null {
   return status !== null && project.not_ended?.includes(status) !== true
     ? status
     : null;
+}
+
+/**
+ * The record as a page shows it: with the project's runs and a row of the
+ * attempt in the store, as /live gives it, its status is the row's (null while
+ * it runs), not the record file's own (design-viz.md section 4).
+ */
+export function withRowStatus(
+  project: Project,
+  record: AttemptRecord,
+  live: LiveInfo | null,
+): AttemptRecord {
+  if (project.runs == null || live?.state == null) return record;
+  return { ...record, status: live.status ?? null };
 }
 
 /**
