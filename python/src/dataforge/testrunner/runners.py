@@ -361,37 +361,38 @@ class PHPUnit(Runner):
   An ID is `<class>::<method>`, or a class for all its methods, the class by
   its full name with `\`; a data set's case belongs to its method. The
   configuration is the directory's phpunit.xml as PHPUnit would find it, a
-  file of RUNNER_FILES, given with --configuration; without one, none, and
-  PHPUnit is given the directory of the files named for the listed
-  classes, the --filter choosing the tests in them.
+  file of RUNNER_FILES, given with --configuration; without one, a
+  configuration of the run's own whose one test suite is the files named for
+  the listed classes, outside vendor/, the --filter choosing the tests in
+  them.
   """
 
   _REPORT = "phpunit.xml"
+  _SUITE = "phpunit-tests.xml"
 
   @override
   def prepare(self, ctx: Context, tests: list[Test]) -> list[Path]:
+    if _php_config(ctx) is None:
+      found = _php_files(ctx, tests)
+      if found:
+        suite = ET.Element("testsuite", name="testrunner")
+        for file in found:
+          ET.SubElement(suite, "file").text = str(file)
+        top = ET.Element("phpunit")
+        ET.SubElement(top, "testsuites").append(suite)
+        ET.ElementTree(top).write(ctx.work / self._SUITE, encoding="utf-8")
     return []
 
   @override
   def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
+    config = _php_config(ctx) or ctx.work / self._SUITE
+    if not config.is_file():
+      return []
     local = ctx.dir / "vendor" / "bin" / "phpunit"
-    argv = [str(local) if local.is_file() else "phpunit"]
-    for name in RUNNER_FILES["phpunit"]:
-      if (ctx.dir / name).is_file():
-        argv.append(f"--configuration={ctx.dir / name}")
-        break
-    else:
-      # With no configuration and no path PHPUnit runs nothing: it is given
-      # the directory that holds every listed test's file.
-      found = _php_files(ctx, tests)
-      if not found:
-        return []
-      argv += [
-        "--no-configuration",
-        os.path.relpath(os.path.commonpath(found), ctx.dir),
-      ]
     names = "|".join(_pcre(t.id) for t in tests)
-    argv += [
+    argv = [
+      str(local) if local.is_file() else "phpunit",
+      f"--configuration={config}",
       "--do-not-cache-result",
       f"--log-junit={ctx.work / self._REPORT}",
       f"--filter=/^(?:{names})(?:::| |$)/",
@@ -433,15 +434,21 @@ class PHPUnit(Runner):
     return inner.startswith(outer + " ")
 
 
-def _php_files(ctx: Context, tests: list[Test]) -> list[str]:
-  # The directories that hold a file named for a listed test's class, as
-  # PHPUnit wants a test class's file named.
+def _php_config(ctx: Context) -> Path | None:
+  for name in RUNNER_FILES["phpunit"]:
+    if (ctx.dir / name).is_file():
+      return ctx.dir / name
+  return None
+
+
+def _php_files(ctx: Context, tests: list[Test]) -> list[Path]:
+  # The files named for a listed test's class, as PHPUnit wants a test
+  # class's file named.
   names = {t.id.split("::", 1)[0].rsplit("\\", 1)[-1] + ".php" for t in tests}
-  found: list[str] = []
+  found: list[Path] = []
   for root, dirs, files in os.walk(ctx.dir):
     dirs[:] = sorted(d for d in dirs if d not in _PHP_PRUNE)
-    if any(f in names for f in files):
-      found.append(root)
+    found += [Path(root, f) for f in sorted(files) if f in names]
   return found
 
 

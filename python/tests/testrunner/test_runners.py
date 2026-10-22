@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -320,10 +321,11 @@ def test_phpunit_filters_the_tests_by_name(tmp_path: Path):
     assert bool(re.search(pattern, name)) is matched, name
 
 
-def test_phpunit_runs_without_a_configuration_when_there_is_none(
+def test_phpunit_without_a_configuration_runs_the_listed_classes_files(
   tmp_path: Path,
 ):
-  # PHPUnit is given the directory of the listed classes' files.
+  # The run's own configuration names the files of the listed classes, none
+  # under vendor/.
   ctx = context(tmp_path)
   write(
     ctx.app,
@@ -335,18 +337,30 @@ def test_phpunit_runs_without_a_configuration_when_there_is_none(
       "tests/Feature/LexerTest.php": "",
     },
   )
-  tests = [Listed("p2p", "phpunit", "App\\Tests\\ParserTest::testTag")]
-  argv = only(PHPUnit().commands(ctx, tests))
-  assert argv[:3] == [
-    str(ctx.app / "vendor/bin/phpunit"),
-    "--no-configuration",
-    "tests/Unit",
+  tests = [
+    Listed("p2p", "phpunit", "App\\Tests\\ParserTest::testTag"),
+    Listed("p2p", "phpunit", "App\\Tests\\LexerTest"),
   ]
-  tests.append(Listed("p2p", "phpunit", "App\\Tests\\LexerTest"))
-  argv = only(PHPUnit().commands(ctx, tests))
-  assert argv[2] == "tests"
-  gone = [Listed("p2p", "phpunit", "A\\GoneTest")]
-  assert PHPUnit().commands(ctx, gone) == []
+  runner = PHPUnit()
+  assert runner.prepare(ctx, tests) == []
+  config = ctx.work / "phpunit-tests.xml"
+  argv = only(runner.commands(ctx, tests))
+  assert argv[:2] == [
+    str(ctx.app / "vendor/bin/phpunit"),
+    f"--configuration={config}",
+  ]
+  suite = ET.parse(config).getroot().find("testsuites/testsuite")
+  assert suite is not None
+  assert [f.text for f in suite.iter("file")] == [
+    str(ctx.app / "tests/Feature/LexerTest.php"),
+    str(ctx.app / "tests/Unit/LexerTest.php"),
+    str(ctx.app / "tests/Unit/ParserTest.php"),
+  ]
+  gone = context(tmp_path / "gone")
+  write(gone.app, {"tests/ParserTest.php": ""})
+  missing = [Listed("p2p", "phpunit", "A\\GoneTest")]
+  assert runner.prepare(gone, missing) == []
+  assert runner.commands(gone, missing) == []
 
 
 @pytest.mark.parametrize(
