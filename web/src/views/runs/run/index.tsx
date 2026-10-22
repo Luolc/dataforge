@@ -1,8 +1,8 @@
 // One run: the visit's steps, folded, from what it was handed to what it
 // handed on (design-viz.md section 5, "Runs").
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
-import { Link } from "react-router";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 
 import type { Action, AttemptRecord, Project, Visit } from "../../../api/types";
 import { SessionView } from "../../../session";
@@ -21,13 +21,23 @@ import {
   stateTitle,
   outcomeOf,
 } from "../../../ui/status";
-import { StatusLabel } from "../../../ui/status-mark";
+import { OutcomeLabel, StatusLabel } from "../../../ui/status-mark";
 import { attemptHref } from "../../attempt/href";
 import { size, useFile } from "../../files/file";
+import { Files } from "../../files/index";
+import { Preview } from "../../files/Preview";
 import { ReportMarkdown } from "../../report/markdown";
+import { type Listed, trialName } from "../../trials/source";
 import { markdownOf, type Output, reportsOf } from "./reports";
 import { Step } from "./Step";
-import { actionStatus, inputOf, isSession, startsOpen, traceOf } from "./steps";
+import {
+  actionStatus,
+  inputOf,
+  isSession,
+  listedTrials,
+  startsOpen,
+  traceOf,
+} from "./steps";
 
 export interface RunProps {
   project: Project;
@@ -71,7 +81,7 @@ export default function RunPage({
       <header className="px-5 py-3.5">
         <h2 className="flex items-center gap-2 text-md font-semibold">
           {title}
-          <StatusLabel
+          <OutcomeLabel
             project={project}
             word={visit.outcome}
             ended={attemptStatus(project, record) !== null}
@@ -109,6 +119,7 @@ export default function RunPage({
           The visit recorded no actions.
         </p>
       )}
+      <FilesStep project={project} attempt={attempt} visit={visit} />
       <OutputStep
         project={project}
         record={record}
@@ -145,7 +156,7 @@ function Data({
 }) {
   const [open, setOpen] = useState(startOpen);
   const bodyId = useId();
-  if (Object.keys(data).length === 0) return <>none</>;
+  if (Object.keys(data).length === 0) return <>—</>;
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <>
@@ -240,20 +251,189 @@ function Reports({
   );
 }
 
-function Outputs({ outputs }: { outputs: Record<string, string> }) {
+/**
+ * A visit's outputs, each a link that opens it in the Files step of the run
+ * that wrote it.
+ */
+function Outputs({
+  project,
+  attempt,
+  run,
+  outputs,
+}: {
+  project: Project;
+  attempt: string;
+  /** The place of the visit that wrote them in the record's visits. */
+  run: number;
+  outputs: Record<string, string>;
+}) {
   const names = Object.keys(outputs);
-  if (names.length === 0) return <>none</>;
+  if (names.length === 0) return <>—</>;
   return (
     <ul className="flex flex-col gap-1">
-      {names.map((name) => (
-        <li key={name} className="flex flex-wrap items-baseline gap-x-2">
-          <span className="wrap-anywhere text-fg">{name}</span>
-          <code className="min-w-0 font-mono text-xs wrap-anywhere text-fg-3">
-            {outputs[name]}
-          </code>
+      {names.map((name) => {
+        const path = outputs[name] ?? "";
+        return (
+          <li key={name} className="flex flex-wrap items-baseline gap-x-2">
+            <Link
+              to={attemptHref(project.id, attempt, {
+                tab: "runs",
+                run,
+                file: path,
+              })}
+              className="inline-flex target items-center wrap-anywhere link hover:underline"
+            >
+              {name}
+            </Link>
+            <code className="min-w-0 font-mono text-xs wrap-anywhere text-fg-3">
+              {path}
+            </code>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** One log of an action: its path, which opens to the file's preview. */
+function LogFile({
+  project,
+  attempt,
+  path,
+}: {
+  project: Project;
+  attempt: string;
+  path: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  const Chevron = open ? ChevronDown : ChevronRight;
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => {
+          setOpen(!open);
+        }}
+        className="inline-flex target items-center gap-1 rounded-row text-left text-fg-2 hover:bg-hover"
+      >
+        <Chevron className="size-4 flex-none text-icon" aria-hidden />
+        <code className="font-mono text-xs wrap-anywhere">{path}</code>
+      </button>
+      <div
+        id={bodyId}
+        hidden={!open}
+        className="mt-1 overflow-hidden rounded-row border border-line-subtle"
+      >
+        {open && (
+          <Preview
+            project={project.id}
+            attempt={attempt}
+            path={path}
+            name={path.split("/").at(-1) ?? path}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Where a trial action's trial shows: a link to it in each such tab. */
+function ShownIn({
+  project,
+  attempt,
+  listed,
+}: {
+  project: Project;
+  attempt: string;
+  listed: Listed[];
+}) {
+  if (listed.length === 0) return <>No deliverable lists it.</>;
+  return (
+    <ul className="flex flex-col gap-1">
+      {listed.map(({ deliverable, trial, index }) => (
+        <li key={deliverable.name}>
+          <Link
+            to={attemptHref(project.id, attempt, {
+              tab: deliverable.kind,
+              deliverable: deliverable.name,
+              trial: trial.output,
+            })}
+            className="inline-flex target items-center link hover:underline"
+          >
+            {deliverable.title} · {trialName(index)}
+          </Link>
         </li>
       ))}
     </ul>
+  );
+}
+
+/** What an action printed: its logs, or why there are none. */
+function Logs({
+  project,
+  attempt,
+  logs,
+}: {
+  project: Project;
+  attempt: string;
+  logs: string[] | undefined;
+}) {
+  if (logs === undefined) return <>This record names no logs.</>;
+  if (logs.length === 0) return <>—</>;
+  return (
+    <ul className="flex flex-col gap-1">
+      {logs.map((path) => (
+        <li key={path}>
+          <LogFile project={project} attempt={attempt} path={path} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The files of a visit's directory, artifacts/<state>/<visit>, where its
+ * actions write their outputs, with a preview: open, and in view, when the
+ * page's file is one of them. None when no output of the visit is there.
+ */
+function FilesStep({
+  project,
+  attempt,
+  visit,
+}: {
+  project: Project;
+  attempt: string;
+  visit: Visit;
+}) {
+  const root = `artifacts/${visit.state}/${visit.visit.toString()}`;
+  const [query] = useSearchParams();
+  const asked = query.get("file")?.startsWith(`${root}/`) === true;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (asked) ref.current?.scrollIntoView({ block: "start" });
+  }, [asked]);
+  const has = visit.actions.some((a) =>
+    Object.values(a.outputs).some((path) => path.startsWith(`${root}/`)),
+  );
+  if (!has) return null;
+  return (
+    <div ref={ref}>
+      <Step
+        // Opens when a link asks for one of its files.
+        key={asked ? "asked" : "not asked"}
+        name="Files"
+        status={{ label: "Files", tone: "neutral" }}
+        aside={<code className="font-mono">{root}</code>}
+        open={asked}
+      >
+        <div className="overflow-hidden rounded-row border border-line-subtle">
+          <Files project={project.id} attempt={attempt} root={root} />
+        </div>
+      </Step>
+    </div>
   );
 }
 
@@ -293,7 +473,7 @@ function InputStep({
         <dl className={fields}>
           <Field name="Report from">{runLink(input.from)}</Field>
           <Field name="Outcome">
-            <StatusLabel
+            <OutcomeLabel
               project={project}
               word={before.outcome}
               ended={attemptStatus(project, record) !== null}
@@ -304,6 +484,9 @@ function InputStep({
           </Field>
           <Field name="Files">
             <Outputs
+              project={project}
+              attempt={attempt}
+              run={input.from}
               outputs={Object.fromEntries(
                 before.actions.flatMap((a) => Object.entries(a.outputs)),
               )}
@@ -351,6 +534,7 @@ function ActionStep({
   const names = Object.keys(action.outputs);
   // A report action's Markdown already shows at the top of the run.
   const markdown = action.kind === "report" ? [] : markdownOf(action);
+  const session = isSession(record, index, action);
   return (
     <Step
       name={
@@ -371,9 +555,34 @@ function ActionStep({
         <Field name="Cost">{usd(action.cost_usd)}</Field>
         <Field name="Started">{time(action.started_at)}</Field>
         <Field name="Ended">{time(action.ended_at)}</Field>
-        <Field name="Outputs">
-          <Outputs outputs={action.outputs} />
+        <Field name="Duration">
+          {seconds === null ? "—" : duration(seconds)}
+          {seconds !== null &&
+            session &&
+            ", from the action's start to its end; the session below counts its own time alone"}
         </Field>
+        <Field name="Outputs">
+          <Outputs
+            project={project}
+            attempt={attempt}
+            run={index}
+            outputs={action.outputs}
+          />
+        </Field>
+        {action.kind === "trial" && (
+          <Field name="Shown in">
+            <ShownIn
+              project={project}
+              attempt={attempt}
+              listed={listedTrials(record, index, action)}
+            />
+          </Field>
+        )}
+        {action.kind !== "trial" && (
+          <Field name="Logs">
+            <Logs project={project} attempt={attempt} logs={action.logs} />
+          </Field>
+        )}
       </dl>
       {typeof action.summary === "string" && (
         <div className="mt-3">
@@ -385,7 +594,7 @@ function ActionStep({
           <MarkdownFile project={project} attempt={attempt} output={output} />
         </div>
       ))}
-      {isSession(record, index, action) && (
+      {session && (
         <div className="mt-3">
           {trace ? (
             <SessionView
@@ -430,7 +639,7 @@ function OutputStep({
     >
       <dl className={fields}>
         <Field name="Outcome">
-          <StatusLabel
+          <OutcomeLabel
             project={project}
             word={visit.outcome}
             ended={end !== null}
@@ -447,7 +656,9 @@ function OutputStep({
             </>
           )}
         </Field>
-        <Field name="Mark">{visit.mark ?? "none"}</Field>
+        {visit.mark !== null && (
+          <Field name="Transition mark">{visit.mark}</Field>
+        )}
         <Field name="Data">
           <Data data={visit.data} open={reportsOf(visit).length === 0} />
         </Field>
