@@ -8,6 +8,7 @@ import {
   NO_STATUS_KEY,
   NOT_ENDED_KEY,
   notEnded,
+  roundRuns,
   rowStatus,
   toItems,
   UNREADABLE_KEY,
@@ -207,5 +208,34 @@ describe("filterItems", () => {
       label: "No status",
       tone: "neutral",
     });
+  });
+});
+
+describe("roundRuns", () => {
+  const r = (round: number, outcome: string | null) => ({
+    round,
+    state: "solve",
+    outcome,
+  });
+
+  it("puts rounds in a row with the same state and outcome in one run", () => {
+    expect(
+      roundRuns(
+        [r(1, "fail"), r(2, "fail"), r(3, "pass"), r(4, "fail")],
+        false,
+      ),
+    ).toEqual([
+      { first: 1, last: 2, count: 2, state: "solve", outcome: "fail" },
+      { first: 3, last: 3, count: 1, state: "solve", outcome: "pass" },
+      { first: 4, last: 4, count: 1, state: "solve", outcome: "fail" },
+    ]);
+  });
+
+  it("keeps the last round alone while it runs", () => {
+    expect(roundRuns([r(1, null), r(2, null)], true)).toEqual([
+      { first: 1, last: 1, count: 1, state: "solve", outcome: null },
+      { first: 2, last: 2, count: 1, state: "solve", outcome: null },
+    ]);
+    expect(roundRuns([r(1, null), r(2, null)], false)).toHaveLength(1);
   });
 });
