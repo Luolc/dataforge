@@ -30,8 +30,10 @@ from dataforge.curation import (
   Guard,
   Limits,
   Machine,
+  measure,
   Outcome,
   PassAtKState,
+  recorded_usd,
   RecordError,
   ResumeError,
   ScriptSpec,
@@ -744,6 +746,147 @@ def test_the_cost_cap_lets_a_state_in_up_to_the_cap(tmp_path: Path) -> None:
     "cost_usd": 1.5,
     "stopped": None,
   }
+
+
+def metered(
+  ledger: dict[str, float], usd: float, cost_usd: float, outcome: str
+) -> Callable[[Context], Outcome]:
+  """Return a step whose calls cost usd but whose action reports cost_usd.
+
+  Args:
+    ledger: What the attempt's calls cost so far, under "usd".
+    usd: What the step's calls cost.
+    cost_usd: What its action reports, as one cut off by a timeout does not.
+    outcome: The step's outcome.
+
+  Returns:
+    The step.
+  """
+
+  def step(ctx: Context) -> Outcome:
+    ledger["usd"] += usd
+    now = datetime.now(UTC)
+    ctx.record(ActionRecord("agent", "ok", {}, now, now, cost_usd))
+    return Outcome(outcome)
+
+  return step
+
+
+def test_the_cost_cap_and_the_record_take_what_spent_usd_measures(
+  tmp_path: Path,
+) -> None:
+  ledger = {"usd": 0.0}
+  seen: list[float] = []
+  machine = Machine(
+    [
+      Step("a", metered(ledger, 2.0, 0.0, "x"), {"x": Goto("b")}),
+      Step("b", spend(0.0, "y"), {"y": End("passed")}, max_cost_usd=1.5),
+    ],
+    on_step=lambda attempt: seen.append(attempt.cost_usd),
+    max_cost_usd=3.0,
+    spent_usd=lambda attempt: ledger["usd"],
+  )
+  attempt = machine.run(tmp_path)
+  reason = (
+    "b visit 1: $2.00 spent and up to $1.50 more would pass the $3.00 the"
+    " attempt may spend"
+  )
+  assert (attempt.status, attempt.stopped) == ("budget", reason)
+  assert attempt.to_json()["budget"] == {
+    "max_usd": 3.0,
+    "cost_usd": 2.0,
+    "stopped": reason,
+  }
+  assert (seen[0], seen[-1]) == (0.0, 2.0)
+  assert recorded_usd(attempt) == 0.0
+
+
+def test_a_state_that_raises_leaves_what_was_spent_in_the_record(
+  tmp_path: Path,
+) -> None:
+  ledger = {"usd": 0.0}
+  seen: list[float] = []
+
+  def cut_off(ctx: Context) -> Outcome:
+    ledger["usd"] += 1.25
+    raise RuntimeError("cut off")
+
+  machine = Machine(
+    [Step("a", cut_off, {"x": End("passed")})],
+    on_step=lambda attempt: seen.append(attempt.cost_usd),
+    spent_usd=lambda attempt: ledger["usd"],
+  )
+  with pytest.raises(RuntimeError, match="cut off"):
+    _ = machine.run(tmp_path)
+  assert seen == [0.0, 1.25]
+
+
+def test_a_resumed_attempt_is_capped_by_what_it_spent_since_its_record(
+  tmp_path: Path,
+) -> None:
+  ledger = {"usd": 0.0}
+  killed = [True]
+  steps: list[dict[str, object]] = []
+
+  def check(ctx: Context) -> Outcome:
+    if killed[0]:
+      raise RuntimeError("killed")
+    return Outcome("y")
+
+  def machine() -> Machine:
+    return Machine(
+      [
+        Step("a", metered(ledger, 1.0, 1.0, "x"), {"x": Goto("b")}),
+        Step("b", check, {"y": End("passed")}, max_cost_usd=1.5),
+      ],
+      on_step=lambda attempt: steps.append(as_json(attempt)),
+      max_cost_usd=4.0,
+      spent_usd=lambda attempt: ledger["usd"],
+    )
+
+  with pytest.raises(RuntimeError, match="killed"):
+    _ = machine().run(tmp_path)
+  record = Attempt.from_json(tmp_path, steps[-1])
+  assert record.cost_usd == 1.0
+  # Calls the kill cut off reached the ledger after the last record.
+  ledger["usd"], killed[0] = 2.8, False
+  resumed = machine().resume(record)
+  reason = (
+    "b visit 1: $2.80 spent and up to $1.50 more would pass the $4.00 the"
+    " attempt may spend"
+  )
+  assert (resumed.status, resumed.stopped) == ("budget", reason)
+
+
+@pytest.mark.parametrize(
+  ("metered_usd", "cost_usd"), [(None, 1.25), (4.0, 4.0)]
+)
+def test_carried_usd_counts_only_without_spent_usd(
+  tmp_path: Path, metered_usd: float | None, cost_usd: float
+) -> None:
+  machine = Machine(
+    [Step("a", spend(1.0, "x"), {"x": End("passed")})],
+    spent_usd=None if metered_usd is None else (lambda attempt: metered_usd),
+  )
+  record = Attempt(tmp_path, graph=machine.graph())
+  resumed = machine.resume(record, carried_usd=0.25)
+  assert resumed.cost_usd == cost_usd
+  assert [r.carried_usd for r in resumed.resumptions] == [0.25]
+
+
+def test_a_record_read_back_keeps_its_cost_until_measured_again(
+  tmp_path: Path,
+) -> None:
+  attempt = Machine(
+    [Step("a", spend(1.0, "x"), {"x": End("passed")})],
+    spent_usd=lambda attempt: 2.5,
+  ).run(tmp_path)
+  record = Attempt.from_json(tmp_path, as_json(attempt))
+  assert record.cost_usd == 2.5
+  measure(record, lambda attempt: 3.0)
+  assert record.cost_usd == 3.0
+  measure(record)
+  assert record.cost_usd == 1.0
 
 
 def test_a_blocking_guard_leaves_stopped_unset(tmp_path: Path) -> None:
