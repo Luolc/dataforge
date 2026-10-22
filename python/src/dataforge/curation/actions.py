@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import errno
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -40,6 +41,8 @@ from dataforge.curation.engine import (
 )
 from dataforge.leases import Lease, Leases
 from dataforge.statedir import state_dir
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -936,12 +939,13 @@ class Docker:
     differs or a change does not apply, such as a file the diff adds that git
     ignores in the new tree, it removes the new container, keeps the old one
     as this env's and raises, so no change is lost; else it removes the old
-    one. A git repository inside a tree, such as a submodule, whose files or
-    commit differ from `HEAD` makes it raise before it creates the new one,
-    since a diff holds only that repository's commit. The two run one at a
-    time, only for git and the copies, without pre_start and post_start, and
-    with memory_gb reserved from pool. An env with no container yet only
-    takes the image.
+    one, and a removal that fails is logged and left to the dataset's
+    cleanup, as the env has gone on in the new one. A git repository inside
+    a tree, such as a submodule, whose files or commit differ from `HEAD`
+    makes it raise before it creates the new one, since a diff holds only
+    that repository's commit. The two run one at a time, only for git and
+    the copies, without pre_start and post_start, and with memory_gb reserved
+    from pool. An env with no container yet only takes the image.
 
     Args:
       image: The new container's image.
@@ -976,7 +980,9 @@ class Docker:
             _ = self.cli(["rm", "--force", new])
           raise
       self._id, self.image = new, image
-      _ = self._docker(["rm", "--force", old])
+      removed = self.cli(["rm", "--force", old])
+      if removed.exit_code != 0:
+        _log.warning("replace left the old container %s: %s", old, removed.log)
 
   def _take(
     self, container: str, carry: Sequence[str], into: Path

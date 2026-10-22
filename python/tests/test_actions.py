@@ -1736,9 +1736,9 @@ def commit_repository(tree: Path) -> None:
 def images(tmp_path: Path) -> dict[str, Path]:
   """Make an old image and a new one whose /app has the same HEAD.
 
-  HEAD has a repository inside it, as a submodule is. Both builds have left a
-  file git does not ignore, and the new one also another and one git
-  ignores, as an image's build may.
+  HEAD has a repository inside it, as a submodule is. Both builds have
+  rewritten a tracked file and left one git does not ignore, and the new one
+  also another and one git ignores, as an image's build may.
 
   Args:
     tmp_path: The test's directory.
@@ -1753,9 +1753,11 @@ def images(tmp_path: Path) -> dict[str, Path]:
   _ = (app / "kept.txt").write_text("one\n")
   _ = (app / "gone.txt").write_text("gone\n")
   _ = (app / "blob.bin").write_bytes(bytes(range(256)))
+  _ = (app / "stamp.txt").write_text("in HEAD\n")
   commit_repository(app / "sub")
   _ = git(app, "add", "--all")
   _ = git(app, "commit", "--quiet", "--message", "one")
+  _ = (app / "stamp.txt").write_text("by each image\n")
   _ = (app / "built.txt").write_text("by each image\n")
   new = tmp_path / "images" / "new"
   _ = shutil.copytree(app.parent, new, symlinks=True)
@@ -1815,6 +1817,7 @@ def test_replace_carries_the_changes_git_does_not_ignore(
     assert (app / "blob.bin").read_bytes() == bytes(range(255, -1, -1))
     assert (app / "added.txt").read_text() == "added\n"
     assert (app / "built.txt").read_text() == "by each image\n"
+    assert (app / "stamp.txt").read_text() == "by each image\n"
     assert not (app / "only-new.txt").exists()
     assert os.access(app / "run.sh", os.X_OK)
     assert sorted(p.name for p in (app / "build").iterdir()) == ["made"]
@@ -1836,9 +1839,15 @@ def ignored_there(new: Path, app: Path) -> None:
   _ = (app / "build" / "made").write_text("by the session\n")
 
 
-@pytest.mark.parametrize("unlike", [another_head, ignored_there])
+@pytest.mark.parametrize(
+  ("unlike", "why"),
+  [
+    (another_head, "HEAD has the tree"),
+    (ignored_there, "git apply .* already exists"),
+  ],
+)
 def test_a_replace_that_cannot_carry_keeps_the_old_container(
-  tmp_path: Path, unlike: Callable[[Path, Path], None]
+  tmp_path: Path, unlike: Callable[[Path, Path], None], why: str
 ) -> None:
   found = images(tmp_path)
   docker = GitDocker(tmp_path / "containers", found)
@@ -1848,7 +1857,7 @@ def test_a_replace_that_cannot_carry_keeps_the_old_container(
     unlike(found["new:1"], docker.path("c1", "/app"))
     env.stop()
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match=why):
       env.replace("new:1", carry=["/app"])
 
     assert (env.container, env.image) == ("c1", "old:1")
@@ -1886,6 +1895,28 @@ def test_a_changed_repository_in_the_tree_stops_replace_before_it_creates(
     assert list(docker.created) == ["c1"]
     assert (docker.path("c1", "/app") / "added.txt").read_text() == "added\n"
     assert docker.running == set()
+
+
+def test_an_old_container_replace_cannot_remove_is_left_to_the_cleanup(
+  tmp_path: Path,
+) -> None:
+  class Stuck(GitDocker):
+    @override
+    def __call__(self, args: Sequence[str]) -> CommandResult:
+      if list(args) == ["rm", "--force", "c1"]:
+        self.calls.append(list(args))
+        return CommandResult(1, "removal of container c1 is in progress")
+      return super().__call__(args)
+
+  docker = Stuck(tmp_path / "containers", images(tmp_path))
+  with swap_env(docker) as env:
+    env.start(None)
+    env.stop()
+
+    env.replace("new:1", carry=["/app"])
+
+    assert (env.container, env.image) == ("c2", "new:1")
+    assert ["rm", "--force", "c1"] in docker.calls
 
 
 def test_replace_waits_until_no_action_runs(tmp_path: Path) -> None:
