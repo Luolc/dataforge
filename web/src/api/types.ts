@@ -84,6 +84,11 @@ export const project = z.looseObject({
         title: z.string(),
         versions: z.array(z.string()),
         parts: z.tuple([TAB_PART], TAB_PART),
+        // The format of the value a version is named by in the menu; null
+        // to name it by its directory.
+        version_title: z.looseObject({ format: FORMAT }).nullable().optional(),
+        // The action of the project's jobs that make its versions.
+        job: z.string().nullable().optional(),
       }),
     )
     .optional(),
@@ -93,12 +98,60 @@ export const project = z.looseObject({
       z.looseObject({ name: z.string(), label: z.string(), queue: z.string() }),
     )
     .optional(),
+  // The jobs another tool puts in the queue for the project: their action
+  // label, how a page names it, their queue, and whether their item label
+  // is a data item's ID or an attempt's.
+  jobs: z
+    .array(
+      z.looseObject({
+        action: z.string(),
+        label: z.string(),
+        queue: z.string(),
+        subject: z.enum(["item", "attempt"]),
+      }),
+    )
+    .optional(),
 });
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];
 export type ProjectTab = NonNullable<Project["tabs"]>[number];
 export type TabPart = ProjectTab["parts"][number];
 export const projects = z.array(project);
+
+// A job of the queue, as a page may show it; times in seconds since the
+// epoch.
+const job = z.looseObject({
+  id: z.number(),
+  queue: z.string(),
+  labels: z.record(z.string(), z.string()),
+  state: z.string(),
+  memory_mib: z.number(),
+  queued_at: z.number(),
+  started_at: z.number().nullable(),
+  ended_at: z.number().nullable(),
+  exit_code: z.number().nullable(),
+  cancel_requested_at: z.number().nullable(),
+});
+export type Job = z.infer<typeof job>;
+
+// A queue's pause: no job of it starts until it is resumed; reason as whoever
+// paused it gave it.
+const pause = z.looseObject({
+  queue: z.string(),
+  paused_at: z.number(),
+  reason: z.string().nullable(),
+});
+export type Pause = z.infer<typeof pause>;
+
+// The newest job of a tab's job action for an attempt, null when there is
+// none, and the pause of its queue, null when it is not paused; reason, when
+// not null, why the queue could not be read.
+const queued = z.looseObject({
+  job: job.nullable(),
+  paused: pause.nullable(),
+  reason: z.string().nullable(),
+});
+export type Queued = z.infer<typeof queued>;
 
 // Each tab of the project, with the versions an attempt has of it, the first
 // shown by default, and the value of each field of each of its parts in each:
@@ -107,9 +160,21 @@ export const projects = z.array(project);
 export const tabVersions = z.array(
   z.looseObject({
     name: z.string(),
+    // The tab's job and its queue's pause; null when it names no job.
+    queued: queued.nullable().optional(),
     versions: z.array(
       z.looseObject({
         dir: z.string(),
+        // The value the version is named by, read as a field is; null when
+        // the tab names none.
+        title: z
+          .looseObject({
+            read: z.enum(READS),
+            value: z.unknown(),
+            reason: z.string().nullable(),
+          })
+          .nullable()
+          .optional(),
         parts: z.array(
           z.looseObject({
             name: z.string(),
@@ -180,6 +245,9 @@ export const attemptRow = z.looseObject({
   // How each column with a file read its value; null for a column of the
   // record.
   reads: z.array(z.enum(READS).nullable()).nullable().optional(),
+  // Beside each column of a tab that names a job, where the tab has no
+  // version, that job; null for any other column.
+  queued: z.array(queued.nullable()).nullable().optional(),
   live: z.enum(LIVE).nullable().optional(),
   // Whether the item's lock is held now; null when the project names none.
   held: z.boolean().nullable().optional(),
@@ -234,22 +302,6 @@ export const actionStates = z.looseObject({
 });
 export type ActionState = z.infer<typeof actionStates>["actions"][number];
 
-// A job of the queue, as a page may show it; times in seconds since the
-// epoch.
-const job = z.looseObject({
-  id: z.number(),
-  queue: z.string(),
-  labels: z.record(z.string(), z.string()),
-  state: z.string(),
-  memory_mib: z.number(),
-  queued_at: z.number(),
-  started_at: z.number().nullable(),
-  ended_at: z.number().nullable(),
-  exit_code: z.number().nullable(),
-  cancel_requested_at: z.number().nullable(),
-});
-export type Job = z.infer<typeof job>;
-
 /** What a write answers: the job it queued or canceled. */
 export const written = z.looseObject({ job });
 
@@ -264,6 +316,7 @@ export const queueRead = z.looseObject({
       limit: z.number(),
       running: z.number(),
       queued: z.number(),
+      paused: pause.nullable().optional(),
     }),
   ),
   max_running: z.number(),

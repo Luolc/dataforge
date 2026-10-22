@@ -1158,7 +1158,7 @@ class RubricState(_ActionState):
       review.name: call
       for review, (call, _) in zip(self.reviews, ended, strict=True)
     }
-    _write_rubric(ctx, judged, calls)
+    _write_rubric(ctx, judged, calls, self.rubrics)
     data = {judgment.name: judgment.data for judgment in judged}
     failed = [j for j in judged if j.errored or not j.passed]
     if not failed:
@@ -1214,14 +1214,17 @@ def _reused(call: Call) -> ActionResult:
 
 
 def _write_rubric(
-  ctx: Context, judged: Sequence[Judgment], calls: Mapping[str, Call]
+  ctx: Context,
+  judged: Sequence[Judgment],
+  calls: Mapping[str, Call],
+  rubrics: Mapping[str, Rubric],
 ) -> None:
   started = datetime.now(UTC)
   names = {name + CALL_SUFFIX: call for name, call in calls.items()}
   _ = ctx.claim([RUBRIC_TABLE, RUBRIC_REPORT, *names])
   table, report = ctx.outdir / RUBRIC_TABLE, ctx.outdir / RUBRIC_REPORT
   _ = table.write_text(json.dumps(rubric_table(judged), indent=2) + "\n")
-  _ = report.write_text(rubric_report(judged))
+  _ = report.write_text(rubric_report(judged, rubrics))
   outputs = {RUBRIC_TABLE: table, RUBRIC_REPORT: report}
   for name, call in names.items():
     outputs[name] = ctx.outdir / name

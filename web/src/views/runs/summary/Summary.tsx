@@ -11,6 +11,7 @@ import {
   type Project,
 } from "../../../api/types";
 import { Card } from "../../../ui/card";
+import { runCount } from "../../../ui/format";
 import { Markdown } from "../../../ui/markdown";
 import { NOT_RUN, stateTitle } from "../../../ui/status";
 import { declaredMissing } from "../../attempt/declared";
@@ -47,7 +48,7 @@ export function Summary({
       <TopRow project={project} record={record} />
       <Card
         title="State machine"
-        aside={`${runs.toString()} runs · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
+        aside={`${runCount(runs)} · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
         flush
       >
         {machine ? (
