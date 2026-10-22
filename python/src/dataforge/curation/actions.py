@@ -19,6 +19,7 @@ import errno
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shlex
 import shutil
 import stat
@@ -416,6 +417,26 @@ class Mount:
   read_only: bool = True
 
 
+_CARRY = "/dataforge/carry"
+"""Where Docker.replace keeps the diffs it carries, in each container."""
+
+# The diff git apply takes whatever the tree's config says: plain a/ and b/
+# paths from the top, no external diff or text conversion, no renames.
+_DIFF = (
+  "--cached",
+  "--binary",
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-renames",
+  "--no-relative",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+)
+
+_OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
 def run_docker(args: Sequence[str]) -> CommandResult:
   """Run one docker command.
 
@@ -436,7 +457,8 @@ class Docker:
   """A container, kept across visits, that each action starts and stops.
 
   `docker create` makes it on first use, `docker start` and `docker stop`
-  bracket each action in it, and leaving its `with` removes it.
+  bracket each action in it, and leaving its `with` removes it. Between
+  actions, replace puts a container of another image in its place.
 
   Inputs are copied in under /dataforge/<state>/<visit>/<action>/inputs, outputs
   copied out from .../outputs, and a validator copied to
@@ -453,7 +475,7 @@ class Docker:
   what a dataset adds, such as a gateway.
 
   Attributes:
-    image: The image.
+    image: The image, which replace changes.
     mounts: Bind mounts.
     outputs: A writable mount every action writes its outputs straight into,
       instead of .../outputs, so what one visit wrote is still there in the
@@ -621,12 +643,15 @@ class Docker:
     Returns:
       The arguments after `docker`.
     """
+    return self._create_args(self.image)
+
+  def _create_args(self, image: str) -> list[str]:
     return [
       "create",
       "--init",
       *self._limit_args(),
       *self._run_args(),
-      self.image,
+      image,
       "sleep",
       "infinity",
     ]
@@ -725,6 +750,134 @@ class Docker:
       if self._id is not None:
         _ = self._docker(["rm", "--force", self._id])
         self._id = None
+
+  def replace(
+    self,
+    image: str,
+    carry: Sequence[str] = (),
+    pool: ResourcePool | None = None,
+  ) -> None:
+    """Go on in a container of another image, with the changes of carry.
+
+    Called between actions, such as once the host has built image from a
+    Dockerfile a session wrote. The new container has this env's options,
+    mounts and labels, so only the image differs. Of each git work tree that
+    carry names, by its top in the container, it gets the changes against
+    `HEAD`: the files `HEAD` tracks that differ and the untracked files git
+    does not ignore, as a binary diff the old container makes and the new one
+    applies to `HEAD`, so that those files are as in the old tree, but no file
+    git ignores, which the new image may have built anew. It carries them only
+    onto a tree whose `HEAD` has the same tree as the old one's. When that
+    differs or a change does not apply, such as a file the diff adds that git
+    ignores in the new tree, it removes the new container, keeps the old one
+    as this env's and raises, so no change is lost; else it removes the old
+    one. The two run one at a time, only for git
+    and the copies, without pre_start and post_start, and with memory_gb
+    reserved from pool. An env with no container yet only takes the image.
+
+    Args:
+      image: The new container's image.
+      carry: The work trees whose changes go along, by their paths in the
+        container.
+      pool: The pool to reserve memory_gb from while a container runs, if any.
+
+    Raises:
+      RuntimeError: When an action runs in the env, a docker or git command
+        fails, such as on a path of carry that is not the top of a work tree,
+        or a tree's `HEAD` differs between the two containers.
+    """  # noqa: DOC503
+    with self._lock:
+      if self._users:
+        raise RuntimeError("replace runs between actions, not during one")
+      old = self._id
+      if old is None:
+        self.image = image
+        return
+      with (
+        _reserve(pool, self.memory_gb),
+        tempfile.TemporaryDirectory(prefix="dataforge-carry-") as into,
+      ):
+        taken = self._take(old, carry, Path(into))
+        new = None
+        try:
+          new = self._docker(self._create_args(image)).strip()
+          self._give(new, taken)
+        except BaseException:
+          if new is not None:
+            _ = self.cli(["rm", "--force", new])
+          raise
+      self._id, self.image = new, image
+      _ = self._docker(["rm", "--force", old])
+
+  def _take(
+    self, container: str, carry: Sequence[str], into: Path
+  ) -> list[tuple[str, str, Path]]:
+    # Each tree's path, its HEAD's tree and the diff, copied out into into.
+    if not carry:
+      return []
+    _ = self._docker(["start", container])
+    try:
+      taken: list[tuple[str, str, Path]] = []
+      _ = self._in(container, ["mkdir", "-p", _CARRY], root=True)
+      _ = self._in(container, ["chmod", "0777", _CARRY], root=True)
+      for number, tree in enumerate(carry):
+        head = self._head(container, tree)
+        patch = f"{_CARRY}/{number}.patch"
+        # An index of its own, so that the tree's own is left as it is.
+        index = {"GIT_INDEX_FILE": f"{_CARRY}/{number}.index"}
+        for argv in (
+          ["git", "read-tree", "HEAD"],
+          ["git", "add", "--all"],
+          ["git", "diff", *_DIFF, f"--output={patch}", "HEAD"],
+        ):
+          _ = self._in(container, argv, workdir=tree, env=index)
+        local = into / f"{number}.patch"
+        _ = self._docker(["cp", f"{container}:{patch}", str(local)])
+        if not stat.S_ISREG(local.lstat().st_mode):
+          raise RuntimeError(f"the diff of {tree} is not a regular file")
+        taken.append((tree, head, local))
+      _ = self._in(container, ["rm", "-rf", _CARRY], root=True)
+    except BaseException:
+      _ = self.cli(["stop", container])
+      raise
+    _ = self._docker(["stop", container])
+    return taken
+
+  def _give(
+    self, container: str, taken: Sequence[tuple[str, str, Path]]
+  ) -> None:
+    # Apply what _take took; the caller removes the container if this raises.
+    if not taken:
+      return
+    _ = self._docker(["start", container])
+    _ = self._in(container, ["mkdir", "-p", _CARRY], root=True)
+    _ = self._in(container, ["chmod", "0777", _CARRY], root=True)
+    for number, (tree, head, local) in enumerate(taken):
+      found = self._head(container, tree)
+      if found != head:
+        raise RuntimeError(f"HEAD of {tree} has another tree: {found}, {head}")
+      # What the image's build left in the tree that git does not ignore goes,
+      # so the old tree's diff makes the new one's as the session left it.
+      for argv in (
+        ["git", "reset", "--hard", "--quiet", "HEAD"],
+        ["git", "clean", "-d", "--force", "--quiet"],
+      ):
+        _ = self._in(container, argv, workdir=tree)
+      if local.stat().st_size:
+        patch = f"{_CARRY}/{number}.patch"
+        _ = self._docker(["cp", str(local), f"{container}:{patch}"])
+        apply = ["git", "apply", "--whitespace=nowarn", patch]
+        _ = self._in(container, apply, workdir=tree)
+    _ = self._in(container, ["rm", "-rf", _CARRY], root=True)
+    _ = self._docker(["stop", container])
+
+  def _head(self, container: str, tree: str) -> str:
+    # The tree of HEAD in the work tree whose top is tree.
+    argv = ["git", "rev-parse", "--show-prefix", "HEAD^{tree}"]
+    lines = self._in(container, argv, workdir=tree).split("\n")
+    if len(lines) < 2 or lines[0] or not _OBJECT.fullmatch(lines[1]):
+      raise RuntimeError(f"{tree} is not the top of a git work tree")
+    return lines[1]
 
   def __enter__(self) -> Self:
     """Return the env; leaving the with block removes the container.
@@ -867,11 +1020,29 @@ class Docker:
 
     Raises:
       RuntimeError: When it exits with another status.
-    """
-    user = ["--user", "0"] if root else []
-    result = self.cli(["exec", *user, cast(str, self._id), *argv])
+    """  # noqa: DOC502
+    return self._in(cast(str, self._id), argv, root=root)
+
+  def _in(
+    self,
+    container: str,
+    argv: Sequence[str],
+    *,
+    root: bool = False,
+    workdir: str | None = None,
+    env: Mapping[str, str] | None = None,
+  ) -> str:
+    # Run a command in container, as _exec_ok does.
+    options = ["--user", "0"] if root else []
+    if workdir is not None:
+      options += ["--workdir", workdir]
+    for key, value in (env or {}).items():
+      options += ["--env", f"{key}={value}"]
+    result = self.cli(["exec", *options, container, *argv])
     if result.exit_code != 0:
-      raise RuntimeError(f"{' '.join(argv)} failed in {self._id}: {result.log}")
+      raise RuntimeError(
+        f"{' '.join(argv)} failed in {container}: {result.log}"
+      )
     return result.log
 
   def _docker(self, args: Sequence[str]) -> str:

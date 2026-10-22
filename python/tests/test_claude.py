@@ -17,7 +17,7 @@ they start, also when several run at once.
 """
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 import json
 import os
@@ -504,6 +504,39 @@ def test_an_agent_in_docker_runs_through_docker_exec(tmp_path: Path) -> None:
   argv = fake.argv(1)
   assert option(argv, "--add-dir") == ["/app", "/out", "/in", "/input"]
   assert "Write(//app/**)" in option(argv, "--allowedTools")[0]
+
+
+def test_a_session_goes_on_in_the_container_replace_made(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(
+    tmp_path,
+    [
+      {"lines": [result(session_id="s1", total_cost_usd=1)]},
+      {"lines": [result(session_id="s1", total_cost_usd=1.5)]},
+    ],
+  )
+  created = iter(["c1\n", "c2\n"])
+
+  def cli(args: Sequence[str]) -> CommandResult:
+    return CommandResult(0, next(created) if args[0] == "create" else "")
+
+  runner = claude.Runner(
+    fake.session, claude.numbered(tmp_path / "runs"), continue_session=True
+  )
+  spec = AgentSpec("Write.", Path("/app"))
+  task = AgentTask("Write.", {}, "/out", None)
+  prefixes: list[list[str]] = []
+  with Docker("agent:1", cli=cli) as env:
+    for image in ("agent:1", "agent:2"):
+      env.replace(image)
+      env.start(None)
+      _ = runner.start(spec, task, env)
+      env.stop()
+      prefixes.append((fake.log / "docker").read_text().split()[:5])
+
+  assert [p[-1] for p in prefixes] == ["c1", "c2"]
+  assert option(fake.argv(2), "--resume") == ["s1"]
 
 
 def test_an_agent_on_the_host_needs_absolute_paths(tmp_path: Path) -> None:

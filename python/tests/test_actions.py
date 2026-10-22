@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import threading
 from typing import cast, override
@@ -1400,6 +1401,247 @@ def test_an_inspect_without_a_json_object_is_an_error(printed: str) -> None:
   with pytest.raises(ValueError):
     env.adopt("c1")
   assert env.container is None
+
+
+class GitDocker:
+  """The docker CLI over a directory per container, running exec on the host.
+
+  An image is a directory, which create copies as the new container's file
+  system. exec runs its command here in the container's directory, each
+  argument and variable that is an absolute path, or one after "=", moved
+  under that directory; git reads no configuration but the work tree's.
+
+  Args:
+    root: Where the containers' directories go.
+    images: Each image's directory, by name.
+  """
+
+  def __init__(self, root: Path, images: Mapping[str, Path]) -> None:
+    self.root: Path = root
+    self.images: Mapping[str, Path] = images
+    self.calls: list[list[str]] = []
+    self.created: dict[str, list[str]] = {}
+    self.running: set[str] = set()
+    self.reserved: list[float] = []
+    self.pool: ResourcePool | None = None
+
+  def path(self, container: str, inside: str) -> Path:
+    return self.root / container / inside.lstrip("/")
+
+  def _move(self, container: str, arg: str) -> str:
+    if arg.startswith("/"):
+      return str(self.path(container, arg))
+    key, equals, value = arg.partition("=/")
+    return f"{key}={self.path(container, '/' + value)}" if equals else arg
+
+  def __call__(self, args: Sequence[str]) -> CommandResult:
+    args = list(args)
+    self.calls.append(args)
+    match args:
+      case ["create", *_, image, "sleep", "infinity"]:
+        container = f"c{len(self.created) + 1}"
+        _ = shutil.copytree(
+          self.images[image], self.root / container, symlinks=True
+        )
+        self.created[container] = args
+        return CommandResult(0, f"{container}\n")
+      case ["start", container]:
+        if self.pool is not None:
+          self.reserved.append(self.pool.reserved_gb)
+        self.running.add(container)
+        assert self.running == {container}, "two containers run at once"
+      case ["stop", container]:
+        self.running.discard(container)
+      case ["rm", "--force", container]:
+        self.running.discard(container)
+        shutil.rmtree(self.root / container)
+      case ["cp", source, target] if ":" in source:
+        container, _, inside = source.partition(":")
+        _ = shutil.copy(self.path(container, inside), target)
+      case ["cp", source, target]:
+        container, _, inside = target.partition(":")
+        _ = shutil.copy(source, self.path(container, inside))
+      case ["exec", *rest]:
+        return self._exec(rest)
+      case _:
+        raise AssertionError(f"unexpected docker {args}")
+    return CommandResult(0, "")
+
+  def _exec(self, rest: list[str]) -> CommandResult:
+    env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    workdir = "/"
+    while rest[0].startswith("--"):
+      option, value, *rest = rest
+      if option == "--workdir":
+        workdir = value
+      elif option == "--env":
+        key, _, variable = value.partition("=")
+        env[key] = variable
+    container, *argv = rest
+    assert container in self.running, f"exec in {container}, not running"
+    env = {key: self._move(container, value) for key, value in env.items()}
+    done = subprocess.run(
+      [self._move(container, arg) for arg in argv],
+      cwd=self.path(container, workdir),
+      env={**os.environ, **env},
+      capture_output=True,
+      text=True,
+      check=False,
+    )
+    return CommandResult(done.returncode, done.stdout + done.stderr)
+
+
+def git(tree: Path, *args: str) -> str:
+  return subprocess.run(
+    ["git", "-C", str(tree), *args],
+    capture_output=True,
+    text=True,
+    check=True,
+    env={
+      **os.environ,
+      "GIT_CONFIG_GLOBAL": os.devnull,
+      "GIT_CONFIG_NOSYSTEM": "1",
+      "GIT_AUTHOR_NAME": "a",
+      "GIT_AUTHOR_EMAIL": "a@example.test",
+      "GIT_COMMITTER_NAME": "a",
+      "GIT_COMMITTER_EMAIL": "a@example.test",
+    },
+  ).stdout
+
+
+def images(tmp_path: Path) -> dict[str, Path]:
+  """Make an old image and a new one whose /app has the same HEAD.
+
+  Both builds have left a file git does not ignore, and the new one also
+  another and one git ignores, as an image's build may.
+
+  Args:
+    tmp_path: The test's directory.
+
+  Returns:
+    The images' directories, by name.
+  """
+  app = tmp_path / "images" / "old" / "app"
+  app.mkdir(parents=True)
+  _ = git(app, "init", "--quiet")
+  _ = (app / ".gitignore").write_text("build/\n")
+  _ = (app / "kept.txt").write_text("one\n")
+  _ = (app / "gone.txt").write_text("gone\n")
+  _ = (app / "blob.bin").write_bytes(bytes(range(256)))
+  _ = git(app, "add", "--all")
+  _ = git(app, "commit", "--quiet", "--message", "one")
+  _ = (app / "built.txt").write_text("by each image\n")
+  new = tmp_path / "images" / "new"
+  _ = shutil.copytree(app.parent, new, symlinks=True)
+  _ = (new / "app" / "only-new.txt").write_text("by the new image\n")
+  (new / "app" / "build").mkdir()
+  _ = (new / "app" / "build" / "made").write_text("by the new image\n")
+  return {"old:1": app.parent, "new:1": new}
+
+
+def work(docker: GitDocker, container: str) -> None:
+  # Change /app in container as a session would.
+  app = docker.path(container, "/app")
+  _ = (app / "kept.txt").write_text("two\n")
+  (app / "gone.txt").unlink()
+  _ = (app / "blob.bin").write_bytes(bytes(range(255, -1, -1)))
+  _ = (app / "added.txt").write_text("added\n")
+  _ = (app / "run.sh").write_text("#!/bin/sh\n")
+  (app / "run.sh").chmod(0o755)
+  (app / "build").mkdir()
+  _ = (app / "build" / "stale").write_text("built in the old container\n")
+
+
+def swap_env(docker: GitDocker) -> Docker:
+  return Docker(
+    "old:1",
+    memory_gb=0.5,
+    pids=256,
+    labels={"attempt": "7"},
+    security=["no-new-privileges"],
+    cap_drop=["ALL"],
+    user="1000:1000",
+    workdir="/app",
+    cli=docker,
+  )
+
+
+def test_replace_carries_the_changes_git_does_not_ignore(
+  tmp_path: Path,
+) -> None:
+  docker = GitDocker(tmp_path / "containers", images(tmp_path))
+  with swap_env(docker) as env:
+    env.start(None)
+    work(docker, "c1")
+    env.stop()
+
+    docker.pool = pool = ResourcePool(1.0)
+    env.replace("new:1", carry=["/app"], pool=pool)
+
+    assert (env.container, env.image) == ("c2", "new:1")
+    old, new = docker.created["c1"], docker.created["c2"]
+    assert new == [*old[:-3], "new:1", "sleep", "infinity"]
+    assert "old:1" in old
+    assert not (tmp_path / "containers" / "c1").exists()
+    app = docker.path("c2", "/app")
+    assert (app / "kept.txt").read_text() == "two\n"
+    assert not (app / "gone.txt").exists()
+    assert (app / "blob.bin").read_bytes() == bytes(range(255, -1, -1))
+    assert (app / "added.txt").read_text() == "added\n"
+    assert (app / "built.txt").read_text() == "by each image\n"
+    assert not (app / "only-new.txt").exists()
+    assert os.access(app / "run.sh", os.X_OK)
+    assert sorted(p.name for p in (app / "build").iterdir()) == ["made"]
+    assert not docker.path("c2", "/dataforge/carry").exists()
+    assert docker.running == set()
+    assert docker.reserved == [0.5, 0.5]
+    assert pool.reserved_gb == 0.0
+
+
+def another_head(new: Path, app: Path) -> None:
+  _ = (new / "app" / "other.txt").write_text("other\n")
+  _ = git(new / "app", "add", "other.txt")
+  _ = git(new / "app", "commit", "--quiet", "--message", "two")
+
+
+def ignored_there(new: Path, app: Path) -> None:
+  # The session no longer ignores build/ and adds what the new image built.
+  _ = (app / ".gitignore").write_text("")
+  _ = (app / "build" / "made").write_text("by the session\n")
+
+
+@pytest.mark.parametrize("unlike", [another_head, ignored_there])
+def test_a_replace_that_cannot_carry_keeps_the_old_container(
+  tmp_path: Path, unlike: Callable[[Path, Path], None]
+) -> None:
+  found = images(tmp_path)
+  docker = GitDocker(tmp_path / "containers", found)
+  with swap_env(docker) as env:
+    env.start(None)
+    work(docker, "c1")
+    unlike(found["new:1"], docker.path("c1", "/app"))
+    env.stop()
+
+    with pytest.raises(RuntimeError):
+      env.replace("new:1", carry=["/app"])
+
+    assert (env.container, env.image) == ("c1", "old:1")
+    assert ["rm", "--force", "c2"] in docker.calls
+    assert not (tmp_path / "containers" / "c2").exists()
+    app = docker.path("c1", "/app")
+    assert (app / "kept.txt").read_text() == "two\n"
+    assert (app / "added.txt").read_text() == "added\n"
+    assert docker.running == set()
+
+
+def test_replace_waits_until_no_action_runs(tmp_path: Path) -> None:
+  docker = GitDocker(tmp_path / "containers", images(tmp_path))
+  with swap_env(docker) as env:
+    env.start(None)
+    with pytest.raises(RuntimeError, match="between actions"):
+      env.replace("new:1", carry=["/app"])
+    assert list(docker.created) == ["c1"]
+    env.stop()
 
 
 class CheckpointAgent:

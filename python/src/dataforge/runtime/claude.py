@@ -664,6 +664,13 @@ class Runner:
   has the session it resumes, such as one kept in a container since
   replaced, and that run's files are written over. `close` keeps a keyed
   session and `end` removes them all.
+
+  Each start runs in the container the `Docker` env has then, so a session
+  goes on under its ID, `--resume <id>`, in the one `Docker.replace` put in
+  its place when the dataset mounts Claude Code's config directory
+  (`$HOME/.claude`) from a directory the host made, the new container runs
+  as the same user ID, and the working directory keeps its path. `claude`
+  without that directory has lost the session.
   """
 
   def __init__(
