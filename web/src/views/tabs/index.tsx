@@ -76,7 +76,6 @@ export function TabView({
       </Note>
     );
   const part = tab.parts.find((p) => p.name === named) ?? tab.parts[0];
-  if (part === undefined) return null;
   const choices = versions.map((v) => ({ key: v.dir, title: v.dir }));
   const view = (
     <>

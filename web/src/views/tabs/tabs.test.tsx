@@ -284,7 +284,12 @@ const parted: Project = {
           file: "out/report.md",
           fields: [{ title: "Verdict", format: "text" }],
         },
-        { name: "prompt", title: "Prompt", file: "prompt.md", fields: [] },
+        {
+          name: "prompt",
+          title: "Prompt",
+          file: "prompt.md",
+          fields: [{ title: "Words", format: "number" }],
+        },
       ],
     },
   ],
@@ -297,7 +302,7 @@ const posts: TabVersions[] = [
       dir,
       parts: [
         { name: "report", fields: [field(`kept in ${dir}`)] },
-        { name: "prompt", fields: [] },
+        { name: "prompt", fields: [field(dir.length * 100)] },
       ],
     })),
   },
@@ -349,7 +354,13 @@ describe("a project's tab of several parts", () => {
       "page",
     );
     expect(screen.getByText("post/prompt.md")).toBeVisible();
-    expect(screen.queryByRole("region", { name: /fields$/ })).toBeNull();
+    const fields = within(
+      screen.getByRole("region", { name: "Prompt fields" }),
+    );
+    expect(fields.getByText("Words").nextElementSibling?.textContent).toBe(
+      "400",
+    );
+    expect(screen.queryByRole("region", { name: "Report fields" })).toBeNull();
   });
 
   it("opens the part the URL names, and the first for a name it has not", async () => {

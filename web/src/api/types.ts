@@ -16,6 +16,13 @@ export type Read = (typeof READS)[number];
 
 const FORMAT = z.enum(["text", "number", "usd", "duration", "time"]);
 
+const TAB_PART = z.looseObject({
+  name: z.string(),
+  title: z.string(),
+  file: z.string(),
+  fields: z.array(z.looseObject({ title: z.string(), format: FORMAT })),
+});
+
 export const project = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -57,16 +64,7 @@ export const project = z.looseObject({
         name: z.string(),
         title: z.string(),
         versions: z.array(z.string()),
-        parts: z.array(
-          z.looseObject({
-            name: z.string(),
-            title: z.string(),
-            file: z.string(),
-            fields: z.array(
-              z.looseObject({ title: z.string(), format: FORMAT }),
-            ),
-          }),
-        ),
+        parts: z.tuple([TAB_PART], TAB_PART),
       }),
     )
     .optional(),
