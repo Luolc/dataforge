@@ -142,6 +142,63 @@ describe("the Summary's Task card", () => {
   });
 });
 
+describe("the Deliverables of an attempt whose last run did not finish", () => {
+  const declared = {
+    ...sampleProject,
+    deliverables: [{ name: "task", kind: "files", title: "Task" }],
+  };
+  // raised: author done, then check raised; as this dataforge records it,
+  // with the task its first run made.
+  const made = {
+    name: "task",
+    kind: "files",
+    title: "Task",
+    state: "author",
+    output: "task",
+    visit: 1,
+    visit_index: 0,
+    path: "artifacts/author/1/task",
+    reason: null,
+  };
+
+  it("says which run did not finish and that they are what the runs before it made", () => {
+    show({ ...records.raised, deliverables: [made] }, declared);
+
+    expect(
+      screen.getByText(
+        "check · run 2 did not finish (Exception). The deliverables are what the runs before it made.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Task" })).toBeVisible();
+  });
+
+  it("says how an interrupted one ended", () => {
+    const [author, check] = records.raised.visits;
+    const visits = [must(author), { ...must(check), outcome: "interrupted" }];
+    show({ ...records.raised, visits, deliverables: [made] }, declared);
+
+    expect(
+      screen.getByText(/^check · run 2 did not finish \(Run interrupted\)\./),
+    ).toBeVisible();
+  });
+
+  it("says a record from an older dataforge keeps none", () => {
+    show("raised", declared);
+
+    expect(
+      screen.getByText(
+        "check · run 2 did not finish (Exception). Its record, from an older dataforge, keeps no deliverables.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("says nothing of it for an attempt that ended otherwise", () => {
+    show("exhausted", declared);
+
+    expect(screen.queryByText(/did not finish/)).toBeNull();
+  });
+});
+
 describe("an attempt's status", () => {
   it("is Exception when a state raised, else Not ended until it ends", () => {
     const { unmount } = show("raised");

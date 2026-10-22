@@ -30,7 +30,7 @@ import {
   statusOf,
   toneText,
 } from "../../../ui/status";
-import { declaredMissing } from "../../attempt/declared";
+import { declaredMissing, unfinished } from "../../attempt/declared";
 import { attemptHref } from "../../attempt/href";
 import { declared } from "../../kind";
 import { KindLine } from "../../registry";
@@ -257,8 +257,14 @@ function Deliverables({ project, attempt, record }: Props) {
       </Card>
     );
   if (deliverables.length === 0) return null;
+  const note = unfinished(project, record);
   return (
     <Card title="Deliverables" aside="What the attempt hands on" flush>
+      {note !== null && (
+        <p className="border-b border-line-subtle px-5 py-3 text-fg-2">
+          {note}
+        </p>
+      )}
       {/* The table scrolls on its own where the card is narrower than it. */}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
