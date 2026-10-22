@@ -68,6 +68,43 @@ const trial = (id: string) =>
   screen.getByRole("button", { name: new RegExp(`^${id}`) });
 
 describe("the trials view", () => {
+  it("names the run its trials came from, and a later run's files", () => {
+    const later = {
+      ...attempt,
+      deliverables: [
+        ...(attempt.deliverables ?? []),
+        {
+          name: "task",
+          kind: "files",
+          title: "Task",
+          state: "build",
+          output: "task",
+          visit: 2,
+          visit_index: 3,
+          path: "artifacts/build/2/task",
+          reason: null,
+        },
+      ],
+    };
+    render(
+      <TrialsView
+        project={project}
+        attempt="pass-at-k"
+        record={later}
+        deliverable={must(later.deliverables[0])}
+      />,
+    );
+
+    const from = screen.getByRole("link", { name: /· run 1$/ });
+    expect(from).toHaveAttribute(
+      "href",
+      "/sample/attempt?id=pass-at-k&tab=runs&run=0",
+    );
+    expect(from.closest("p")).toHaveTextContent(
+      /^From .* · run 1, before the Task, which is from build · run 4$/,
+    );
+  });
+
   it("lists the trials under the value and the visit's outcome", () => {
     show();
 

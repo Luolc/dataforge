@@ -31,11 +31,12 @@ const INTERRUPTED = "interrupted";
 
 /**
  * The engine's own outcomes that end an attempt with no transition, and how
- * each reads when the project file has no entry for it.
+ * each reads: always as a visit's outcome, and as an attempt's status when
+ * the project file has no entry for it.
  */
 const ENGINE_WORDS: Partial<Record<string, { label: string; tone: Tone }>> = {
   [RAISED]: { label: "Exception", tone: "bad" },
-  [INTERRUPTED]: { label: "Interrupted", tone: "warn" },
+  [INTERRUPTED]: { label: "Run interrupted", tone: "warn" },
 };
 
 /** Whether a visit's outcome is one the engine ends an attempt with. */
@@ -43,10 +44,10 @@ export const isEnding = (outcome: string | null | undefined): boolean =>
   outcome === RAISED || outcome === INTERRUPTED;
 
 /**
- * A word's label and tone. A word the project file has no entry for is
- * itself, neutral; but the engine's own words, raised and interrupted, read
- * as Exception, bad, and Interrupted, warn; and no status (null) is Not
- * ended, neutral.
+ * A status word's label and tone. A word the project file has no entry for
+ * is itself, neutral; but the engine's own words, raised and interrupted,
+ * read as Exception, bad, and Run interrupted, warn; and no status (null) is
+ * Not ended, neutral.
  */
 export function statusOf(
   project: Pick<Project, "statuses">,
@@ -108,16 +109,20 @@ export const viewerStatus = {
 
 /**
  * A visit's outcome: as statusOf, but No outcome when there is none and its
- * attempt has ended (design-viz.md section 4).
+ * attempt has ended, and the engine's own words as the viewer reads them
+ * whatever the project file says, as its entries are for attempts' statuses
+ * (design-viz.md section 4).
  */
 export function outcomeOf(
   project: Pick<Project, "statuses">,
   outcome: string | null,
   ended: boolean,
 ): { label: string; tone: Tone } {
-  return outcome === null && ended
-    ? viewerStatus.noOutcome
-    : statusOf(project, outcome);
+  if (outcome === null && ended) return viewerStatus.noOutcome;
+  return (
+    (outcome !== null ? ENGINE_WORDS[outcome] : undefined) ??
+    statusOf(project, outcome)
+  );
 }
 
 /** The label and tone of the listing's live (design-viz.md section 4). */
