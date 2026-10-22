@@ -29,6 +29,8 @@ from dataforge.curation.actions import (
   TrialResult,
   TrialRunner,
   Verdict,
+  write_device,
+  WriteLimit,
 )
 from dataforge.curation.deliverables import Deliverable, Source, Value
 from dataforge.curation.engine import (
@@ -126,8 +128,10 @@ __all__ = [
   "Verdict",
   "Version",
   "Visit",
+  "WriteLimit",
   "fan_out",
   "load",
   "mermaid",
   "summary_path",
+  "write_device",
 ]
