@@ -1385,6 +1385,7 @@ def test_trials_list_each_trial_with_its_id_trace_and_result(
       "output": f"trial-{i}",
       "path": path,
       "trace": trace if traced else None,
+      "source": None,
       "result": {
         "reward": reward,
         "rewards": {"reward": reward},
@@ -1462,10 +1463,41 @@ def test_a_running_visit_lists_the_trials_that_have_started(
     "output": "trial-1",
     "path": "artifacts/solve/1/trial-1",
     "trace": None,
+    "source": None,
     "result": None,
   }
   # Which trials run is for the deliverables only, not part of a visit.
   assert all("running" not in visit for visit in keys)
+
+
+def test_a_trial_s_source_reads_back_and_is_null_in_an_older_record(
+  tmp_path: Path,
+) -> None:
+  actions = Actions(trial_runner=NamedTrials())
+  root = tmp_path / "attempt"
+  source = root / "artifacts/solve/1/trial-0/task__0"
+
+  def solve(ctx: Context) -> Outcome:
+    _ = actions.trial(ctx, "trial-0", tmp_path, "oracle", Limits(1))
+    _ = actions.trial(ctx, "trial-1", tmp_path, "oracle", Limits(1), source)
+    return Outcome("done")
+
+  record = as_json(
+    Machine([Step("solve", solve, {"done": End("passed")})]).run(root)
+  )
+  path = ["visits", 0, "actions", 1, "trial", "source"]
+  read = Attempt.from_json(root, record)
+  assert [
+    action.trial and action.trial.source for action in read.visits[0].actions
+  ] == [None, source]
+  assert read.to_json() == record
+  older = Attempt.from_json(root, broken(record, path, KeyError))
+  trial = older.visits[0].actions[1].trial
+  assert trial is not None and trial.source is None
+  with pytest.raises(
+    RecordError, match=r"trial\.source: '\.\./x' is not inside"
+  ):
+    _ = Attempt.from_json(root, broken(record, path, "../x"))
 
 
 class OutputTrials:

@@ -2,7 +2,8 @@
 // tab, whether several of the kind stack or one is chosen from a menu, the
 // tab's count and one line on its card in the Summary.
 import { CircleAlert } from "lucide-react";
-import { type ComponentType, useState } from "react";
+import { type ComponentType } from "react";
+import { useSearchParams } from "react-router";
 
 import { useFileCount } from "../api/client";
 import type {
@@ -127,10 +128,25 @@ export function KindLine({ item, ...props }: ItemProps) {
   return <Line item={item} {...props} />;
 }
 
-/** A kind's tab: its deliverables stacked, those reached first, or one chosen from a menu. */
+/**
+ * A kind's tab: its deliverables stacked, those reached first, or one chosen
+ * from a menu, the one the page's `deliverable` names, else the leading one.
+ */
 export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
   const { View, stack } = kindOf(kind);
-  const [chosen, setChosen] = useState(() => leading(props.items)?.name);
+  const [query, setQuery] = useSearchParams();
+  const asked = props.items.find((d) => d.name === query.get("deliverable"));
+  const chosen = (asked ?? leading(props.items))?.name;
+  const setChosen = (name: string) => {
+    setQuery((before) => {
+      const next = new URLSearchParams(before);
+      next.set("deliverable", name);
+      // What else the page shows belongs to the deliverable it leaves.
+      next.delete("trial");
+      next.delete("file");
+      return next;
+    });
+  };
   const shown = stack
     ? reachedFirst(props.items)
     : props.items.filter((d) => d.name === chosen).slice(0, 1);

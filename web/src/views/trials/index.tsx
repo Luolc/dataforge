@@ -1,8 +1,10 @@
 // The trials view: a deliverable's trials on the left, headed by its value and
 // its visit's outcome; on the right the chosen trial's numbers, then its trace
-// in the session view, its diff and its tests, each in a tab.
+// in the session view, its diff and its tests, each in a tab. The chosen trial
+// is the page's `trial`, by its output, else the first.
 import { Tabs } from "radix-ui";
 import { type ReactNode, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 
 import type { Action, LiveInfo, Trial } from "../../api/types";
 import { SessionView } from "../../session";
@@ -12,11 +14,13 @@ import { duration, span, usd } from "../../ui/format";
 import { RunningIcon } from "../../ui/running";
 import { attemptStatus, toneGlyph, toneText } from "../../ui/status";
 import { StatusLabel } from "../../ui/status-mark";
+import { attemptHref } from "../attempt/href";
 import { DeliverableCard } from "../DeliverableCard";
 import { size, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
 import { RUNNING, trialStatus } from "./status";
 import { inTrial } from "./path";
+import { type Listed, sourceOf, trialName } from "./source";
 import { TrialTests } from "./tests";
 
 function isRunning(live: LiveInfo | null | undefined): boolean {
@@ -66,7 +70,16 @@ export default function TrialsView({
   live,
 }: DeliverableProps) {
   const trials = deliverable.trials ?? [];
-  const [chosen, setChosen] = useState(trials[0]?.output);
+  const [query, setQuery] = useSearchParams();
+  const chosen = query.get("trial");
+  const choose = (output: string) => {
+    setQuery((before) => {
+      const next = new URLSearchParams(before);
+      next.set("deliverable", deliverable.name);
+      next.set("trial", output);
+      return next;
+    });
+  };
   const [pane, setPane] = useState<Pane>("trace");
   if (deliverable.path === null) return <DeliverableCard item={deliverable} />;
   if (trials.length === 0)
@@ -75,7 +88,9 @@ export default function TrialsView({
     deliverable.visit_index === null
       ? undefined
       : record.visits[deliverable.visit_index];
-  const trial = trials.find((t) => t.output === chosen) ?? trials[0];
+  const found = trials.findIndex((t) => t.output === chosen);
+  const index = found === -1 ? 0 : found;
+  const trial = trials[index];
   const value = deliverable.value;
   const shown =
     typeof value?.value === "number" || typeof value?.value === "string"
@@ -106,19 +121,17 @@ export default function TrialsView({
             )}
           </div>
           <ul className="flex flex-col gap-0.5">
-            {trials.map((t) => (
+            {trials.map((t, i) => (
               <li key={t.output}>
                 <button
                   type="button"
                   aria-pressed={t.output === trial?.output}
                   onClick={() => {
-                    setChosen(t.output);
+                    choose(t.output);
                   }}
                   className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
                 >
-                  <span className="min-w-0 font-mono text-xs break-all">
-                    {t.id ?? t.output}
-                  </span>
+                  <span className="min-w-0">{trialName(i)}</span>
                   <TrialStatus trial={t} live={live} />
                 </button>
               </li>
@@ -129,12 +142,22 @@ export default function TrialsView({
           <TrialPane
             key={trial.output}
             trial={trial}
+            name={trialName(index)}
             live={live}
             action={
               visit === undefined ? undefined : actionOf(visit.actions, trial)
             }
             project={project}
             attempt={attempt}
+            source={
+              trial.source == null
+                ? undefined
+                : { path: trial.source, listed: sourceOf(record, trial.source) }
+            }
+            noTrace={
+              project.deliverables?.find((d) => d.name === deliverable.name)
+                ?.no_trace ?? null
+            }
             pane={pane}
             onPane={setPane}
           />
@@ -151,20 +174,35 @@ const PANES: { key: Pane; title: string }[] = [
   { key: "tests", title: "Tests" },
 ];
 
+/** A trial's source: its path, and the trial there as the record lists it. */
+interface Source {
+  path: string;
+  listed: Listed | null;
+}
+
 function TrialPane({
   trial,
+  name,
   live,
   action,
   project,
   attempt,
+  source,
+  noTrace,
   pane,
   onPane,
 }: {
   trial: Trial;
+  /** Its name, by its place in the list. */
+  name: string;
   live: LiveInfo | null | undefined;
   action: Action | undefined;
   project: DeliverableProps["project"];
   attempt: string;
+  /** The trial whose output this one judged again, if it judged one. */
+  source: Source | undefined;
+  /** The project's words for why a trial of the deliverable has no trace. */
+  noTrace: string | null;
   pane: Pane;
   onPane: (pane: Pane) => void;
 }) {
@@ -176,23 +214,45 @@ function TrialPane({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <dl className="flex flex-wrap gap-x-6 gap-y-2 rounded-panel border border-line bg-panel px-5 py-3">
+        <Field label="ID">
+          <span className="font-mono text-xs break-all">{trial.id ?? "—"}</span>
+        </Field>
         <Field label="Reward">
           {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
-        <Field label="Exception">
-          {trial.result === null ? "—" : (trial.result.exception ?? "None")}
-        </Field>
+        <Field label="Exception">{trial.result?.exception ?? "—"}</Field>
         <Field label="Duration">
           {seconds === null ? "—" : duration(seconds)}
         </Field>
         <Field label="Cost">
-          {action === undefined ? "—" : usd(action.cost_usd)}
+          {action === undefined ? (
+            "—"
+          ) : (
+            <>
+              {usd(action.cost_usd)}
+              {/* A runner that reports no cost reports 0. */}
+              {action.cost_usd === 0 && (
+                <span className="block text-xs text-fg-3">
+                  No cost reported.
+                </span>
+              )}
+            </>
+          )}
         </Field>
         <Field label="Trace format">
           <span className="font-mono text-xs">
             {trial.trace?.format ?? "—"}
           </span>
         </Field>
+        {source !== undefined && (
+          <Field label="Source trial">
+            <SourceName
+              project={project.id}
+              attempt={attempt}
+              source={source}
+            />
+          </Field>
+        )}
       </dl>
       <Tabs.Root
         value={pane}
@@ -220,7 +280,12 @@ function TrialPane({
           {trial.result === null ? (
             <Unfinished live={live} />
           ) : trial.trace === null ? (
-            <Note>This trial recorded no trace.</Note>
+            <NoTrace
+              project={project.id}
+              attempt={attempt}
+              source={source}
+              noTrace={noTrace}
+            />
           ) : (
             <SessionView
               project={project}
@@ -229,9 +294,7 @@ function TrialPane({
               format={trial.trace.format}
               badge={
                 <span className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-fg">
-                    {trial.id ?? trial.output}
-                  </span>
+                  <span className="text-sm font-medium text-fg">{name}</span>
                   <TrialStatus trial={trial} live={live} reward />
                 </span>
               }
@@ -260,6 +323,76 @@ function TrialPane({
           </Tabs.Content>
         )}
       </Tabs.Root>
+    </div>
+  );
+}
+
+/**
+ * A trial's source by its deliverable's title and its name, linking to it;
+ * its path when no deliverable of the record lists it.
+ */
+function SourceName({
+  project,
+  attempt,
+  source,
+}: {
+  project: string;
+  attempt: string;
+  source: Source;
+}) {
+  const { listed } = source;
+  if (listed === null) {
+    return (
+      <span className="font-mono text-xs break-all">
+        {source.path}{" "}
+        <span className="font-sans text-fg-3">(listed by no deliverable)</span>
+      </span>
+    );
+  }
+  return (
+    <Link
+      to={attemptHref(project, attempt, {
+        tab: listed.deliverable.kind,
+        deliverable: listed.deliverable.name,
+        trial: listed.trial.output,
+      })}
+      className="link hover:underline"
+    >
+      {listed.deliverable.title} · {trialName(listed.index)}
+    </Link>
+  );
+}
+
+/**
+ * Why a finished trial shows no trace: the project's words, when it has
+ * them, and the trial whose output it judged again, when it judged one.
+ */
+function NoTrace({
+  project,
+  attempt,
+  source,
+  noTrace,
+}: {
+  project: string;
+  attempt: string;
+  source: Source | undefined;
+  noTrace: string | null;
+}) {
+  return (
+    <div className="flex flex-col gap-2 p-6 text-fg-3">
+      <p>
+        {source === undefined
+          ? "This trial recorded no trace."
+          : "This trial recorded no trace of its own."}
+      </p>
+      {noTrace !== null && <p>{noTrace}</p>}
+      {source !== undefined && (
+        <p>
+          It judged again the output of{" "}
+          <SourceName project={project} attempt={attempt} source={source} />
+          {source.listed === null ? "." : ", whose trace is there."}
+        </p>
+      )}
     </div>
   );
 }
