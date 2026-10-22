@@ -54,12 +54,15 @@ class Outcome:
     last: With True, the state is never entered again.
     feedback: The variables of the state's feedback template; with None, the
       visit writes no feedback.
+    reason: Why the attempt ends, when the outcome's transition is an End:
+      the attempt's reason becomes "<state> visit <n>: <reason>".
   """
 
   name: str
   data: Data = field(default_factory=dict[str, object])
   last: bool = False
   feedback: Mapping[str, str] | None = None
+  reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -377,7 +380,8 @@ class Attempt:
   Attributes:
     root: The attempt's directory.
     status: How the attempt ended; None until it ends.
-    reason: Why it ended at a cap or a guard, if it did.
+    reason: Why it ended at a cap or a guard, if it did, or the reason of
+      the outcome whose End ended it (Outcome.reason), if that gave one.
     kept_visit: The index into visits of the marked visit the attempt kept, if
       any.
     visits: Its visits, in order.
@@ -1157,6 +1161,8 @@ class Machine:
       )
     if isinstance(transition, End):
       attempt.status = transition.status
+      if outcome.reason is not None:
+        attempt.reason = f"{state.name} visit {ctx.visit}: {outcome.reason}"
       return None
     record.mark = transition.mark
     if transition.end_on_last_visit and not self._reaches(

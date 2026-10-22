@@ -373,6 +373,7 @@ def test_a_review_whose_run_failed_again_on_its_retry_is_an_error(
     attempt = machine(state).run(tmp_path / str(len(shown)))
     assert attempt.status == "errored"
     assert attempt.visits[0].outcome == "error"
+    assert attempt.reason == f"rubric visit 1: {' '.join(shown)}"
     found = report(attempt)
     assert all(line in found for line in shown)
 

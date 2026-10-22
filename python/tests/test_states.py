@@ -295,6 +295,9 @@ def test_agent_state_gives_an_error_with_how_its_run_ended(
   )
   attempt = Machine([state]).run(tmp_path / "a")
   assert attempt.status == "errored"
+  assert attempt.reason == (
+    "author visit 1: the agent's run ended success, model: API Error: flagged"
+  )
   assert attempt.visits[0].data == {
     "ending": "success",
     "fixes": 0,

@@ -144,7 +144,8 @@ class AgentState(_ActionState):
   Outcomes: "ok" (the run ended well and its outputs, answer and validator,
   if any, pass), "failed" (they do not) or "error" (the run itself failed,
   so there is nothing to judge: an API error, a refusal, a timeout or the
-  session's own spend cap, say). Data: {"ending", "fixes", "cost_usd",
+  session's own spend cap, say; its reason gives the run's ending, fault and
+  error). Data: {"ending", "fixes", "cost_usd",
   "fault", "stop_reason", "error"}: the last run's ending, its fault, the
   model's stop reason and the error it ended on, as AgentRun has them, and
   cost_usd None when a run did not report its cost. On "failed" the
@@ -266,7 +267,7 @@ class AgentState(_ActionState):
     }
     last = self.last_if_unresumable and run is not None and not run.resumable
     if run is None or run.status != "ok":
-      return Outcome("error", data, last)
+      return Outcome("error", data, last, reason=_why(run))
     if result.ok:
       return Outcome("ok", data, last)
     check = result.validation
@@ -832,9 +833,10 @@ class RubricState(_ActionState):
   "### <name>"}; "error", with that feedback, where a review whose agent run
   failed, such as on a refusal, a timeout or no structured output, gives
   "<name> returned no verdicts (<how it ended>).", if one did, so there is
-  nothing to judge (judge_review). A review whose run failed is run once more
-  in the same visit, as retries chooses, and the reviews that gave verdicts
-  are not; the retry's answer is the call's. Data: each review's {"ending",
+  nothing to judge (judge_review), and those findings as its reason. A
+  review whose run failed is run once more in the same visit, as retries
+  chooses, and the reviews that gave verdicts are not; the retry's answer is
+  the call's. Data: each review's {"ending",
   "cost_usd", "passed", "failed", "verdicts", "fault", "error", "retried"},
   by name. Every visit, whatever its outcome, also writes the outputs
   RUBRIC_TABLE (rubric_table), RUBRIC_REPORT (rubric_report), which gives
@@ -1133,8 +1135,22 @@ class RubricState(_ActionState):
     if not failed:
       return self.renamed(Outcome("pass", data))
     details = "\n\n".join(f"### {j.name}\n\n{j.findings}" for j in failed)
-    name = "error" if any(j.errored for j in failed) else "fail"
-    return self.renamed(Outcome(name, data, feedback={"details": details}))
+    if errored := [j for j in failed if j.errored]:
+      why = " ".join(j.findings for j in errored)
+      return self.renamed(
+        Outcome("error", data, feedback={"details": details}, reason=why)
+      )
+    return self.renamed(Outcome("fail", data, feedback={"details": details}))
+
+
+def _why(run: AgentRun | None) -> str:
+  # Why an agent's run gave nothing to judge, as an attempt's reason.
+  if run is None:
+    return "the agent did not run"
+  why = f"the agent's run ended {run.ending}"
+  if run.fault is not None:
+    why += f", {run.fault}"
+  return why if run.error is None else f"{why}: {run.error}"
 
 
 def _errored(result: ActionResult) -> bool:
