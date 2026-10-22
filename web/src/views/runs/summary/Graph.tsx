@@ -31,6 +31,11 @@ const STEP = 1.25;
 const START = 1;
 /** Further than this, a pointer drags the graph instead of clicking. */
 const DRAG = 4;
+/**
+ * How many dashes of a pulse are laid over one another, all ending at its
+ * head, so that the part of it its tail token gives fades in as many steps.
+ */
+const TAIL = 12;
 
 interface View {
   k: number;
@@ -45,7 +50,9 @@ const clamp = (v: number, lo: number, hi: number) =>
  * The machine as laid out, in a frame that zooms and pans: transitions not
  * taken dashed, taken ones solid in the accent with their counts. Hovering or
  * focusing a state lights its edges and the states they join and dims the
- * rest; a state links to its last run.
+ * rest, and pulses run along the lit edges the attempt may still take or
+ * took, from the state each leaves to the one it goes to; a state links to
+ * its last run.
  */
 export function Graph({
   project,
@@ -290,15 +297,31 @@ export function Graph({
           >
             <path d="M0 0 L8 4 L0 8 z" fill="context-stroke" />
           </marker>
+          <marker
+            id={`${id}-head-lit`}
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="9"
+            markerHeight="9"
+            markerUnits="userSpaceOnUse"
+            orient="auto-start-reverse"
+          >
+            <path d="M0 0 L8 4 L0 8 z" fill="context-stroke" />
+          </marker>
         </defs>
         <g transform={`translate(${shown.x} ${shown.y}) scale(${shown.k})`}>
           {edges.map((edge) => (
             <EdgeView
               key={edge.key}
               edge={edge}
-              head={`url(#${id}-head)`}
+              head={`url(#${id}-head${lit(edge) ? "-lit" : ""})`}
               lit={lit(edge)}
               dim={active !== null && !lit(edge)}
+              // Once the attempt has ended, only what it took is left to
+              // show the way of; a stub names where it goes.
+              pulse={lit(edge) && !edge.stub && (edge.taken || !layout.ended)}
+              box={layout}
             />
           ))}
           {layout.nodes.map((node) => {
@@ -417,16 +440,20 @@ function EdgeView({
   head,
   lit,
   dim,
+  pulse,
+  box,
 }: {
   edge: Edge;
   head: string;
   lit: boolean;
   dim: boolean;
+  pulse: boolean;
+  box: { width: number; height: number };
 }) {
   const stroke = edge.taken
-    ? `stroke-accent ${lit ? "stroke-[2.5]" : "stroke-2"}`
+    ? `stroke-accent ${lit ? "[stroke-width:var(--stroke-lit)]" : "stroke-2"}`
     : lit
-      ? "stroke-fg stroke-[1.5] [stroke-dasharray:var(--dash-not-taken)]"
+      ? "stroke-fg [stroke-width:var(--stroke-lit-not-taken)] [stroke-dasharray:var(--dash-not-taken)]"
       : "stroke-icon stroke-1 [stroke-dasharray:var(--dash-not-taken)]";
   const { label } = edge;
   return (
@@ -438,6 +465,7 @@ function EdgeView({
       className={dim ? "opacity-[var(--opacity-idle)]" : ""}
     >
       <path d={edge.path} markerEnd={head} className={`fill-none ${stroke}`} />
+      {pulse && <Pulse d={edge.path} taken={edge.taken} box={box} />}
       <text x={label.x} y={label.y} className="text-xs">
         {label.parts.map((part, i, all) => (
           <tspan
@@ -460,6 +488,79 @@ function EdgeView({
       </text>
     </g>
   );
+}
+
+/**
+ * Pulses along a path, from its start to its end at the same speed on every
+ * edge: one leaves the start each period, so that a long edge has several
+ * on it at once. A mask that opens from the start at that speed keeps those
+ * of the pattern that have not left yet out of sight. When the reader asks
+ * for reduced motion, they stand along the whole path, their tails behind
+ * them.
+ */
+function Pulse({
+  d,
+  taken,
+  box,
+}: {
+  d: string;
+  taken: boolean;
+  box: { width: number; height: number };
+}) {
+  const id = useId();
+  // Room for a loop above the top card and the stroke beyond the sides.
+  const m = 64;
+  return (
+    <g aria-hidden className="pointer-events-none">
+      <mask
+        id={id}
+        maskUnits="userSpaceOnUse"
+        x={-m}
+        y={-m}
+        width={box.width + 2 * m}
+        height={box.height + 2 * m}
+        className="[mask-type:alpha]"
+      >
+        <path d={d} className="pulse-open fill-none stroke-fg stroke-[32]" />
+      </mask>
+      <g mask={`url(#${id})`}>
+        {taken && (
+          <g className="pulse-glow stroke-pulse-glow">
+            <Comet d={d} />
+          </g>
+        )}
+        <g
+          className={
+            taken
+              ? "stroke-pulse"
+              : "stroke-pulse-not-taken [--pulse-width:var(--pulse-width-not-taken)]"
+          }
+        >
+          <Comet d={d} />
+        </g>
+      </g>
+    </g>
+  );
+}
+
+/**
+ * A pulse's dashes, all ending at its head, each longer than the one before
+ * and fainter, so that together they fade evenly from the head to the tail.
+ */
+function Comet({ d }: { d: string }) {
+  return Array.from({ length: TAIL }, (_, i) => (
+    <path
+      key={i}
+      d={d}
+      className="pulse fill-none"
+      style={
+        {
+          "--pulse-dash": `calc(var(--pulse-length) * (1 - var(--pulse-tail) * ${String((TAIL - 1 - i) / TAIL)}))`,
+          opacity: 1 / (i + 1),
+        } as React.CSSProperties
+      }
+    />
+  ));
 }
 
 /** A state's title, status, runs and time, as a screen reader reads it. */
