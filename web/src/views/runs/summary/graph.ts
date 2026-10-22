@@ -1,10 +1,13 @@
 // The layout of the machine's graph and the transitions an attempt took. The
 // states, then the end, are cards in layers from top to bottom (layered.ts),
 // in the graph's order where the transitions allow; an edge against that
-// order runs bottom to top. Each edge leaves a card at a port of its own on
-// its bottom and reaches one at a port on its top, its label beside the card
-// it leaves; an edge to its own state is a loop beside the card's right
-// side, its label right of the loop.
+// order runs bottom to top. Each edge leaves and reaches a card at a port of
+// its own: an edge ahead from the bottom of the card it leaves to the top of
+// the one it goes to, an edge back from the top to the bottom; its label is
+// beside the card it leaves. An edge to its own state is a loop beside the
+// card's right side, its label right of the loop. A transition not taken
+// back or to the end, between two states that both ran, is a stub out of
+// the card it leaves, its label naming where it goes.
 
 import type { AttemptRecord, Current, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
@@ -87,6 +90,8 @@ interface Node {
 interface LabelPart {
   outcome: string;
   taken: number;
+  /** The title of the state a stub's transition goes to; null for none. */
+  to: string | null;
 }
 
 export interface Edge {
@@ -95,6 +100,8 @@ export interface Edge {
   to: string;
   path: string;
   taken: boolean;
+  /** Whether it is drawn as a stub, its label naming where it goes. */
+  stub: boolean;
   /** The parts one a line from x, the last line's baseline at y. */
   label: {
     x: number;
@@ -260,8 +267,31 @@ export function layout(
     group.parts.push({
       outcome: e.outcome,
       taken: taken.get(`${e.from}\0${e.outcome}`) ?? 0,
+      to: null,
     });
     groups.set(key, group);
+  }
+  // The transitions not taken back against the graph's order or to the
+  // end, as stubs; a state that never ran keeps every line it has, so that
+  // it stays joined to the rest of the graph.
+  const ran = (key: string) =>
+    key === END || nodes.some((n) => n.key === key && !n.idle);
+  const stubbed = new Set(
+    [...groups.entries()]
+      .filter(
+        ([, g]) =>
+          g.from !== g.to &&
+          g.parts.every((p) => p.taken === 0) &&
+          (g.to === END || order.indexOf(g.to) < order.indexOf(g.from)) &&
+          ran(g.from) &&
+          ran(g.to),
+      )
+      .map(([key]) => key),
+  );
+  for (const key of stubbed) {
+    const g = must(groups.get(key));
+    const title = g.to === END ? "End" : stateTitle(project, g.to);
+    g.parts = g.parts.map((p) => ({ ...p, to: title }));
   }
 
   // A card's title breaks into lines at its width; the card is tall enough
@@ -293,6 +323,7 @@ export function layout(
       key,
       from: g.from,
       to: g.to,
+      stub: stubbed.has(key),
       label: { width: labelWidth(g.parts), height: g.parts.length * LINE },
     })),
   );
@@ -306,7 +337,13 @@ export function layout(
 
   const edges = [...groups.entries()].map(([key, g]): Edge => {
     const on = g.parts.some((p) => p.taken > 0);
-    const common = { key, from: g.from, to: g.to, taken: on };
+    const common = {
+      key,
+      from: g.from,
+      to: g.to,
+      taken: on,
+      stub: stubbed.has(key),
+    };
     if (g.from === g.to) {
       // A loop beside the card's right side, its label right of it.
       const node = box(g.from);
@@ -378,7 +415,9 @@ function labelWidth(parts: LabelPart[]): number {
     0,
     ...parts.map((p) =>
       Math.ceil(
-        (p.outcome.length + (p.taken > 0 ? 3 + String(p.taken).length : 0)) *
+        (p.outcome.length +
+          (p.taken > 0 ? 3 + String(p.taken).length : 0) +
+          (p.to === null ? 0 : 3 + p.to.length)) *
           LABEL_CHAR,
       ),
     ),

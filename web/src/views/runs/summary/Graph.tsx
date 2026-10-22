@@ -426,6 +426,7 @@ function EdgeView({
     <g
       data-edge={edge.key}
       data-taken={edge.taken}
+      data-stub={edge.stub}
       data-lit={lit}
       className={dim ? "opacity-[var(--opacity-idle)]" : ""}
     >
@@ -446,6 +447,7 @@ function EdgeView({
           >
             {part.outcome}
             {part.taken > 0 && ` ×${part.taken}`}
+            {part.to !== null && ` → ${part.to}`}
           </tspan>
         ))}
       </text>

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
 import tangle from "../../../../fixtures/graph/attempts/batch-1/task-0303/record.json";
+import rollout from "../../../../fixtures/graph/attempts/batch-1/task-0304/record.json";
 import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
   inReview,
@@ -45,17 +46,90 @@ describe("the graph", () => {
 
     expect(edge("author", "check").taken).toBe(true);
     expect(edge("author", "check").label.parts).toEqual([
-      { outcome: "done", taken: 2 },
+      { outcome: "done", taken: 2, to: null },
     ]);
     expect(edge("review", "author").taken).toBe(false);
     expect(edge("author", END).taken).toBe(false);
     expect(edge("solve", END).taken).toBe(true);
     // Every outcome is named, the taken one with its count.
     expect(edge("solve", END).label.parts).toEqual([
-      { outcome: "in_range", taken: 1 },
-      { outcome: "all_solved", taken: 0 },
-      { outcome: "none_solved", taken: 0 },
+      { outcome: "in_range", taken: 1, to: null },
+      { outcome: "all_solved", taken: 0, to: null },
+      { outcome: "none_solved", taken: 0, to: null },
     ]);
+  });
+
+  it("draws a transition not taken back or to the end, between states that ran, as a stub naming where it goes", () => {
+    const drawn = must(layout(records.passed, sampleProject));
+    const edge = (from: string, to: string) =>
+      must(drawn.edges.find((e) => e.key === `${from}\0${to}`));
+
+    // Not taken, back to a state before it, both ran.
+    expect(edge("review", "author")).toMatchObject({
+      stub: true,
+      taken: false,
+    });
+    expect(edge("review", "author").label.parts).toEqual([
+      { outcome: "fail", taken: 0, to: "author" },
+    ]);
+    // Not taken, to the end.
+    expect(edge("author", END)).toMatchObject({ stub: true, taken: false });
+    expect(must(edge("author", END).label.parts[0]).to).toBe("End");
+    // Taken, back or to the end: drawn all the way.
+    expect(edge("check", "author")).toMatchObject({ stub: false, taken: true });
+    expect(edge("solve", END)).toMatchObject({ stub: false, taken: true });
+    // Ahead to another state, taken or not: drawn all the way.
+    expect(edge("author", "check").stub).toBe(false);
+    const ahead = must(
+      must(layout(record.parse(rollout), sampleProject)).edges.find(
+        (e) => e.key === "unit\0stage",
+      ),
+    );
+    expect(ahead).toMatchObject({ stub: false, taken: false });
+    expect(drawn.edges.filter((e) => e.stub).map((e) => e.key)).toEqual([
+      `author\0${END}`,
+      `review\0author`,
+    ]);
+  });
+
+  it("draws every transition of a state that never ran all the way", () => {
+    const drawn = must(layout(record.parse(rollout), sampleProject));
+    const stub = (from: string, to: string) =>
+      must(drawn.edges.find((e) => e.key === `${from}\0${to}`)).stub;
+    // Back and not taken: a stub between two states that ran, not out of
+    // one that never ran.
+    expect(stub("compile", "scaffold")).toBe(true);
+    expect(stub("rollback", "outline")).toBe(false);
+    expect(stub("archive", "verify")).toBe(false);
+    expect(stub("rollback", END)).toBe(false);
+
+    // The seeded machines, each walked, so that some states ran and some
+    // did not.
+    let touched = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const drawn = must(
+        layout(machine(1200000 + seed, 12, 5, true), sampleProject),
+      );
+      const idle = new Set(
+        drawn.nodes.filter((n) => n.idle && n.key !== END).map((n) => n.key),
+      );
+      for (const e of drawn.edges) {
+        if (e.from === e.to || !(idle.has(e.from) || idle.has(e.to))) continue;
+        touched++;
+        // Its arrow stops 3 short of the top or the bottom of its target.
+        const to = must(drawn.nodes.find((n) => n.key === e.to));
+        const end = must(
+          [...e.path.matchAll(/L\s*(-?[\d.]+)\s+(-?[\d.]+)/g)].at(-1),
+        );
+        const [x, y] = [Number(end[1]), Number(end[2])];
+
+        expect(e.stub).toBe(false);
+        expect(x).toBeGreaterThanOrEqual(to.x);
+        expect(x).toBeLessThanOrEqual(to.x + to.width);
+        expect([to.y - 3, to.y + to.height + 3]).toContain(y);
+      }
+    }
+    expect(touched).toBeGreaterThan(0);
   });
 
   it("marks states not run and the end by the attempt's status", () => {
@@ -168,7 +242,8 @@ function shapesOf(path: string) {
 function labelBox(edge: Edge): Rect {
   const { label } = edge;
   const lines = label.parts.map(
-    (p) => `${p.outcome}${p.taken > 0 ? ` ×${String(p.taken)}` : ""}`,
+    (p) =>
+      `${p.outcome}${p.taken > 0 ? ` ×${String(p.taken)}` : ""}${p.to === null ? "" : ` → ${p.to}`}`,
   );
   const w = Math.max(...lines.map((l) => l.length)) * 7;
   const x0 = label.x;
@@ -369,13 +444,13 @@ const long = {
 describe("the layout's shapes", () => {
   it("keep loops, labels and edges out of each other's way", () => {
     const found = Object.fromEntries(
-      Object.entries({ busy, early, tangle }).map(([name, json]) => [
+      Object.entries({ busy, early, tangle, rollout }).map(([name, json]) => [
         name,
         clashes(must(layout(record.parse(json), sampleProject))),
       ]),
     );
 
-    expect(found).toEqual({ busy: [], early: [], tangle: [] });
+    expect(found).toEqual({ busy: [], early: [], tangle: [], rollout: [] });
   });
 
   it("make each card as tall as its text and as wide as its busiest side needs", () => {

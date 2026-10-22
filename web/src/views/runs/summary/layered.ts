@@ -7,7 +7,8 @@
 // 2. Each box gets a rank, as near the boxes it joins as the edges allow;
 //    ranks are every other layer, and the layers between hold the labels.
 // 3. An edge across more than one layer gets a dummy in each layer it
-//    crosses, its label's dummy in the layer next to the box it leaves.
+//    crosses, its label's dummy in the layer next to the box it leaves. A
+//    stub gets only that dummy, its label after the stub's end on its line.
 // 4. Sweeps by barycentre order each layer, from the boxes' order, keeping
 //    the order with the fewest crossings; each layer starts from the bottom
 //    up, so that, turned, the boxes read from left to right.
@@ -48,6 +49,11 @@ export interface Link {
   from: string;
   to: string;
   label: { width: number; height: number };
+  /**
+   * Whether it is drawn only as a stub out of the box it leaves into the
+   * next layer, its label after the stub's end, and not to the other box.
+   */
+  stub?: boolean;
 }
 
 interface Placed {
@@ -95,12 +101,15 @@ const MIN_CHANNEL = 28;
 const SWEEPS = 24;
 /** How far an arrow's end stops short of the box it reaches. */
 const ARROW = 3;
+/** How far a stub's label keeps from the stub's end. */
+const STUB_GAP = 6;
 
-/** A link as an edge of the acyclic graph, from box u to box v. */
+/** A link as an edge of the acyclic graph, from box u to box v; v -1 for a stub. */
 interface Arc {
   u: number;
   v: number;
   back: boolean;
+  stub: boolean;
   label: { width: number; height: number };
 }
 
@@ -110,6 +119,8 @@ interface Element {
   box: Across | null;
   /** A dummy's label; null for none. */
   label: { width: number; height: number } | null;
+  /** Whether it is the end of a stub, its label on its line. */
+  stub: boolean;
   width: number;
   up: number;
   down: number;
@@ -162,7 +173,13 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
     label: { width: l.label.height, height: l.label.width },
   }));
   const arcs = acyclic(across, turned);
-  const graph = build(across, arcs, rank(across.length, arcs));
+  // A stub's link counts for the boxes' ranks as if drawn all the way, so
+  // that stubs change only what is drawn, not where the boxes sit.
+  const whole = acyclic(
+    across,
+    turned.map((l) => ({ ...l, stub: false })),
+  );
+  const graph = build(across, arcs, rank(across.length, whole));
   for (const layer of graph.layers) layer.reverse();
   order(graph);
   const sides = portSides(graph);
@@ -223,11 +240,13 @@ function acyclic(boxes: Across[], links: Link[]): Arc[] {
   };
   return links.map((l) => {
     const f = at(l.from);
+    if (l.stub === true)
+      return { u: f, v: -1, back: false, stub: true, label: l.label };
     const t = at(l.to);
     if (f === t) throw new Error(`${l.key} loops`);
     return f < t
-      ? { u: f, v: t, back: false, label: l.label }
-      : { u: t, v: f, back: true, label: l.label };
+      ? { u: f, v: t, back: false, stub: false, label: l.label }
+      : { u: t, v: f, back: true, stub: false, label: l.label };
   });
 }
 
@@ -268,14 +287,24 @@ function build(boxes: Across[], arcs: Arc[], ranks: number[]): Graph {
     layer: number,
     box: Across | null,
     label: Element["label"],
+    stub = false,
   ): Element => {
     const el: Element = {
       layer,
       box,
       label,
-      width: box ? box.width : (label?.width ?? 0),
-      up: box ? box.height / 2 + box.above : label ? label.height + LIFT : 0,
-      down: box ? box.height / 2 : 0,
+      stub,
+      width: box
+        ? box.width
+        : (label?.width ?? 0) + (stub ? ARROW + STUB_GAP : 0),
+      up: box
+        ? box.height / 2 + box.above
+        : label
+          ? stub
+            ? label.height / 2
+            : label.height + LIFT
+          : 0,
+      down: box ? box.height / 2 : stub && label ? label.height / 2 : 0,
       y: 0,
       pos: 0,
       ins: [],
@@ -286,6 +315,10 @@ function build(boxes: Across[], arcs: Arc[], ranks: number[]): Graph {
   };
   const nodes = boxes.map((b, i) => make(2 * (ranks[i] ?? 0), b, null));
   const chains = arcs.map((e) => {
+    if (e.stub) {
+      const from = must(nodes[e.u]);
+      return [from, make(from.layer + 1, null, e.label, true)];
+    }
     const from = must(nodes[e.u]);
     const to = must(nodes[e.v]);
     // The label sits next to the box the link leaves.
@@ -303,7 +336,7 @@ function build(boxes: Across[], arcs: Arc[], ranks: number[]): Graph {
   );
   const segments = pieces.flat();
   const layers: Element[][] = Array.from(
-    { length: 2 * Math.max(0, ...ranks) + 1 },
+    { length: Math.max(0, ...elements.map((el) => el.layer)) + 1 },
     () => [],
   );
   for (const el of elements) layers[el.layer]?.push(el);
@@ -670,12 +703,19 @@ function route(links: Link[], arcs: Arc[], graph: Graph): Drawing {
       points,
       ports,
       back: arc.back,
-      label: {
-        x: arc.back ? lx + lw - label.width : lx,
-        y: dummy.y - LIFT - label.height,
-        width: label.width,
-        height: label.height,
-      },
+      label: dummy.stub
+        ? {
+            x: lx + STUB_GAP,
+            y: dummy.y - label.height / 2,
+            width: label.width,
+            height: label.height,
+          }
+        : {
+            x: arc.back ? lx + lw - label.width : lx,
+            y: dummy.y - LIFT - label.height,
+            width: label.width,
+            height: label.height,
+          },
     });
   });
 

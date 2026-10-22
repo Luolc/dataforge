@@ -11,7 +11,7 @@ import { must, sampleProject } from "../../../../fixtures/sample";
 import { type Project, record } from "../../../api/types";
 import { TEMPLATES } from "../../../ui/template";
 import { Graph } from "./Graph";
-import { type Layout, layout } from "./graph";
+import { END, type Layout, layout } from "./graph";
 
 // As fixtures/graph/project.yaml, as /api/projects would serve it.
 const project: Project = {
@@ -106,6 +106,38 @@ describe("the machine's graph", () => {
     fireEvent.pointerLeave(node("check"));
     expect(lit(edge("check", "review"))).toBe("false");
     expect(node("build").innerHTML).not.toContain(
+      "opacity-[var(--opacity-idle)]",
+    );
+  });
+
+  it("lights a stub with the state it leaves and the state it names", () => {
+    const { graph, edge, node } = show(busy);
+    // An edge's key is its two ends with a NUL between; the end's own key
+    // starts with one.
+    const stubs = [...graph.querySelectorAll('[data-stub="true"]')].map(
+      (g): [string, string] => {
+        const key = must(g.getAttribute("data-edge"));
+        const i = key.indexOf("\0");
+        return [key.slice(0, i), key.slice(i + 1)];
+      },
+    );
+    // A stub back to another state, and a state at neither of its ends.
+    const [from, to] = must(stubs.find(([, t]) => t !== END));
+    const other = must(
+      busy.graph.states
+        .map((st) => st.name)
+        .find((k) => k !== from && k !== to),
+    );
+
+    fireEvent.pointerEnter(node(to));
+    expect(lit(edge(from, to))).toBe("true");
+    fireEvent.pointerLeave(node(to));
+    fireEvent.pointerEnter(node(from));
+    expect(lit(edge(from, to))).toBe("true");
+    fireEvent.pointerLeave(node(from));
+    fireEvent.pointerEnter(node(other));
+    expect(lit(edge(from, to))).toBe("false");
+    expect(edge(from, to).getAttribute("class")).toContain(
       "opacity-[var(--opacity-idle)]",
     );
   });
