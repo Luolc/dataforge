@@ -7,6 +7,7 @@ import {
   type Project,
   record,
 } from "../src/api/types";
+import type { Measure } from "../src/views/runs/summary/measure";
 import passed from "./attempts/batch-1/task-0001/record.json";
 import tooEasy from "./attempts/batch-1/task-0002/record.json";
 import exhausted from "./attempts/batch-1/task-0003/record.json";
@@ -28,6 +29,24 @@ export const sampleProject: Project = {
   columns: [],
   session: { thinking: "collapsed" },
 };
+
+/**
+ * A measure of a card's text for tests, near Mona Sans: a character 8.2 wide
+ * in a title and 7 in the lines under it, and the widest letters wider.
+ */
+export const measured: Measure = (text, font) =>
+  Array.from(text).reduce(
+    (width, ch) =>
+      width +
+      (/[MWmŒÆ@]/.test(ch)
+        ? font === "title"
+          ? 15
+          : 12.7
+        : font === "title"
+          ? 8.2
+          : 7),
+    0,
+  );
 
 /** value, or a thrown error when it is missing, for tests. */
 export function must<T>(value: T | null | undefined): T {

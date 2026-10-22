@@ -1,0 +1,51 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.1.0",
+  "results": {
+    "tool": {
+      "name": "testrunner"
+    },
+    "summary": {
+      "tests": 3,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 1,
+      "pending": 0,
+      "other": 0,
+      "start": 1772442000000,
+      "stop": 1772442004210
+    },
+    "tests": [
+      {
+        "name": "src/fold.test.js > fold > keeps a flat document",
+        "status": "passed",
+        "duration": 6,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::src/fold.test.js > fold > keeps a flat document",
+          "runner": "vitest"
+        }
+      },
+      {
+        "name": "src/fold.test.js > fold > folds a nested document",
+        "status": "passed",
+        "duration": 11,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::src/fold.test.js > fold > folds a nested document",
+          "runner": "vitest"
+        }
+      },
+      {
+        "name": "src/scan.test.js > scan > reads a number",
+        "status": "skipped",
+        "duration": 0,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::src/scan.test.js > scan > reads a number",
+          "runner": "vitest"
+        }
+      }
+    ]
+  }
+}

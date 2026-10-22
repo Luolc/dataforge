@@ -1,0 +1,11 @@
+{
+  "results": {
+    "tests": [
+      {
+        "name": "tests/test_fold.py::test_fold_case_1",
+        "status": "ok",
+        "duration": 4
+      }
+    ]
+  }
+}
