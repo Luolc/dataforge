@@ -19,6 +19,7 @@ import {
   CARD_WIDTH,
   type Edge,
   END,
+  labelLine,
   type Layout,
   layout,
   LINE,
@@ -51,16 +52,55 @@ describe("the graph", () => {
 
     expect(edge("author", "check").taken).toBe(true);
     expect(edge("author", "check").label.parts).toEqual([
-      { outcome: "done", taken: 2, to: null },
+      { outcome: "done", label: "done", taken: 2, to: null },
     ]);
     expect(edge("review", "author").taken).toBe(false);
     expect(edge("author", END).taken).toBe(false);
     expect(edge("solve", END).taken).toBe(true);
     // Every outcome is named, the taken one with its count.
     expect(edge("solve", END).label.parts).toEqual([
-      { outcome: "in_range", taken: 1, to: null },
-      { outcome: "all_solved", taken: 0, to: null },
-      { outcome: "none_solved", taken: 0, to: null },
+      { outcome: "in_range", label: "in_range", taken: 1, to: null },
+      { outcome: "all_solved", label: "all_solved", taken: 0, to: null },
+      { outcome: "none_solved", label: "none_solved", taken: 0, to: null },
+    ]);
+  });
+
+  it("says a state's runs recorded no time when none had an action, not 0s", () => {
+    const [author, check] = records.raised.visits;
+    const bare = { ...must(check), actions: [] };
+    const node = (visits: AttemptRecord["visits"]) =>
+      must(
+        must(layout({ ...records.raised, visits }, sampleProject)).nodes.find(
+          (n) => n.key === "check",
+        ),
+      );
+
+    expect(node([must(author), bare]).time).toBe("no action recorded");
+    expect(node([must(author), bare]).under.join(" ")).not.toMatch(/0s/);
+    // A run that has a time gives the state's, the other adding nothing.
+    const timed = node([must(author), must(check), must(author), bare]);
+    expect(timed.sub).toBe("2 runs");
+    expect(timed.time).toBe(
+      `${must(node([must(author), must(check)]).time)} in all`,
+    );
+  });
+
+  it("names each outcome on an edge by the project's label, else by itself", () => {
+    const project = {
+      ...sampleProject,
+      statuses: {
+        ...sampleProject.statuses,
+        in_range: { label: "In range", tone: "good" as const },
+        all_solved: { label: "All solved", tone: "warn" as const },
+      },
+    };
+    const drawn = must(layout(records.passed, project));
+    const solve = must(drawn.edges.find((e) => e.key === `solve\0${END}`));
+
+    expect(solve.label.parts.map(labelLine)).toEqual([
+      "In range ×1",
+      "All solved",
+      "none_solved",
     ]);
   });
 
@@ -75,7 +115,7 @@ describe("the graph", () => {
       taken: false,
     });
     expect(edge("review", "author").label.parts).toEqual([
-      { outcome: "fail", taken: 0, to: "author" },
+      { outcome: "fail", label: "Fail", taken: 0, to: "author" },
     ]);
     // Not taken, to the end.
     expect(edge("author", END)).toMatchObject({ stub: true, taken: false });
@@ -243,18 +283,17 @@ function shapesOf(path: string) {
   return { segments, curves };
 }
 
-/** A label's box: 7 a character, 14 a line, its last line's baseline at y. */
+/**
+ * A label's box, as wide as its widest line measured as the layouts here
+ * measure it (widest), 14 a line, its last line's baseline at y.
+ */
 function labelBox(edge: Edge): Rect {
   const { label } = edge;
-  const lines = label.parts.map(
-    (p) =>
-      `${p.outcome}${p.taken > 0 ? ` ×${String(p.taken)}` : ""}${p.to === null ? "" : ` → ${p.to}`}`,
-  );
-  const w = Math.max(...lines.map((l) => l.length)) * 7;
+  const w = Math.max(...label.parts.map((p) => widest(labelLine(p), "label")));
   const x0 = label.x;
   return {
     x0,
-    y0: label.y - 10 - (lines.length - 1) * 14,
+    y0: label.y - 10 - (label.parts.length - 1) * 14,
     x1: x0 + w,
     y1: label.y + 3,
   };
@@ -452,6 +491,33 @@ describe("the layout's shapes", () => {
       Object.entries({ busy, early, tangle, rollout }).map(([name, json]) => [
         name,
         clashes(must(layout(record.parse(json), sampleProject))),
+      ]),
+    );
+
+    expect(found).toEqual({ busy: [], early: [], tangle: [], rollout: [] });
+  });
+
+  it("keep each label as wide as the project's label of its outcome", () => {
+    // Every outcome of these records labelled far wider than its name.
+    const outcomes = Object.values({ busy, early, tangle, rollout }).flatMap(
+      (json) => record.parse(json).graph?.edges.map((e) => e.outcome) ?? [],
+    );
+    const project = {
+      ...sampleProject,
+      statuses: Object.fromEntries(
+        outcomes.map((o) => [
+          o,
+          {
+            label: `Golden swapped for the best ${o}`,
+            tone: "neutral" as const,
+          },
+        ]),
+      ),
+    };
+    const found = Object.fromEntries(
+      Object.entries({ busy, early, tangle, rollout }).map(([name, json]) => [
+        name,
+        clashes(must(layout(record.parse(json), project))),
       ]),
     );
 
