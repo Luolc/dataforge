@@ -485,6 +485,9 @@ _DIFF = (
 
 _OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
+_GITLINK = "160000"
+"""The mode git gives a repository inside a tree, as `--raw` prints it."""
+
 CONTAINER_STORAGE = Path("/var/lib/containerd")
 """Where containerd keeps its snapshots, which hold the writable layers of
 Docker's containers when Docker stores its images in containerd."""
@@ -929,9 +932,12 @@ class Docker:
     differs or a change does not apply, such as a file the diff adds that git
     ignores in the new tree, it removes the new container, keeps the old one
     as this env's and raises, so no change is lost; else it removes the old
-    one. The two run one at a time, only for git
-    and the copies, without pre_start and post_start, and with memory_gb
-    reserved from pool. An env with no container yet only takes the image.
+    one. A git repository inside a tree, such as a submodule, whose files or
+    commit differ from `HEAD` makes it raise before it creates the new one,
+    since a diff holds only that repository's commit. The two run one at a
+    time, only for git and the copies, without pre_start and post_start, and
+    with memory_gb reserved from pool. An env with no container yet only
+    takes the image.
 
     Args:
       image: The new container's image.
@@ -942,7 +948,8 @@ class Docker:
     Raises:
       RuntimeError: When an action runs in the env, a docker or git command
         fails, such as on a path of carry that is not the top of a work tree,
-        or a tree's `HEAD` differs between the two containers.
+        a tree's `HEAD` differs between the two containers, or a repository
+        inside a tree differs from `HEAD`.
     """  # noqa: DOC503
     with self._lock:
       if self._users:
@@ -989,6 +996,7 @@ class Docker:
           ["git", "diff", *_DIFF, f"--output={patch}", "HEAD"],
         ):
           _ = self._in(container, argv, workdir=tree, env=index)
+        self._no_repositories(container, tree, index)
         local = into / f"{number}.patch"
         _ = self._docker(["cp", f"{container}:{patch}", str(local)])
         if not stat.S_ISREG(local.lstat().st_mode):
@@ -1029,6 +1037,26 @@ class Docker:
         _ = self._in(container, apply, workdir=tree)
     _ = self._in(container, ["rm", "-rf", _CARRY], root=True)
     _ = self._docker(["stop", container])
+
+  def _no_repositories(
+    self, container: str, tree: str, index: Mapping[str, str]
+  ) -> None:
+    # A repository inside the tree, a submodule or one the session made, is
+    # one line of the diff, its commit, and none of its files; so one that
+    # differs from HEAD, its files or commit, is refused.
+    argv = [
+      "git",
+      "diff",
+      "--raw",
+      "--no-renames",
+      "--ignore-submodules=none",
+      "HEAD",
+    ]
+    for line in self._in(container, argv, workdir=tree, env=index).split("\n"):
+      modes, _, path = line.partition("\t")
+      if line.startswith(":") and _GITLINK in modes.split()[:2]:
+        why = "a git repository inside the tree differs from HEAD"
+        raise RuntimeError(f"{tree}: {why}, which a diff cannot carry: {path}")
 
   def _head(self, container: str, tree: str) -> str:
     # The tree of HEAD in the work tree whose top is tree.
