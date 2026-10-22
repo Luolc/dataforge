@@ -6,8 +6,8 @@
 
 import { useEffect, useState } from "react";
 
-/** A card's title, and the lines under it. */
-export type Font = "title" | "sub";
+/** A card's title, the lines under it, and a line of an edge's label. */
+export type Font = "title" | "sub" | "label";
 
 /** How wide a text is drawn in a font, in px. */
 export type Measure = (text: string, font: Font) => number;
@@ -15,15 +15,17 @@ export type Measure = (text: string, font: Font) => number;
 /**
  * The theme's tokens of each font's weight and size, as `Graph.tsx` draws
  * them: a title `text-md font-semibold`, the lines under it `text-xs` in
- * the page's own weight.
+ * the page's own weight, and an edge's label `text-xs`, semibold where the
+ * attempt took it, as wide as it is semibold.
  */
 const TOKENS: Record<Font, [weight: string, size: string]> = {
   title: ["--font-weight-semibold", "--text-md"],
   sub: ["--font-weight-normal", "--text-xs"],
+  label: ["--font-weight-semibold", "--text-xs"],
 };
 
 /** The widest a character of each font is drawn (Œ in Mona Sans). */
-const WIDEST: Record<Font, number> = { title: 15.1, sub: 12.8 };
+const WIDEST: Record<Font, number> = { title: 15.1, sub: 12.8, label: 13 };
 
 /** Every character as wide as the widest of its font. */
 export const widest: Measure = (text, font) =>
@@ -40,13 +42,14 @@ export function canvasMeasure(): Measure {
   if (context === null) return widest;
   const style = getComputedStyle(document.documentElement);
   const token = (name: string) => style.getPropertyValue(name).trim();
-  const names = ["--font-sans", ...TOKENS.title, ...TOKENS.sub];
+  const names = ["--font-sans", ...Object.values(TOKENS).flat()];
   if (names.some((name) => token(name) === "")) return widest;
   const fontOf = (font: Font) =>
     `${TOKENS[font].map(token).join(" ")} ${token("--font-sans")}`;
   const fonts: Record<Font, string> = {
     title: fontOf("title"),
     sub: fontOf("sub"),
+    label: fontOf("label"),
   };
   const seen = new Map<string, number>();
   return (text, font) => {
@@ -55,9 +58,10 @@ export function canvasMeasure(): Measure {
     if (known !== undefined) return known;
     context.font = fonts[font];
     // The lines under a title set their digits tabular, which a canvas
-    // cannot: every digit is measured as a 0, the widest of them.
+    // cannot: every digit is measured as a 0, the widest of them; so is a
+    // label's, which keeps it no narrower than it draws.
     const width = context.measureText(
-      font === "sub" ? text.replace(/\d/g, "0") : text,
+      font === "title" ? text : text.replace(/\d/g, "0"),
     ).width;
     seen.set(key, width);
     return width;

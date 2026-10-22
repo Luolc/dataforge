@@ -10,16 +10,22 @@ import {
   runningIn,
   sampleProject,
 } from "../../../../fixtures/sample";
-import type { LiveInfo } from "../../../api/types";
+import type { AttemptRecord, LiveInfo } from "../../../api/types";
+import { asShown } from "../../attempt/declared";
 import { Summary } from "./Summary";
 
-function show(name: keyof typeof records, project = sampleProject) {
+// The record as the attempt page hands it to the Summary.
+function show(
+  name: keyof typeof records | AttemptRecord,
+  project = sampleProject,
+) {
+  const record = typeof name === "string" ? records[name] : name;
   return render(
     <MemoryRouter>
       <Summary
         project={project}
         attempt="batch-1/task-0002"
-        record={records[name]}
+        record={asShown(project, record)}
       />
     </MemoryRouter>,
   );
@@ -71,7 +77,18 @@ describe("Summary", () => {
       "href",
       "/sample/attempt?id=batch-1%2Ftask-0002&tab=trials",
     );
-    expect(screen.getByText("Not run: solve was never visited")).toBeVisible();
+    expect(
+      screen.getByText("Not run: the attempt never reached Pass@k."),
+    ).toBeVisible();
+    expect(screen.queryByText(/was never visited/)).toBeNull();
+  });
+
+  it("counts the runs above the machine, one run as 1 run", () => {
+    show("passed");
+    expect(screen.getByText(/^6 runs · solid lines/)).toBeVisible();
+
+    show({ ...records.passed, visits: records.passed.visits.slice(0, 1) });
+    expect(screen.getByText(/^1 run · solid lines/)).toBeVisible();
   });
 
   it("scrolls the deliverables sideways in their card, its aside under the title when they do not fit", () => {
