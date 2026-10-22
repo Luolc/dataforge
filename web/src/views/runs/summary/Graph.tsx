@@ -1,5 +1,6 @@
 import { CircleDashed, Maximize, Minimize, Minus, Plus } from "lucide-react";
 import {
+  Fragment,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -642,7 +643,10 @@ function NodeCard({
             </tspan>
           ))}
       </text>
-      <text className="fill-fg-3 text-xs [font-variant-numeric:tabular-nums]">
+      <text
+        xmlSpace="preserve"
+        className="fill-fg-3 text-xs [font-variant-numeric:tabular-nums]"
+      >
         {node.under
           .map((line, i) => ({ line, y: under + i * SUB_LINE }))
           .map(({ line, y }) => (
@@ -650,11 +654,29 @@ function NodeCard({
               {line}
             </tspan>
           ))}
-        {node.running?.since != null && (
-          <tspan x="36" y={under + node.under.length * SUB_LINE}>
-            <Elapsed since={node.running.since} before={node.running.before} />
-          </tspan>
-        )}
+        {node.running?.rows.map((row, i) => {
+          const y = under + (node.under.length + i) * SUB_LINE;
+          // An empty tspan does not move the pen: the row starts at its clock.
+          const at = row.lead === "" ? { x: 36, y } : {};
+          return (
+            <Fragment key={y}>
+              {row.lead !== "" && (
+                <tspan x="36" y={y}>
+                  {row.lead}
+                </tspan>
+              )}
+              {row.live !== null && node.running?.since != null && (
+                <tspan {...at}>
+                  <Elapsed
+                    since={node.running.since}
+                    before={row.live === "all" ? node.running.before : 0}
+                  />
+                </tspan>
+              )}
+              {row.tail !== "" && <tspan>{row.tail}</tspan>}
+            </Fragment>
+          );
+        })}
       </text>
     </g>
   );

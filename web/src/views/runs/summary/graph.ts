@@ -89,7 +89,23 @@ interface Node {
    * The state the attempt runs now: when its visit began, null when that is
    * not known, and the seconds of its visits before it; null for any other.
    */
-  running: { since: string | null; before: number } | null;
+  running: {
+    since: string | null;
+    before: number;
+    /** The lines of the current run and the total, each with its clock. */
+    rows: LiveRow[];
+  } | null;
+}
+
+/**
+ * A line of a running state that holds a clock: the text before it, which
+ * clock (this run's alone, or the total of all its runs), and the text after
+ * it; a line with no clock has live null.
+ */
+interface LiveRow {
+  lead: string;
+  live: "now" | "all" | null;
+  tail: string;
 }
 
 interface LabelPart {
@@ -223,22 +239,35 @@ export function layout(
     const mine = record.visits.filter((v) => v.state === key);
     const last = mine.at(-1);
     const seconds = mine.reduce((sum, v) => sum + (visitSeconds(v) ?? 0), 0);
-    const sub =
+    const sub = mine.length === 0 ? NOT_RUN : runsOf(mine.length);
+    const time =
       mine.length === 0
-        ? NOT_RUN
-        : `${mine.length} run${mine.length > 1 ? "s" : ""}`;
-    const time = mine.length === 0 ? null : duration(seconds);
+        ? null
+        : mine.length > 1
+          ? `${duration(seconds)} ${IN_ALL}`
+          : duration(seconds);
     if (current?.state === key) {
       const done = current.recorded ? mine.slice(0, -1) : mine;
       const runs = done.length + 1;
-      const runsNow = `${runs.toString()} run${runs > 1 ? "s" : ""} · ${liveStatus.running.label}`;
+      const timed = current.since !== null;
+      const rows = [
+        ...liveRows(
+          `Run ${runs.toString()} · ${liveStatus.running.label} `,
+          timed ? "now" : null,
+          "",
+          measure,
+        ),
+        ...(timed && runs > 1
+          ? liveRows(`${runsOf(runs)} · `, "all", ` ${IN_ALL}`, measure)
+          : []),
+      ];
       return {
         ...box,
         title: stateTitle(project, key),
         lines: wrap(stateTitle(project, key), "title", measure),
-        sub: runsNow,
+        sub: `Run ${runs.toString()}, ${runsOf(runs)} ${IN_ALL}`,
         time: null,
-        under: wrap(runsNow, "sub", measure),
+        under: [],
         word: null,
         ended: false,
         status: liveStatus.running,
@@ -251,6 +280,7 @@ export function layout(
         running: {
           since: current.since,
           before: done.reduce((sum, v) => sum + (visitSeconds(v) ?? 0), 0),
+          rows,
         },
       };
     }
@@ -402,11 +432,11 @@ export function layout(
 
 /** The height of a card's text: its title's lines and those under it. */
 export function textHeight(node: Pick<Node, "lines" | "under" | "running">) {
-  const clock = node.running?.since != null ? 1 : 0;
+  const rows = node.running?.rows.length ?? 0;
   return (
     2 * PAD +
     node.lines.length * TITLE_LINE +
-    (node.under.length + clock) * SUB_LINE
+    (node.under.length + rows) * SUB_LINE
   );
 }
 
@@ -444,6 +474,44 @@ function wrap(text: string, font: Font, measure: Measure): string[] {
     lines.push(rest.join(""));
   }
   return lines.length > 0 ? lines : [""];
+}
+
+/** How a count of runs reads: "1 run", "3 runs". */
+const runsOf = (n: number) => `${n.toString()} run${n > 1 ? "s" : ""}`;
+
+/** What marks a time as the total of all of a state's runs. */
+const IN_ALL = "in all";
+
+/** A clock's widest reading, to break lines by before the clock is known. */
+const CLOCK = "88m_88s";
+
+/**
+ * The lines of a text that holds a clock, broken to fit the card's width with
+ * the clock as wide as its widest reading.
+ */
+function liveRows(
+  lead: string,
+  live: LiveRow["live"],
+  tail: string,
+  measure: Measure,
+): LiveRow[] {
+  if (live === null) {
+    return wrap(lead, "sub", measure).map((line) => ({
+      lead: line,
+      live: null,
+      tail: "",
+    }));
+  }
+  return wrap(`${lead}${CLOCK}${tail}`, "sub", measure).map((line) => {
+    const at = line.indexOf(CLOCK);
+    return at < 0
+      ? { lead: line, live: null, tail: "" }
+      : {
+          lead: line.slice(0, at),
+          live,
+          tail: line.slice(at + CLOCK.length),
+        };
+  });
 }
 
 /** The lines under a title: sub and time, on one line where they fit. */

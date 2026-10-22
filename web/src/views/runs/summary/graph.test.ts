@@ -25,10 +25,11 @@ import {
   LOOP_WIDTH,
   takenCounts,
   TEXT_WIDTH,
+  SUB_LINE,
   textHeight,
   textTop,
 } from "./graph";
-import { widest } from "./measure";
+import { type Measure, widest } from "./measure";
 
 describe("the graph", () => {
   it("counts the transitions the visits took", () => {
@@ -678,17 +679,27 @@ describe("the layout's shapes", () => {
   );
 });
 
+// Five pixels a character: a line of 25 characters fits a card.
+const roomy: Measure = (text) => text.length * 5;
+
 describe("a running attempt's layout", () => {
   it("draws the state it runs as running and the transition into it taken", () => {
-    const drawn = must(layout(inReview, sampleProject, runningIn().current));
+    const drawn = must(
+      layout(inReview, sampleProject, runningIn().current, roomy),
+    );
     const review = must(drawn.nodes.find((n) => n.key === "review"));
 
     expect(review).toMatchObject({
-      sub: "1 run · Running",
+      sub: "Run 1, 1 run in all",
+      under: [],
       status: { label: "Running" },
       idle: false,
       lastVisit: null,
-      running: { since: reviewSince, before: 0 },
+      running: {
+        since: reviewSince,
+        before: 0,
+        rows: [{ lead: "Run 1 · Running ", live: "now", tail: "" }],
+      },
     });
     expect(takenCounts(inReview, sampleProject).get("check\0pass")).toBe(
       undefined,
@@ -707,9 +718,46 @@ describe("a running attempt's layout", () => {
     const drawn = must(layout(records.running, sampleProject, current));
 
     expect(drawn.nodes.find((n) => n.key === "check")).toMatchObject({
-      sub: "1 run · Running",
+      sub: "Run 1, 1 run in all",
       lastVisit: 1,
       running: { before: 0 },
     });
+  });
+
+  it("writes the run now and the total of all runs on lines of their own", () => {
+    const current = {
+      state: "check",
+      visit: 5,
+      index: 4,
+      recorded: false,
+      since: reviewSince,
+    };
+    const drawn = must(layout(records.passed, sampleProject, current, roomy));
+    const check = must(drawn.nodes.find((n) => n.key === "check"));
+    const running = must(check.running);
+
+    const n = check.sub.split(",")[0]?.replace("Run ", "");
+    expect(Number(n)).toBeGreaterThan(1);
+    expect(check.sub).toBe(`Run ${n ?? ""}, ${n ?? ""} runs in all`);
+    expect(running.rows).toEqual([
+      { lead: `Run ${n ?? ""} · Running `, live: "now", tail: "" },
+      { lead: `${n ?? ""} runs · `, live: "all", tail: " in all" },
+    ]);
+    expect(textHeight(check)).toBe(
+      textHeight({ ...check, running: { ...running, rows: [] } }) +
+        2 * SUB_LINE,
+    );
+  });
+});
+
+describe("the time of a state that ended", () => {
+  it("says in all after the time of more than one run, and not after one run", () => {
+    const drawn = must(layout(records.passed, sampleProject, null, measured));
+    const many = drawn.nodes.filter((n) => /^\d+ runs$/.test(n.sub));
+    const one = drawn.nodes.filter((n) => n.sub === "1 run");
+
+    expect(many.length).toBeGreaterThan(0);
+    for (const n of many) expect(n.time).toMatch(/ in all$/);
+    for (const n of one) expect(n.time).not.toContain("in all");
   });
 });

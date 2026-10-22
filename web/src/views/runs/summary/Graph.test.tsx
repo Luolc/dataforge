@@ -67,6 +67,7 @@ const scaleOf = (graph: Element) =>
   )?.[1];
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -161,7 +162,7 @@ describe("the machine's graph", () => {
     const { graph } = show(busy);
 
     const check = within(graph).getByRole("link", {
-      name: "check, Pass, 4 runs, 12m 0s: open its last run",
+      name: "check, Pass, 4 runs, 12m 0s in all: open its last run",
     });
     expect(check).toHaveAttribute("href", "/run/25");
   });
@@ -586,6 +587,7 @@ describe("a running attempt's machine", () => {
       recorded: false,
       since: "2026-03-09T13:16:40+00:00",
     };
+    vi.useFakeTimers({ now: Date.parse(draft.since) + 90 * 60_000 });
     const drawn = must(layout(record.parse(early), project, draft, measured));
     const { container } = render(
       <MemoryRouter>
@@ -632,8 +634,10 @@ describe("a running attempt's machine", () => {
       .filter((l) => l.font === "sub")
       .map((l) => l.text);
     expect(under).toEqual([
-      "2 runs · Running",
-      expect.stringMatching(/^\d+h \d+m$/),
+      "Run 2 · Running",
+      "1h 30m",
+      "2 runs · 1h 42m",
+      "in all",
     ]);
   });
 
