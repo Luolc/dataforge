@@ -3,22 +3,26 @@
 CTRF (https://ctrf.io/docs/specification/test, 0.1.0) is the format Harbor's
 viewer reads at that path. Each test object is one case a runner reported,
 with its suite as `suite`, a one-element array, and in `labels` the
-reference of the manifest's test it belongs to (`id`), its runner, and its
-kind and principle when it has them. CTRF has no status for an error: one is
-`failed` with `rawStatus` `error`. A test the manifest lists that the
-runner did not report is such an error, so that a test kept from running
-does not pass unseen.
+reference of the manifest's test it belongs to (`id`), its runner or run
+group when it has them, its kind and principle when it has them, and
+`expect` for a canary. CTRF has no status for an error: one is `failed` with
+`rawStatus` `error`. A test the manifest lists that the runner did not
+report is such an error, so that a test kept from running does not pass
+unseen. A canary, which must fail on an assertion, counts in no suite; the
+report's `results.extra` lists in `canary_broken` each canary that did not,
+and in `unlisted` the names a run group reported that the manifest does not
+list; with neither, the report has no `extra`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import cast
 
-from .manifest import Test
+from .manifest import EXPECT_FAILED, Test
 
 FILE = "ctrf.json"
 """The report's name in the verifier's output directory."""
@@ -37,6 +41,9 @@ MISSING = "listed in the manifest but not in the runner's report"
 
 STATUSES = ("passed", "failed", "skipped")
 """The statuses a case may have."""
+
+EXPECT = "expect"
+"""The label of a canary, whose value is the manifest's expect."""
 
 MESSAGE_LIMIT = 2000
 TRACE_LIMIT = 20000
@@ -76,13 +83,20 @@ def labels(test: Test) -> dict[str, str]:
     test: The manifest's test.
 
   Returns:
-    Its reference, runner, and kind and principle when it has them.
+    Its reference, and its runner, run group, kind, principle and expect
+    when it has them.
   """
-  found = {"id": test.ref, "runner": test.runner}
+  found = {"id": test.ref}
+  if test.runner is not None:
+    found["runner"] = test.runner
+  if test.run is not None:
+    found["run"] = test.run
   if test.kind is not None:
     found["kind"] = test.kind
   if test.principle is not None:
     found["principle"] = test.principle
+  if test.expect is not None:
+    found[EXPECT] = test.expect
   return found
 
 
@@ -97,11 +111,24 @@ def entry(case: Case, suite: str, tags: Mapping[str, str]) -> TestObject:
   Returns:
     The test object.
   """
+  return plain(case, suite=[suite]) | {"labels": dict(tags)}
+
+
+def plain(case: Case, **extra: object) -> TestObject:
+  """Return the CTRF test object of a case, with no suite or labels.
+
+  Args:
+    case: The case.
+    **extra: Keys that come after its duration, such as its suite.
+
+  Returns:
+    The test object.
+  """
   found: TestObject = {
     "name": case.name,
     "status": case.status,
     "duration": case.duration,
-    "suite": [suite],
+    **extra,
   }
   if case.error:
     found["rawStatus"] = ERROR
@@ -111,7 +138,6 @@ def entry(case: Case, suite: str, tags: Mapping[str, str]) -> TestObject:
     found["trace"] = case.trace[:TRACE_LIMIT]
   if case.file:
     found["filePath"] = case.file
-  found["labels"] = dict(tags)
   return found
 
 
@@ -130,30 +156,76 @@ def missing(test: Test, why: str = "") -> TestObject:
   return entry(case, test.suite, labels(test))
 
 
-def report(tests: list[TestObject], start: int, stop: int) -> dict[str, object]:
+def report(
+  tests: list[TestObject],
+  start: int,
+  stop: int,
+  *,
+  unlisted: Sequence[Mapping[str, object]] = (),
+) -> dict[str, object]:
   """Return the CTRF report of test objects.
 
   Args:
     tests: The test objects.
     start: When the run started, in milliseconds since the epoch.
     stop: When it stopped, likewise.
+    unlisted: For each run group that reported names the manifest does not
+      list, `{run, total, names}`, as run.Results gives it.
 
   Returns:
-    The report.
+    The report; its results.extra, when there is one, has canary_broken,
+    the references of the canaries with a test object that is not a
+    failure of an assertion, and unlisted.
   """
   summary = {
     s: sum(t["status"] == s for t in tests)
     for s in ("passed", "failed", "pending", "skipped", "other")
   }
+  results: dict[str, object] = {
+    "tool": {"name": TOOL},
+    "summary": {"tests": len(tests), **summary, "start": start, "stop": stop},
+    "tests": tests,
+  }
+  extra: dict[str, object] = {}
+  broken = canary_broken(tests)
+  if broken:
+    extra["canary_broken"] = broken
+  if unlisted:
+    extra["unlisted"] = [dict(u) for u in unlisted]
+  if extra:
+    results["extra"] = extra
   return {
     "reportFormat": "CTRF",
     "specVersion": SPEC_VERSION,
-    "results": {
-      "tool": {"name": TOOL},
-      "summary": {"tests": len(tests), **summary, "start": start, "stop": stop},
-      "tests": tests,
-    },
+    "results": results,
   }
+
+
+def canary_broken(tests: list[TestObject]) -> list[str]:
+  """Return the canaries that did not fail on an assertion.
+
+  Args:
+    tests: The test objects.
+
+  Returns:
+    The reference of each canary with a test object that is not `failed`,
+    or is an error, in the order of their first.
+  """
+  good: dict[str, bool] = {}
+  for test in tests:
+    tags = _labels(test)
+    if tags.get(EXPECT) == EXPECT_FAILED:
+      ref = str(tags.get("id"))
+      failed = test.get("status") == "failed"
+      good[ref] = (
+        good.get(ref, True) and failed and test.get("rawStatus") != ERROR
+      )
+  return [ref for ref, ok in good.items() if not ok]
+
+
+def _labels(test: Mapping[str, object]) -> dict[str, object]:
+  tags = test.get("labels")
+  return cast("dict[str, object]", tags) if isinstance(tags, dict) else {}
 
 
 def suite_counts(report: Mapping[str, object]) -> dict[str, tuple[int, int]]:
@@ -164,7 +236,7 @@ def suite_counts(report: Mapping[str, object]) -> dict[str, tuple[int, int]]:
 
   Returns:
     For each suite that has a test, (passed, total); a skipped test does
-    not pass.
+    not pass, and a canary counts in none.
 
   Raises:
     ValueError: When the report has no results.tests list, or a test has no
@@ -187,6 +259,8 @@ def suite_counts(report: Mapping[str, object]) -> dict[str, tuple[int, int]]:
       raise ValueError(f"a test has no one suite: {found.get('name')!r}")
     if not isinstance(status, str):
       raise ValueError(f"a test has no status: {found.get('name')!r}")
+    if _labels(found).get(EXPECT) == EXPECT_FAILED:
+      continue
     passed, total = counts.get(one[0], (0, 0))
     counts[one[0]] = (passed + (status == "passed"), total + 1)
   return counts

@@ -2000,4 +2000,5 @@ def test_a_judge_sees_each_trials_record_and_exception(tmp_path: Path) -> None:
     "trace": {"path": "artifacts/a/1/trial-0/agent/trace.txt", "format": "fmt"},
     "rewards": {"reward": 0.0},
     "exception": "TimeoutError: Harbor ran past 5 s",
+    "source": None,
   }
