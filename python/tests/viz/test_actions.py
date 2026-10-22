@@ -306,6 +306,41 @@ def test_stopped_needs_a_newest_attempt_that_may_have_stopped(
   assert [j.argv for j in jobs(made)] == [("run-item", "--go-on", "batch-1")]
 
 
+def test_stopped_goes_on_with_a_resumable_status_unless_the_lock_is_held(
+  made: QueueTree, static: Path
+) -> None:
+  project = made.tree.project
+  _ = project.write_text(
+    project.read_text().replace(
+      "  passed: {label: Passed, tone: good}\n",
+      "  passed: {label: Passed, tone: good}\n"
+      + "  canceled: {label: Canceled, tone: warn}\n",
+    )
+    + "resumable: [canceled]\n"
+  )
+  web = client(made, static)
+  lock = made.tree.root / "batch-1" / ".lock"
+  write(made, "task-1", "passed", 0)
+  passed = reasons(web)["go-on"]
+  write(made, "task-1", "canceled", 0)
+  with holding(lock):
+    running = reasons(web)["go-on"]
+  canceled = reasons(web)["go-on"]
+
+  assert passed == "The newest attempt of this item has ended."
+  assert running == "An attempt of this item is running: its lock is held."
+  assert canceled is None
+  listing = cast(
+    list[dict[str, object]],
+    web.get("/api/projects/example/attempts").json(),
+  )
+  assert [r["live"] for r in listing] == [None]
+  response = web.post(
+    f"{ACTIONS}/go-on", params={"item": "batch-1"}, headers=WRITE
+  )
+  assert response.status_code == 201
+
+
 def test_a_queued_job_is_canceled_by_its_id_alone(
   made: QueueTree, static: Path
 ) -> None:
