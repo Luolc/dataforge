@@ -94,8 +94,8 @@ _HOLDER = "holder_pid = ? AND holder_starttime = ? AND holder_boot_id = ?"
 
 _INSERT = """
 INSERT INTO attempt (id, item, root, state, holder_pid, holder_starttime,
-  holder_boot_id, job_id, job_db, created_at, progress_at)
-VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)
+  holder_boot_id, job_id, job_db, created_at, progress_at, extra)
+VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _ADD = """
@@ -479,6 +479,7 @@ class Store:
     root: Path,
     holder: Leader,
     job: QueueJob | None,
+    extra: Mapping[str, object] | None = None,
   ) -> bool:
     """Insert a running row, unless another row of the item is running.
 
@@ -488,6 +489,7 @@ class Store:
       root: Its directory.
       holder: The process that runs it.
       job: The queue job it runs in, if any.
+      extra: The dataset's own fields of the row; None for none.
 
     Returns:
       Whether it was inserted: False when the item has a running row, or the
@@ -510,6 +512,7 @@ class Store:
             None if job is None else job.db,
             at,
             at,
+            json.dumps(dict(extra or {})),
           ),
         )
       except sqlite3.IntegrityError:
