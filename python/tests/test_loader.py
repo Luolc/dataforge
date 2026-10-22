@@ -18,6 +18,7 @@ from dataforge.curation import (
   AgentSpec,
   AgentState,
   AgentTask,
+  Attempt,
   Deliverable,
   End,
   Env,
@@ -127,6 +128,20 @@ def load_doc(
 
 def states_of(doc: Doc) -> dict[str, dict[str, object]]:
   return doc["states"]  # pyright: ignore[reportReturnType]
+
+
+def test_load_gives_the_machine_its_measure_of_spend() -> None:
+  def spent_usd(attempt: Attempt) -> float:
+    return 1.0
+
+  machine = load(
+    yaml.safe_dump(base(), sort_keys=False),
+    inputs=INPUTS,
+    actions=Actions(),
+    spent_usd=spent_usd,
+  )
+  assert machine.spent_usd is spent_usd
+  assert load_doc(base()).spent_usd is None
 
 
 def test_a_declaration_loads_with_its_inputs_and_vars() -> None:
