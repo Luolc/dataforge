@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 import sqlite3
 
@@ -7,6 +8,7 @@ import pytest
 
 from dataforge.queue.proc import Leader
 from dataforge.runs import (
+  AttemptRow,
   NewerSchemaError,
   QueueJob,
   reconcile,
@@ -232,6 +234,82 @@ def test_cleaned_adds_an_event_and_changes_no_row(
   )
 
 
+def _kept(state: str, holder: Leader) -> AttemptRow:
+  # A row as a dataset kept it before the store, every field set.
+  ended = state == "ended"
+  return AttemptRow(
+    id=f"{ITEM}/2025-01-01T000000Z",
+    item=ITEM,
+    root="/r",
+    state=state,
+    outcome="passed" if ended else None,
+    reason="reviewed" if ended else None,
+    machine_status="passed" if ended else None,
+    stopped_by=None if ended else "person",
+    record=ENDED if ended else RECORD,
+    cost_usd=2.0,
+    progress_at="2025-01-01T01:00:00+00:00",
+    holder=holder,
+    job_id=7,
+    job_db="/q.sqlite",
+    resumable=None if ended else True,
+    resume_problem=None,
+    resume_checked_at=None if ended else "2025-01-01T02:00:00+00:00",
+    created_at="2025-01-01T00:00:00+00:00",
+    ended_at="2025-01-01T03:00:00+00:00" if ended else None,
+    settled_at="2025-01-01T03:00:01+00:00" if ended else None,
+    extra={"stage": "ab"},
+  )
+
+
+@pytest.mark.parametrize("state", ["ended", "interrupted"])
+def test_add_keeps_a_row_as_it_is_given_with_no_holder(
+  store: Store, gone: Leader, state: str
+) -> None:
+  row = _kept(state, gone)
+  assert store.add(row)
+  assert store.get(row.id) == replace(row, holder=None)
+  assert _states(store) == [(None, state, "add")]
+
+
+def test_an_added_interrupted_row_is_taken_as_any_other(
+  store: Store, me: Leader
+) -> None:
+  row = _kept("interrupted", me)
+  assert store.add(row)
+  assert store.take(row.id, me, None, by="runner")
+  taken = store.get(row.id)
+  assert taken is not None
+  assert (taken.state, taken.holder) == ("running", me)
+
+
+def test_add_of_a_taken_id_changes_nothing(store: Store, me: Leader) -> None:
+  row = _kept("ended", me)
+  assert store.add(row)
+  before, events = store.get(row.id), store.events(row.id)
+  assert not store.add(replace(row, outcome="failed"))
+  assert store.get(row.id) == before
+  assert store.events(row.id) == events
+
+
+@pytest.mark.parametrize(
+  ("state", "change"),
+  [
+    ("ended", {"state": "running"}),
+    ("ended", {"outcome": None}),
+    ("interrupted", {"stopped_by": None}),
+    ("interrupted", {"stopped_by": "nobody"}),
+  ],
+)
+def test_add_refuses_a_row_no_write_could_have_left(
+  store: Store, me: Leader, state: str, change: dict[str, str | None]
+) -> None:
+  row = replace(_kept(state, me), **change)
+  with pytest.raises(ValueError, match=row.id):
+    _ = store.add(row)
+  assert store.rows() == []
+
+
 type Write = Callable[[Store, str, Leader], bool]
 
 WRITES: dict[str, Write] = {
@@ -333,6 +411,7 @@ def test_a_writer_of_schema_1_0_runs_every_transition_on_this_schema(
     "a/1": "ended",
     "b/1": "ended",
     "c/1": "interrupted",
+    "d/1": "ended",
   }
   assert (rows["a/1"].outcome, rows["a/1"].settled_at is not None) == (
     "passed",
@@ -342,6 +421,11 @@ def test_a_writer_of_schema_1_0_runs_every_transition_on_this_schema(
   assert rows["b/1"].outcome == "given_up"
   assert (rows["c/1"].resumable, rows["c/1"].cost_usd) == (False, 1.0)
   assert rows["a/1"].extra == {}
+  assert (rows["d/1"].extra, rows["d/1"].settled_at) == (
+    {"stage": "ab"},
+    schema_1_0.AT,
+  )
+  assert [(e.to_state, e.by) for e in store.events("d/1")] == [("ended", "add")]
   assert [e.to_state for e in store.events("a/1")] == [
     "running",
     "interrupted",
@@ -373,6 +457,8 @@ def test_a_store_of_a_newer_schema_major_is_read_and_never_written(
     holder = gone if state == "running" else me
     with pytest.raises(NewerSchemaError):
       _ = WRITES[write](store, attempt_id, holder)
+  with pytest.raises(NewerSchemaError):
+    _ = store.add(_kept("ended", me))
   with pytest.raises(NewerSchemaError):
     _ = reconcile(store)
   assert store.rows() == before
