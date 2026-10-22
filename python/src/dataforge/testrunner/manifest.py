@@ -35,6 +35,8 @@ RUNNERS = (
   "node",
   "go",
   "cargo",
+  "ctest",
+  "gtest",
   "maven",
   "phpunit",
 )

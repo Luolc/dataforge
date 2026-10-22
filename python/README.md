@@ -41,16 +41,16 @@ itself. A systemd unit that runs the scheduler needs `KillMode=process`, so that
 restarting it leaves the jobs running.
 
 `dataforge.testrunner` runs a Harbor task's tests with the project's own runner (pytest, jest,
-vitest, Jasmine, node:test, go test, cargo test, Maven Surefire, PHPUnit) and writes them as CTRF to
-`/logs/verifier/ctrf.json`. It uses only Python 3.12's standard library, so that a task runs on its
-own: a dataset writes `testrunner.files()` into each task's `tests/` and its harness imports
-`testrunner` there. `tests/manifest.toml` lists the tests (`[[test]]`: `suite`, `runner`, `id`, and
-optionally `dir`, `kind` and `principle`), the files to copy into the project before they run
-(`[[file]]`: `source`, `dest`) and why a suite has none (`[no_tests]`); `testrunner.run` runs them,
-a listed test the runner did not report counting as an error, and `testrunner.ctrf.suite_counts`
-gives each suite's passed and total counts, from which the dataset writes its `reward.json`.
-`testrunner` restores nothing: the harness checks back to the base the files only a runner loads
-(`testrunner.runners.RUNNER_FILES`), those that define the listed tests
+vitest, Jasmine, node:test, go test, cargo test, CTest, GoogleTest, Maven Surefire, PHPUnit) and
+writes them as CTRF to `/logs/verifier/ctrf.json`. It uses only Python 3.12's standard library, so
+that a task runs on its own: a dataset writes `testrunner.files()` into each task's `tests/` and its
+harness imports `testrunner` there. `tests/manifest.toml` lists the tests (`[[test]]`: `suite`,
+`runner`, `id`, and optionally `dir`, `kind` and `principle`), the files to copy into the project
+before they run (`[[file]]`: `source`, `dest`) and why a suite has none (`[no_tests]`);
+`testrunner.run` runs them, a listed test the runner did not report counting as an error, and
+`testrunner.ctrf.suite_counts` gives each suite's passed and total counts, from which the dataset
+writes its `reward.json`. `testrunner` restores nothing: the harness checks back to the base the
+files only a runner loads (`testrunner.runners.RUNNER_FILES`), those that define the listed tests
 (`testrunner.runners.restore_paths`) and the project files the base's test configuration names to
 run in the test process (pytest's `-p` plugins, jest's and vitest's setup files, Jasmine's helpers)
 before it runs them. A dataset with no harness of its own runs `python -m testrunner` in `/tests`,
@@ -60,7 +60,10 @@ so a dataset that runs Maven tests checks `pom.xml` itself; nor jest the Babel c
 `package.json`'s `babel` key, which a dataset checks too, nor cargo the test configuration in
 `Cargo.toml` (a target's `path`, `harness` or `test`) and its `build.rs`, which a dataset checks
 too. cargo runs the tests in place, on the project's own `target/` and environment, so that only
-what changed since the image is compiled.
+what changed since the image is compiled; CTest and GoogleTest run in the CMake build directory the
+image configured and built, configured again and built before the tests run, and their test
+configuration in `CMakeLists.txt` runs as a fix leaves it, which a dataset checks too; their IDs
+name no source file, so a dataset restores the files that define their tests itself.
 
 A dataset repository depends on it at a commit of main:
 

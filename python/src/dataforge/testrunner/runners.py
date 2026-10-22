@@ -29,6 +29,7 @@ import xml.etree.ElementTree as ET
 from . import cargo, gotest, junit
 from .adapter import Call, Context, PREFIX, rel, Runner, write_new
 from .cargo import Cargo
+from .cpp import CTest, GTest
 from .ctrf import Case
 from .gotest import GoTest
 from .js import Jasmine, Jest, Node, SEP, Vitest
@@ -56,6 +57,8 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
   "node": (),
   "go": (),
   "cargo": (".cargo/config.toml", ".cargo/config"),
+  "ctest": ("CTestCustom.cmake", "CTestCustom.ctest"),
+  "gtest": (),
   "maven": (
     "junit-platform.properties",
     ".mvn/maven.config",
@@ -477,6 +480,8 @@ ADAPTERS: dict[str, type[Runner]] = {
   "node": Node,
   "go": GoTest,
   "cargo": Cargo,
+  "ctest": CTest,
+  "gtest": GTest,
   "maven": Maven,
   "phpunit": PHPUnit,
 }
@@ -496,8 +501,11 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
     file of its outer class under its directory; for phpunit, a file named
     for its class under its directory, as PHPUnit wants; for go, the test
     files of its package (gotest.restore_paths); for cargo, its ID's file
-    when that is a test target of its own (cargo.restore_paths).
+    when that is a test target of its own (cargo.restore_paths); for ctest
+    and gtest, none, since an ID names no source file.
   """
+  if test.runner in ("ctest", "gtest"):
+    return []
   if test.runner == "go":
     return gotest.restore_paths(test, files)
   if test.runner == "cargo":
