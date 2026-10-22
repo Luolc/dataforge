@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render as plain,
+  screen,
+  within,
+} from "@testing-library/react";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import passAtK from "../../../fixtures/trialdiff/attempts/pass-at-k/record.json";
@@ -11,6 +18,9 @@ import { must, sampleProject } from "../../../fixtures/sample";
 import { type LiveInfo, type Project, record } from "../../api/types";
 import TrialsView from ".";
 import { readCtrf, suiteOf } from "./ctrf";
+
+// The views read the page's query.
+const render = (ui: ReactElement) => plain(ui, { wrapper: MemoryRouter });
 
 const project: Project = {
   ...sampleProject,
@@ -68,7 +78,7 @@ function showTests(trialNumber = 1, shown: Project = project) {
   if (trialNumber !== 1)
     fireEvent.click(
       screen.getByRole("button", {
-        name: new RegExp(`^tinyparse-fold__p3.${trialNumber.toString()}`),
+        name: new RegExp(`^Trial ${trialNumber.toString()}`),
       }),
     );
   fireEvent.mouseDown(screen.getByRole("tab", { name: "Tests" }));
@@ -308,9 +318,7 @@ describe("the trials view's Tests tab", () => {
   it("keeps the Tests tab when another trial is chosen", async () => {
     showTests();
     await screen.findByText(at(1));
-    fireEvent.click(
-      screen.getByRole("button", { name: /^tinyparse-fold__p3b2/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Trial 2/ }));
 
     expect(screen.getByRole("tab", { name: "Tests" })).toHaveAttribute(
       "aria-selected",
@@ -335,7 +343,7 @@ describe("the Tests tab of a trial that has not finished", () => {
         live={info}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /^trial-3/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Trial 4/ }));
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Tests" }));
 
     expect(screen.getAllByText("This trial is still running.")).toHaveLength(2);

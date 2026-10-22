@@ -1,8 +1,9 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { must, records, sampleProject } from "../../../fixtures/sample";
-import type { Deliverable } from "../../api/types";
+import type { AttemptRecord, Deliverable } from "../../api/types";
 import { type FakeEntry, fakeFiles } from "../files/fake-api";
 import ReportView from "./index";
 
@@ -26,21 +27,56 @@ const deliverable = (reached: boolean): Deliverable => ({
   reason: reached ? null : "review was never visited",
 });
 
-function show(files: Record<string, FakeEntry>, reached = true) {
+function show(
+  files: Record<string, FakeEntry>,
+  reached = true,
+  record: AttemptRecord = records.passed,
+) {
   const fetch = fakeFiles(files);
   render(
-    <ReportView
-      project={sampleProject}
-      attempt="a/b"
-      record={records.passed}
-      deliverable={deliverable(reached)}
-    />,
+    <MemoryRouter>
+      <ReportView
+        project={sampleProject}
+        attempt="a/b"
+        record={record}
+        deliverable={deliverable(reached)}
+      />
+    </MemoryRouter>,
   );
   return fetch;
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("where a report came from", () => {
+  it("names its run, and the later run a files deliverable came from", async () => {
+    // The task was made again in run 6, after the review of run 5.
+    const later = {
+      ...records.passed,
+      deliverables: records.passed.deliverables?.map((d) =>
+        d.kind === "files" ? { ...d, visit_index: 5 } : d,
+      ),
+    };
+    show({ [path]: report }, true, later);
+
+    const byline = (
+      await screen.findByRole("link", { name: /· run 5$/ })
+    ).closest("p");
+    expect(byline).toHaveTextContent(
+      /^From .* · run 5, before the .*, which is from .* · run 6$/,
+    );
+  });
+
+  it("names only its run when no files deliverable is later", async () => {
+    show({ [path]: report });
+
+    const byline = (
+      await screen.findByRole("link", { name: /· run 5$/ })
+    ).closest("p");
+    expect(byline).toHaveTextContent(/^From .* · run 5$/);
+  });
 });
 
 describe("the report view", () => {
