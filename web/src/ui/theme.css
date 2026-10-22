@@ -63,6 +63,7 @@
   --spacing-chart-top: 12px;
   --spacing-chart-axis: 64px;
   --spacing-chart-pad: 16px;
+  --spacing-chart-day: 96px;
   --spacing-lane: 7px;
   /* The least width a container's bar is drawn at, how far from the
      pointer a bar is still found, and the bar tooltip's offset from it. */
