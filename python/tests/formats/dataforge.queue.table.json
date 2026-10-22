@@ -1,6 +1,6 @@
 {
   "format": "dataforge.queue.table",
-  "version": 1,
+  "version": 2,
   "facts": {
     "table:jobs": "STRICT",
     "table:jobs/column:argv": "argv TEXT NOT NULL",
@@ -21,6 +21,10 @@
     "table:jobs/column:starttime": "starttime INTEGER",
     "table:jobs/column:state": "state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'done', 'failed', 'canceled'))",
     "table:jobs/index:jobs_live_key": "CREATE UNIQUE INDEX jobs_live_key ON jobs (dedup_key) WHERE state IN ('queued', 'running')",
-    "table:jobs/index:jobs_state": "CREATE INDEX jobs_state ON jobs (state, queue, id)"
+    "table:jobs/index:jobs_state": "CREATE INDEX jobs_state ON jobs (state, queue, id)",
+    "table:pauses": "STRICT",
+    "table:pauses/column:paused_at": "paused_at REAL NOT NULL",
+    "table:pauses/column:queue": "queue TEXT PRIMARY KEY",
+    "table:pauses/column:reason": "reason TEXT"
   }
 }
