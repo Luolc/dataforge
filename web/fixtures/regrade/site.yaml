@@ -1,0 +1,4 @@
+# For a trial that judges another trial's output again: `dataforge viz serve
+# --config web/fixtures/regrade/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8852 }
+projects: [project.yaml]

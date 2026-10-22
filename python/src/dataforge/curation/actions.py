@@ -1769,6 +1769,7 @@ class Actions:
     task_dir: Path,
     agent: TrialAgent,
     limits: Limits,
+    source: Path | None = None,
   ) -> TrialResult:
     """Run one trial.
 
@@ -1778,16 +1779,25 @@ class Actions:
       task_dir: The task's directory.
       agent: Who the trial runs.
       limits: Its limits.
+      source: The trial, inside the attempt's directory, whose output this
+        one judges again, if it judges one.
 
     Returns:
       Its result.
 
     Raises:
       RuntimeError: When there is no trial_runner.
+      ValueError: When source is not inside the attempt's directory.
     """
     runner = self.trial_runner
     if runner is None:
       raise RuntimeError("a trial needs a trial_runner")
+    # The record names it relative to the attempt's directory.
+    root = ctx.attempt.root
+    if source is not None and (
+      not source.is_relative_to(root) or ".." in source.relative_to(root).parts
+    ):
+      raise ValueError(f"{name}: source {source} is not inside the attempt")
     _, started_at = ctx.claim([name], trial=True), datetime.now(UTC)
     outdir = ctx.outdir / name
     outdir.mkdir()
@@ -1801,13 +1811,15 @@ class Actions:
       started_at,
       datetime.now(UTC),
       result.cost_usd,
-      trial=_trial_record(name, outdir, result),
+      trial=_trial_record(name, outdir, result, source),
     )
     ctx.record(record)
     return result
 
 
-def _trial_record(name: str, outdir: Path, result: TrialResult) -> TrialRecord:
+def _trial_record(
+  name: str, outdir: Path, result: TrialResult, source: Path | None
+) -> TrialRecord:
   # The record names paths relative to the attempt's root, so only paths
   # inside the trial's output directory are kept.
   def inside(path: Path | None) -> Path | None:
@@ -1821,6 +1833,7 @@ def _trial_record(name: str, outdir: Path, result: TrialResult) -> TrialRecord:
     None if trace is None else result.trace_format,
     dict(result.rewards),
     result.exception,
+    source,
   )
 
 

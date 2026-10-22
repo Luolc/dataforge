@@ -4,8 +4,9 @@
 from collections.abc import Sequence
 import json
 from pathlib import Path
+import re
 import sys
-from typing import override
+from typing import cast, override
 
 import pytest
 
@@ -20,6 +21,7 @@ from dataforge.curation import (
   Attempt,
   CommandResult,
   Context,
+  Deliverable,
   End,
   Env,
   Goto,
@@ -34,6 +36,7 @@ from dataforge.curation import (
   RubricState,
   ScriptSpec,
   ScriptState,
+  Source,
   State,
   TrialAgent,
   TrialResult,
@@ -730,6 +733,106 @@ def test_trials_state_runs_on_each_task_of_a_directory(tmp_path: Path) -> None:
     assert trials.calls == {
       name: (tasks / name.split("-")[1], "oracle") for name in names
     }
+
+
+SOLVER = "artifacts/solve/1/trial-0/task__0"
+
+
+def regrade_tasks(
+  source: str, *, deliverables: bool = False, link: bool = False
+) -> tuple[Machine, Trials]:
+  """Make a machine that writes tasks a and b, then regrades each.
+
+  Args:
+    source: What task a's source.json holds; task b has none.
+    deliverables: Whether the machine lists the regrade's trials as a
+      deliverable.
+    link: Whether task a's source.json is a symlink to a file that holds
+      source.
+
+  Returns:
+    The machine and its trial runner.
+  """
+  target = "other.json" if link else "source.json"
+  command = f"printf '%s' \"$1\" > tasks/a/{target}"
+  if link:
+    command += " && ln -s other.json tasks/a/source.json"
+  make = ScriptSpec(
+    [
+      "sh",
+      "-c",
+      f'cd "$DATAFORGE_OUTPUTS" && mkdir -p tasks/a tasks/b && {command}',
+      "sh",
+      source,
+    ],
+    outputs=["tasks"],
+  )
+  trials = Trials({"regrade-a": result(1.0), "regrade-b": result(0.0)})
+  write = ScriptState("w", {"ok": Goto("t")}, actions=Actions(), spec=make)
+  state = TrialsState(
+    "t",
+    {"ok": End("passed")},
+    actions=Actions(trial_runner=trials),
+    task_dir="tasks",
+    agents={"regrade": 1},
+    limits=Limits(1.0),
+    configs={"regrade": "oracle"},
+    each_task=True,
+  )
+  regrade = {"regrade": Deliverable("trials", "Regrade", Source("t"))}
+  machine = Machine(
+    [write, state], deliverables=regrade if deliverables else None
+  )
+  return machine, trials
+
+
+def test_trials_state_records_the_source_a_task_names(tmp_path: Path) -> None:
+  machine, _ = regrade_tasks(json.dumps({"trial": SOLVER}), deliverables=True)
+  root = tmp_path / "attempt"
+  attempt = machine.run(root)
+  assert attempt.status == "passed"
+  sources = {
+    next(iter(action.outputs)): action.trial and action.trial.source
+    for action in attempt.visits[1].actions
+  }
+  assert sources == {"regrade-a": root / SOLVER, "regrade-b": None}
+  record = attempt.to_json()
+  [entry] = cast(
+    list[dict[str, list[dict[str, object]]]], record["deliverables"]
+  )
+  assert [(t["output"], t["source"]) for t in entry["trials"]] == [
+    ("regrade-a", SOLVER),
+    ("regrade-b", None),
+  ]
+  assert Attempt.from_json(root, record).to_json() == record
+
+
+@pytest.mark.parametrize(
+  ("source", "error"),
+  [
+    (json.dumps({"trial": "/etc"}), "is not inside the attempt"),
+    (json.dumps({"trial": "../elsewhere"}), "is not inside the attempt"),
+    (json.dumps({"trial": ""}), "is not inside the attempt"),
+    (json.dumps({"trial": 1}), "trial is not a string"),
+    (json.dumps({"trial": SOLVER, "by": "x"}), 'not {"trial": <path>}'),
+    (json.dumps([SOLVER]), 'not {"trial": <path>}'),
+    ("{", "Expecting property name"),
+  ],
+)
+def test_trials_state_runs_no_trial_when_a_source_is_wrong(
+  tmp_path: Path, source: str, error: str
+) -> None:
+  machine, trials = regrade_tasks(source)
+  with pytest.raises(ValueError, match=re.escape(error)):
+    _ = machine.run(tmp_path / "attempt")
+  assert trials.calls == {}
+
+
+def test_trials_state_reads_no_source_through_a_symlink(tmp_path: Path) -> None:
+  machine, trials = regrade_tasks(json.dumps({"trial": SOLVER}), link=True)
+  with pytest.raises(ValueError, match=r"source\.json: .*symbolic links"):
+    _ = machine.run(tmp_path / "attempt")
+  assert trials.calls == {}
 
 
 def test_trials_state_with_a_judge_takes_its_verdict(tmp_path: Path) -> None:

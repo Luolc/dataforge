@@ -1,7 +1,7 @@
 // The file tree of a files deliverable: each directory is read when it is
 // first opened, and again with the page's reads while the attempt runs,
-// directories before the other entries, each group by name. A file the
-// source only lists shows its name and size, and opens nothing.
+// directories before the other entries, each group by name. A file shows its
+// size beside its name; one the source only lists opens nothing.
 import { ChevronRight } from "lucide-react";
 import { type CSSProperties, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -110,6 +110,15 @@ function EntryRow({
       >
         <FileIcon name={entry.name} />
         {entry.name}
+        {/* The preview's header gives the size in words too. */}
+        {entry.size !== null && (
+          <span
+            aria-hidden
+            className="ml-auto flex-none pl-2 text-xs text-fg-3 tabular-nums"
+          >
+            {size(entry.size)}
+          </span>
+        )}
       </Link>
     );
   }

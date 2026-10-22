@@ -1,6 +1,7 @@
 /**
  * The URL of an attempt's page, with its tab, and its run or discarded visit,
- * the part of a project's tab, or the file shown, when given.
+ * the part of a project's tab, the deliverable and the trial shown, or the
+ * file shown, when given.
  */
 export function attemptHref(
   project: string,
@@ -10,6 +11,8 @@ export function attemptHref(
     run?: number;
     discarded?: number;
     part?: string;
+    deliverable?: string;
+    trial?: string;
     file?: string;
   } = {},
 ): string {
@@ -18,6 +21,8 @@ export function attemptHref(
   if (at.run !== undefined) query.set("run", String(at.run));
   if (at.discarded !== undefined) query.set("discarded", String(at.discarded));
   if (at.part !== undefined) query.set("part", at.part);
+  if (at.deliverable !== undefined) query.set("deliverable", at.deliverable);
+  if (at.trial !== undefined) query.set("trial", at.trial);
   if (at.file !== undefined) query.set("file", at.file);
   return `/${encodeURIComponent(project)}/attempt?${query.toString()}`;
 }

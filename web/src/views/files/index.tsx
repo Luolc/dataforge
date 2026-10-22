@@ -2,6 +2,7 @@
 // preview of the chosen file on the right. The chosen file is the page's
 // `file`, a path relative to the attempt, used only when it is under this
 // deliverable's path.
+import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
 import { useFileSource, useLoaded } from "../../api/client";
@@ -9,6 +10,8 @@ import type { Deliverable } from "../../api/types";
 import { Card, Note } from "../../ui/card";
 import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
+import { FromRun } from "../FromRun";
+import { fromARun } from "../source";
 import { firstFile } from "./entries";
 import { Preview } from "./Preview";
 import { Tree } from "./Tree";
@@ -17,6 +20,7 @@ import { Tree } from "./Tree";
 export default function FilesView({
   project,
   attempt,
+  record,
   deliverable,
 }: DeliverableProps) {
   return (
@@ -24,6 +28,16 @@ export default function FilesView({
       project={project.id}
       attempt={attempt}
       deliverable={deliverable}
+      byline={
+        fromARun(deliverable) ? (
+          <FromRun
+            project={project}
+            attempt={attempt}
+            record={record}
+            deliverable={deliverable}
+          />
+        ) : undefined
+      }
     />
   );
 }
@@ -33,14 +47,17 @@ export function FilesCard({
   project,
   attempt,
   deliverable,
+  byline,
 }: {
   project: string;
   attempt: string;
   deliverable: Pick<Deliverable, "title" | "path" | "reason">;
+  /** Where it came from, under the title. */
+  byline?: ReactNode;
 }) {
   const root = deliverable.path;
   return (
-    <Card title={deliverable.title} flush={root !== null}>
+    <Card title={deliverable.title} byline={byline} flush={root !== null}>
       {root === null ? (
         <p className="text-fg-3">
           {`${NOT_RUN}${deliverable.reason !== null && deliverable.reason !== "" ? `: ${deliverable.reason}` : ""}`}

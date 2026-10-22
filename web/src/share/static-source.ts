@@ -37,7 +37,10 @@ function staticFiles(): FileSource {
     }
     return read;
   };
+  const href = (p: string, id: string, path: string) =>
+    `${item(p, id)}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
   return {
+    href,
     listing: async (p, id, dir) => {
       const entries = (await treeOf(p, id))[dir];
       if (entries === undefined) throw new Error(`${dir}: no such directory`);
@@ -50,8 +53,7 @@ function staticFiles(): FileSource {
       const entry = (await treeOf(p, id))[dir]?.find((e) => e.name === name);
       if (entry?.type !== "file" || entry.listed_only === true)
         return missing(path);
-      const url = `${item(p, id)}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
-      return fetch(url, signal ? { signal } : {});
+      return fetch(href(p, id, path), signal ? { signal } : {});
     },
   };
 }

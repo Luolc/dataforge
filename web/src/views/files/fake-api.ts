@@ -33,6 +33,7 @@ function answer(files: Record<string, FakeEntry>, path: string): Response {
   }
   const found = new Map<string, string>();
   const listed = new Map<string, number>();
+  const sizes = new Map<string, number>();
   for (const [key, value] of Object.entries(files)) {
     if (!key.startsWith(`${path}/`)) continue;
     const [name = "", ...rest] = key.slice(path.length + 1).split("/");
@@ -45,6 +46,10 @@ function answer(files: Record<string, FakeEntry>, path: string): Response {
             : "file"
           : "file";
     found.set(name, type);
+    if (rest.length === 0 && typeof value === "string")
+      sizes.set(name, new TextEncoder().encode(value).byteLength);
+    if (rest.length === 0 && value instanceof Uint8Array)
+      sizes.set(name, value.byteLength);
     if (rest.length === 0 && typeof value === "object" && "type" in value)
       if (value.type === "listed") listed.set(name, value.size);
   }
@@ -59,7 +64,7 @@ function answer(files: Record<string, FakeEntry>, path: string): Response {
     .map(([name, type]) => {
       const size = listed.get(name);
       return size === undefined
-        ? { name, type, size: type === "file" ? 1 : null }
+        ? { name, type, size: type === "file" ? (sizes.get(name) ?? 1) : null }
         : { name, type, size, listed_only: true };
     });
   return Response.json({ entries });
