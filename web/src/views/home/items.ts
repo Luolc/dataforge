@@ -92,6 +92,50 @@ export function spent(rows: AttemptRow[]): number | null {
   return costs.length === 0 ? null : costs.reduce((a, b) => a + b, 0);
 }
 
+/** n and a noun, the noun with an s unless n is 1: "3 CVEs", "1 attempt". */
+export const counted = (n: number, noun: string): string =>
+  `${n.toString()} ${noun}${n === 1 ? "" : "s"}`;
+
+type Round = NonNullable<AttemptRow["rounds"]>[number];
+
+/** A run of rounds in a row that ended alike: the same state and outcome. */
+export interface RoundRun {
+  first: number;
+  last: number;
+  count: number;
+  state: string | null;
+  outcome: string | null;
+}
+
+/**
+ * The rounds, each run of them in a row with the same state and outcome as
+ * one; with open, the last round, which runs now, stands alone.
+ */
+export function roundRuns(rounds: Round[], open: boolean): RoundRun[] {
+  const runs: RoundRun[] = [];
+  rounds.forEach((r, i) => {
+    const before = runs.at(-1);
+    const alone = open && i === rounds.length - 1;
+    if (
+      before !== undefined &&
+      !alone &&
+      before.state === r.state &&
+      before.outcome === r.outcome
+    ) {
+      before.last = r.round;
+      before.count += 1;
+    } else
+      runs.push({
+        first: r.round,
+        last: r.round,
+        count: 1,
+        state: r.state,
+        outcome: r.outcome,
+      });
+  });
+  return runs;
+}
+
 /** A time as milliseconds for ordering; one missing or bad is the oldest. */
 function ms(iso: string | null): number {
   const t = iso === null ? NaN : Date.parse(iso);
