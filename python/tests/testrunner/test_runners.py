@@ -10,6 +10,7 @@ from dataforge.testrunner.manifest import RUNNERS
 from dataforge.testrunner.manifest import Test as Listed
 from dataforge.testrunner.runners import (
   ADAPTERS,
+  dependency_overrides,
   loaded_by_runner,
   Maven,
   PHPUnit,
@@ -385,6 +386,9 @@ def test_phpunit_without_a_configuration_runs_the_listed_classes_files(
     ("jasmine", "jasmine.json", False),
     ("phpunit", "phpunit.xml.dist", True),
     ("phpunit", "composer.json", False),
+    ("go", "go.work", True),
+    ("go", "svc/go.work.sum", True),
+    ("go", "go.mod", False),
   ],
 )
 def test_loaded_by_runner(runner: str, path: str, loaded: bool):
@@ -428,3 +432,129 @@ BASE_FILES = {
 )
 def test_restore_paths(test: Listed, paths: list[str]):
   assert restore_paths(test, BASE_FILES) == paths
+
+
+GO_MOD = """module example.com/app
+
+go 1.22
+
+require (
+\tgithub.com/stretchr/testify v1.9.0
+\texample.com/lib v1.0.0
+)
+"""
+CARGO_TOML = """[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+serde = "1.0"
+core = { path = "core" }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+"""
+
+
+@pytest.mark.parametrize(
+  ("runner", "base", "added", "found"),
+  [
+    (
+      "go",
+      GO_MOD,
+      "replace github.com/stretchr/testify => ./testify // here\n",
+      ["github.com/stretchr/testify => ./testify"],
+    ),
+    (
+      "go",
+      GO_MOD,
+      'replace (\n\t// ours\n\t"example.com/lib" v1.0.0 => ../lib\n'
+      "\tgithub.com/stretchr/testify => example.com/fork v1.9.1\n)\n",
+      [
+        "example.com/lib v1.0.0 => ../lib",
+        "github.com/stretchr/testify => example.com/fork v1.9.1",
+      ],
+    ),
+    (
+      "cargo",
+      CARGO_TOML,
+      '\n[patch.crates-io]\npretty_assertions = { path = "fake" }\n',
+      ['patch.crates-io.pretty_assertions = {"path": "fake"}'],
+    ),
+    (
+      "cargo",
+      CARGO_TOML.replace(
+        "[package]",
+        'patch.crates-io.serde.git = "https://example.com/s"\n[package]',
+      ),
+      "",
+      ['patch.crates-io.serde = {"git": "https://example.com/s"}'],
+    ),
+    (
+      "cargo",
+      CARGO_TOML,
+      '\n[replace]\n"serde:1.0.0" = { path = "serde" }\n',
+      ['replace.serde:1.0.0 = {"path": "serde"}'],
+    ),
+    (
+      "cargo",
+      CARGO_TOML.replace('"1.4"', '{ path = "fake", version = "1.4" }'),
+      "",
+      ['dev-dependencies.pretty_assertions = {"path": "fake"}'],
+    ),
+    (
+      "cargo",
+      CARGO_TOML,
+      "\n[target.'cfg(unix)'.dev-dependencies]\n"
+      'tempfile = { git = "https://example.com/t", rev = "abc" }\n'
+      '\n[workspace.dependencies]\nlog = { path = "log" }\n',
+      [
+        'target.cfg(unix).dev-dependencies.tempfile = {"git":'
+        ' "https://example.com/t", "rev": "abc"}',
+        'workspace.dependencies.log = {"path": "log"}',
+      ],
+    ),
+  ],
+)
+def test_dependency_overrides_are_what_the_fix_adds(
+  runner: str, base: str, added: str, found: list[str]
+):
+  # The patch's text is from the base, the fix's adds to it; a dotted
+  # patch.crates-io key sits above [package] so it stays at the top level.
+  text = base + added
+  base_text = GO_MOD if runner == "go" else CARGO_TOML
+  assert dependency_overrides(runner, base_text, text) == found
+  assert dependency_overrides(runner, text, text) == []
+
+
+@pytest.mark.parametrize(
+  ("runner", "base", "text"),
+  [
+    ("go", GO_MOD, GO_MOD.replace("v1.9.0", "v1.9.1")),
+    (
+      "go",
+      GO_MOD + "replace example.com/lib => ../lib\n",
+      GO_MOD.replace("v1.0.0", "v1.0.1")
+      + "replace example.com/lib => ../lib\n",
+    ),
+    ("cargo", CARGO_TOML, CARGO_TOML.replace('"1.4"', '"1.5"')),
+    (
+      "cargo",
+      CARGO_TOML,
+      CARGO_TOML.replace(
+        '{ path = "core" }', '{ path = "core", version = "2" }'
+      ),
+    ),
+  ],
+)
+def test_a_new_version_is_no_dependency_override(
+  runner: str, base: str, text: str
+):
+  assert dependency_overrides(runner, base, text) == []
+
+
+def test_dependency_overrides_of_a_new_file_are_all_it_has():
+  assert dependency_overrides("go", None, GO_MOD) == []
+  assert dependency_overrides("cargo", None, CARGO_TOML) == [
+    'dependencies.core = {"path": "core"}'
+  ]
