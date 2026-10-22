@@ -18,6 +18,7 @@ from typing import cast
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation.actions import Limits
 from dataforge.gateway import (
   Backoff,
@@ -406,6 +407,18 @@ def test_a_pause_another_process_began_holds_this_ones_calls():
     got_429(60, 600)
     assert pauses[Channel.CLAUDE].remaining() > 50
     assert pauses[Channel.CODEX].remaining() <= 0
+
+
+def test_a_wait_for_a_pause_ends_once_the_stop_of_its_call_is_set():
+  stop = threading.Event()
+  with pausing(Backoff()) as pauses:
+    got_429(60, 600)
+    timer = threading.Timer(0.3, stop.set)
+    timer.start()
+    started = time.monotonic()
+    with pytest.raises(stopping.Stopped):
+      _ = stopping.under(stop, pauses[Channel.CLAUDE].wait)()
+    assert time.monotonic() - started < 5
 
 
 def test_a_stop_holds_for_every_process_until_it_is_cleared():

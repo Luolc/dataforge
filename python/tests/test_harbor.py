@@ -9,19 +9,22 @@ The fakes are written here as scripts.
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import replace
+from functools import partial
 import json
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import cast
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation import harbor
-from dataforge.curation.actions import Limits, Mount, TrialAgent
+from dataforge.curation.actions import fan_out, Limits, Mount, TrialAgent
 from dataforge.curation.harbor import (
   HarborRunner,
   LABEL,
@@ -29,10 +32,12 @@ from dataforge.curation.harbor import (
   Sidecar,
   TrialSetup,
 )
+from tests.sigterm import sigterm_once
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json and then does what
 # FAKE_MODE says: "ok", "exception", "no-reward", "exit" (exit 3 with no result)
 # or "hang" (start a child, write its own and the child's pid, sleep);
+# "deaf" does the same, ignoring SIGTERM from before it writes the pids;
 # "interrupt" also sends its parent SIGUSR1 before it sleeps, and "stubborn"
 # does too, and again on SIGTERM instead of exiting. With FAKE_STRAGGLER, the
 # child ignores SIGTERM, so it outlives harbor. The agent's cost is FAKE_COST,
@@ -51,17 +56,19 @@ trial = jobs / argv[argv.index("--job-name") + 1] / "task__abc"
 mode = os.environ["FAKE_MODE"]
 if mode == "exit":
     sys.exit(3)
-if mode in ("hang", "interrupt", "stubborn"):
+if mode in ("hang", "deaf", "interrupt", "stubborn"):
     if "FAKE_STRAGGLER" in os.environ:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     child = subprocess.Popen(["sleep", "60"])
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    if mode == "deaf":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     (jobs / "pids").write_text(f"{os.getpid()} {child.pid}")
     if mode == "stubborn":
         signal.signal(
             signal.SIGTERM, lambda *_: os.kill(os.getppid(), signal.SIGUSR1)
         )
-    if mode != "hang":
+    if mode not in ("hang", "deaf"):
         os.kill(os.getppid(), signal.SIGUSR1)
     time.sleep(60)
 (trial / "agent").mkdir(parents=True)
@@ -683,6 +690,67 @@ def test_a_child_that_outlives_a_stopped_harbor_is_killed_before_the_chown(
     _ = signal.signal(signal.SIGUSR1, previous)
     for pid in alive(out):
       os.kill(pid, signal.SIGKILL)
+
+
+@pytest.mark.parametrize("interrupt", [SystemExit(143), KeyboardInterrupt()])
+@pytest.mark.parametrize(
+  ("mode", "env"), [("hang", {"FAKE_STRAGGLER": "1"}), ("deaf", {})]
+)
+def test_a_sigterm_during_a_fan_out_stops_every_harbor_at_once(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+  mode: str,
+  env: dict[str, str],
+  interrupt: BaseException,
+) -> None:
+  # A deaf Harbor takes STOP_S to stop: four, one after another, take 4 times
+  # that.
+  monkeypatch.setattr(harbor, "STOP_S", 3.0)
+  base, task_dir = runner(fakes, mode, env), task(tmp_path)
+  outs = [outdir(tmp_path, f"trial-{i}") for i in range(4)]
+  calls = [partial(base.run, task_dir, "nop", Limits(2), out) for out in outs]
+  try:
+    with sigterm_once(
+      lambda: all((o / "pids").exists() for o in outs),
+      lambda: type(interrupt)(*interrupt.args),
+    ) as sent:
+      with pytest.raises(type(interrupt)) as caught:
+        _ = fan_out(calls)
+      ended = time.monotonic()
+    assert caught.value.args == interrupt.args
+    assert ended - sent[0] < 2 * harbor.STOP_S
+    for out in outs:
+      for pid in alive(out):
+        pytest.fail(f"process {pid} of the fake harbor is still running")
+  finally:
+    for out in outs:
+      for pid in alive(out) if (out / "pids").exists() else []:
+        os.kill(pid, signal.SIGKILL)
+
+
+def test_a_trial_of_a_stopped_fan_out_starts_nothing(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out, stop = outdir(tmp_path), threading.Event()
+  entered: list[Path] = []
+
+  @contextmanager
+  def setup(*_: object) -> Generator[TrialSetup]:
+    entered.append(out)
+    yield TrialSetup()
+
+  trial = replace(runner(fakes), setup=setup)
+
+  def stopped_then_run() -> object:
+    stop.set()
+    return trial.run(task(tmp_path), "nop", Limits(2), out)
+
+  with pytest.raises(stopping.Stopped):
+    _ = stopping.under(stop, stopped_then_run)()
+  assert entered == []
+  assert not (fakes[1].parent / "calls.jsonl").exists()
+  assert not (out / "fake.json").exists()
 
 
 def alive(out: Path) -> list[int]:

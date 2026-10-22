@@ -19,6 +19,8 @@ import threading
 import time
 from typing import final
 
+from dataforge import stopping
+
 # How often a take that does not fit looks again.
 POLL_S = 0.2
 _PREFIX = "lease-"
@@ -138,7 +140,11 @@ class Leases:
 
     Returns:
       The lease.
-    """
+
+    Raises:
+      stopping.Stopped: The stop of the call this thread runs was set first.
+    """  # noqa: DOC502
     while (lease := self.take(amount, fits)) is None:
+      stopping.check()
       time.sleep(POLL_S)
     return lease

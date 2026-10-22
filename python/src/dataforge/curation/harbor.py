@@ -61,6 +61,7 @@ import tomllib
 from typing import cast
 import uuid
 
+from dataforge import stopping
 from dataforge.curation.actions import (
   drop_escaping_links,
   drop_special_files,
@@ -78,6 +79,8 @@ PIDS = 512
 # A bound on one trial past the timeouts Harbor enforces itself (the agent's and
 # the verifier's in task.toml), for a Harbor that hangs.
 TIMEOUT = 3600.0
+# How long a stopped Harbor gets after SIGTERM before SIGKILL.
+STOP_S = 30.0
 SIDECAR = "harbor-docker-egress-control-sidecar"
 SIDECAR_PIDS = 64
 # The phases whose network_mode, besides the environment's, can make Harbor
@@ -271,7 +274,13 @@ class HarborRunner:
 
     Returns:
       Its result.
-    """
+
+    Raises:
+      stopping.Stopped: The stop of the call this thread runs is set; the
+        trial starts nothing then.
+    """  # noqa: DOC502
+    # Before anything that the cleanup would have to undo.
+    stopping.check()
     context = (
       nullcontext(TrialSetup())
       if self.setup is None
@@ -408,7 +417,8 @@ class HarborRunner:
 
     Raises:
       BaseException: Whatever interrupted the wait, such as the SystemExit of a
-        SIGTERM or a KeyboardInterrupt, once Harbor is stopped.
+        SIGTERM, a KeyboardInterrupt or the Stopped of a stopped `fan_out`,
+        once Harbor is stopped; Stopped also before Harbor starts.
     """
     env = {
       **_passed(),
@@ -417,6 +427,7 @@ class HarborRunner:
       SIDECAR_CPUS_VAR: str(self.sidecar.cpus),
       SIDECAR_MEMORY_VAR: str(self.sidecar.memory_mb),
     }
+    stopping.check()
     with log.open("w") as out:
       process = subprocess.Popen(
         args,
@@ -427,13 +438,14 @@ class HarborRunner:
         start_new_session=True,
       )
       try:
-        code = process.wait(self.timeout)
+        code = stopping.wait(process, self.timeout)
       except subprocess.TimeoutExpired:
         _stop(process)
         return f"TimeoutError: Harbor ran past {self.timeout:g} s"
       except BaseException:
-        # Interrupted (a SIGTERM made SystemExit, Ctrl-C): Harbor could still
-        # start a container or write after the cleanup gave its files back.
+        # Interrupted (a SIGTERM made SystemExit, Ctrl-C, a stopped fan_out):
+        # Harbor could still start a container or write after the cleanup
+        # gave its files back.
         _stop(process)
         raise
     return (
@@ -650,7 +662,7 @@ def _agent_args(agent: TrialAgent) -> list[str]:
 
 def _stop(process: subprocess.Popen[bytes]) -> None:
   # Harbor's children (docker compose) are in its session; stop them all.
-  for sig, wait in ((signal.SIGTERM, 30.0), (signal.SIGKILL, None)):
+  for sig, wait in ((signal.SIGTERM, STOP_S), (signal.SIGKILL, None)):
     try:
       os.killpg(process.pid, sig)
     except ProcessLookupError:

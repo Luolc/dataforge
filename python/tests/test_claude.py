@@ -40,12 +40,14 @@ from dataforge.curation import (
   Context,
   Docker,
   End,
+  fan_out,
   HOST,
   Machine,
   Outcome,
   State,
 )
 from dataforge.runtime import claude
+from tests.sigterm import sigterm_once
 
 FAKE_CLAUDE = """\
 import json, os, pathlib, re, subprocess, sys, time
@@ -309,6 +311,36 @@ def test_a_session_past_its_timeout_is_killed_with_its_children(
   else:
     os.kill(child, signal.SIGKILL)
     pytest.fail("the session's child outlived the timeout")
+
+
+def test_a_sigterm_during_a_fan_out_kills_its_sessions_with_their_children(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(tmp_path, [{"hang": True}])
+  pids = fake.log / "pids"
+
+  def run() -> claude.Result:
+    return fake.session.run(
+      "s", "Go.", run_dir=tmp_path, cwd=tmp_path / "w", tools=(), allow=(),
+      schema=None,
+    )  # fmt: skip
+
+  with sigterm_once(pids.exists) as sent:
+    with pytest.raises(SystemExit):
+      _ = fan_out([run])
+    ended = time.monotonic()
+  assert ended - sent[0] < 5
+  child = int(pids.read_text())
+  deadline = time.monotonic() + 5
+  while time.monotonic() < deadline:
+    try:
+      os.kill(child, 0)
+    except ProcessLookupError:
+      break
+    time.sleep(0.05)
+  else:
+    os.kill(child, signal.SIGKILL)
+    pytest.fail("the session's child outlived the stopped fan_out")
 
 
 def test_a_missing_or_resultless_trace_reads_as_no_result(

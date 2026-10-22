@@ -10,7 +10,7 @@ reserved; a container's cpus and cpu_shares divide them.
 
 import codecs
 from collections.abc import Callable, Generator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 import dataclasses
 from dataclasses import dataclass, field
@@ -28,6 +28,7 @@ import threading
 from types import TracebackType
 from typing import cast, Protocol, Self
 
+from dataforge import stopping
 from dataforge.curation.engine import (
   ActionRecord,
   Context,
@@ -680,8 +681,10 @@ class Docker:
     Raises:
       BaseException: Whatever creating, starting or post_start raised; the
         memory is given back, and after a failed post_start the container is
-        stopped.
+        stopped. Stopped, before anything, when the stop of the call this
+        thread runs is set.
     """
+    stopping.check()
     with self._lock:
       if self._users == 0:
         if pool is not None and self.memory_gb is not None:
@@ -1451,17 +1454,34 @@ def fan_out[T](calls: Sequence[Callable[[], T]]) -> list[T]:
   """Run every call at once, each in its own thread.
 
   How many actually run at a time is up to the pool their actions reserve from.
+  The calls run under a stop (`dataforge.stopping`), the one of the call that
+  runs this fan_out, if any, else one of their own. When this thread is
+  interrupted while it waits for them, by the SystemExit of a SIGTERM or a
+  KeyboardInterrupt say, it sets the stop, so that the calls stop the children
+  they wait for and start no more, and raises the interrupt once they ended.
 
   Args:
     calls: The calls.
 
   Returns:
     Their results, in order.
-  """
+
+  Raises:
+    Exception: The error of the first call, in order, that failed, once the
+      calls ended.
+    BaseException: The interrupt, once the calls ended.
+  """  # noqa: DOC503
   if not calls:
     return []
+  stop = stopping.current() or threading.Event()
   with ThreadPoolExecutor(max_workers=len(calls)) as executor:
-    futures = [executor.submit(call) for call in calls]
+    futures = [executor.submit(stopping.under(stop, call)) for call in calls]
+    try:
+      _ = wait(futures)
+    except BaseException:
+      stop.set()
+      executor.shutdown(cancel_futures=True)
+      raise
     return [future.result() for future in futures]
 
 
