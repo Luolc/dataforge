@@ -341,13 +341,17 @@ def test_a_restarted_scheduler_takes_the_running_jobs_as_they_are(
   config: Config, scheduler: Scheduler, tmp_path: Path
 ):
   job = put(config, "alpha", "sh", "-c", "echo ready; sleep 2; exit 4")
+  # The served scheduler reads the machine's own load; a busy machine must
+  # not keep it from starting the job.
+  served = tmp_path / "served.yaml"
+  _ = served.write_text(QUEUE_FILE.replace("max_load1: 4", "max_load1: 10000"))
   serving = subprocess.Popen(
     [
       Path(sys.executable).parent / "dataforge",
       "queue",
       "serve",
       "--config",
-      str(tmp_path / "queue.yaml"),
+      str(served),
     ],
     stderr=subprocess.DEVNULL,
   )
