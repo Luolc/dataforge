@@ -16,3 +16,8 @@ The review checks specific to this repo, on top of general review practice.
 ## Design doc
 
 - A PR that is not a design pass leaves `docs/design.md`, `docs/design-viz.md` and `docs/design-share.md` untouched. Check that its "Design impact" names the section or invariant of any of them the change really affects, with the guarding test, or says "none" only when nothing there changes.
+
+## Shared formats
+
+- A format in `python/src/dataforge/formats/builtin.py` is what the processes of two installs share on one machine. A PR that changes what one of them means, so that the code of the version before would read or write it wrongly beside the new code, raises its version there, even when its snapshot under `python/tests/formats/` stays the same: for example a new value in a column whose values the old code acts on, a new table whose rows the old code would ignore where it must not (a queue's pause that an old scheduler would not honor), a time in another clock or unit, or a new signal or exit status between the scheduler and a job's wrapper. A PR that leaves the version as it is while doing so is a finding.
+- A PR that adds something two installs share on one machine (a table, a file or directory in the state directory, a variable or argument the scheduler gives a job's wrapper) and declares no format for it in `builtin.py`, or covers it by none there, is a finding.
