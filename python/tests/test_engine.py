@@ -26,6 +26,7 @@ from dataforge.curation import (
   Context,
   Deliverable,
   End,
+  ENDING,
   Env,
   Goto,
   Guard,
@@ -1741,9 +1742,63 @@ def test_deliverables_of_an_ended_attempt_resolve_as_its_end_would(
   with pytest.raises(ValueError, match="has no outcome"):
     _ = Machine(states, deliverables=every).deliverables_of(running)
 
-  raised = Attempt.from_json(root, records[-1])
-  raised.visits[-1].outcome = "raised"
-  assert Machine(states, deliverables=every).deliverables_of(raised) == []
+  for ending in ENDING:
+    ended = Attempt.from_json(root, records[-1])
+    ended.visits[-1].outcome = ending
+    [entry] = Machine(states, deliverables=every).deliverables_of(ended)
+    assert (entry["path"], entry["k"]) == (None, 0)
+    assert entry["reason"] == f"regrade visit 1 {ending}"
+
+
+@pytest.mark.parametrize(
+  ("error", "outcome"),
+  [
+    pytest.param(RuntimeError("proxy exited"), "raised", id="raised"),
+    pytest.param(KeyboardInterrupt(), "interrupted", id="interrupted"),
+  ],
+)
+def test_a_visit_that_does_not_finish_leaves_what_the_visits_before_it_made(
+  tmp_path: Path, error: BaseException, outcome: str
+) -> None:
+  def write(name: str) -> Callable[[Context], Outcome]:
+    def run(ctx: Context) -> Outcome:
+      argv = ["sh", "-c", f'echo done > "$DATAFORGE_OUTPUTS/{name}"']
+      assert Actions().script(ctx, ScriptSpec(argv, outputs=[name])).ok
+      if name == "partial":
+        raise error
+      return Outcome("done")
+
+    return run
+
+  states = [
+    Step("build", write("task"), {"done": Goto("solve")}),
+    Step("solve", write("partial"), {"done": End("passed")}),
+  ]
+  deliverables = {
+    "task": Deliverable("files", "Task", Source("build", "task")),
+    "partial": Deliverable("files", "Partial", Source("solve", "partial")),
+  }
+  records: list[dict[str, object]] = []
+  machine = Machine(
+    states,
+    deliverables=deliverables,
+    on_step=lambda attempt: records.append(attempt.to_json()),
+  )
+  with pytest.raises(type(error)):
+    _ = machine.run(tmp_path)
+
+  last = records[-1]
+  visits = cast(list[dict[str, object]], last["visits"])
+  assert visits[-1]["outcome"] == outcome
+  task, partial = cast(list[dict[str, object]], last["deliverables"])
+  assert (task["path"], task["visit_index"]) == ("artifacts/build/1/task", 0)
+  # What the visit that did not finish wrote is not delivered.
+  assert (partial["path"], partial["reason"]) == (
+    None,
+    f"solve visit 1 {outcome}",
+  )
+  read_back = Attempt.from_json(tmp_path, last)
+  assert machine.deliverables_of(read_back) == last["deliverables"]
 
 
 def test_a_value_from_json_nested_too_deep_has_a_reason(tmp_path: Path) -> None:
