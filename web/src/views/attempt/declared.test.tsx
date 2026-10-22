@@ -274,8 +274,9 @@ describe("a tab of several deliverables of one kind", () => {
   it("opens on the one marked default when none was reached", async () => {
     show(withRegrade(false, false), "&tab=trials", marked);
 
-    expect(await screen.findByText("solve was never visited")).toBeVisible();
-    expect(screen.queryByText("regrade was never visited")).toBeNull();
+    const menu = await screen.findByRole("button", { name: /Pass@k/ });
+    expect(menu).toHaveTextContent(/^Pass@k$/);
+    expect(screen.queryByText("the attempt never reached regrade.")).toBeNull();
   });
 
   it("is titled by the first reached over the one marked default", async () => {
