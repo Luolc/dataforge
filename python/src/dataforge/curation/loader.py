@@ -69,6 +69,8 @@ The schema, version 1:
                visit: kept | last | <integer>}     # kept by default
       table: <source>                 # report only
       value: {field: [<string>], output: <string>} # trials only
+      match: <glob>                   # trials only: list only the trials
+                                      # whose output name matches it
 
 In the fields the engine renders as string.Template (feedback, prompt and
 report_prompt, a prompt file and its vars), an input's value has each $
@@ -371,7 +373,7 @@ class _Loader:
         spec,
         at,
         required={"kind", "title", "source"},
-        optional={"table", "value"},
+        optional={"table", "value", "match"},
       )
       table, data = fields.get("table"), fields.get("value")
       item = Deliverable(
@@ -380,6 +382,7 @@ class _Loader:
         self.source(fields["source"], f"{at}.source"),
         table=None if table is None else self.source(table, f"{at}.table"),
         value=None if data is None else self.value(data, f"{at}.value"),
+        match=self.optional_string(fields.get("match"), f"{at}.match"),
       )
       try:
         check_deliverables({name: item}, states)
