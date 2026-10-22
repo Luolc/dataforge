@@ -59,16 +59,22 @@ describe("a card's text measured", () => {
 
     expect(measure("MM a", "title")).toBe(16);
     expect(measure("MM a", "sub")).toBe(8);
-    expect(fonts).toEqual(['700 20px "Test Sans"', '300 10px "Test Sans"']);
+    expect(measure("MM a", "label")).toBe(8);
+    expect(fonts).toEqual([
+      '700 20px "Test Sans"',
+      '300 10px "Test Sans"',
+      '700 10px "Test Sans"',
+    ]);
   });
 
-  it("with every digit under a title as a 0, as its tabular figures draw", () => {
+  it("with every digit under a title, and in a label, as a 0, as tabular figures draw", () => {
     fakeCanvas();
     const measure = canvasMeasure();
 
     expect(measure("11 runs", "sub")).toBe(measure("00 runs", "sub"));
     expect(measure("11 runs", "sub")).toBe(9);
     expect(measure("11 runs", "title")).toBe(14);
+    expect(measure("pass ×11", "label")).toBe(measure("pass ×00", "label"));
   });
 
   it("anew once a font finishes loading", () => {

@@ -10,7 +10,12 @@
 // the card it leaves, its label naming where it goes.
 
 import type { AttemptRecord, Current, Project, Tone } from "../../../api/types";
-import { duration, visitSeconds } from "../../../ui/format";
+import {
+  duration,
+  NO_ACTION,
+  runCount,
+  visitSeconds,
+} from "../../../ui/format";
 import {
   attemptStatus,
   endWord,
@@ -43,12 +48,11 @@ export const SUB_LINE = 16;
 /** The radius of an edge's corners. */
 const R = 8;
 /**
- * The height of a line of an edge's label, how far its baseline sits above
- * the line's bottom, and the most a character of it is wide.
+ * The height of a line of an edge's label, and how far its baseline sits
+ * above the line's bottom.
  */
 export const LINE = 14;
 const DESCENT = 4;
-const LABEL_CHAR = 7;
 /** How far a loop reaches out of its card, and how tall it is. */
 const LOOP = 30;
 export const LOOP_WIDTH = 28;
@@ -112,6 +116,8 @@ interface LiveRow {
 
 interface LabelPart {
   outcome: string;
+  /** The outcome's label, as the project file names it (statusOf). */
+  label: string;
   taken: number;
   /** The title of the state a stub's transition goes to; null for none. */
   to: string | null;
@@ -240,14 +246,22 @@ export function layout(
     }
     const mine = record.visits.filter((v) => v.state === key);
     const last = mine.at(-1);
-    const seconds = mine.reduce((sum, v) => sum + (visitSeconds(v) ?? 0), 0);
-    const sub = mine.length === 0 ? NOT_RUN : runsOf(mine.length);
+    const times = mine.flatMap((v) => {
+      const s = visitSeconds(v);
+      return s === null ? [] : [s];
+    });
+    const seconds = times.reduce((sum, s) => sum + s, 0);
+    const sub = mine.length === 0 ? NOT_RUN : runCount(mine.length);
     const time =
       mine.length === 0
         ? null
-        : mine.length > 1
-          ? `${duration(seconds)} ${IN_ALL}`
-          : duration(seconds);
+        : times.length === 0
+          ? mine.every((v) => v.actions.length === 0)
+            ? NO_ACTION
+            : "—"
+          : mine.length > 1
+            ? `${duration(seconds)} ${IN_ALL}`
+            : duration(seconds);
     if (current?.state === key) {
       const done = current.recorded ? mine.slice(0, -1) : mine;
       const runs = done.length + 1;
@@ -260,7 +274,7 @@ export function layout(
           measure,
         ),
         ...(timed && runs > 1
-          ? liveRows(`${runsOf(runs)} · `, "all", ` ${IN_ALL}`, measure)
+          ? liveRows(`${runCount(runs)} · `, "all", ` ${IN_ALL}`, measure)
           : []),
       ];
       return {
@@ -312,6 +326,7 @@ export function layout(
     const group = groups.get(key) ?? { from: e.from, to, parts: [] };
     group.parts.push({
       outcome: e.outcome,
+      label: statusOf(project, e.outcome).label,
       taken: taken.get(`${e.from}\0${e.outcome}`) ?? 0,
       to: null,
     });
@@ -362,7 +377,7 @@ export function layout(
       width: n.width,
       height: n.height,
       beside: loops.has(n.key)
-        ? LOOP + LOOP_GAP + labelWidth(must(loops.get(n.key)))
+        ? LOOP + LOOP_GAP + labelWidth(must(loops.get(n.key)), measure)
         : 0,
     })),
     others.map(([key, g]) => ({
@@ -370,7 +385,10 @@ export function layout(
       from: g.from,
       to: g.to,
       stub: stubbed.has(key),
-      label: { width: labelWidth(g.parts), height: g.parts.length * LINE },
+      label: {
+        width: labelWidth(g.parts, measure),
+        height: g.parts.length * LINE,
+      },
     })),
   );
   for (const node of nodes) {
@@ -483,9 +501,6 @@ function wrap(
   return lines.length > 0 ? lines : [""];
 }
 
-/** How a count of runs reads: "1 run", "3 runs". */
-const runsOf = (n: number) => `${n.toString()} run${n > 1 ? "s" : ""}`;
-
 /** What marks a time as the total of all of a state's runs. */
 const IN_ALL = "in all";
 
@@ -533,18 +548,21 @@ function below(sub: string, time: string | null, measure: Measure): string[] {
   ];
 }
 
+/**
+ * A part's line of an edge's label: its outcome's label, how many times the
+ * attempt took it and, for a stub, where it goes.
+ */
+export function labelLine(part: LabelPart): string {
+  const taken = part.taken > 0 ? ` ×${part.taken.toString()}` : "";
+  const to = part.to === null ? "" : ` → ${part.to}`;
+  return `${part.label}${taken}${to}`;
+}
+
 /** How wide a label of these parts is, a part to a line. */
-function labelWidth(parts: LabelPart[]): number {
+function labelWidth(parts: LabelPart[], measure: Measure): number {
   return Math.max(
     0,
-    ...parts.map((p) =>
-      Math.ceil(
-        (p.outcome.length +
-          (p.taken > 0 ? 3 + String(p.taken).length : 0) +
-          (p.to === null ? 0 : 3 + p.to.length)) *
-          LABEL_CHAR,
-      ),
-    ),
+    ...parts.map((p) => Math.ceil(measure(labelLine(p), "label"))),
   );
 }
 
