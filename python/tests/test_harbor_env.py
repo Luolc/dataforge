@@ -15,6 +15,7 @@ makes from the same configuration.
 
 import asyncio
 from collections.abc import Generator
+from dataclasses import dataclass
 from importlib import metadata
 import inspect
 import json
@@ -39,7 +40,7 @@ from harbor.trial.trial import Trial
 import pytest
 import yaml
 
-from dataforge.curation import harbor
+from dataforge.curation import harbor, harbor_env
 from dataforge.curation.harbor_env import DockerEnvironment, OOM_KILLED
 
 NO_NETWORK = NetworkPolicy(network_mode=NetworkMode.NO_NETWORK)
@@ -291,6 +292,67 @@ def test_a_separate_verifier_gets_the_tmpfs_of_the_run(tmp_path: Path) -> None:
   assert added(env) == {"main": {"tmpfs": TMPFS}}
 
 
+@dataclass
+class Inspect:
+  """A `docker inspect` process that answers, or hangs when it has no answer.
+
+  Attributes:
+    answer: What it writes to its stdout; None to hang.
+    returncode: None while it runs.
+    killed: Whether it was killed.
+  """
+
+  answer: bytes | None
+  returncode: int | None = None
+  killed: bool = False
+
+  async def communicate(self) -> tuple[bytes, bytes]:
+    if self.answer is None:
+      _ = await asyncio.Event().wait()
+    self.returncode = 0
+    return self.answer or b"", b""
+
+  def kill(self) -> None:
+    self.killed = True
+
+  async def wait(self) -> int:
+    self.returncode = -9
+    return self.returncode
+
+
+def stop_with(
+  env: DockerEnvironment, monkeypatch: pytest.MonkeyPatch, process: Inspect
+) -> list[list[str]]:
+  """Stop env with compose, the inspect process and Harbor's stop faked.
+
+  Args:
+    env: The environment to stop.
+    monkeypatch: The test's.
+    process: What starting a process gives.
+
+  Returns:
+    The compose commands, the processes' argvs and Harbor's stops, in order.
+  """
+  calls: list[list[str]] = []
+
+  async def compose(command: list[str], **_kwargs: object) -> ExecResult:
+    calls.append(command)
+    return ExecResult(stdout="c1\n", return_code=0)
+
+  async def exec_(*argv: str, **_kwargs: object) -> Inspect:
+    calls.append(list(argv))
+    return process
+
+  async def stop(_self: object, delete: bool) -> None:
+    calls.append(["harbor stop", str(delete)])
+
+  monkeypatch.setattr(env, "_run_docker_compose_command", compose)
+  monkeypatch.setattr(asyncio, "create_subprocess_exec", exec_)
+  monkeypatch.setattr(HarborDockerEnvironment, "stop", stop)
+  asyncio.run(env.stop(delete=True))
+  return calls
+
+
 @pytest.mark.parametrize(
   ("inspected", "logged"),
   [
@@ -307,31 +369,48 @@ def test_stop_says_in_the_log_when_main_was_killed_for_memory(
   logged: list[str],
 ) -> None:
   env = with_tmpfs(tmp_path, 2048)
-  calls: list[list[str]] = []
-
-  async def compose(command: list[str], **_kwargs: object) -> ExecResult:
-    calls.append(command)
-    return ExecResult(stdout="c1\n", return_code=0)
-
-  class Inspect:
-    async def communicate(self) -> tuple[bytes, bytes]:
-      return inspected.encode(), b""
-
-  async def exec_(*argv: str, **_kwargs: object) -> Inspect:
-    calls.append(list(argv))
-    return Inspect()
-
-  async def stop(_self: object, delete: bool) -> None:
-    calls.append(["harbor stop", str(delete)])
-
-  monkeypatch.setattr(env, "_run_docker_compose_command", compose)
-  monkeypatch.setattr(asyncio, "create_subprocess_exec", exec_)
-  monkeypatch.setattr(HarborDockerEnvironment, "stop", stop)
   with caplog.at_level(logging.WARNING):
-    asyncio.run(env.stop(delete=True))
+    calls = stop_with(env, monkeypatch, Inspect(inspected.encode()))
   assert calls == [
     ["ps", "--all", "--quiet", "main"],
     ["docker", "inspect", "--format", "{{.State.OOMKilled}}", "c1"],
     ["harbor stop", "True"],
   ]
   assert [r.getMessage() for r in caplog.records] == logged
+
+
+@pytest.mark.usefixtures("slow_docker")
+def test_stop_inspects_main_with_the_environments_engine(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  def podman(_cls: object, *args: str) -> list[str]:
+    return ["podman", *args]
+
+  monkeypatch.setattr(DockerEnvironment, "_engine_cmd", classmethod(podman))
+  env = with_tmpfs(tmp_path, 2048)
+  calls = stop_with(env, monkeypatch, Inspect(b"false\n"))
+  assert [
+    "podman",
+    "inspect",
+    "--format",
+    "{{.State.OOMKilled}}",
+    "c1",
+  ] in calls
+
+
+@pytest.mark.usefixtures("slow_docker")
+def test_an_inspect_past_its_timeout_is_killed_and_the_stop_goes_on(
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+) -> None:
+  monkeypatch.setattr(harbor_env, "_INSPECT_TIMEOUT", 0.01)
+  env = with_tmpfs(tmp_path, 2048)
+  hung = Inspect(None)
+  with caplog.at_level(logging.WARNING):
+    calls = stop_with(env, monkeypatch, hung)
+  assert (hung.killed, hung.returncode) == (True, -9)
+  assert calls[-1] == ["harbor stop", "True"]
+  assert [r.getMessage() for r in caplog.records] == [
+    "dataforge: State.OOMKilled not read: "
+  ]

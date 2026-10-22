@@ -10,6 +10,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import replace
 from functools import partial
+import gc
 import json
 import os
 from pathlib import Path
@@ -233,6 +234,29 @@ if argv[0] in ("container", "image", "network", "volume"):
     elif not (here / "stuck").exists():
         ids.unlink(missing_ok=True)
 """
+
+
+@contextmanager
+def no_collection() -> Generator[None]:
+  """Collect the garbage, and collect none until the block ends.
+
+  The fake harbor's SIGUSR1 interrupts the main thread wherever it is. A
+  collection there runs finalizers, in which an exception the handler raises
+  is lost, and can hold the main thread in `subprocess.Popen` until the fake
+  harbor signals, before the runner waits on it; either fails the test, not
+  the runner.
+
+  Yields:
+    Nothing.
+  """
+  enabled = gc.isenabled()
+  _ = gc.collect()
+  gc.disable()
+  try:
+    yield
+  finally:
+    if enabled:
+      gc.enable()
 
 
 def script(path: Path, body: str) -> Path:
@@ -607,7 +631,7 @@ def test_no_run_follows_an_interrupt(
 
   previous = signal.signal(signal.SIGUSR1, handler)
   try:
-    with pytest.raises(type(interrupt)):
+    with pytest.raises(type(interrupt)), no_collection():
       _ = not_started(fakes, "interrupt").run(
         task(tmp_path), "nop", Limits(2), out
       )
@@ -936,7 +960,7 @@ def test_an_interrupted_harbor_is_stopped_before_the_chown(
   previous = signal.signal(signal.SIGUSR1, handler)
   started = time.monotonic()
   try:
-    with pytest.raises(type(interrupt)) as caught:
+    with pytest.raises(type(interrupt)) as caught, no_collection():
       _ = runner(fakes, mode).run(task(tmp_path), "nop", Limits(2), out)
     # In "stubborn", the second interrupt, in the grace period, escapes.
     assert caught.value is raised[-1]
@@ -965,7 +989,7 @@ def test_a_child_that_outlives_a_stopped_harbor_is_killed_before_the_chown(
       )
       assert result.exception == "TimeoutError: Harbor ran past 1 s"
     else:
-      with pytest.raises(KeyboardInterrupt):
+      with pytest.raises(KeyboardInterrupt), no_collection():
         _ = base.run(task(tmp_path), "nop", Limits(2), out)
     assert time.monotonic() - started < 20
     assert json.loads((fakes[1].parent / "alive.json").read_text()) == []
