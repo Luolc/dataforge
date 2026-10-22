@@ -145,12 +145,19 @@ class DockerEnvironment(HarborDockerEnvironment):
       if not ids:
         return
       process = await asyncio.create_subprocess_exec(
-        "docker", "inspect", "--format", "{{.State.OOMKilled}}", *ids,
+        *type(self)._engine_cmd(
+          "inspect", "--format", "{{.State.OOMKilled}}", *ids
+        ),
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
-      )  # fmt: skip
-      out, _ = await asyncio.wait_for(process.communicate(), _INSPECT_TIMEOUT)
+      )
+      try:
+        out, _ = await asyncio.wait_for(process.communicate(), _INSPECT_TIMEOUT)
+      finally:
+        if process.returncode is None:
+          process.kill()
+          _ = await process.wait()
     except (OSError, RuntimeError, TimeoutError) as error:
       # The trial goes on without the answer; the log says it is missing.
       self.logger.warning("dataforge: State.OOMKilled not read: %s", error)
