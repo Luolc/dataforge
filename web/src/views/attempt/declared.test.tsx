@@ -205,6 +205,52 @@ describe("a tab of several deliverables of one kind", () => {
 
     expect(await screen.findByText("regrade was never visited")).toBeVisible();
   });
+
+  // Two reports, the first declared reached only by some attempts: the rule
+  // holds for every kind, a stacked one too.
+  const reviews: Project = {
+    ...sampleProject,
+    deliverables: [
+      { name: "tightened", kind: "report", title: "Tightened review" },
+      { name: "review", kind: "report", title: "Review" },
+    ],
+  };
+  const withTightened = (reached: boolean): unknown => {
+    const record = structuredClone(passed);
+    const review = record.deliverables.find((d) => d.name === "review");
+    if (review === undefined) throw new Error("no review");
+    const tightened = {
+      ...review,
+      name: "tightened",
+      title: "Tightened review",
+      ...(reached
+        ? {}
+        : {
+            visit: null,
+            visit_index: null,
+            path: null,
+            reason: "tighten was never visited",
+          }),
+    };
+    return {
+      ...record,
+      deliverables: record.deliverables.flatMap((d) =>
+        d === review ? [tightened, review] : [d],
+      ),
+    };
+  };
+
+  it("of reports is titled by the first reached, counting each reached", async () => {
+    show(withTightened(false), "", reviews);
+
+    expect(await tabs()).toContain("Review1");
+  });
+
+  it("of reports is titled by the first declared, when it was reached", async () => {
+    show(withTightened(true), "", reviews);
+
+    expect(await tabs()).toContain("Tightened review2");
+  });
 });
 
 describe("a running attempt's record", () => {
