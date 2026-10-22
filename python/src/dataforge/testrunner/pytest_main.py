@@ -43,16 +43,18 @@ class _Late:
     self._anchor = anchor
     self._add = add
 
-  @pytest.hookimpl(wrapper=True)
+  # Old-style, which pluggy before 1.2 takes too: the project's own pytest
+  # may be old.
+  @pytest.hookimpl(hookwrapper=True)
   def pytest_load_initial_conftests(
     self, early_config: pytest.Config
-  ) -> Generator[None]:
+  ) -> Generator[None, object]:
     rest = [p for p in sys.path if p not in self._paths]
     at = rest.index(self._anchor) if self._anchor in rest else len(rest)
     sys.path[:] = [*rest[:at], *self._paths, *rest[at:]]
     if self._add is not None:
       self._add(early_config)
-    return (yield)
+    yield
 
 
 def _skip(_: pytest.Config) -> None:
