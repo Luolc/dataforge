@@ -1,11 +1,13 @@
 """Run a task's tests and write /logs/verifier/ctrf.json.
 
-For a dataset with no runner of its own: run as `python -m testrunner` with
-tests/ on the path. It writes only the report; the reward is the
-dataset's to write, from ctrf.suite_counts. It restores nothing: its result
-can be trusted only once the project's RUNNER_FILES and the files
-restore_paths gives for the listed tests are the base's, which is for
-whoever runs it to see to.
+For a dataset with no runner of its own: run as `python -E -s -m testrunner`
+in tests/, so that PYTHONPATH, which may name a directory of the project,
+does not put a module of the project's before the standard library's in this
+process; the runners still get the environment's PYTHONPATH. It writes only
+the report; the reward is the dataset's to write, from ctrf.suite_counts. It
+restores nothing: its result can be trusted only once the project's
+RUNNER_FILES and the files restore_paths gives for the listed tests are the
+base's, which is for whoever runs it to see to.
 """
 
 from __future__ import annotations

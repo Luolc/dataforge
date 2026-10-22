@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Collection
 import configparser
 import fnmatch
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -95,7 +96,14 @@ def loaded_by_runner(runner: str, path: str) -> bool:
 
 @final
 class Pytest(Runner):
-  """pytest, run with the interpreter that runs this, as `python -m pytest`.
+  """pytest, run with the interpreter that runs this, through pytest_main.
+
+  pytest and its plugins are loaded from the interpreter's installation and
+  PYTHONPATH's entries outside the project: the directory pytest starts in,
+  PYTHONPATH's entries inside the project and the configuration's pythonpath
+  join sys.path only once pytest starts loading conftest files, in the order
+  `python -m pytest` gives them. So a file a fix adds, such as a pytest.py,
+  cannot stand in for pytest or a plugin.
 
   An ID is a node ID relative to the project; a parameter's case, `[...]`,
   and the tests of a directory, file or class belong to the ID that names
@@ -169,10 +177,17 @@ class Pytest(Runner):
         paths.append(arg)
     if not paths:
       return []
+    entries, outside = _pythonpath(ctx)
     argv = [
       sys.executable,
-      "-m",
-      "pytest",
+      "-P",
+      str(_MAIN),
+      json.dumps(
+        {
+          "paths": [str(ctx.dir), *entries],
+          "pythonpath": os.environ.get("PYTHONPATH"),
+        }
+      ),
       *paths,
       f"-c={self._config}",
       f"--rootdir={self._rootdir}",
@@ -184,7 +199,7 @@ class Pytest(Runner):
       f"--junitxml={ctx.work / self._REPORT}",
       "-rA",
     ]
-    return [Call(argv)]
+    return [Call(argv, {"PYTHONPATH": os.pathsep.join(outside)})]
 
   @override
   def cases(self, ctx: Context) -> list[Case] | None:
@@ -219,6 +234,29 @@ class Pytest(Runner):
     return inner == outer or inner.startswith(
       (outer + "::", outer + "[", outer + "/")
     )
+
+
+_MAIN = Path(__file__).with_name("pytest_main.py")
+
+
+def _pythonpath(ctx: Context) -> tuple[list[str], list[str]]:
+  # PYTHONPATH's entries, absolute as Python takes them from the directory
+  # pytest starts in, an empty one being that directory; and those of them
+  # outside the project, as they are or once links are resolved.
+  value = os.environ.get("PYTHONPATH")
+  if not value:
+    return [], []
+  found = [
+    os.path.abspath(os.path.join(ctx.dir, e)) for e in value.split(os.pathsep)
+  ]
+  apps = (ctx.app, Path(os.path.realpath(ctx.app)))
+  return found, [
+    e
+    for e in found
+    if not any(
+      Path(p).is_relative_to(a) for p in (e, os.path.realpath(e)) for a in apps
+    )
+  ]
 
 
 def _node_id(rootdir: Path, dotted: str, name: str) -> str | None:
