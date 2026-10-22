@@ -9,10 +9,12 @@ from pathlib import Path
 import shutil
 import sys
 import threading
+import time
 from typing import cast, override
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation import (
   Actions,
   AgentRun,
@@ -43,6 +45,7 @@ from dataforge.curation import (
 from dataforge.curation import actions as actions_module
 from dataforge.curation.actions import NOT_A_FILE
 from tests.processes import holding, kill
+from tests.sigterm import sigterm_once
 
 WAIT = 5.0
 
@@ -125,6 +128,103 @@ def test_fan_out_runs_every_call_at_once_and_keeps_the_order() -> None:
     return lambda: (barrier.wait(), i)[1]
 
   assert fan_out([call(i) for i in range(5)]) == [0, 1, 2, 3, 4]
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_a_sigterm_during_a_fan_out_ends_its_waits_for_the_pool(
+  failed: bool,
+) -> None:
+  # With failed, the first call failed 0.2 s before the SIGTERM comes.
+  pool = ResourcePool(0.5)
+  pool.acquire(0.5)
+  started: list[float] = []
+  ended: list[float] = []
+
+  def call() -> None:
+    started.append(time.monotonic())
+    try:
+      pool.acquire(0.25)
+    finally:
+      ended.append(time.monotonic())
+
+  def fail() -> None:
+    started.append(time.monotonic())
+    raise RuntimeError("failed")
+
+  calls = [fail, call, call] if failed else [call, call]
+
+  def ready() -> bool:
+    return len(started) == len(calls) and time.monotonic() - max(started) > 0.2
+
+  released: list[float] = []
+
+  def release() -> None:
+    released.append(time.monotonic())
+    pool.release(0.5)
+
+  # Were they not stopped, the calls would get the memory after WAIT.
+  timer = threading.Timer(WAIT, release)
+  timer.start()
+  try:
+    with sigterm_once(ready) as sent:
+      with pytest.raises(SystemExit):
+        _ = fan_out(calls)
+      raised = time.monotonic()
+    assert raised - sent[0] < 2
+    assert len(ended) == 2
+  finally:
+    timer.cancel()
+    timer.join()
+    if not released:
+      release()
+
+
+def test_a_fan_out_interrupted_while_it_starts_its_calls_stops_those_started(
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  # The interrupt comes as the second call is being submitted.
+  under = stopping.under
+  bound: list[stopping.Stop] = []
+
+  def interrupted[T](
+    stop: stopping.Stop, call: Callable[[], T]
+  ) -> Callable[[], T]:
+    if bound:
+      raise KeyboardInterrupt
+    bound.append(stop)
+    return under(stop, call)
+
+  monkeypatch.setattr(stopping, "under", interrupted)
+  timed_out: list[bool] = []
+
+  def first() -> None:
+    deadline = time.monotonic() + WAIT
+    while time.monotonic() < deadline:
+      stopping.check()
+      time.sleep(0.05)
+    timed_out.append(True)
+
+  with pytest.raises(KeyboardInterrupt):
+    _ = fan_out([first, lambda: None])
+  assert timed_out == []
+
+
+def test_a_docker_env_of_a_stopped_fan_out_does_not_start() -> None:
+  calls: list[Sequence[str]] = []
+
+  def cli(args: Sequence[str]) -> CommandResult:
+    calls.append(args)
+    return CommandResult(0, "c1\n")
+
+  env, stop = Docker("solver:1", cli=cli), stopping.Stop()
+
+  def start() -> None:
+    stop.set()
+    env.start(None)
+
+  with pytest.raises(stopping.Stopped):
+    stopping.under(stop, start)()
+  assert calls == []
 
 
 def test_pool_waits_until_memory_is_returned() -> None:

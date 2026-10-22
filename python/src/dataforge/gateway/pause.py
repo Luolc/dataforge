@@ -25,6 +25,7 @@ import tempfile
 import time
 import typing
 
+from dataforge import stopping
 from dataforge.gateway.channels import Channel
 from dataforge.leases import Lease, Leases
 from dataforge.statedir import state_dir
@@ -217,10 +218,14 @@ class Pause:
 
     Returns:
       False when `gone` said so, else True.
-    """
+
+    Raises:
+      stopping.Stopped: The stop of the call this thread runs was set first.
+    """  # noqa: DOC502
     while (left := self.remaining()) > 0:
       if gone():
         return False
+      stopping.check()
       time.sleep(min(left, POLL_S))
     return not gone()
 

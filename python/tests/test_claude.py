@@ -17,7 +17,7 @@ they start, also when several run at once.
 """
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 import json
 import os
@@ -31,9 +31,11 @@ from typing import cast, override
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation import (
   ActionResult,
   Actions,
+  AgentRun,
   AgentSpec,
   AgentTask,
   Attempt,
@@ -41,14 +43,17 @@ from dataforge.curation import (
   Context,
   Docker,
   End,
+  fan_out,
   HOST,
   Machine,
   Outcome,
+  ResourcePool,
   Review,
   RubricState,
   State,
 )
 from dataforge.runtime import claude
+from tests.sigterm import sigterm_once
 
 FAKE_CLAUDE = """\
 import json, os, pathlib, re, subprocess, sys, time
@@ -312,6 +317,76 @@ def test_a_session_past_its_timeout_is_killed_with_its_children(
   else:
     os.kill(child, signal.SIGKILL)
     pytest.fail("the session's child outlived the timeout")
+
+
+def test_a_sigterm_during_a_fan_out_kills_its_sessions_with_their_children(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(tmp_path, [{"hang": True}])
+  pids = fake.log / "pids"
+
+  def run() -> claude.Result:
+    return fake.session.run(
+      "s", "Go.", run_dir=tmp_path, cwd=tmp_path / "w", tools=(), allow=(),
+      schema=None,
+    )  # fmt: skip
+
+  with sigterm_once(pids.exists) as sent:
+    with pytest.raises(SystemExit):
+      _ = fan_out([run])
+    ended = time.monotonic()
+  assert ended - sent[0] < 5
+  child = int(pids.read_text())
+  deadline = time.monotonic() + 5
+  while time.monotonic() < deadline:
+    try:
+      os.kill(child, 0)
+    except ProcessLookupError:
+      break
+    time.sleep(0.05)
+  else:
+    os.kill(child, signal.SIGKILL)
+    pytest.fail("the session's child outlived the stopped fan_out")
+
+
+def test_a_sigterm_during_a_fan_out_starts_no_session_in_a_call_that_waits(
+  tmp_path: Path,
+) -> None:
+  # Two agents in containers whose memory only one at a time fits in the pool:
+  # one runs a session that hangs, the other waits for the memory.
+  fake = Fake(tmp_path, [{"hang": True}, {"echo": True}])
+  runner = claude.Runner(fake.session, claude.numbered(tmp_path / "runs"))
+  pool = ResourcePool(0.5)
+  calls: dict[int, list[list[str]]] = {0: [], 1: []}
+
+  def cli(n: int) -> Callable[[Sequence[str]], CommandResult]:
+    def run(args: Sequence[str]) -> CommandResult:
+      calls[n].append(list(args))
+      return CommandResult(0, "c\n")
+
+    return run
+
+  def agent(env: Docker) -> Callable[[], AgentRun]:
+    def run() -> AgentRun:
+      env.start(pool)
+      try:
+        task = AgentTask("Write.", {}, "/out", None)
+        return runner.start(AgentSpec("Write.", Path("/app")), task, env)
+      finally:
+        env.stop()
+
+    return run
+
+  envs = [Docker("agent:1", memory_gb=0.5, cli=cli(n)) for n in (0, 1)]
+  with envs[0], envs[1], sigterm_once((fake.log / "pids").exists) as sent:
+    with pytest.raises(SystemExit):
+      _ = fan_out([agent(env) for env in envs])
+    ended = time.monotonic()
+  assert ended - sent[0] < 5
+  assert len(fake.calls()) == 1
+  ran, waited = sorted(calls.values(), key=len, reverse=True)
+  assert [args[0] for args in ran] == ["create", "start", "stop", "rm"]
+  assert waited == []
 
 
 def test_a_missing_or_resultless_trace_reads_as_no_result(
@@ -1221,3 +1296,38 @@ def test_a_review_retried_after_a_refusal_starts_a_new_session(
   assert option(fake.argv(2), "--resume") == []
   assert (runs / "r-1.trace.jsonl").exists()
   assert (runs / "r-2.trace.jsonl").exists()
+
+
+def test_a_review_whose_call_was_stopped_after_a_refusal_is_not_retried(
+  tmp_path: Path,
+) -> None:
+  rubric = tmp_path / "rubric.toml"
+  _ = rubric.write_text(
+    'system = "Judge."\n[[criteria]]\nid = "a"\nquestion = "A?"\n'
+  )
+  item = tmp_path / "item.md"
+  _ = item.write_text("An item.\n")
+  refused = result(
+    session_id="s1", is_error=True, stop_reason="refusal", total_cost_usd=0.1
+  )
+  fake = Fake(tmp_path, [{"lines": [refused]}, {"lines": [result()]}])
+  stop = stopping.Stop()
+  runs = tmp_path / "runs"
+  # The stop comes once the refused session ended, before the retry.
+  runner = claude.Runner(
+    fake.session, claude.numbered(runs), spent=lambda _: stop.set()
+  )
+  state = RubricState(
+    "rubric",
+    {"pass": End("passed"), "fail": End("failed"), "error": End("errored")},
+    actions=Actions(agent_runner=runner),
+    reviews=[Review("r", rubric, {"item": item})],
+    resume=True,
+  )
+  machine = Machine([state])
+  with pytest.raises(stopping.Stopped):
+    _ = stopping.under(stop, lambda: machine.run(tmp_path / "attempt"))()
+  assert stop.is_set()
+  assert (runs / "r-1.prompt.md").exists()
+  assert not (runs / "r-2.prompt.md").exists()
+  assert len(fake.calls()) == 1

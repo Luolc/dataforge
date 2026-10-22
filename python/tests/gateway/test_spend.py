@@ -19,10 +19,12 @@ from pathlib import Path
 import socket as sockets
 import socketserver
 import threading
+import time
 from typing import Any
 
 import pytest
 
+from dataforge import stopping
 from dataforge.gateway import Channel, Price, proxy, read_ledger, serve, Spend
 from dataforge.gateway.channels import DRAINED
 from dataforge.gateway.session import _Refuser, _Refusing, holders
@@ -936,3 +938,28 @@ def test_total_warns_of_a_ledgers_lines_once_as_they_come(
     f"{path}: 1 lines priced at the fallback, $0.0380",
     f"{path}: 2 lines priced at the fallback, $0.0760",
   ]
+
+
+def test_a_capped_session_of_a_stopped_call_ends_within_the_stops_budget(
+  launcher: Launcher, socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+  # Once the cap came, the watch ends a launcher that ignores SIGTERM: it
+  # gets END_S, or what is left of the stop's budget.
+  monkeypatch.setattr(stopping, "BUDGET_S", 2.0)
+  channel, path = Channel.CLAUDE, socket_dir / "model.sock"
+  spend = Spend(prices=PRICES, max_usd=COST[channel] / 2)
+  stop = stopping.Stop()
+
+  def run() -> float:
+    with serve(channel, path, spend=spend):
+      stop.set()
+      set_at = time.monotonic()
+      assert call(path, ROUTE[channel])[0] == 200
+      assert wait_for(lambda: call(path, ROUTE[channel])[0] == 403)
+      return set_at
+
+  with upstream(stream(*events(channel))) as (base, _):
+    launcher.write(base, deaf=True)
+    set_at = stopping.under(stop, run)()
+    assert time.monotonic() - set_at < stopping.BUDGET_S + 1
+  assert wait_for(lambda: not holders(path))
