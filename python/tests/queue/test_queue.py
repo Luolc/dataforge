@@ -33,6 +33,7 @@ from dataforge.queue import scheduler as scheduler_module
 from dataforge.queue import store as queue_store
 from dataforge.queue.proc import (
   alive,
+  descendants,
   group_alive,
   Leader,
   leader,
@@ -316,7 +317,11 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
   done = state(config, job)
   assert (done.state, done.exit_code) == ("canceled", None)
   assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
-  assert not group_alive(started)
+  # The wrapper writes the end once nothing below it runs, and then exits.
+  assert descendants(started.pid) == {}
+  while group_alive(started):
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
   # A scheduler that runs again changes nothing of the ended job.
   scheduler.tick()
   assert state(config, job) == done
@@ -431,6 +436,55 @@ def test_what_a_job_leaves_running_ends_before_its_end_is_recorded(
   assert running([left]) == []
 
 
+@pytest.mark.parametrize(
+  "end",
+  [
+    # The wrapper passes the SIGTERM on while the command still runs.
+    "trap 'sleep 2; exit 0' TERM; while :; do sleep 0.1; done",
+    # The command may have ended before the wrapper woke.
+    "exec sleep 600",
+  ],
+)
+def test_a_canceled_jobs_leftovers_get_one_sigterm_and_sigkill_in_its_grace(
+  config: Config,
+  readings: Readings,
+  tmp_path: Path,
+  strays: list[Process],
+  end: str,
+):
+  # The command ends on the cancellation's SIGTERM, as end says; the process
+  # it leaves in a session of its own writes a line for each SIGTERM and runs
+  # on.
+  scheduler = Scheduler(replace(config, cancel_grace_s=4.0), readings)
+  terms = tmp_path / "terms"
+  script = """
+    setsid sh -c '
+      trap "echo term >> \\"\\$0\\"" TERM
+      echo $$ $(cut -d " " -f 22 /proc/$$/stat) > "$0.new"
+      mv "$0.new" "$0.pid"
+      while :; do sleep 0.1; done
+    ' "$1" &
+    until [ -e "$1.pid" ]; do sleep 0.05; done
+    echo ready
+  """
+  try:
+    job = put(config, "alpha", "sh", "-c", script + end, "sh", str(terms))
+    until(lambda: "ready" in log(config, job), scheduler)
+    left = Process(*map(int, Path(f"{terms}.pid").read_text().split()))
+    strays.append(left)
+    # No tick from here on: the wrapper alone ends the leftover.
+    _ = cancel(config, job.id)
+    deadline = time.monotonic() + 20
+    while state(config, job).ended_at is None:
+      assert time.monotonic() < deadline, "timed out"
+      time.sleep(0.05)
+    assert state(config, job).state == "canceled"
+    assert running([left]) == []
+    assert terms.read_text() == "term\n"
+  finally:
+    _clean_up(scheduler.config, scheduler)
+
+
 def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
   config: Config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
@@ -461,7 +515,9 @@ def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
   child = subprocess.Popen(["sh", "-c", script])
   try:
     # As after a SIGTERM that was no cancellation, with a short grace period:
-    # the row is read each time it passes.
+    # the row is read each time it passes. Run in this process, _wait also
+    # reaps its children other than the command and passes the SIGTERM on to
+    # what runs below it outside its group; nothing else runs below it here.
     assert _wait(child, config.database, job.id, 0.1, lambda: 1) == 3
   finally:
     child.kill()

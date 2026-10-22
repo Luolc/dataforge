@@ -22,7 +22,9 @@ ends also while no scheduler runs; the wrapper keeps the cancel_grace_s it was
 started with, and writes the end, canceled with no exit code, once none of
 them runs. Once the command ends, what it left running below the wrapper gets
 SIGTERM, and SIGKILL once cancel_grace_s has passed, and the end is written
-once none of it runs. The wrapper reaps the processes it adopts, and passes
+once none of it runs; after a cancellation, which sent SIGTERM already, it
+gets SIGKILL once cancel_grace_s has passed since the cancellation was asked
+for. The wrapper reaps the processes it adopts, and passes
 over one it may not signal, such as one of another user.
 """
 
@@ -142,7 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _kill_below(child.pid)
         _ = child.wait()
       else:
-        _end_below(grace, child.pid)
+        _end_below(path, job.id, grace, child.pid)
   with connect(path) as conn, write(conn):
     now = row(conn, job.id)
     canceled = now is not None and now.cancel_requested_at is not None
@@ -187,9 +189,7 @@ def _wait(
   try:
     while (code := child.poll()) is None:
       _reap(child.pid)
-      if terms() > passed:
-        passed = terms()
-        _ = send(_outside(os.getpid()), signal.SIGTERM)
+      passed = _pass_on(passed, terms())
       if deadline is None and passed and grace is not None:
         deadline = time.time() + grace
       timeout = None if deadline is None else max(0.0, deadline - time.time())
@@ -202,6 +202,8 @@ def _wait(
       if asked is not None and time.time() >= asked + grace:
         return None
       deadline = None if asked is None else asked + grace
+    # A SIGTERM that the command ended on before the wrapper woke.
+    _ = _pass_on(passed, terms())
     return code
   finally:
     _ = signal.set_wakeup_fd(previous)
@@ -209,9 +211,14 @@ def _wait(
       os.close(fd)
 
 
-def _outside(root: int) -> list[Process]:
-  group = os.getpgrp()
-  return [p for p, g in descendants(root).items() if g != group]
+def _pass_on(passed: int, terms: int) -> int:
+  # Pass the SIGTERMs that came since the last on to the processes below the
+  # wrapper outside its group, and give how many have come.
+  if terms > passed:
+    group = os.getpgrp()
+    outside = [p for p, g in descendants(os.getpid()).items() if g != group]
+    _ = send(outside, signal.SIGTERM)
+  return terms
 
 
 def _asked(path: Path, job_id: int) -> float | None:
@@ -227,15 +234,22 @@ def _asked(path: Path, job_id: int) -> float | None:
   return None if now is None else now.cancel_requested_at
 
 
-def _end_below(grace: float | None, command: int) -> None:
+def _end_below(
+  path: Path, job_id: int, grace: float | None, command: int
+) -> None:
   # What the command left running below the wrapper gets SIGTERM, and
   # SIGKILL once grace has passed, so that nothing of the job outlives its
-  # end.
+  # end. After a cancellation it had its SIGTERM already, and gets SIGKILL
+  # once grace has passed since the cancellation was asked for.
   me = os.getpid()
-  refused = send(descendants(me), signal.SIGTERM)
-  deadline = None if grace is None else time.monotonic() + grace
+  asked = _asked(path, job_id)
+  refused: set[Process] = set()
+  if asked is None:
+    refused = send(descendants(me), signal.SIGTERM)
+  start = time.time() if asked is None else asked
+  deadline = None if grace is None else start + grace
   while _running(me, refused):
-    if deadline is not None and time.monotonic() >= deadline:
+    if deadline is not None and time.time() >= deadline:
       _kill_below(command)
       return
     _reap(command)
