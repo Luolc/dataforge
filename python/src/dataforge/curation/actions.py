@@ -10,7 +10,7 @@ reserved; a container's cpus and cpu_shares divide them.
 
 import codecs
 from collections.abc import Callable, Generator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 import dataclasses
 from dataclasses import dataclass, field
@@ -1493,8 +1493,10 @@ def fan_out[T](calls: Sequence[Callable[[], T]]) -> list[T]:
     return []
   stop = stopping.current() or stopping.Stop()
   with ThreadPoolExecutor(max_workers=len(calls)) as executor:
-    futures = [executor.submit(stopping.under(stop, call)) for call in calls]
+    futures: list[Future[T]] = []
     try:
+      for call in calls:
+        futures.append(executor.submit(stopping.under(stop, call)))
       _ = wait(futures)
     except BaseException:
       stop.set()

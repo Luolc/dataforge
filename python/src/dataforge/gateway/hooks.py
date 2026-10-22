@@ -15,6 +15,7 @@ from pathlib import Path
 import tempfile
 import time
 
+from dataforge import stopping
 from dataforge.curation.actions import Docker, Limits, Mount, TrialAgent
 from dataforge.curation.harbor import TrialSetup
 from dataforge.gateway.channels import Channel
@@ -30,6 +31,9 @@ from dataforge.gateway.clients import (
 )
 from dataforge.gateway.session import serve
 from dataforge.gateway.spend import Price, Spend
+
+# How often a serve that waits for another to end looks again.
+LOCK_POLL_S = 0.2
 
 ADDRESS = "http://127.0.0.1:8787"
 SOCKET_DIR = "/run/dataforge"
@@ -243,7 +247,15 @@ def bindings(
     @contextlib.contextmanager
     def serving() -> Generator[Path]:
       with lock.open("a") as held:
-        fcntl.flock(held, fcntl.LOCK_EX)
+        # The serve that holds it may run for minutes; a stopped fan_out's
+        # call stops waiting.
+        while True:
+          try:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+          except BlockingIOError:
+            stopping.check()
+            time.sleep(LOCK_POLL_S)
         with serve(
           which, socket_dir / "model.sock", spend=cap, ledger=ledger
         ) as socket:

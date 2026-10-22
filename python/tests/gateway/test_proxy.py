@@ -15,6 +15,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -311,4 +312,39 @@ def test_a_stopped_fan_outs_session_ends_within_the_stops_budget(
 
   stopped = stopping.under(stop, run)()
   assert time.monotonic() - stopped < stopping.BUDGET_S + 1
+  assert holders(path) == []
+
+
+def test_a_serve_of_a_stopped_call_launches_nothing(
+  launcher: Launcher, socket_dir: Path
+):
+  stop = stopping.Stop()
+
+  def enter() -> None:
+    stop.set()
+    with serve(Channel.CLAUDE, socket_dir / "model.sock"):
+      pass
+
+  with pytest.raises(stopping.Stopped):
+    stopping.under(stop, enter)()
+  assert launcher.launches() == []
+
+
+def test_a_wait_for_the_proxy_to_listen_ends_once_its_calls_stop_is_set(
+  launcher: Launcher, socket_dir: Path
+):
+  # A launcher that never listens: the wait would last the timeout, 5 s.
+  _ = launcher.path.write_text("#!/bin/sh\nexec sleep 60\n")
+  path = socket_dir / "model.sock"
+  stop = stopping.Stop()
+
+  def enter() -> None:
+    with serve(Channel.CLAUDE, path, timeout=5.0):
+      pass
+
+  threading.Timer(0.3, stop.set).start()
+  started = time.monotonic()
+  with pytest.raises(stopping.Stopped):
+    stopping.under(stop, enter)()
+  assert time.monotonic() - started < 2
   assert holders(path) == []

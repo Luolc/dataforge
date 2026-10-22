@@ -969,6 +969,24 @@ def test_a_stopped_trial_removes_its_containers_before_its_files_are_given_back(
   assert by_label < chown
 
 
+def test_a_stopped_trial_logs_a_container_that_still_mounts_it(
+  tmp_path: Path, fakes: tuple[Path, Path], caplog: pytest.LogCaptureFixture
+) -> None:
+  # A container without the label that docker does not remove.
+  out = outdir(tmp_path)
+  here = fakes[1].parent
+  _ = (here / "mounts.json").write_text(
+    json.dumps({"c-held": [str((out / "job").resolve())]})
+  )
+  _ = (here / "stuck").write_text("")
+  trial = runner(fakes, "hang")
+  run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
+  with sigterm_once((out / "pids").exists), pytest.raises(SystemExit):
+    _ = fan_out([run])
+  messages = [record.getMessage() for record in caplog.records]
+  assert any("still mounting it: ['c-held']" in m for m in messages)
+
+
 def test_a_trial_harbor_did_not_start_is_not_run_again_once_stopped(
   tmp_path: Path, fakes: tuple[Path, Path]
 ) -> None:

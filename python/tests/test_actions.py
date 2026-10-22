@@ -179,6 +179,36 @@ def test_a_sigterm_during_a_fan_out_ends_its_waits_for_the_pool(
       release()
 
 
+def test_a_fan_out_interrupted_while_it_starts_its_calls_stops_those_started(
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  # The interrupt comes as the second call is being submitted.
+  under = stopping.under
+  bound: list[stopping.Stop] = []
+
+  def interrupted[T](
+    stop: stopping.Stop, call: Callable[[], T]
+  ) -> Callable[[], T]:
+    if bound:
+      raise KeyboardInterrupt
+    bound.append(stop)
+    return under(stop, call)
+
+  monkeypatch.setattr(stopping, "under", interrupted)
+  timed_out: list[bool] = []
+
+  def first() -> None:
+    deadline = time.monotonic() + WAIT
+    while time.monotonic() < deadline:
+      stopping.check()
+      time.sleep(0.05)
+    timed_out.append(True)
+
+  with pytest.raises(KeyboardInterrupt):
+    _ = fan_out([first, lambda: None])
+  assert timed_out == []
+
+
 def test_a_docker_env_of_a_stopped_fan_out_does_not_start() -> None:
   calls: list[Sequence[str]] = []
 

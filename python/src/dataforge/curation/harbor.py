@@ -571,8 +571,13 @@ class HarborRunner:
     # budget does not reach is logged, not waited for.
     selector = f"{LABEL}={label}"
     seen: dict[str, int] = {}
+    held: list[str] = []
+
+    def mounting() -> None:
+      held[:] = release(outdir, self.docker)
+
     steps: list[tuple[str, Callable[[], object]]] = [
-      ("its mounting containers", lambda: release(outdir, self.docker)),
+      ("its mounting containers", mounting),
       (
         "its containers",
         lambda: cleanup(selector, self.docker, KINDS[:1], seen),
@@ -592,15 +597,23 @@ class HarborRunner:
           )
           continue
         _log.warning(
-          "stopped: out of time cleaning up %s at %s; not done: %s; seen: %s",
+          "stopped: out of time cleaning up %s at %s; not done: %s; seen: %s;"
+          + " still mounting it: %s",
           selector,
           what,
           ", ".join(name for name, _ in steps[i + 1 :]) or "nothing",
           seen,
+          held,
         )
         return
-    if left := {kind: n for kind, n in seen.items() if n}:
-      _log.warning("stopped: left after the cleanup of %s: %s", selector, left)
+    left = {kind: n for kind, n in seen.items() if n}
+    if left or held:
+      _log.warning(
+        "stopped: left after the cleanup of %s: %s; still mounting it: %s",
+        selector,
+        left,
+        held,
+      )
 
   def _chown(self, outdir: Path, label: str) -> None:
     _ = _docker(
