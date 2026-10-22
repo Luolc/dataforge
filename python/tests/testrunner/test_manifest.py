@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from dataforge.testrunner.manifest import File, load, ManifestError, read
+from dataforge.testrunner.manifest import File, load, ManifestError, read, Run
 from dataforge.testrunner.manifest import Test as Listed
 
 FULL = """
@@ -147,3 +147,126 @@ def test_a_suite_with_no_tests_has_a_reason_and_no_test():
 
 def test_load_refuses_an_unknown_table():
   assert problems('[[tests]]\nid = "a"\n') == ["unknown key 'tests'"]
+
+
+GROUPS = """
+[[run]]
+name = "rspec"
+dir = "ruby"
+run = ["sh", "run.sh"]
+parse = "junit"
+outputs = ["build/**"]
+
+[[run]]
+name = "own"
+run = ["sh", "run.sh"]
+parse = ["python3", "parse.py"]
+
+[[run]]
+name = "unit"
+preset = "pytest"
+dir = "py"
+
+[restore]
+paths = ["spec/**", ".rspec"]
+
+[[test]]
+suite = "p2p"
+run = "rspec"
+id = "spec/a_spec.rb::adds"
+
+[[test]]
+suite = "p2p"
+run = "rspec"
+id = "spec/a_spec.rb::canary"
+expect = "failed"
+
+[[test]]
+suite = "f2p"
+run = "unit"
+id = "t.py::test_a"
+"""
+
+
+def test_load_reads_run_groups_restore_and_expect():
+  manifest = load(GROUPS)
+  assert manifest.runs == (
+    Run("rspec", "ruby", None, ("sh", "run.sh"), "junit", ("build/**",)),
+    Run("own", ".", None, ("sh", "run.sh"), ("python3", "parse.py")),
+    Run("unit", "py", "pytest"),
+  )
+  assert manifest.restore == ("spec/**", ".rspec")
+  assert manifest.tests == (
+    Listed("p2p", None, "spec/a_spec.rb::adds", "ruby", run="rspec"),
+    Listed(
+      "p2p",
+      None,
+      "spec/a_spec.rb::canary",
+      "ruby",
+      run="rspec",
+      expect="failed",
+    ),
+    Listed("f2p", "pytest", "t.py::test_a", "py", run="unit"),
+  )
+
+
+@pytest.mark.parametrize(
+  ("tables", "problem"),
+  [
+    (
+      '[[run]]\nname = "a"\nrun = ["sh"]\n',
+      "run 1 (a): parse, if not a format,",
+    ),
+    (
+      '[[run]]\nname = "a"\nrun = []\nparse = "junit"\n',
+      "run 1 (a): run is not",
+    ),
+    ('[[run]]\nname = "a"\npreset = "rspec"\n', "unknown preset 'rspec'"),
+    (
+      '[[run]]\nname = "a"\npreset = "go"\nparse = "junit"\n',
+      "a preset has no run, parse or outputs",
+    ),
+    (
+      '[[run]]\nname = "a"\nrun = ["x"]\nparse = "junit"\noutputs = ["../r"]\n',
+      "outputs: '../r' is not a glob inside the project",
+    ),
+    (
+      '[[run]]\nname = "a b"\npreset = "go"\n',
+      "name 'a b' is not a plain name",
+    ),
+    (
+      2 * '[[run]]\nname = "a"\npreset = "go"\n',
+      "run 2 (a): named twice",
+    ),
+    ('[restore]\npaths = ["a/**b"]\n', "restore: paths: 'a/**b' is not a glob"),
+    ("[restore]\nmore = 1\n", "restore: unknown key 'more'"),
+  ],
+)
+def test_load_checks_each_run_group_and_restore(tables: str, problem: str):
+  assert any(problem in p for p in problems(tables))
+
+
+@pytest.mark.parametrize(
+  ("test", "problem"),
+  [
+    ('run = "gone"', "no run 'gone'"),
+    ('run = "a"\nrunner = "go"', "runner and dir are its run's"),
+    ('run = "a"\ndir = "x"', "runner and dir are its run's"),
+    ('run = "a"\nexpect = "passed"', "expect is not 'failed'"),
+  ],
+)
+def test_load_checks_a_tests_run_and_expect(test: str, problem: str):
+  group = '[[run]]\nname = "a"\npreset = "go"\n'
+  text = f'{group}[[test]]\nsuite = "p2p"\nid = "t"\n{test}\n'
+  assert any(problem in p for p in problems(text))
+
+
+def test_an_id_appears_once_in_a_group_with_its_own_command():
+  group = '[[run]]\nname = "a"\nrun = ["x"]\nparse = "ctrf"\n'
+  test = '[[test]]\nsuite = "{}"\nrun = "a"\nid = "t"\n'
+  text = group + test.format("p2p") + test.format("f2p")
+  assert problems(text) == [
+    "test 2 (f2p::t): its id is listed twice in run 'a'"
+  ]
+  preset = '[[run]]\nname = "a"\npreset = "go"\n'
+  assert len(load(preset + test.format("p2p") + test.format("f2p")).tests) == 2
