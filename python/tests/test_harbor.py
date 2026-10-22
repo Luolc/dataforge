@@ -974,9 +974,11 @@ def test_a_trial_harbor_did_not_start_is_not_run_again_once_stopped(
 ) -> None:
   # The stop comes as the first run's setup is left, before a second run.
   out, stop = outdir(tmp_path), stopping.Stop()
+  entered: list[int] = []
 
   @contextmanager
   def setup(*_: object) -> Generator[TrialSetup]:
+    entered.append(1)
     yield TrialSetup()
     stop.set()
 
@@ -985,7 +987,9 @@ def test_a_trial_harbor_did_not_start_is_not_run_again_once_stopped(
   run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
   with pytest.raises(stopping.Stopped):
     _ = stopping.under(stop, run)()
-  # Each run of Harbor writes a harbor.log; the first run's was moved aside.
+  # No second run began, not even its setup; each run of Harbor writes a
+  # harbor.log, and the first run's was moved aside.
+  assert len(entered) == 1
   assert (out / "not-started-1" / "harbor.log").exists()
   assert not (out / "harbor.log").exists()
 
