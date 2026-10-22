@@ -1,0 +1,172 @@
+{
+ "model": "placeholder",
+ "store": false,
+ "stream": true,
+ "instructions": "placeholder text",
+ "input": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "input_text",
+     "text": "placeholder text"
+    }
+   ]
+  }
+ ],
+ "text": {
+  "verbosity": "low"
+ },
+ "include": [
+  "reasoning.encrypted_content"
+ ],
+ "prompt_cache_key": "placeholder",
+ "tool_choice": "auto",
+ "parallel_tool_calls": true,
+ "tools": [
+  {
+   "type": "function",
+   "name": "read",
+   "description": "placeholder text",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path",
+     "offset",
+     "limit"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "offset": {
+      "anyOf": [
+       {
+        "type": "number",
+        "description": "placeholder text"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "limit": {
+      "anyOf": [
+       {
+        "type": "number",
+        "description": "placeholder text"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": true
+  },
+  {
+   "type": "function",
+   "name": "bash",
+   "description": "placeholder text",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "command",
+     "timeout"
+    ],
+    "properties": {
+     "command": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "timeout": {
+      "anyOf": [
+       {
+        "type": "number",
+        "description": "placeholder text"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": true
+  },
+  {
+   "type": "function",
+   "name": "edit",
+   "description": "placeholder text",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path",
+     "edits"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "edits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "oldText",
+        "newText"
+       ],
+       "properties": {
+        "oldText": {
+         "type": "string",
+         "description": "placeholder text"
+        },
+        "newText": {
+         "type": "string",
+         "description": "placeholder text"
+        }
+       },
+       "additionalProperties": false
+      },
+      "description": "placeholder text"
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": true
+  },
+  {
+   "type": "function",
+   "name": "write",
+   "description": "placeholder text",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path",
+     "content"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "placeholder text"
+     },
+     "content": {
+      "type": "string",
+      "description": "placeholder text"
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": true
+  }
+ ],
+ "reasoning": {
+  "effort": "medium",
+  "summary": "auto"
+ }
+}
