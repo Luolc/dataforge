@@ -102,9 +102,10 @@ def test_restore_runs_no_filter_or_hook_of_the_project(tmp_path: Path):
     )
   write(app, {".git/hooks/post-checkout": f"#!/bin/sh\ntouch {marker}\n"})
   (app / ".git/hooks/post-checkout").chmod(0o755)
-  assert restore(app, base, ["spec/**"]) == ["spec/a_spec.rb"]
-  assert (app / "spec/a_spec.rb").read_text() == "base a\n"
+  done = restore(app, base, ["spec/**"])
   assert not marker.exists()
+  assert done == ["spec/a_spec.rb"]
+  assert (app / "spec/a_spec.rb").read_text() == "base a\n"
 
 
 def test_globs_joins_restore_and_the_runners_files():
