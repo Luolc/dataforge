@@ -84,6 +84,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import select
 import signal
 import subprocess
 import time
@@ -115,6 +116,9 @@ TIMEOUT = 3600.0
 # how long one gets when its fan_out was stopped, within the stop's budget.
 STOP_S = 30.0
 STOPPED_S = 10.0
+# How long a stop waits at most before it runs the handler of a signal that
+# came in the grace period (see _exited).
+STOP_POLL_S = 0.05
 # What `cleanup` removes, in its order.
 KINDS = ("container", "image", "network", "volume")
 SIDECAR = "harbor-docker-egress-control-sidecar"
@@ -992,27 +996,48 @@ def _agent_args(agent: TrialAgent) -> list[str]:
 def _stop(process: subprocess.Popen[bytes]) -> None:
   # Harbor's children (docker compose) are in its session; stop them all.
   grace = min(STOP_S, STOPPED_S) if stopping.stopped() else STOP_S
-  for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, None)):
-    try:
-      os.killpg(process.pid, sig)
-    except ProcessLookupError:
-      break
-    try:
-      _ = process.wait(wait)
-      break
-    except subprocess.TimeoutExpired:
-      continue
-    except BaseException:
-      # An interrupt in the grace period (a second Ctrl-C, say) kills them
-      # before it goes on.
-      with suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGKILL)
-      _ = process.wait()
-      raise
-  # What Harbor started after the SIGTERM never got it and can outlive Harbor.
-  # While any of them runs, the group keeps its ID, so this reaches only them.
-  with suppress(ProcessLookupError):
-    os.killpg(process.pid, signal.SIGKILL)
+  try:
+    os.killpg(process.pid, signal.SIGTERM)
+    _exited(process, grace)
+  except ProcessLookupError:
+    pass
+  finally:
+    # However the grace period ends, an interrupt anywhere in it (a second
+    # Ctrl-C, say) included, the group is killed before anything goes on:
+    # Harbor, if it still runs, and what it started after the SIGTERM, which
+    # never got it and can outlive Harbor. Unless Harbor had exited before
+    # _stop, it is reaped only after this, so the group keeps its ID up to
+    # here.
+    with suppress(ProcessLookupError):
+      os.killpg(process.pid, signal.SIGKILL)
+    _reap(process)
+
+
+def _exited(process: subprocess.Popen[bytes], timeout: float) -> None:
+  # Wait at most timeout for the process to exit, and leave it unreaped.
+  # Popen.wait is not used: an interrupt that comes just after a timed
+  # Popen.wait or poll takes the Popen's lock leaves the lock held, and every
+  # Popen.wait after that waits for the lock forever. select waits at most
+  # STOP_POLL_S at a time: the handler of a signal that comes just before
+  # select blocks runs only once select returns.
+  if process.returncode is not None:
+    return
+  deadline = time.monotonic() + timeout
+  pidfd = os.pidfd_open(process.pid)
+  try:
+    while (left := deadline - time.monotonic()) > 0:
+      ready, _, _ = select.select([pidfd], [], [], min(left, STOP_POLL_S))
+      if ready:
+        return
+  finally:
+    os.close(pidfd)
+
+
+def _reap(process: subprocess.Popen[bytes]) -> None:
+  # Popen.wait without the Popen's lock (see _exited).
+  if process.returncode is None:
+    _, status = os.waitpid(process.pid, 0)
+    process.returncode = os.waitstatus_to_exitcode(status)
 
 
 def _started(outdir: Path) -> bool:
