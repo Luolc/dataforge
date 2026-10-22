@@ -154,6 +154,7 @@ def test_projects_leave_out_where_the_files_are(
     "task": None,
     "monitor": False,
     "actions": [],
+    "jobs": [],
     "tabs": [],
   }
 
@@ -298,6 +299,7 @@ def test_attempts_are_newest_first_with_their_values(
     "rounds": [],
     "values": [3, None, None],
     "reads": [None, None, None],
+    "queued": [None, None, None],
     "live": "not ended",
     "held": None,
     "error": None,
@@ -315,6 +317,7 @@ def test_attempts_are_newest_first_with_their_values(
     "rounds": [{"round": 1, "state": "write", "outcome": "done"}],
     "values": ["passed", 0.42, None],
     "reads": [None, None, None],
+    "queued": [None, None, None],
     "live": None,
     "held": None,
     "error": None,

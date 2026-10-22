@@ -10,6 +10,7 @@ import {
 import {
   type Project,
   type ProjectTab,
+  type Queued,
   type TabVersions,
   tabVersions,
 } from "../../api/types";
@@ -34,3 +35,12 @@ export const versionsOf = (loaded: Loaded<TabVersions[]>, tab: ProjectTab) =>
   loaded.state === "ok"
     ? (loaded.data.find((t) => t.name === tab.name)?.versions ?? [])
     : [];
+
+/** A tab's job as read; null while loading, after a failure, or with none. */
+export const queuedOf = (
+  loaded: Loaded<TabVersions[]>,
+  tab: ProjectTab,
+): Queued | null =>
+  loaded.state === "ok"
+    ? (loaded.data.find((t) => t.name === tab.name)?.queued ?? null)
+    : null;
