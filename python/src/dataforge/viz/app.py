@@ -222,11 +222,10 @@ class _Api:
     actions.check_item(project, item)
     rows = _item_rows(project, item)
     jobs = self._open_jobs()
-    # The attempt an action with when "stopped" goes on with.
-    newest = next((r["id"] for r in rows if r["error"] is None), None)
+    newest = actions.newest_row(rows)
     return JSONResponse(
       {
-        "newest": newest,
+        "newest": None if newest is None else newest["id"],
         "actions": [
           {
             "name": a.name,

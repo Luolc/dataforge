@@ -1,5 +1,7 @@
 // An attempt's status, start, total duration and cost, under the heading of
 // its page and so on every tab (design-viz.md section 5, "Attempt page").
+import { Tooltip } from "radix-ui";
+
 import type { AttemptRecord, LiveInfo, Project } from "../../api/types";
 import {
   attemptTimes,
@@ -10,6 +12,7 @@ import {
   usd,
   visitCost,
 } from "../../ui/format";
+import { Hint } from "../../ui/hint";
 import { Elapsed } from "../../ui/running";
 import { attemptStatus, liveStatus, statusOf, toneText } from "../../ui/status";
 import { carried } from "../runs/resumed/resumed";
@@ -48,11 +51,12 @@ export function AttemptFacts({
     {
       key: "Status",
       value: (
-        <span
-          className={toneText[status.tone]}
-          {...(record.reason === null ? {} : { title: record.reason })}
-        >
-          {status.label}
+        <span className={toneText[status.tone]}>
+          {record.reason === null ? (
+            status.label
+          ) : (
+            <Hint hint={record.reason}>{status.label}</Hint>
+          )}
         </span>
       ),
     },
@@ -71,14 +75,16 @@ export function AttemptFacts({
     { key: "Cost", value: <Cost record={record} /> },
   ];
   return (
-    <dl className="flex flex-wrap gap-x-6 gap-y-1 px-7 pt-1.5 text-sm">
-      {items.map((item) => (
-        <div key={item.key} className="flex items-baseline gap-1.5">
-          <dt className="text-fg-3">{item.key}</dt>
-          <dd className="font-medium tabular-nums">{item.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <Tooltip.Provider delayDuration={200}>
+      <dl className="flex flex-wrap gap-x-6 gap-y-1 px-7 pt-1.5 text-sm">
+        {items.map((item) => (
+          <div key={item.key} className="flex items-baseline gap-1.5">
+            <dt className="text-fg-3">{item.key}</dt>
+            <dd className="font-medium tabular-nums">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </Tooltip.Provider>
   );
 }
 

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -67,11 +67,13 @@ describe("an attempt's status", () => {
     expect(item("Status")).toHaveTextContent(/^Not ended$/);
   });
 
-  it("gives the record's reason to a hovering pointer", () => {
+  it("gives the record's reason on hover and on focus", async () => {
     const { item } = show({ ...records.passed, reason: "4 of 4 solved" });
+    const label = item("Status").querySelector("[tabindex]");
+    if (!(label instanceof HTMLElement)) throw new Error("no focusable label");
+    fireEvent.focus(label);
 
-    expect(item("Status").firstElementChild).toHaveAttribute(
-      "title",
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "4 of 4 solved",
     );
   });

@@ -107,6 +107,18 @@ def fill(template: str, item: str) -> str:
   return template.replace(PLACEHOLDER, item)
 
 
+def newest_row(rows: list[dict[str, object]]) -> dict[str, object] | None:
+  """Find the attempt an action with when "stopped" goes on with.
+
+  Args:
+    rows: The listing's rows of an item's attempts, newest modified first.
+
+  Returns:
+    The newest row whose record can be read; None when there is none.
+  """
+  return next((r for r in rows if r["error"] is None), None)
+
+
 def unavailable(
   project: Project,
   action: Action,
@@ -135,7 +147,7 @@ def unavailable(
   if action.when == "idle" and any(r["held"] is True for r in rows):
     return "An attempt of this item is running: its lock is held."
   if action.when == "stopped":
-    newest = next((r for r in rows if r["error"] is None), None)
+    newest = newest_row(rows)
     if newest is None:
       return "No attempt of this item can be read."
     if newest["live"] is None:
