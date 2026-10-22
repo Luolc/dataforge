@@ -23,7 +23,6 @@ from pathlib import Path, PurePosixPath
 import re
 import shlex
 from typing import final, override
-import xml.etree.ElementTree as ET
 
 from . import junit
 from .adapter import Call, Context, rel, Runner
@@ -39,18 +38,6 @@ _CONFIGURE = "cmake . && cmake --build ."
 def _cmake_regex(text: str) -> str:
   # CMake's regular expressions take a special character escaped with `\`.
   return re.sub(r"([\\^$.|?*+()\[\]])", r"\\\1", text)
-
-
-def _status(case: ET.Element) -> junit.Outcome:
-  # CTest and GoogleTest also mark a test not run, or skipped, by attribute
-  # alone.
-  end = junit.outcome(case)
-  if end.status == "passed" and (
-    case.get("status") in ("notrun", "disabled")
-    or case.get("result") in ("skipped", "suppressed")
-  ):
-    return junit.Outcome("skipped", False, None, None, end.duration)
-  return end
 
 
 @final
@@ -81,7 +68,7 @@ class CTest(Runner):
       return None
     cases: list[Case] = []
     for tc in found:
-      end = _status(tc)
+      end = junit.marked_outcome(tc)
       # CTest's failure says only that it failed; the test's output says why.
       out = (tc.findtext("system-out") or "").strip() or None
       trace = end.trace or (out if end.status != "passed" else None)
@@ -173,7 +160,7 @@ class GTest(Runner):
         continue
       reported = True
       for tc in found:
-        end = _status(tc)
+        end = junit.marked_outcome(tc)
         name = f"{tc.get('classname') or ''}.{tc.get('name') or ''}"
         file = tc.get("file")
         inside = file and ctx.app in Path(file).parents
