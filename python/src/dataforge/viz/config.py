@@ -29,7 +29,8 @@ THINKING = ("collapsed", "expanded", "hidden")
 WHEN = ("idle", "stopped")
 """The conditions an action may take besides its own key's: idle, no attempt
 of the item runs (its lock is not held); stopped, the item's newest attempt
-may have stopped (it has not ended and the lock is not held)."""
+may have stopped (it has not ended and the lock is not held), or has ended
+with a status the project calls resumable, and the lock is not held."""
 
 PLACEHOLDER = "{item}"
 """The one placeholder of an action's argv and key: the data item's ID."""
@@ -302,6 +303,8 @@ class Project:
     thinking: How a session view first shows thinking, one of THINKING.
     not_ended: The status words of an attempt that has not ended; None for
       the engine's own rule.
+    resumable: The statuses of an attempt that has ended and that an action
+      with when "stopped" may still go on with; none by default.
     lock: The path of the lock file in an item's directory; None when the
       dataset names none.
     deliverables: The deliverables an attempt has once it ends, in order.
@@ -330,6 +333,7 @@ class Project:
   columns: tuple[Column, ...]
   thinking: str
   not_ended: tuple[str, ...] | None = None
+  resumable: tuple[str, ...] = ()
   lock: tuple[str, ...] | None = None
   deliverables: tuple[Deliverable, ...] = ()
   trial_diff: tuple[str, ...] | None = None
@@ -493,6 +497,7 @@ def load_project(path: Path) -> Project:
       "columns",
       "session",
       "not_ended",
+      "resumable",
       "lock",
       "deliverables",
       "trials",
@@ -521,6 +526,8 @@ def load_project(path: Path) -> Project:
     else _relative(path, "lock", _str(path, "lock", data["lock"]))
   )
   actions = _actions(path, data.get("actions"), item, lock)
+  statuses = _statuses(path, data.get("statuses"))
+  not_ended = _not_ended(path, data.get("not_ended"))
   deliverables = _deliverables(path, data.get("deliverables"))
   tabs = _tabs(path, data.get("tabs"), deliverables)
   return Project(
@@ -531,11 +538,12 @@ def load_project(path: Path) -> Project:
     attempts=attempts,
     record=_relative(path, "record", _str(path, "record", data["record"])),
     states=_entries(path, "states", data.get("states"), {"title"}),
-    statuses=_statuses(path, data.get("statuses")),
+    statuses=statuses,
     item=item,
     columns=_columns(path, data.get("columns"), tabs),
     thinking=_thinking(path, data.get("session")),
-    not_ended=_not_ended(path, data.get("not_ended")),
+    not_ended=not_ended,
+    resumable=_resumable(path, data.get("resumable"), statuses, not_ended),
     lock=lock,
     deliverables=deliverables,
     trial_diff=_trial_diff(path, data.get("trials")),
@@ -1119,6 +1127,25 @@ def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:
   if not isinstance(value, list) or not value:
     raise ConfigError(f"{path}: not_ended: not a non-empty list")
   return tuple(_str(path, "not_ended", w) for w in cast(list[object], value))
+
+
+def _resumable(
+  path: Path,
+  value: object,
+  statuses: dict[str, dict[str, str]],
+  not_ended: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: resumable: not a non-empty list")
+  words = tuple(_str(path, "resumable", w) for w in cast(list[object], value))
+  for word in words:
+    if word not in statuses:
+      raise ConfigError(f"{path}: resumable: {word!r} is not one of statuses")
+    if word in (not_ended or ()):
+      raise ConfigError(f"{path}: resumable: {word!r} is also in not_ended")
+  return words
 
 
 def _thinking(path: Path, value: object) -> str:
