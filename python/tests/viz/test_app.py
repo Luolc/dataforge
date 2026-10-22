@@ -192,6 +192,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
     + "deliverables:\n"
     + "  - {name: task, kind: files, title: Task}\n"
     + "  - {name: review, kind: report, title: Review}\n"
+    + "  - {name: regrade, kind: trials, title: Regrade, no_trace: No agent.}\n"
   )
 
   [project] = cast(
@@ -199,8 +200,14 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
   )
 
   assert project["deliverables"] == [
-    {"name": "task", "kind": "files", "title": "Task"},
-    {"name": "review", "kind": "report", "title": "Review"},
+    {"name": "task", "kind": "files", "title": "Task", "no_trace": None},
+    {"name": "review", "kind": "report", "title": "Review", "no_trace": None},
+    {
+      "name": "regrade",
+      "kind": "trials",
+      "title": "Regrade",
+      "no_trace": "No agent.",
+    },
   ]
 
 

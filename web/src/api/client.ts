@@ -70,7 +70,8 @@ export const urls = {
 /**
  * Where the views read an attempt's files: a directory's listing, and a
  * file's bytes as the response that carries them, where a path that is no
- * file the source serves, a directory included, is a 404 with its reason.
+ * file the source serves, a directory included, is a 404 with its reason;
+ * and, when the source has one, the URL a person downloads a file from.
  */
 export interface FileSource {
   listing: (
@@ -85,10 +86,12 @@ export interface FileSource {
     path: string,
     signal?: AbortSignal,
   ) => Promise<Response>;
+  href?: (p: string, attempt: string, path: string) => string;
 }
 
 /** The files of the viewer's and the share server's files route. */
 export const apiFiles: FileSource = {
+  href: urls.files,
   listing: (p, attempt, dir, signal) =>
     getJson(urls.files(p, attempt, dir), listing, signal),
   file: async (p, attempt, path, signal) => {
