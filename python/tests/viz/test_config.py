@@ -1,5 +1,6 @@
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 import pytest
 import uvicorn
@@ -32,6 +33,26 @@ def test_a_valid_site_loads(tree: Tree) -> None:
   assert project.attempts == ("*", "*")
   assert project.thinking == "hidden"
   assert [c.format for c in project.columns] == ["text", "usd", "text"]
+
+
+def test_a_column_s_labels_and_description_reach_the_page(tree: Tree) -> None:
+  _ = tree.project.write_text(
+    PROJECT.replace(
+      "field: [status]}",
+      "field: [status], labels: {passed: Passed, 'true': Worth it},"
+      + " description: The record's status.}",
+      1,
+    )
+  )
+
+  [project] = load_site(tree.site).projects
+
+  [status, cost, _missing] = cast(
+    list[dict[str, object]], project.public()["columns"]
+  )
+  assert status["labels"] == {"passed": "Passed", "true": "Worth it"}
+  assert status["description"] == "The record's status."
+  assert (cost["labels"], cost["description"]) == ({}, None)
 
 
 def test_a_session_view_shows_thinking_as_the_project_file_says(
@@ -156,6 +177,26 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (("tone: good", "tone: green"), "statuses.passed.tone"),
     (("format: usd", "format: euro"), r"columns\[1\]\.format"),
     (("field: [status]", "field: status"), r"columns\[0\]\.field"),
+    (
+      ("format: usd", "format: usd, labels: {a: A}"),
+      r"columns\[1\]\.labels: only with format text",
+    ),
+    (
+      ("field: [status]", "field: [status], labels: {}"),
+      r"columns\[0\]\.labels: not a non-empty mapping",
+    ),
+    (
+      ("field: [status]", "field: [status], labels: {a: 3}"),
+      r"columns\[0\]\.labels\.a: not a non-empty string",
+    ),
+    (
+      ("field: [status]", "field: [status], labels: {true: Yes}"),
+      r"columns\[0\]\.labels: key True not a string",
+    ),
+    (
+      ("field: [status]", "field: [status], description: ''"),
+      r"columns\[0\]\.description: not a non-empty string",
+    ),
     (("name: Example", "name: Example\nextra: 1"), "extra: unknown key"),
     (("name: Example", "name: Example\nname: Again"), "key name repeated"),
     (("name: Example", "name: 3"), "name"),

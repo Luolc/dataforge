@@ -1,6 +1,6 @@
 // How numbers, times and costs read on every page.
 import type { Action, Column, Read, Visit } from "../api/types";
-import { NOT_RUN } from "./status";
+import { NOT_GIVEN, NOT_RUN } from "./status";
 
 /**
  * The parts of a time in the browser's own time zone, the zone's
@@ -69,12 +69,19 @@ export function usd(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
+/** How a column or a tab field shows its values. */
+type Shown = Pick<Column, "format" | "labels">;
+
 /**
- * A value a project's column or tab field reads, as its format says; "—"
- * when there is none.
+ * A value a project's column or tab field reads, as its format says, or as
+ * its labels name it: a string by itself, a boolean or a number by its JSON
+ * text; "—" when there is none.
  */
-export function formatValue(value: unknown, format: Column["format"]): string {
+export function formatValue(value: unknown, { format, labels }: Shown): string {
   if (value === null || value === undefined) return "—";
+  const label =
+    labels?.[typeof value === "string" ? value : JSON.stringify(value)];
+  if (label !== undefined) return label;
   if (typeof value === "number") {
     if (format === "usd") return usd(value);
     if (format === "duration") return duration(value);
@@ -86,17 +93,13 @@ export function formatValue(value: unknown, format: Column["format"]): string {
 
 /**
  * A value read from a file as it stands: Not run when its file is not
- * there, "—" when it is there without it, null as "null", else as its
- * format says.
+ * there, "—" when it is there without it, Not given for null, else as
+ * formatValue shows it.
  */
-export function readValue(
-  read: Read,
-  value: unknown,
-  format: Column["format"],
-): string {
+export function readValue(read: Read, value: unknown, shown: Shown): string {
   if (read === "not run") return NOT_RUN;
   if (read === "missing") return "—";
-  return value === null ? "null" : formatValue(value, format);
+  return value === null ? NOT_GIVEN : formatValue(value, shown);
 }
 
 /** The seconds from one ISO 8601 time to another; null when one is bad. */

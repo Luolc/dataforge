@@ -15,12 +15,17 @@ const READS = ["found", "not run", "missing"] as const;
 export type Read = (typeof READS)[number];
 
 const FORMAT = z.enum(["text", "number", "usd", "duration", "time"]);
+// The label a page shows for each value of a column or a field of format
+// text; a value with none shows as itself.
+const LABELS = z.record(z.string(), z.string()).optional();
 
 const TAB_PART = z.looseObject({
   name: z.string(),
   title: z.string(),
   file: z.string(),
-  fields: z.array(z.looseObject({ title: z.string(), format: FORMAT })),
+  fields: z.array(
+    z.looseObject({ title: z.string(), format: FORMAT, labels: LABELS }),
+  ),
 });
 
 export const project = z.looseObject({
@@ -38,6 +43,9 @@ export const project = z.looseObject({
       title: z.string(),
       field: z.array(z.string()),
       format: FORMAT,
+      labels: LABELS,
+      // What the column holds, shown on its heading.
+      description: z.string().nullable().optional(),
     }),
   ),
   session: z.looseObject({

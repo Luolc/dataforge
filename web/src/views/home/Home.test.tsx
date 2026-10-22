@@ -340,6 +340,69 @@ describe("the home page", () => {
     }
   });
 
+  it("shows a column's value by its label, and one with no label as it is", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Tone",
+          field: ["tone"],
+          format: "text",
+          labels: { bug_report: "Bug report", true: "Kept" },
+        },
+        {
+          title: "Kept",
+          field: ["kept"],
+          format: "text",
+          labels: { true: "Kept" },
+        },
+      ],
+    };
+    ROWS[3] = { ...must(ROWS[3]), values: ["bug_report", true] };
+    ROWS[1] = { ...must(ROWS[1]), values: ["chat_message", false] };
+    try {
+      show("/sample", withColumns);
+      const cellsOf = async (id: string) =>
+        [
+          ...((await screen.findByText(id))
+            .closest("tr")
+            ?.querySelectorAll("td") ?? []),
+        ]
+          .slice(-2)
+          .map((c) => c.textContent);
+      expect(await cellsOf("t-new")).toEqual(["Bug report", "Kept"]);
+      expect(await cellsOf("t-old")).toEqual(["chat_message", "false"]);
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [] };
+      ROWS[1] = { ...must(ROWS[1]), values: [] };
+    }
+  });
+
+  it("says what a column holds on its heading's focus", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Cap",
+          field: ["budget", "max_usd"],
+          format: "usd",
+          description: "The most this attempt may spend.",
+        },
+        { title: "Note", field: ["note"], format: "text" },
+      ],
+    };
+    show("/sample", withColumns);
+    const cap = await screen.findByRole("button", { name: "Cap" });
+    expect(cap.firstElementChild).toHaveClass("decoration-dotted");
+    fireEvent.focus(cap);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "The most this attempt may spend.",
+    );
+    // A column with no description has no hint, nor its sign.
+    const note = screen.getByRole("button", { name: "Note" });
+    expect(note.firstElementChild).not.toHaveClass("decoration-dotted");
+  });
+
   it("tells a column's file not there from its value null", async () => {
     const withColumns: Project = {
       ...project,
@@ -362,11 +425,12 @@ describe("the home page", () => {
       expect(cells.map((c) => c.textContent)).toEqual([
         "Not run",
         "—",
-        "null",
+        "Not given",
         "$2.00",
       ]);
-      // A word of the viewer's, kept on one line.
+      // A word of the viewer's, kept on one line and set apart from values.
       expect(cells[0]?.firstElementChild).toHaveClass("whitespace-nowrap");
+      expect(cells[2]?.firstElementChild).toHaveClass("text-fg-3");
     } finally {
       ROWS[3] = { ...must(ROWS[3]), values: [], reads: null };
     }

@@ -13,6 +13,8 @@ import type { AttemptRecord, Live, Project, Tone } from "../api/types";
 export const NOT_ENDED = "Not ended";
 /** A state, a deliverable or the end that the attempt never reached. */
 export const NOT_RUN = "Not run";
+/** A value a file holds as null: there, with nothing given for it. */
+export const NOT_GIVEN = "Not given";
 /**
  * An attempt that ended with no status word: its status is null and the
  * project names its own words for not ended (design-viz.md section 4).

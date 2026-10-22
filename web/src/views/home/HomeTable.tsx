@@ -33,6 +33,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { Chip, control } from "../../ui/chip";
+import { HintContent } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
@@ -74,6 +75,8 @@ interface Spec {
   id: string;
   title: string;
   numeric: boolean;
+  /** What the column holds, on its heading's hover and focus. */
+  description?: string | null;
   value: (line: Line) => Value;
   cell: (line: Line) => ReactNode;
 }
@@ -197,6 +200,7 @@ function specs(project: Project): Spec[] {
     return {
       id: `column-${index.toString()}`,
       title: column.title,
+      description: column.description ?? null,
       numeric: NUMERIC_FORMATS.has(column.format),
       value: (l) => {
         const v = raw(l);
@@ -206,10 +210,11 @@ function specs(project: Project): Spec[] {
       },
       cell: (l) => {
         const read = l.row.reads?.[index] ?? null;
-        if (read === null) return formatValue(raw(l), column.format);
-        const shown = readValue(read, raw(l), column.format);
-        // A value it has not read is a word of the viewer's, kept whole.
-        return read === "found" ? (
+        if (read === null) return formatValue(raw(l), column);
+        const shown = readValue(read, raw(l), column);
+        // A value it has not read, or null, is a word of the viewer's, kept
+        // whole.
+        return read === "found" && raw(l) !== null ? (
           shown
         ) : (
           <span className="whitespace-nowrap text-fg-3">{shown}</span>
@@ -226,6 +231,23 @@ function parseSort(param: string | null, ids: string[]): SortingState {
   const desc = param.startsWith("-");
   const id = desc ? param.slice(1) : param;
   return ids.includes(id) ? [{ id, desc }] : [];
+}
+
+/** A heading's button, with what its column holds on hover and focus. */
+function Described({
+  description,
+  children,
+}: {
+  description: string | null | undefined;
+  children: ReactNode;
+}) {
+  if (description == null) return children;
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
+      <HintContent>{description}</HintContent>
+    </Tooltip.Root>
+  );
 }
 
 /** A status label, with the record's reason, or why it cannot be read, on hover. */
@@ -625,16 +647,27 @@ export function HomeTable({
                       }
                       className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"}`}
                     >
-                      <button
-                        type="button"
-                        onClick={header.column.getToggleSortingHandler()}
-                        className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
-                      >
-                        {spec?.title}
-                        {sorted !== false && (
-                          <Arrow className="size-3" aria-hidden />
-                        )}
-                      </button>
+                      <Described description={spec?.description}>
+                        <button
+                          type="button"
+                          onClick={header.column.getToggleSortingHandler()}
+                          className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
+                        >
+                          {/* Dotted, as a hint's sign, when it has one. */}
+                          <span
+                            className={
+                              spec?.description == null
+                                ? ""
+                                : "underline decoration-faint decoration-dotted underline-offset-3"
+                            }
+                          >
+                            {spec?.title}
+                          </span>
+                          {sorted !== false && (
+                            <Arrow className="size-3" aria-hidden />
+                          )}
+                        </button>
+                      </Described>
                     </th>
                   );
                 })}

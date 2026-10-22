@@ -170,7 +170,7 @@ function Fields({ part, version }: { part: TabPart; version: TabVersion }) {
               <dt className="text-fg-3">{field.title}</dt>
               <dd className="wrap-anywhere">
                 {found?.read === "found" ? (
-                  readValue(found.read, found.value, field.format)
+                  readValue(found.read, found.value, field)
                 ) : (
                   <span className="text-fg-3">
                     {found?.read === "not run"
