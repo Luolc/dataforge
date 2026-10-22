@@ -41,7 +41,7 @@ itself. A systemd unit that runs the scheduler needs `KillMode=process`, so that
 restarting it leaves the jobs running.
 
 `dataforge.testrunner` runs a Harbor task's tests with the project's own runner (pytest, jest,
-vitest, Jasmine, node:test, Maven Surefire, PHPUnit) and writes them as CTRF to
+vitest, Jasmine, node:test, go test, cargo test, Maven Surefire, PHPUnit) and writes them as CTRF to
 `/logs/verifier/ctrf.json`. It uses only Python 3.12's standard library, so that a task runs on its
 own: a dataset writes `testrunner.files()` into each task's `tests/` and its harness imports
 `testrunner` there. `tests/manifest.toml` lists the tests (`[[test]]`: `suite`, `runner`, `id`, and
@@ -57,7 +57,10 @@ before it runs them. A dataset with no harness of its own runs `python -m testru
 and its result holds only once those files are the base's. Maven cannot take its test configuration
 from the base: a changed `pom.xml` can replace what runs under a listed name and what is reported,
 so a dataset that runs Maven tests checks `pom.xml` itself; nor jest the Babel configuration in
-`package.json`'s `babel` key, which a dataset checks too.
+`package.json`'s `babel` key, which a dataset checks too, nor cargo the test configuration in
+`Cargo.toml` (a target's `path`, `harness` or `test`) and its `build.rs`, which a dataset checks
+too. cargo runs the tests in place, on the project's own `target/` and environment, so that only
+what changed since the image is compiled.
 
 A dataset repository depends on it at a commit of main:
 

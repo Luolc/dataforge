@@ -26,9 +26,11 @@ import tomllib
 from typing import final, override
 import xml.etree.ElementTree as ET
 
-from . import junit
+from . import cargo, gotest, junit
 from .adapter import Call, Context, PREFIX, rel, Runner, write_new
+from .cargo import Cargo
 from .ctrf import Case
+from .gotest import GoTest
 from .js import Jasmine, Jest, Node, SEP, Vitest
 from .manifest import Test
 
@@ -52,6 +54,8 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
     "spec/support/jasmine.mjs",
   ),
   "node": (),
+  "go": (),
+  "cargo": (".cargo/config.toml", ".cargo/config"),
   "maven": (
     "junit-platform.properties",
     ".mvn/maven.config",
@@ -471,6 +475,8 @@ ADAPTERS: dict[str, type[Runner]] = {
   "vitest": Vitest,
   "jasmine": Jasmine,
   "node": Node,
+  "go": GoTest,
+  "cargo": Cargo,
   "maven": Maven,
   "phpunit": PHPUnit,
 }
@@ -488,8 +494,14 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
     Those of files that hold the test's code: for pytest and the Node.js
     runners, its ID's file; for maven, a src/test/java or src/test/kotlin
     file of its outer class under its directory; for phpunit, a file named
-    for its class under its directory, as PHPUnit wants.
+    for its class under its directory, as PHPUnit wants; for go, the test
+    files of its package (gotest.restore_paths); for cargo, its ID's file
+    when that is a test target of its own (cargo.restore_paths).
   """
+  if test.runner == "go":
+    return gotest.restore_paths(test, files)
+  if test.runner == "cargo":
+    return cargo.restore_paths(test, files)
   under = "" if test.dir == "." else test.dir + "/"
   if test.runner in ("pytest", "jest", "vitest", "jasmine", "node"):
     path = test.id.split("::" if test.runner == "pytest" else SEP, 1)[0]
