@@ -223,7 +223,7 @@ describe("the Summary of a running attempt", () => {
       within(review).getByRole("img", { name: "Running" }),
     ).toBeInTheDocument();
     // Here, with no canvas to measure on, the line may break before Running.
-    expect(review).toHaveTextContent(/1 run ·\s*Running/);
+    expect(review).toHaveTextContent(/Run 1 ·\s*Running/);
     expect(review.querySelector("rect")).toHaveClass("stroke-accent");
     expect(into).toHaveAttribute("data-taken", "true");
     expect(review).toHaveTextContent("1m 21s");
