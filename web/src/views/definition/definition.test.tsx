@@ -238,6 +238,19 @@ describe("the Definition page", () => {
     expect(screen.getByText("Dirty")).toBeVisible();
   });
 
+  it("names the version's fields in words, not by their keys", async () => {
+    serve([row("t/1")], { "t/1": text });
+    show();
+
+    const commit = await screen.findByLabelText(snapshot.version.commit);
+    const line = commit.closest("dl");
+    expect(line).not.toBeNull();
+    const terms = [...(line?.querySelectorAll("dt") ?? [])].map(
+      (t) => t.textContent,
+    );
+    expect(terms).toEqual(["From attempt", "Dataset commit", "Prompt version"]);
+  });
+
   it("reads at most SCAN_LIMIT attempts, and says how many", async () => {
     const rows = Array.from({ length: SCAN_LIMIT + 5 }, (_, i) =>
       row(`t/${i.toString()}`),

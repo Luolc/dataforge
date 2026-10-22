@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
-import { attemptStatus, liveStatus, outcomeOf, statusOf } from "./status";
+import {
+  attemptStatus,
+  endWord,
+  liveStatus,
+  outcomeOf,
+  statusOf,
+} from "./status";
 
 describe("status words", () => {
-  it("an unmapped raised is bad, any other unmapped word neutral", () => {
+  it("the engine's raised and interrupted read as Exception and Interrupted, any other unmapped word as itself", () => {
     expect(statusOf(sampleProject, "raised")).toEqual({
-      label: "raised",
+      label: "Exception",
       tone: "bad",
+    });
+    expect(statusOf(sampleProject, "interrupted")).toEqual({
+      label: "Interrupted",
+      tone: "warn",
     });
     expect(statusOf(sampleProject, "skipped")).toEqual({
       label: "skipped",
@@ -34,6 +44,14 @@ describe("status words", () => {
     });
     expect(attemptStatus(sampleProject, records.running)).toBeNull();
     expect(attemptStatus(sampleProject, records.raised)).toBe("raised");
+    const interrupted = {
+      ...records.raised,
+      visits: records.raised.visits.map((v, i, all) =>
+        i === all.length - 1 ? { ...v, outcome: "interrupted" } : v,
+      ),
+    };
+    expect(attemptStatus(sampleProject, interrupted)).toBe("interrupted");
+    expect(endWord(sampleProject, interrupted)).toBeNull();
     expect(attemptStatus(sampleProject, records.passed)).toBe("passed");
   });
 

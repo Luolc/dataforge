@@ -3,7 +3,7 @@
 // the values the project names read from JSON files beside each. A tab of
 // two or more files, its parts, shows one at a time, chosen from a column
 // beside it.
-import { CircleAlert, FileText } from "lucide-react";
+import { CircleAlert, CirclePause, FileText } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 
@@ -11,6 +11,7 @@ import { type Loaded, useLoaded, useRefresh } from "../../api/client";
 import type {
   Project,
   ProjectTab,
+  Queued,
   TabPart,
   TabVersion,
   TabVersions,
@@ -21,10 +22,12 @@ import { counted, readValue } from "../../ui/format";
 import { ChoiceMenu } from "../../ui/menu";
 import { SideColumn, sideEntry } from "../../ui/side-column";
 import { NOT_RUN } from "../../ui/status";
+import { ToneLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import { fetchFile, size } from "../files/file";
+import { jobLabel, jobTimes, pausedLine } from "../queue/status";
 import { ReportMarkdown } from "../report/markdown";
-import { versionsOf } from "./versions";
+import { queuedOf, versionsOf } from "./versions";
 
 /** A tab's count: its versions, Not run with none; nothing while loading. */
 export function TabCount({
@@ -80,13 +83,15 @@ export function TabView({
   const versions = versionsOf(loaded, tab);
   const shown = versions.find((v) => v.dir === chosen) ?? versions[0];
   if (shown === undefined)
-    return (
-      <Note>
-        {`${NOT_RUN}: this attempt has no ${tab.title} yet (no directory matching ${tab.versions.join(" or ")}).`}
-      </Note>
-    );
+    return <NoVersion tab={tab} queued={queuedOf(loaded, tab)} />;
   const part = tab.parts.find((p) => p.name === named) ?? tab.parts[0];
-  const choices = versions.map((v) => ({ key: v.dir, title: v.dir }));
+  const titled = (v: TabVersion) =>
+    v.title?.read === "found" && v.title.value !== null;
+  const titleOf = (v: TabVersion) =>
+    titled(v)
+      ? readValue("found", v.title?.value, tab.version_title?.format ?? "text")
+      : v.dir;
+  const choices = versions.map((v) => ({ key: v.dir, title: titleOf(v) }));
   const view = (
     <>
       {part.fields.length > 0 && <Fields part={part} version={shown} />}
@@ -107,11 +112,13 @@ export function TabView({
           <ChoiceMenu
             label="Version"
             items={choices}
-            chosen={{ key: shown.dir, title: shown.dir }}
+            chosen={{ key: shown.dir, title: titleOf(shown) }}
             onChoose={setChosen}
           />
         ) : (
-          <code className="font-mono">{shown.dir}</code>
+          <span className={titled(shown) ? undefined : "font-mono"}>
+            {titleOf(shown)}
+          </span>
         )}
         <span className="text-fg-3">
           {`${(versions.indexOf(shown) + 1).toString()} of ${versions.length.toString()}`}
@@ -123,6 +130,52 @@ export function TabView({
         </Parts>
       ) : (
         view
+      )}
+    </div>
+  );
+}
+
+/**
+ * A tab with no version: that the attempt has none yet, and, for a tab that
+ * names its job, how the newest job of it stands and whether its queue is
+ * paused.
+ */
+function NoVersion({
+  tab,
+  queued,
+}: {
+  tab: ProjectTab;
+  queued: Queued | null;
+}) {
+  const job = queued?.job ?? null;
+  return (
+    <div className="flex flex-col gap-2 px-7 pt-5 pb-12">
+      <p className="text-fg-3">{`${NOT_RUN}: this attempt has no ${tab.title} yet.`}</p>
+      {queued !== null &&
+        (queued.reason !== null ? (
+          <p className="text-fg-3">{`How its job stands is not known: ${queued.reason}.`}</p>
+        ) : job === null ? (
+          <p className="text-fg-3">No job for it has been queued.</p>
+        ) : (
+          <p className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/queue"
+              className="inline-flex target items-center link hover:underline"
+            >
+              {`Job ${job.id.toString()}`}
+            </Link>
+            <ToneLabel {...jobLabel(job)} />
+            <span className="text-fg-3">{jobTimes(job)}</span>
+          </p>
+        ))}
+      {queued?.paused != null && (
+        <p className="flex items-center gap-1.5 text-fg-3">
+          <CirclePause
+            className="size-icon-sm flex-none text-icon"
+            aria-hidden
+          />
+          {pausedLine(queued.paused)}
+        </p>
       )}
     </div>
   );

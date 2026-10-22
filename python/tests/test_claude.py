@@ -854,6 +854,8 @@ def test_a_run_tells_its_ending_and_a_named_spec_names_its_files(
   found = runner.start(spec, task, HOST)
   assert (found.ending, found.resumable) == ("success", True)
   assert (runs / "review-1.trace.jsonl").exists()
+  assert found.log == runs / "review-1.stderr.log"
+  assert (runs / "review-1.stderr.log").exists()
 
 
 def test_each_continued_start_has_a_cap_of_its_own(tmp_path: Path) -> None:

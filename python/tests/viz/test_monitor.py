@@ -1,5 +1,7 @@
+from contextlib import closing
 import os
 from pathlib import Path
+import sqlite3
 from typing import cast
 
 from fastapi.testclient import TestClient
@@ -53,6 +55,30 @@ def test_the_runs_are_listed_oldest_first(db: Path, web: TestClient) -> None:
     (1, "standalone"),
     (2, "batch"),
   ]
+
+
+def test_each_run_gives_the_time_of_its_last_machine_sample(
+  db: Path, web: TestClient
+) -> None:
+  with closing(sqlite3.connect(db)) as c:
+    _ = c.execute(
+      "INSERT INTO runs SELECT 3, version, started_at + 9000, NULL, NULL,"
+      + " interval_s, host, cpus, mem_total_bytes, 'standalone', NULL"
+      + " FROM runs WHERE run_id = 1"
+    )
+    c.commit()
+    last = dict(
+      c.execute("SELECT run_id, max(t) FROM machine GROUP BY run_id").fetchall()
+    )
+
+  runs = cast(list[dict[str, object]], web.get(f"{API}/runs").json())
+
+  assert {r["run_id"]: r["last_t"] for r in runs} == {
+    1: last[1],
+    2: last[2],
+    3: None,
+  }
+  assert last[1] < last[2]
 
 
 def test_a_window_reads_the_whole_run_by_default(

@@ -255,6 +255,11 @@ class Result:
     """The session's stream-json trace."""
     return self.paths[1]
 
+  @property
+  def stderr(self) -> Path:
+    """What the session printed to stderr."""
+    return self.paths[2]
+
 
 def add_arguments(
   parser: argparse.ArgumentParser,
@@ -1083,6 +1088,7 @@ class Runner:
       fault,
       result.stop_reason,
       result.error,
+      result.stderr,
     )
 
 
