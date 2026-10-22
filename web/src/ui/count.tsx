@@ -17,7 +17,8 @@ export function TabBadge({
       className="min-w-5 rounded-full bg-active px-1.5 py-px text-center text-2xs text-fg-2 tabular-nums"
     >
       <span aria-hidden>{children === undefined ? label : children}</span>
-      <span className="sr-only">{label}</span>
+      {/* Spaced from the tab's title, which a reader says before it. */}
+      <span className="sr-only">{` ${label}`}</span>
     </span>
   );
 }

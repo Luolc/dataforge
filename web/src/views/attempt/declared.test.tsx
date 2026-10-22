@@ -144,6 +144,24 @@ describe("the deliverables a project declares", () => {
     expect(screen.getByText(/This attempt ended without it\./)).toBeVisible();
   });
 
+  it("count a kind the viewer does not know by the ones reached", async () => {
+    const notes = {
+      name: "notes",
+      kind: "notes",
+      title: "Notes",
+      state: "review",
+      output: "notes",
+      visit: 1,
+      visit_index: 4,
+      path: "notes/out/notes.md",
+      reason: null,
+    };
+    show({ ...passed, deliverables: [...passed.deliverables, notes] });
+
+    expect((await tabs()).at(-1)).toBe("Notes1");
+    expect((await counts()).at(-1)).toBe("1 deliverable");
+  });
+
   it("add no tab to a record with no deliverables key", async () => {
     show(older);
 

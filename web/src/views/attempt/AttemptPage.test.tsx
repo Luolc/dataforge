@@ -107,6 +107,8 @@ describe("a record an older dataforge wrote", () => {
     expect(screen.getByText("Passed")).toBeVisible();
     expect(tabs()).toHaveLength(1);
     expect(tabs()[0]).toHaveAccessibleName(/^Runs\s*4 runs$/);
+    // What a reader hears after the title starts with a space.
+    expect(tabs()[0]?.querySelector(".sr-only")?.textContent).toBe(" 4 runs");
     // A tab keeps its title and count on one line, however narrow the bar.
     expect(tabs()[0]).toHaveClass("flex-none", "whitespace-nowrap");
   });

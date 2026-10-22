@@ -103,7 +103,7 @@ function solved(item: Deliverable): { short: string; full: string } {
       short: `${String(value)} / ${k}`,
       full: `${String(value)} of ${k} solved`,
     };
-  return { short: `— / ${k}`, full: `Solved not known, of ${k}` };
+  return { short: `— / ${k}`, full: `${k} trials, solved not known` };
 }
 
 /** A count of the deliverables of a kind the attempt reached; Not run with none. */

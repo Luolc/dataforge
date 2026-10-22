@@ -236,3 +236,29 @@ describe("a files tab's count that takes longer than a read's limit", () => {
     expect(countSaid()).toBe("11 files");
   });
 });
+
+describe("a trials tab's count", () => {
+  it("says in full that how many solved is not known when its value is not", () => {
+    const trials = {
+      ...item("pass_at_k", "trials"),
+      path: "artifacts/solve/1",
+      reason: null,
+      k: 4,
+    };
+    render(
+      <p data-testid="count">
+        <KindCount
+          kind="trials"
+          title="Title of pass_at_k"
+          project="sample"
+          attempt="a/b"
+          item={trials}
+          items={[trials]}
+        />
+      </p>,
+    );
+
+    expect(countSaid()).toBe("4 trials, solved not known");
+    expect(screen.getByTestId("count")).toHaveTextContent(/^— \/ 4/);
+  });
+});
