@@ -50,6 +50,16 @@ no network when the probe does not answer in time; `environment` set to
 DOCKER_ENVIRONMENT makes Harbor use `dataforge.curation.harbor_env`'s, which
 runs no probe.
 
+`tmpfs_mb`, 2048 by default, puts a tmpfs of that many MiB at /tmp of the
+task's `main`, in the trial's environment and a separate verifier's, so that
+what a trial writes to /tmp goes to memory, not the disk: it reaches the
+environment as `--ek tmpfs_mb=<MiB>`, which DOCKER_ENVIRONMENT's takes. The
+tmpfs holds memory only for what is written to it, and counts it against the
+container's memory limit: a full /tmp gives ENOSPC, and /tmp and the
+processes' memory past the limit get the container's processes killed for
+memory, which the trial's `trial.log` then says (`harbor_env.OOM_KILLED`).
+None or 0, or an environment of Harbor's own, gives no tmpfs.
+
 A trial reserves from the pool the task's memory plus the sidecar's limit
 (`memory_gb`), whether or not the task has a sidecar; image builds and the
 cleanup's container use memory besides, so a dataset leaves the pool some
@@ -126,6 +136,8 @@ PASSED = ("HOME", "PATH", "DOCKER_HOST", "DOCKER_CONFIG")
 # Harbor's Docker environment without its probe for no-network, as `environment`
 # names it; only Harbor's process imports the module.
 DOCKER_ENVIRONMENT = "dataforge.curation.harbor_env:DockerEnvironment"
+# The tmpfs at /tmp of a trial's `main`, in MiB, by default.
+TMPFS_MB = 2048
 # How many more times a trial Harbor did not start is run.
 RETRIES = 2
 # The most lines, and bytes, of harbor.log that a trial Harbor did not start
@@ -294,6 +306,10 @@ class HarborRunner:
     environment: The environment Harbor runs the trial in, passed as `--env`:
       a type of Harbor's, such as `docker`, or the import path of a class,
       such as DOCKER_ENVIRONMENT; None leaves Harbor's default, `docker`.
+    tmpfs_mb: The size of the tmpfs at /tmp of the task's `main`, in MiB,
+      passed to the environment as its `tmpfs_mb` keyword argument when
+      environment is set, which DOCKER_ENVIRONMENT's takes; None or 0 for
+      none.
   """
 
   harbor: Path
@@ -314,6 +330,7 @@ class HarborRunner:
   docker: str = "docker"
   verifier: str | None = None
   environment: str | None = None
+  tmpfs_mb: int | None = TMPFS_MB
 
   def memory_gb(self, limits: Limits) -> float:
     """Return the memory a trial reserves: the task's and the sidecar's.
@@ -412,6 +429,11 @@ class HarborRunner:
       *agent_args,
       *(() if self.verifier is None else ("--verifier", self.verifier)),
       *(() if self.environment is None else ("--env", self.environment)),
+      *(
+        ("--ek", f"tmpfs_mb={self.tmpfs_mb}")
+        if self.environment is not None and self.tmpfs_mb
+        else ()
+      ),
       "--jobs-dir", str(outdir.resolve()),
       "--job-name", "job",
       "--n-attempts", "1",

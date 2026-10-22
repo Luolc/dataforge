@@ -431,6 +431,43 @@ def test_harbor_gets_the_environment_only_when_one_is_set(
   assert argv.index("--env") < argv.index("--yes")
 
 
+def ek_args(out: Path) -> list[str]:
+  # The values of the --ek options Harbor got, each before --yes.
+  argv = seen_argv(out)
+  found = [i + 1 for i, arg in enumerate(argv) if arg == "--ek"]
+  assert all(i < argv.index("--yes") for i in found)
+  return [argv[i] for i in found]
+
+
+@pytest.mark.parametrize(
+  ("change", "ek"),
+  [
+    ({}, ["tmpfs_mb=2048"]),
+    ({"tmpfs_mb": 512}, ["tmpfs_mb=512"]),
+    ({"tmpfs_mb": None}, []),
+    ({"tmpfs_mb": 0}, []),
+  ],
+)
+def test_the_environment_gets_a_tmpfs_of_2_gib_by_default(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  change: dict[str, int | None],
+  ek: list[str],
+) -> None:
+  out = outdir(tmp_path)
+  runs = replace(runner(fakes), environment=harbor.DOCKER_ENVIRONMENT, **change)
+  _ = runs.run(task(tmp_path), "nop", Limits(2), out)
+  assert ek_args(out) == ek
+
+
+def test_harbors_own_environment_gets_no_tmpfs(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  _ = runner(fakes).run(task(tmp_path), "nop", Limits(2), out)
+  assert "--ek" not in seen_argv(out)
+
+
 def not_started(
   fakes: tuple[Path, Path], mode: str = "exit", **env: str
 ) -> HarborRunner:

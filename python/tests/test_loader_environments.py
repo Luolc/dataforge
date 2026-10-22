@@ -445,6 +445,10 @@ def edit(path: str, value: object) -> Callable[[Doc], None]:
       "runners.trials.with.sidecar.memory: unknown field",
     ),
     (
+      edit("runners.trials.with.tmpfs_mb", 512),
+      "runners.trials.with.tmpfs_mb: unknown field",
+    ),
+    (
       edit("runners.trials.with.harbor", 7),
       "runners.trials.with.harbor: expected a string, got an integer",
     ),
