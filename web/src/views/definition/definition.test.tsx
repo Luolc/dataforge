@@ -213,6 +213,21 @@ describe("the Definition page", () => {
     expect(screen.getByRole("link", { name: /Author/ })).toBeVisible();
   });
 
+  it("counts each stage's entries with their unit, not as a bare number", async () => {
+    serve([row("t/1")], { "t/1": text });
+    show();
+
+    expect(
+      await screen.findByRole("link", { name: /^Author/ }),
+    ).toHaveTextContent(/^Author2 entries$/);
+    expect(screen.getByRole("link", { name: /^Review/ })).toHaveTextContent(
+      /^Review3 entries$/,
+    );
+    expect(screen.getByRole("link", { name: /^check/ })).toHaveTextContent(
+      /^check1 entry$/,
+    );
+  });
+
   it("cuts a long version value and shows it whole in its label", async () => {
     serve([row("t/1")], { "t/1": text });
     show();

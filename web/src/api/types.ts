@@ -44,11 +44,20 @@ export const project = z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
   }),
   not_ended: z.array(z.string()).nullable().optional(),
+  // Each deliverable a dataset's declaration names; the one marked default
+  // names its kind's tab while the attempt has reached none of the kind.
   deliverables: z
     .array(
-      z.looseObject({ name: z.string(), kind: z.string(), title: z.string() }),
+      z.looseObject({
+        name: z.string(),
+        kind: z.string(),
+        title: z.string(),
+        default: z.boolean().optional(),
+      }),
     )
     .optional(),
+  // The title of a deliverable kind's tab, by kind.
+  kinds: z.record(z.string(), z.looseObject({ title: z.string() })).optional(),
   // A trial's diff and its CTRF test results, each relative to its
   // directory, and each test kind's label.
   trials: z

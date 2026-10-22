@@ -56,25 +56,45 @@ function show(
   );
 }
 
+const links = async () =>
+  within(
+    await screen.findByRole("navigation", { name: "Attempt" }),
+  ).getAllByRole("link");
+
+/** Each tab as it shows: its title and its pill, without what only a reader hears. */
 const tabs = async () =>
-  within(await screen.findByRole("navigation", { name: "Attempt" }))
-    .getAllByRole("link")
-    .map((t) => t.textContent);
+  (await links()).map((t) => {
+    const shown = t.cloneNode(true);
+    if (!(shown instanceof HTMLElement)) throw new Error("not an element");
+    for (const heard of shown.querySelectorAll(".sr-only")) heard.remove();
+    return shown.textContent;
+  });
+
+/** Each tab's count in full, as its pill's title says it. */
+const counts = async () =>
+  (await links()).map((t) => t.querySelector("[title]")?.getAttribute("title"));
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("the deliverables a project declares", () => {
-  it("give a running attempt a tab each, in their order, counted —", async () => {
+  it("give a running attempt a tab each, in their order, counted Not run", async () => {
     show(running);
 
     expect(await tabs()).toEqual([
       "Runs2",
-      "Review—",
-      "Task—",
-      "Pass@k—",
-      "Notes—",
+      "ReviewNot run",
+      "TaskNot run",
+      "Pass@kNot run",
+      "NotesNot run",
+    ]);
+    expect(await counts()).toEqual([
+      "2 runs",
+      "Not run",
+      "Not run",
+      "Not run",
+      "Not run",
     ]);
   });
 
@@ -109,7 +129,14 @@ describe("the deliverables a project declares", () => {
       "Review1",
       expect.stringMatching(/^Task\d*$/),
       "Pass@k2 / 4",
-      "Notes—",
+      "NotesNot run",
+    ]);
+    expect(await counts()).toEqual([
+      "6 runs",
+      "1 report",
+      expect.stringMatching(/^Counting the files$|^\d+ files?$/),
+      "2 of 4 solved",
+      "Not run",
     ]);
     expect(
       (await screen.findByText("Deliverables", { selector: "dt" })).nextSibling,
@@ -206,6 +233,45 @@ describe("a tab of several deliverables of one kind", () => {
     expect(await screen.findByText("regrade was never visited")).toBeVisible();
   });
 
+  // As twice, with pass@k marked as the one to name the tab by while none
+  // is reached, and the kind's tab titled by the project.
+  const marked: Project = {
+    ...sampleProject,
+    deliverables: [
+      { name: "regrade", kind: "trials", title: "Regrade" },
+      { name: "pass_at_k", kind: "trials", title: "Pass@k", default: true },
+    ],
+  };
+
+  it("is titled by the one marked default when none was reached", async () => {
+    show(withRegrade(false, false), "", marked);
+
+    expect(await tabs()).toContain("Pass@kNot run");
+  });
+
+  it("opens on the one marked default when none was reached", async () => {
+    show(withRegrade(false, false), "&tab=trials", marked);
+
+    expect(await screen.findByText("solve was never visited")).toBeVisible();
+    expect(screen.queryByText("regrade was never visited")).toBeNull();
+  });
+
+  it("is titled by the first reached over the one marked default", async () => {
+    show(withRegrade(true, false), "", marked);
+
+    expect(await tabs()).toContain("Regrade1 / 4");
+  });
+
+  it("titled by the project names the one its count is of", async () => {
+    show(withRegrade(true), "", {
+      ...marked,
+      kinds: { trials: { title: "Trials" } },
+    });
+
+    expect(await tabs()).toContain("Trials1 / 4");
+    expect(await counts()).toContain("Regrade: 1 of 4 solved");
+  });
+
   // Two reports, the first declared reached only by some attempts: the rule
   // holds for every kind, a stacked one too.
   const reviews: Project = {
@@ -250,6 +316,16 @@ describe("a tab of several deliverables of one kind", () => {
     show(withTightened(true), "", reviews);
 
     expect(await tabs()).toContain("Tightened review2");
+  });
+
+  it("of reports titled by the project counts every report reached", async () => {
+    show(withTightened(true), "", {
+      ...reviews,
+      kinds: { report: { title: "Reviews" } },
+    });
+
+    expect(await tabs()).toContain("Reviews2");
+    expect(await counts()).toContain("2 reports");
   });
 
   it("of reports stacks the reached ones first, then the others", async () => {

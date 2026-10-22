@@ -105,7 +105,8 @@ describe("a record an older dataforge wrote", () => {
       screen.getByText("Deliverables", { selector: "dt" }).nextSibling,
     ).toHaveTextContent("—");
     expect(screen.getByText("Passed")).toBeVisible();
-    expect(tabs().map((t) => t.textContent)).toEqual(["Runs4"]);
+    expect(tabs()).toHaveLength(1);
+    expect(tabs()[0]).toHaveAccessibleName(/^Runs\s*4 runs$/);
     // A tab keeps its title and count on one line, however narrow the bar.
     expect(tabs()[0]).toHaveClass("flex-none", "whitespace-nowrap");
   });
@@ -251,7 +252,7 @@ describe("an attempt that runs", () => {
     expect(tabs()[0]).toHaveTextContent(`Runs${String(visits)}`);
     expect(screen.queryByRole("img", { name: "Running" })).toBeNull();
     expect(
-      screen.getByText(`${String(visits)} runs`, { exact: false }),
+      screen.getByText(`${String(visits)} runs ·`, { exact: false }),
     ).toBeVisible();
   });
 

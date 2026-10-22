@@ -5,6 +5,7 @@ import { Link } from "react-router";
 
 import type { Project } from "../../api/types";
 import { CodeView } from "../../ui/code";
+import { counted } from "../../ui/format";
 import { stateTitle } from "../../ui/status";
 import { NotRecorded } from "./entries";
 import type { Snapshot } from "./load";
@@ -93,8 +94,8 @@ function StageLinks({
     >
       <FileText className="size-4 flex-none text-icon" aria-hidden />
       <span className="min-w-0 flex-auto">{stateTitle(project, s.state)}</span>
-      <span className="text-2xs text-faint tabular-nums">
-        {s.entries.length}
+      <span className="flex-none text-2xs text-faint tabular-nums">
+        {counted(s.entries.length, "entry", "entries")}
       </span>
     </Link>
   ));

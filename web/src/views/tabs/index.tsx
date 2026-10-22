@@ -16,7 +16,8 @@ import type {
   TabVersions,
 } from "../../api/types";
 import { Card, Note } from "../../ui/card";
-import { readValue } from "../../ui/format";
+import { TabBadge } from "../../ui/count";
+import { counted, readValue } from "../../ui/format";
 import { ChoiceMenu } from "../../ui/menu";
 import { SideColumn, sideEntry } from "../../ui/side-column";
 import { NOT_RUN } from "../../ui/status";
@@ -33,17 +34,26 @@ export function TabCount({
   tab: ProjectTab;
   loaded: Loaded<TabVersions[]>;
 }) {
-  if (loaded.state === "loading") return null;
-  if (loaded.state === "error")
+  if (loaded.state === "loading")
+    return <TabBadge label="Reading the versions">{null}</TabBadge>;
+  if (loaded.state === "error") {
+    const label = `Could not read the versions: ${loaded.message}`;
     return (
-      <CircleAlert
-        role="img"
-        aria-label={`Could not read the versions: ${loaded.message}`}
-        className="inline size-3 text-bad"
-      />
+      <TabBadge label={label}>
+        <CircleAlert
+          role="img"
+          aria-label={label}
+          className="inline size-3 text-bad"
+        />
+      </TabBadge>
     );
+  }
   const count = versionsOf(loaded, tab).length;
-  return <>{count === 0 ? NOT_RUN : count}</>;
+  return count === 0 ? (
+    <TabBadge label={NOT_RUN} />
+  ) : (
+    <TabBadge label={counted(count, "version")}>{count}</TabBadge>
+  );
 }
 
 /**

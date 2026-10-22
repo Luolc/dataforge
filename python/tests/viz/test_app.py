@@ -149,6 +149,7 @@ def test_projects_leave_out_where_the_files_are(
     "session": {"thinking": "hidden"},
     "not_ended": None,
     "deliverables": [],
+    "kinds": {},
     "trials": None,
     "definition": None,
     "task": None,
@@ -181,9 +182,33 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
   )
 
   assert project["deliverables"] == [
-    {"name": "task", "kind": "files", "title": "Task"},
-    {"name": "review", "kind": "report", "title": "Review"},
+    {"name": "task", "kind": "files", "title": "Task", "default": False},
+    {"name": "review", "kind": "report", "title": "Review", "default": False},
   ]
+
+
+def test_projects_carry_a_kind_s_title_and_its_default(
+  tree: Tree, static: Path
+) -> None:
+  _ = tree.project.write_text(
+    PROJECT
+    + "deliverables:\n"
+    + "  - {name: regrade, kind: trials, title: Regrade}\n"
+    + "  - {name: pass_at_k, kind: trials, title: Pass@k, default: true}\n"
+    + "  - {name: review, kind: report, title: Review}\n"
+    + "kinds: {report: {title: Reviews}}\n"
+  )
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["deliverables"] == [
+    {"name": "regrade", "kind": "trials", "title": "Regrade", "default": False},
+    {"name": "pass_at_k", "kind": "trials", "title": "Pass@k", "default": True},
+    {"name": "review", "kind": "report", "title": "Review", "default": False},
+  ]
+  assert project["kinds"] == {"report": {"title": "Reviews"}}
 
 
 def test_projects_carry_the_trial_diff(tree: Tree, static: Path) -> None:

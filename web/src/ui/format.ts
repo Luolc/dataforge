@@ -155,3 +155,7 @@ export function bytes(value: number): string {
 /** CPU time per second, as "1.5 cores". */
 export const cores = (value: number): string =>
   `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)} cores`;
+
+/** A count with its unit, as "1 run" or "13 runs". */
+export const counted = (n: number, one: string, many = `${one}s`): string =>
+  `${n.toString()} ${n === 1 ? one : many}`;

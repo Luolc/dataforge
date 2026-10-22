@@ -241,11 +241,11 @@ describe("a running attempt in the Runs column", () => {
     expect(runs.getByText("Runs · 5")).toBeVisible();
     expect(last.closest("a")).toBeNull();
     expect(within(last).getByRole("img", { name: "Running" })).toBeVisible();
-    expect(last).toHaveTextContent("Running · 1m 21s5");
+    expect(last).toHaveTextContent("Running · 1m 21s#5");
     act(() => {
       vi.advanceTimersByTime(3000);
     });
-    expect(last).toHaveTextContent("Running · 1m 24s5");
+    expect(last).toHaveTextContent("Running · 1m 24s#5");
   });
 
   it("shows a run its record holds with no outcome as Running", () => {
