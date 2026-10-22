@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
 import tangle from "../../../../fixtures/graph/attempts/batch-1/task-0303/record.json";
+import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
   inReview,
   must,
@@ -335,6 +336,12 @@ function machine(
   };
 }
 
+/**
+ * How long the machines may take: a few seconds here, more on a slower
+ * runner.
+ */
+const MACHINES_MS = 30_000;
+
 /** How many machines of each size the test lays out, with walks and not. */
 const SIZES = [
   { most: 6, outs: 3, count: 800 },
@@ -363,26 +370,45 @@ describe("the layout's shapes", () => {
     expect(must([...heights][0])).toBeGreaterThan(56);
   });
 
-  it("keep out of each other's way on any machine", () => {
-    for (const rec of Object.values(records))
-      expect(clashes(must(layout(rec, sampleProject)))).toEqual([]);
-    const found = SIZES.flatMap(({ most, outs, count }) =>
-      Array.from({ length: count }, (_, i) => 100000 * most + i).flatMap(
-        (seed) =>
-          [false, true].flatMap((walk) => {
-            const drawn = must(
-              layout(machine(seed, most, outs, walk), sampleProject),
-            );
-            const c = clashes(drawn);
-            return c.length > 0
-              ? [{ seed, most, outs, walk, clashes: c.slice(0, 3) }]
-              : [];
-          }),
+  it("keep apart two edges that swap heights between two layers", () => {
+    const found = swapped.graphs.map((graph) =>
+      clashes(
+        must(
+          layout(
+            record.parse({ ...records.passed, visits: [], graph }),
+            sampleProject,
+          ),
+        ),
       ),
     );
 
-    expect(found).toEqual([]);
+    expect(found).toEqual([[], []]);
   });
+
+  it(
+    "keep out of each other's way on any machine",
+    () => {
+      for (const rec of Object.values(records))
+        expect(clashes(must(layout(rec, sampleProject)))).toEqual([]);
+      const found = SIZES.flatMap(({ most, outs, count }) =>
+        Array.from({ length: count }, (_, i) => 100000 * most + i).flatMap(
+          (seed) =>
+            [false, true].flatMap((walk) => {
+              const drawn = must(
+                layout(machine(seed, most, outs, walk), sampleProject),
+              );
+              const c = clashes(drawn);
+              return c.length > 0
+                ? [{ seed, most, outs, walk, clashes: c.slice(0, 3) }]
+                : [];
+            }),
+        ),
+      );
+
+      expect(found).toEqual([]);
+    },
+    MACHINES_MS,
+  );
 });
 
 describe("a running attempt's layout", () => {

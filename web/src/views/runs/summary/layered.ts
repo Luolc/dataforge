@@ -16,7 +16,8 @@
 //    allows, and a link's dummies level with a port where there is room.
 // 6. Between two layers each edge that changes height turns in a track of
 //    its own, the tracks of edges that overlap ordered so that they cross
-//    only where their order across the layers says they must.
+//    only where their order across the layers says they must; where those
+//    orders go round in a circle, one edge turns twice instead of once.
 //
 // Since every edge runs through a layer only in its own dummy, and turns
 // only between layers, no edge runs through a box or a label, and no two
@@ -102,6 +103,9 @@ interface Element {
   down: number;
   y: number;
   pos: number;
+  /** The segments it is the right end of, and the left end of. */
+  ins: Segment[];
+  outs: Segment[];
 }
 
 /** A piece of an edge between two adjacent layers. */
@@ -119,8 +123,11 @@ interface Graph {
   elements: Element[];
   /** Each box's element, in the boxes' order. */
   nodes: Element[];
-  /** Each arc's elements, from u to v. */
+  /** Each arc's elements, from u to v, and its segments. */
   chains: Element[][];
+  pieces: Segment[][];
+  /** The segments between each layer and the next. */
+  gaps: Segment[][];
   segments: Segment[];
 }
 
@@ -206,6 +213,8 @@ function build(boxes: Box[], arcs: Arc[], ranks: number[]): Graph {
       down: box ? box.height / 2 : 0,
       y: 0,
       pos: 0,
+      ins: [],
+      outs: [],
     };
     elements.push(el);
     return el;
@@ -222,31 +231,36 @@ function build(boxes: Box[], arcs: Arc[], ranks: number[]): Graph {
     chain.push(to);
     return chain;
   });
-  const segments = chains.flatMap((chain, link) =>
+  const pieces = chains.map((chain, link) =>
     chain
       .slice(1)
       .map((b, i): Segment => ({ link, a: must(chain[i]), b, pa: 0, pb: 0 })),
   );
+  const segments = pieces.flat();
   const layers: Element[][] = Array.from(
     { length: 2 * Math.max(0, ...ranks) + 1 },
     () => [],
   );
   for (const el of elements) layers[el.layer]?.push(el);
-  return { layers, elements, nodes, chains, segments };
+  const gaps: Segment[][] = layers.map(() => []);
+  for (const seg of segments) {
+    seg.a.outs.push(seg);
+    seg.b.ins.push(seg);
+    gaps[seg.a.layer]?.push(seg);
+  }
+  return { layers, elements, nodes, chains, pieces, gaps, segments };
 }
 
 /** 4. The order in each layer, by barycentre sweeps. */
-function order({ layers, segments }: Graph) {
+function order({ layers, gaps }: Graph) {
   const count = layers.length;
   const crossings = () => {
     let n = 0;
-    for (let l = 0; l + 1 < count; l++) {
-      const between = segments.filter((s) => s.a.layer === l);
+    for (const between of gaps)
       between.forEach((s, i) => {
         for (const t of between.slice(i + 1))
           if ((s.a.pos - t.a.pos) * (s.b.pos - t.b.pos) < 0) n++;
       });
-    }
     return n;
   };
   const number = () => {
@@ -255,9 +269,9 @@ function order({ layers, segments }: Graph) {
   const sortBy = (layer: Element[], down: boolean) => {
     const centre = new Map(
       layer.map((el) => {
-        const near = segments
-          .filter((s) => (down ? s.b === el : s.a === el))
-          .map((s) => (down ? s.a.pos : s.b.pos));
+        const near = down
+          ? el.ins.map((s) => s.a.pos)
+          : el.outs.map((s) => s.b.pos);
         const mean =
           near.length > 0
             ? near.reduce((x, y) => x + y, 0) / near.length
@@ -297,7 +311,7 @@ function order({ layers, segments }: Graph) {
  * their other ends, the links between the same two boxes by their order;
  * and every box as tall as the busiest side of any box needs.
  */
-function portSides({ nodes, segments }: Graph): Side[] {
+function portSides({ nodes }: Graph): Side[] {
   const sorted = (list: Segment[], other: (s: Segment) => Element) =>
     [...list].sort((p, q) =>
       then(other(p).pos - other(q).pos, p.link - q.link),
@@ -305,18 +319,12 @@ function portSides({ nodes, segments }: Graph): Side[] {
   const sides = nodes.flatMap((el): Side[] => [
     {
       el,
-      list: sorted(
-        segments.filter((s) => s.b === el),
-        (s) => s.a,
-      ),
+      list: sorted(el.ins, (s) => s.a),
       right: false,
     },
     {
       el,
-      list: sorted(
-        segments.filter((s) => s.a === el),
-        (s) => s.b,
-      ),
+      list: sorted(el.outs, (s) => s.b),
       right: true,
     },
   ]);
@@ -381,7 +389,7 @@ function heights(graph: Graph, arcs: Arc[]): Map<Element, number> {
  * height, at its middle.
  */
 function align(
-  { layers, segments }: Graph,
+  { layers, gaps, segments }: Graph,
   reversed: boolean[],
   ahead: boolean,
   downward: boolean,
@@ -394,8 +402,7 @@ function align(
   const at = (el: Element) => must(pos.get(el));
   // Each element's edges to the layer before, by where their other ends are.
   const before = (el: Element) =>
-    segments
-      .filter((s) => (ahead ? s.b === el : s.a === el))
+    (ahead ? el.ins : el.outs)
       .map((s) => ({ s, other: ahead ? s.a : s.b }))
       .sort((p, q) => then(at(p.other) - at(q.other), p.s.link - q.s.link));
   // An edge that crosses one between two dummies is not aligned on.
@@ -404,11 +411,8 @@ function align(
     segments.filter(
       (s) =>
         !inner(s) &&
-        segments.some(
-          (t) =>
-            inner(t) &&
-            t.a.layer === s.a.layer &&
-            (at(s.a) - at(t.a)) * (at(s.b) - at(t.b)) < 0,
+        must(gaps[s.a.layer]).some(
+          (t) => inner(t) && (at(s.a) - at(t.a)) * (at(s.b) - at(t.b)) < 0,
         ),
     ),
   );
@@ -480,7 +484,7 @@ function align(
  * a link's dummies level with one of its ports, where that keeps the gaps
  * in their layers and turns the link fewer times.
  */
-function level({ layers, chains, segments }: Graph, sides: Side[]) {
+function level({ layers, chains, pieces }: Graph, sides: Side[]) {
   const ports = () => {
     for (let n = 0; n < 2; n++)
       for (const { el, list, right } of sides) {
@@ -498,8 +502,7 @@ function level({ layers, chains, segments }: Graph, sides: Side[]) {
   ports();
 
   const turns = (link: number) =>
-    segments.filter((s) => s.link === link && s.a.y + s.pa !== s.b.y + s.pb)
-      .length;
+    must(pieces[link]).filter((s) => s.a.y + s.pa !== s.b.y + s.pb).length;
   const fits = (el: Element, y: number) => {
     const layer = must(layers[el.layer]);
     const above = layer[el.pos - 1];
@@ -512,7 +515,7 @@ function level({ layers, chains, segments }: Graph, sides: Side[]) {
   for (let n = 0; n < 3; n++) {
     chains.forEach((chain, li) => {
       const dummies = chain.slice(1, -1);
-      const mine = segments.filter((s) => s.link === li);
+      const mine = must(pieces[li]);
       const first = must(mine[0]);
       const last = must(mine.at(-1));
       for (const y of [first.a.y + first.pa, last.b.y + last.pb]) {
@@ -533,17 +536,14 @@ function level({ layers, chains, segments }: Graph, sides: Side[]) {
  * box's place and link's corners, ports and label.
  */
 function route(links: Link[], arcs: Arc[], graph: Graph): Drawing {
-  const { layers, elements, nodes, chains, segments } = graph;
+  const { layers, elements, nodes, chains, pieces, gaps } = graph;
   const widths = layers.map((layer) =>
     Math.max(MIN_LAYER, ...layer.map((el) => el.width)),
   );
-  const tracks = new Map<Segment, number>();
-  const channels = widths.slice(1).map((_, l) =>
-    channel(
-      segments.filter((s) => s.a.layer === l),
-      tracks,
-    ),
-  );
+  const tracks = new Map<Segment, Run[]>();
+  const channels = widths
+    .slice(1)
+    .map((_, l) => channel(must(gaps[l]), tracks));
   const xs: number[] = [];
   let x = MARGIN;
   widths.forEach((w, l) => {
@@ -572,17 +572,18 @@ function route(links: Link[], arcs: Arc[], graph: Graph): Drawing {
   const routed = new Map<string, Routed>();
   links.forEach((link, li) => {
     const arc = must(arcs[li]);
-    const mine = segments.filter((s) => s.link === li);
+    const mine = must(pieces[li]);
     const first = must(mine[0]);
     const points: [number, number][] = [
       [sideOf(first.a, true), first.a.y + first.pa],
     ];
     for (const s of mine) {
-      const t = tracks.get(s);
-      if (t === undefined) continue;
       const l = s.a.layer;
-      const tx = must(xs[l]) + must(widths[l]) + TRACK_END + t * TRACK;
-      points.push([tx, s.a.y + s.pa], [tx, s.b.y + s.pb]);
+      for (const run of tracks.get(s) ?? []) {
+        const tx =
+          must(xs[l]) + must(widths[l]) + TRACK_END + run.track * TRACK;
+        points.push([tx, run.y0], [tx, run.y1]);
+      }
     }
     const last = must(mine.at(-1));
     points.push([sideOf(last.b, false), last.b.y + last.pb]);
@@ -618,55 +619,105 @@ function route(links: Link[], arcs: Arc[], graph: Graph): Drawing {
   };
 }
 
+/** A vertical run of a segment between two layers, in a track. */
+interface Run {
+  seg: Segment;
+  y0: number;
+  y1: number;
+  track: number;
+}
+
 /**
- * Puts each segment between two layers that changes height in a track, and
- * returns the width the tracks need. Going up, the upper turns first; going
- * down, the lower. And where one starts level with where another ends, it
- * turns first, so that the two do not run along each other.
+ * Puts each segment between two layers that changes height in a track as a
+ * vertical run, and returns the width the tracks need. A run that leaves a
+ * height turns before one that reaches it, so that the two do not run along
+ * each other there; of two runs the same way whose heights overlap, the one
+ * starting nearer where they go turns first (going up, the upper; going
+ * down, the lower), so that they do not cross. Where these orders go round
+ * in a circle, as when two segments swap heights, a segment in it is split
+ * into two runs joined at a height no other piece here has.
  */
-function channel(all: Segment[], tracks: Map<Segment, number>): number {
+function channel(all: Segment[], tracks: Map<Segment, Run[]>): number {
   const ya = (s: Segment) => s.a.y + s.pa;
   const yb = (s: Segment) => s.b.y + s.pb;
-  const between = all.filter((s) => ya(s) !== yb(s));
-  const span = (s: Segment) =>
-    [Math.min(ya(s), yb(s)), Math.max(ya(s), yb(s))] as const;
-  const ups = between
-    .filter((s) => yb(s) < ya(s))
-    .sort((p, q) => ya(p) - ya(q));
-  const downs = between
-    .filter((s) => yb(s) > ya(s))
-    .sort((p, q) => ya(q) - ya(p));
-  const overlap = (
-    p: readonly [number, number],
-    q: readonly [number, number],
-  ) => p[0] <= q[1] + GAP_EDGES && q[0] <= p[1] + GAP_EDGES;
-  const before = (o: Segment, s: Segment) => {
-    const group = ups.includes(o) ? ups : downs;
+  const levels = all.flatMap((s) => [ya(s), yb(s)]);
+  const runs = new Map(
+    all
+      .filter((s) => ya(s) !== yb(s))
+      .map((s): [Segment, Run[]] => [
+        s,
+        [{ seg: s, y0: ya(s), y1: yb(s), track: -1 }],
+      ]),
+  );
+  const span = (r: Run) => [Math.min(r.y0, r.y1), Math.max(r.y0, r.y1)];
+  const overlap = (p: number[], q: number[]) =>
+    must(p[0]) <= must(q[1]) + GAP_EDGES &&
+    must(q[0]) <= must(p[1]) + GAP_EDGES;
+  const before = (p: Run, q: Run) => {
+    if (p.seg === q.seg) {
+      const mine = must(runs.get(p.seg));
+      return mine.indexOf(p) < mine.indexOf(q);
+    }
+    if (p.y0 === q.y1) return true;
+    const up = p.y1 < p.y0;
     return (
-      (group.includes(s) &&
-        group.indexOf(o) < group.indexOf(s) &&
-        overlap(span(o), span(s))) ||
-      ya(o) === yb(s)
+      up === q.y1 < q.y0 &&
+      (up ? p.y0 < q.y0 : p.y0 > q.y0) &&
+      overlap(span(p), span(q))
     );
   };
-  const used: (readonly [number, number])[][] = [];
-  const waiting = [...ups, ...downs];
-  while (waiting.length > 0) {
-    const i = waiting.findIndex((s) => !waiting.some((o) => before(o, s)));
-    const [s] = waiting.splice(Math.max(0, i), 1);
-    if (!s) break;
-    const mine = span(s);
+  const split = (s: Segment) => {
+    const [lo, hi] = [Math.min(ya(s), yb(s)), Math.max(ya(s), yb(s))];
+    let at = Math.round((lo + hi) / 2);
+    let far = -1;
+    for (let y = lo + 1; y < hi; y++) {
+      const near = Math.min(...levels.map((v) => Math.abs(v - y)));
+      if (near > far) [at, far] = [y, near];
+    }
+    levels.push(at);
+    runs.set(s, [
+      { seg: s, y0: ya(s), y1: at, track: -1 },
+      { seg: s, y0: at, y1: yb(s), track: -1 },
+    ]);
+  };
+
+  const used: number[][][] = [];
+  for (;;) {
+    const waiting = [...runs.values()].flat().filter((r) => r.track < 0);
+    if (waiting.length === 0) break;
+    const free = waiting.find((r) => !waiting.some((q) => before(q, r)));
+    if (!free) {
+      // Go back along the runs that must turn first until one comes round
+      // again, and split a segment of that circle that is not split yet.
+      const seen: Run[] = [];
+      let r = must(waiting[0]);
+      while (!seen.includes(r)) {
+        seen.push(r);
+        const current = r;
+        r = must(waiting.find((q) => before(q, current)));
+      }
+      const circle = seen.slice(seen.indexOf(r));
+      const whole = circle.find((c) => must(runs.get(c.seg)).length === 1);
+      if (whole) {
+        split(whole.seg);
+        continue;
+      }
+    }
+    const run = free ?? must(waiting[0]);
+    const mine = span(run);
     let t =
       Math.max(
         -1,
-        ...between
-          .filter((o) => tracks.has(o) && before(o, s))
-          .map((o) => tracks.get(o) ?? 0),
+        ...[...runs.values()]
+          .flat()
+          .filter((q) => q.track >= 0 && before(q, run))
+          .map((q) => q.track),
       ) + 1;
     while (used[t]?.some((o) => overlap(o, mine)) === true) t++;
     (used[t] ??= []).push(mine);
-    tracks.set(s, t);
+    run.track = t;
   }
+  for (const [s, list] of runs) tracks.set(s, list);
   return used.length === 0
     ? MIN_CHANNEL
     : Math.max(MIN_CHANNEL, 2 * TRACK_END + (used.length - 1) * TRACK);
