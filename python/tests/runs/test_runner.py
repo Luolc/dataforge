@@ -208,8 +208,13 @@ def test_a_new_row_gets_the_extra_given_and_one_gone_on_with_keeps_its_own(
     _ = run_attempt(store, ITEM, hooks, extra={"tone": "plain"})
   hooks.sigterm = False
   assert _only(store).extra == {"tone": "plain"}
+  hooks.extras.clear()
   gone_on = run_attempt(store, ITEM, hooks, go_on="only", extra={"tone": "x"})
   assert gone_on.extra == {"tone": "plain"}
+  assert hooks.extras == [
+    ("take_over", {"tone": "plain"}),
+    ("set_up", {"tone": "plain"}),
+  ]
   new = run_attempt(store, ITEM, hooks, go_on="never", extra={"tone": "x"})
   assert new.extra == {"tone": "x"}
 
