@@ -157,6 +157,23 @@ INSERT INTO event (attempt_id, at, from_state, to_state, by, detail)
 VALUES (?, ?, ?, ?, ?, ?)
 """
 
+_CLEANUP = "from_state = 'ended' AND to_state = 'ended'"
+
+_CLEANED = f"""
+INSERT INTO event (attempt_id, at, from_state, to_state, by, detail)
+SELECT ?, ?, 'ended', 'ended', ?, ?
+WHERE NOT EXISTS (SELECT 1 FROM event WHERE attempt_id = ? AND {_CLEANUP})
+"""
+
+_UNCLEANED = f"""
+SELECT * FROM attempt
+WHERE state = 'ended' AND settled_at IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM event WHERE event.attempt_id = attempt.id AND {_CLEANUP}
+  )
+ORDER BY created_at, id
+"""
+
 _BUSY_MS = 30_000
 
 
@@ -360,6 +377,21 @@ class Store:
       return []
     with self._read() as conn:
       found = cast(list[sqlite3.Row], conn.execute(sql, params).fetchall())
+    return [_row(one) for one in found]
+
+  def uncleaned(self) -> list[AttemptRow]:
+    """List the settled rows that have no cleanup event.
+
+    It opens the store read-only and writes nothing.
+
+    Returns:
+      The rows, by created_at, then ID; none when the store does not exist
+      yet.
+    """
+    if not self.path.exists():
+      return []
+    with self._read() as conn:
+      found = cast(list[sqlite3.Row], conn.execute(_UNCLEANED).fetchall())
     return [_row(one) for one in found]
 
   def get(self, attempt_id: str) -> AttemptRow | None:
@@ -823,20 +855,29 @@ class Store:
     attempt_id: str,
     left: Mapping[str, object],
     raised: str | None,
-  ) -> None:
-    """Add the event of an ended attempt's cleanup.
+    *,
+    by: str,
+  ) -> bool:
+    """Add the event of an ended attempt's cleanup, unless it has one.
 
     Args:
       attempt_id: The attempt.
       left: What the cleanup left, by kind.
       raised: What the cleanup raised, as `<type>: <message>`, if it did.
+      by: "runner" or "reconcile".
+
+    Returns:
+      Whether it added the event: False when the attempt has one already.
 
     Raises:
       NewerSchemaError: When the store's schema_major is newer.
     """  # noqa: DOC502
-    detail = {"cleanup_left": dict(left), "raised": raised}
+    detail = json.dumps({"cleanup_left": dict(left), "raised": raised})
     with self._write() as conn:
-      _event(conn, attempt_id, "ended", "ended", "runner", detail)
+      added = conn.execute(
+        _CLEANED, (attempt_id, now(), by, detail, attempt_id)
+      ).rowcount
+    return added == 1
 
   def check_writable(self) -> None:
     """Check that this dataforge may write the store.

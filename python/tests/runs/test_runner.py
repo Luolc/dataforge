@@ -259,6 +259,13 @@ def test_never_gives_up_each_interrupted_row_and_starts_anew(
     f"{ended.id} started in its place",
   )
   assert not hooks.hook_calls("take_over")
+  assert f"cleanup {stopped.id}" in hooks.hook_calls("cleanup")
+  last = store.events(stopped.id)[-1]
+  assert (last.from_state, last.to_state, last.by) == (
+    "ended",
+    "ended",
+    "runner",
+  )
 
 
 def test_an_attempt_does_not_start_while_its_item_runs(
@@ -303,11 +310,13 @@ def test_an_interrupt_in_finalize_is_ended_by_reconcile_whole(
   assert (row.state, row.outcome) == ("ended", "passed")
   assert (root / KEPT).read_text() == WHOLE
   assert row.settled_at is not None
-  assert [e.by for e in store.events(row.id)][-3:] == [
-    "runner",
-    "reconcile",
-    "reconcile",
+  assert [(e.to_state, e.by) for e in store.events(row.id)][-4:] == [
+    ("interrupted", "runner"),
+    ("running", "reconcile"),
+    ("ended", "reconcile"),
+    ("ended", "reconcile"),
   ]
+  assert hooks.hook_calls("cleanup") == [f"cleanup {row.id}"]
 
 
 def test_an_interrupt_before_on_ended_returns_is_settled_by_reconcile(

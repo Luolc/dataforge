@@ -17,7 +17,8 @@ class Hooks(ABC):
 
   finalize, on_ended and cleanup may run more than once for one attempt, in
   more than one process, and must do the same each time: reconcile calls them
-  again for an attempt whose holder died in them.
+  again for an attempt whose holder died before they returned, and two
+  reconciles at once may both call on_ended or cleanup for one attempt.
 
   Attributes:
     given_up: The dataset's word for an interrupted attempt that no one goes
@@ -131,7 +132,10 @@ class Hooks(ABC):
   def cleanup(self, row: AttemptRow) -> Mapping[str, object]:
     """Remove what is left of an ended attempt, after on_ended.
 
-    By default it removes nothing.
+    It runs for each ended attempt that has a holder: in the runner once it
+    ended the attempt or gave it up, else in reconcile with hooks once
+    on_ended has returned and the holder is gone or is that reconcile's
+    process. By default it removes nothing.
 
     Args:
       row: Its row, ended.
