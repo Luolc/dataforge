@@ -52,6 +52,8 @@ export const urls = {
     `${api(p)}/files?${new URLSearchParams({ attempt, path }).toString()}`,
   tabs: (p: string, attempt: string) =>
     `${api(p)}/tabs?${new URLSearchParams({ attempt }).toString()}`,
+  task: (p: string, attempt: string) =>
+    `${api(p)}/task?${new URLSearchParams({ attempt }).toString()}`,
   actions: (p: string, item: string) =>
     `${api(p)}/actions?${new URLSearchParams({ item }).toString()}`,
   submit: (

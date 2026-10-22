@@ -1,0 +1,41 @@
+# A made-up task.toml of the format of dataforge.task, with the most counts
+# and principles of the fixtures.
+version = "1.0"
+
+[verifier]
+timeout_sec = 600.0
+
+[metadata]
+id = "q4v8n2k6tz"
+language = "Python"
+
+[metadata.tests.f2p]
+security = 5
+behavior = 2
+alignment = 2
+
+[metadata.tests.p2p]
+project = 148
+behavior = 3
+alignment = 0
+
+[[metadata.principles]]
+id = "p1"
+text = "When a change lets a new kind of name through, that name goes through the same normalising, length limits and logging as the names that came before it, not a shorter path of its own that skips them."
+type = "best_practice"
+source = "new"
+tests = ["f2p::test_folded_names_are_normalised", "f2p::test_folded_names_keep_their_limits"]
+
+[[metadata.principles]]
+id = "p2"
+text = "A limit the caller can raise is not a check the caller can skip."
+type = "trade_off"
+source = "limits"
+tests = ["f2p::test_raised_limit_still_checks"]
+
+[[metadata.principles]]
+id = "p3"
+text = "An error names what was refused, not where the parser was."
+
+[metadata.provenance]
+origin = "synthetic"
