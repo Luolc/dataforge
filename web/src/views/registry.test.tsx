@@ -261,4 +261,27 @@ describe("a trials tab's count", () => {
     expect(countSaid()).toBe("4 trials, solved not known");
     expect(screen.getByTestId("count")).toHaveTextContent(/^— \/ 4/);
   });
+
+  it("counts one trial as one", () => {
+    const one = {
+      ...item("pass_at_k", "trials"),
+      path: "artifacts/solve/1",
+      reason: null,
+      k: 1,
+    };
+    render(
+      <p data-testid="count">
+        <KindCount
+          kind="trials"
+          title="Title of pass_at_k"
+          project="sample"
+          attempt="a/b"
+          item={one}
+          items={[one]}
+        />
+      </p>,
+    );
+
+    expect(countSaid()).toBe("1 trial, solved not known");
+  });
 });
