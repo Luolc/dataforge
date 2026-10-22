@@ -239,7 +239,12 @@ def test_in_range_pass_at_k_passes(tmp_path: Path, validator: Path) -> None:
     ("rubric", "pass"),
     ("pass_at_k", "in_range"),
   ]
-  assert attempt.final["pass_at_k"].data == {"solved": 1, "errors": 0, "k": K}
+  assert attempt.final["pass_at_k"].data == {
+    "solved": 1,
+    "errors": 0,
+    "faults": {},
+    "k": K,
+  }
 
 
 def test_validator_failure_resumes_the_agent_with_its_output(

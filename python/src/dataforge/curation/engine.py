@@ -54,12 +54,15 @@ class Outcome:
     last: With True, the state is never entered again.
     feedback: The variables of the state's feedback template; with None, the
       visit writes no feedback.
+    reason: Why the attempt ends, when the outcome's transition is an End:
+      the attempt's reason becomes "<state> visit <n>: <reason>".
   """
 
   name: str
   data: Data = field(default_factory=dict[str, object])
   last: bool = False
   feedback: Mapping[str, str] | None = None
+  reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +292,9 @@ class ActionRecord:
     trace: For an agent, the trace of its session's first run, if the runner
       gives one inside the attempt's directory.
     trace_format: The trace's format, such as "claude-code-stream-json".
+    cost_known: Whether cost_usd is all it cost: False when a run of an
+      agent did not report its cost, so that cost_usd counts only the runs
+      that did. A record written before it existed reads as True.
   """
 
   kind: str
@@ -302,6 +308,7 @@ class ActionRecord:
   session: Data | None = None
   trace: Path | None = None
   trace_format: str | None = None
+  cost_known: bool = True
 
 
 @dataclass
@@ -375,7 +382,8 @@ class Attempt:
   Attributes:
     root: The attempt's directory.
     status: How the attempt ended; None until it ends.
-    reason: Why it ended at a cap or a guard, if it did.
+    reason: Why it ended at a cap or a guard, if it did, or the reason of
+      the outcome whose End ended it (Outcome.reason), if that gave one.
     kept_visit: The index into visits of the marked visit the attempt kept, if
       any.
     visits: Its visits, in order.
@@ -518,6 +526,7 @@ class Attempt:
       "started_at": action.started_at.isoformat(),
       "ended_at": action.ended_at.isoformat(),
       "cost_usd": action.cost_usd,
+      "cost_known": action.cost_known,
       "summary": action.summary,
       "trace": _trace_json(action.trace, action.trace_format, self.root),
       "session": None if action.session is None else dict(action.session),
@@ -1194,6 +1203,8 @@ class Machine:
       )
     if isinstance(transition, End):
       attempt.status = transition.status
+      if outcome.reason is not None:
+        attempt.reason = f"{state.name} visit {ctx.visit}: {outcome.reason}"
       return None
     record.mark = transition.mark
     if transition.end_on_last_visit and not self._reaches(
@@ -1513,6 +1524,7 @@ def _read_action(
     session=None if session is None else _object(session, f"{where}.session"),
     trace=None if trace is None else trace[0],
     trace_format=None if trace is None else trace[1],
+    cost_known="cost_known" not in data or _flag(data, "cost_known", where),
   )
 
 

@@ -65,10 +65,13 @@ class ActionResult:
     log: What the action printed, and why it failed if it did.
     value: The parsed JSON answer of an agent run with an output_schema, such
       as a judge.
-    cost_usd: What it cost, in US dollars.
+    cost_usd: What it cost, in US dollars; for an agent whose runs did not
+      all report their cost, what those that did cost.
     run: An agent's last run.
     validation: The last run of an agent's validator on the host, if it ran.
     fixes: How many times the validator resumed an agent's session.
+    cost_known: Whether cost_usd is all it cost: False when a run of the
+      agent did not report its cost.
   """
 
   status: str
@@ -79,6 +82,7 @@ class ActionResult:
   run: AgentRun | None = None
   validation: CommandResult | None = None
   fixes: int = 0
+  cost_known: bool = True
 
   @property
   def ok(self) -> bool:
@@ -1310,14 +1314,27 @@ class AgentTask:
   resume_prompt: str | None = None
 
 
+# Why a run of an agent or a trial gave nothing that can be judged, when the
+# cause lies outside the task: the model's side (an API error, a refusal, rate
+# limits that outlasted the retries), our own timeout, the machine (Harbor,
+# Docker, the environment, the agent's tool itself) or a spend cap of the
+# session's own. dataforge.curation.faults reads a trial's exception as one.
+MODEL = "model"
+TIMEOUT = "timeout"
+INFRA = "infra"
+BUDGET = "budget"
+FAULTS = (MODEL, TIMEOUT, INFRA, BUDGET)
+
+
 @dataclass(frozen=True)
 class AgentRun:
   """One run of an agent.
 
   Attributes:
     session: Whatever the runner needs to resume it.
-    status: "ok" when it finished normally.
-    cost_usd: What it cost, in US dollars.
+    status: "ok" when it finished normally; not "ok" whenever it has a fault.
+    cost_usd: What it cost, in US dollars, or None when the runner could not
+      tell, as for a session killed before it reported its cost.
     trace: Its trace, if the runner keeps one.
     result: Its answer.
     ending: How it ended, in the runner's words, if the runner says.
@@ -1325,17 +1342,26 @@ class AgentRun:
     trace_format: The trace's format, such as "claude-code-stream-json".
     resumed: Whether it went on with the session of an earlier run rather
       than start one, as a resume does and a start may (AgentSpec.session).
+    fault: One of FAULTS when it ended for a cause outside the task, or None
+      when it ended normally or the runner does not say.
+    stop_reason: Why the model stopped its last message, such as "refusal",
+      if the runner says.
+    error: The error the run ended on, such as an API error's message, cut
+      to a length the runner sets, if it ended on one.
   """
 
   session: object
   status: str
-  cost_usd: float
+  cost_usd: float | None
   trace: Path | None
   result: str
   ending: str | None = None
   resumable: bool = True
   trace_format: str | None = None
   resumed: bool = False
+  fault: str | None = None
+  stop_reason: str | None = None
+  error: str | None = None
 
 
 class AgentRunner(Protocol):
@@ -1579,7 +1605,7 @@ class Actions:
         prompt, staged.inputs, staged.outdir, staged.validator, resume_prompt
       )
       run = runner.start(spec, task, env)
-      cost, log, fixes = run.cost_usd, [run.result], 0
+      runs, log, fixes = [run], [run.result], 0
       check: CommandResult | None = None
       stale: list[str] = []
       first = run
@@ -1596,7 +1622,7 @@ class Actions:
             break
           fixes += 1
           run = runner.resume(run.session, fix)
-          cost += run.cost_usd
+          runs.append(run)
           log.append(run.result)
         # Only once every run of the action has returned.
         session = _checkpoint(runner, run.session)
@@ -1607,6 +1633,9 @@ class Actions:
     finally:
       env.stop()
     trace = _trace_inside(ctx.attempt.root, first)
+    costs = [r.cost_usd for r in runs]
+    cost = sum(c for c in costs if c is not None)
+    cost_known = None not in costs
     failures = _failures(fixes, check, stale)
     log.extend(failures)
     passed = run.status == "ok" and not failures
@@ -1629,6 +1658,7 @@ class Actions:
       session=session,
       trace=trace,
       trace_format=None if trace is None else first.trace_format,
+      cost_known=cost_known,
     )
     return dataclasses.replace(result, run=run, validation=check, fixes=fixes)
 
@@ -2078,6 +2108,7 @@ def _finish(
   session: Data | None = None,
   trace: Path | None = None,
   trace_format: str | None = None,
+  cost_known: bool = True,
 ) -> ActionResult:
   outputs = {
     name: ctx.outdir / name for name in names if (ctx.outdir / name).exists()
@@ -2099,9 +2130,12 @@ def _finish(
       session=session,
       trace=trace,
       trace_format=trace_format,
+      cost_known=cost_known,
     )
   )
-  return ActionResult(status, outputs, log, value, cost_usd)
+  return ActionResult(
+    status, outputs, log, value, cost_usd, cost_known=cost_known
+  )
 
 
 def _summary(path: Path) -> str | None:

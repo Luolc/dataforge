@@ -52,9 +52,13 @@ from dataforge.curation.actions import (
   AgentRun,
   AgentSpec,
   AgentTask,
+  BUDGET,
   Docker,
   Env,
   Host,
+  INFRA,
+  MODEL,
+  TIMEOUT,
 )
 from dataforge.curation.engine import Data
 
@@ -71,8 +75,25 @@ THINKING_DISPLAYS = ("summarized", "omitted", "highlights")
 # The tools an agent has when its spec names none.
 TOOLS = ("Read", "Glob", "Grep", "Write", "Edit", "Bash")
 # How a session ends when it did no work the host could judge: it printed no
-# result, or Claude Code stopped on an error of its own.
+# result, or Claude Code stopped on an error of its own. Kept for callers that
+# read a Result's subtype; how a run is judged is its fault (Trace.fault).
 FAILED_ENDINGS = ("no result", "error_during_execution")
+# The fault of each ending that has one (`Trace.fault`). A session that hit its
+# own cap (`--max-budget-usd`, `--max-turns`) is `budget`; one that could not
+# give the schema's output is the model's. Claude Code 2.1.296 ends a session
+# that an API error stopped, such as a safety refusal, with `success`,
+# `is_error` true and `API Error: …` as the result, which is the model's too.
+# Read on 2026-10-22.
+ENDING_FAULTS = {
+  "timeout": TIMEOUT,
+  "error_max_budget_usd": BUDGET,
+  "error_max_turns": BUDGET,
+  "error_max_structured_output_retries": MODEL,
+  "error_during_execution": INFRA,
+  "no result": INFRA,
+}
+# The most of a session's error that a run keeps, in characters.
+ERROR_LIMIT = 500
 # The least of a start's cap that a fix of the validator's problems runs on.
 MIN_FIX_USD = 0.25
 # The format of a session's trace: what `claude -p --output-format
@@ -99,17 +120,64 @@ class Trace:
     unparsed: How many lines are not JSON.
     rejected: The input of the last `StructuredOutput` call the session
       rejected against the schema, or None when it rejected none.
+    timed_out: Whether the session was killed on its timeout before it
+      printed a result.
   """
 
   result: Mapping[str, object]
   unparsed: int = 0
   rejected: object = None
+  timed_out: bool = False
 
   @property
   def subtype(self) -> str:
-    """The result's `subtype`, or `no result` when there is none."""
+    """The result's `subtype`; `timeout` or `no result` when there is none."""
+    if self.timed_out:
+      return "timeout"
     found = self.result.get("subtype")
     return found if isinstance(found, str) else "no result"
+
+  @property
+  def is_error(self) -> bool:
+    """Whether the result says the session ended on an error."""
+    return self.result.get("is_error") is True
+
+  @property
+  def stop_reason(self) -> str | None:
+    """Why the model stopped its last message, such as `refusal`."""
+    found = self.result.get("stop_reason")
+    return found if isinstance(found, str) else None
+
+  @property
+  def fault(self) -> str | None:
+    """Why the session gave nothing to judge, one of the FAULTS words.
+
+    Returns:
+      The fault of its ending (ENDING_FAULTS); `model` for any other ending
+      with `is_error`, as an API error's `success` is; None when it ended
+      normally.
+    """
+    found = ENDING_FAULTS.get(self.subtype)
+    if found is None and self.is_error:
+      return MODEL if self.subtype == "success" else INFRA
+    return found
+
+  @property
+  def error(self) -> str | None:
+    """The error it ended on, cut to ERROR_LIMIT, if it ended on one.
+
+    Returns:
+      With `is_error`, the result's text, such as `API Error: …`, or else
+      its `errors` joined; None otherwise.
+    """
+    if not self.is_error:
+      return None
+    text = self.text
+    if text is None:
+      errors = self.result.get("errors")
+      if isinstance(errors, list):
+        text = "; ".join(str(e) for e in cast(list[object], errors))
+    return None if not text else text[:ERROR_LIMIT]
 
   @property
   def session_id(self) -> str | None:
@@ -151,11 +219,12 @@ class Result:
 
   Attributes:
     subtype: The result event's `subtype`: `timeout` when the session was
-      killed, `no result` when it printed none.
+      killed before it printed one, `no result` when it printed none.
     session_id: The result event's `session_id`, which `--resume` takes,
       if it printed one.
-    cost_usd: What the session reported it cost, in US dollars, if it did;
-      a resumed session reports its own and that of the runs before it.
+    cost_usd: What the session reported it cost, in US dollars, or None when
+      it reported none, as a killed one does not; a resumed session reports
+      its own and that of the runs before it.
     output: The structured output as decoded JSON, or None when there is
       none; not yet checked against the schema.
     text: The session's last answer, if it printed one.
@@ -163,6 +232,9 @@ class Result:
       rejected against the schema, or None when it rejected none.
     paths: The files the session wrote: its prompt, trace, stderr and usage.
     turns: The turns the session took, if the result event gives them.
+    fault: Why it gave nothing to judge (`Trace.fault`), or None.
+    stop_reason: The result event's `stop_reason`, if it has one.
+    error: The error it ended on (`Trace.error`), if it did.
   """
 
   subtype: str
@@ -173,6 +245,9 @@ class Result:
   rejected: object
   paths: tuple[Path, ...]
   turns: int | None = None
+  fault: str | None = None
+  stop_reason: str | None = None
+  error: str | None = None
 
   @property
   def trace(self) -> Path:
@@ -418,9 +493,11 @@ class Session:
         _ = proc.wait()
         if not self.persist:
           remove_project_dir(cwd, self.env)
-    trace = (
-      Trace({"subtype": "timeout"}) if timed_out else read_trace(trace_path)
-    )
+    trace = read_trace(trace_path)
+    if timed_out and not trace.result:
+      # A session that printed its result before the kill (a child of its
+      # holding stdout open, say) ended as the result says.
+      trace = dataclasses.replace(trace, timed_out=True)
     usage = {
       k: v
       for k, v in trace.result.items()
@@ -438,6 +515,9 @@ class Session:
       rejected=trace.rejected,
       paths=tuple(paths),
       turns=trace.num_turns,
+      fault=trace.fault,
+      stop_reason=trace.stop_reason,
+      error=trace.error,
     )
 
 
@@ -556,6 +636,7 @@ class Conversation:
     schema: The JSON Schema of its answer, or None.
     id: The session's ID once a run printed one; `--resume` takes it.
     subtype: How its last run ended, once one ran.
+    fault: The fault of its last run (`Trace.fault`), or None.
     total_usd: What the session has cost, in US dollars.
     start_usd: What the runs since the last start have cost.
     number: The number of the last start in the runner.
@@ -575,6 +656,7 @@ class Conversation:
   schema: Mapping[str, object] | None = None
   id: str | None = None
   subtype: str | None = None
+  fault: str | None = None
   total_usd: float = 0.0
   start_usd: float = 0.0
   number: int = 0
@@ -586,8 +668,16 @@ class Conversation:
 
   @property
   def resumable(self) -> bool:
-    """Whether the last run ended so that the session can go on."""
-    return self.subtype == "success" and self.id is not None
+    """Whether the last run ended so that the session can go on.
+
+    Returns:
+      Whether it ended in `success` with an ID and no fault: a session that
+      ended on an API error or a refusal is not resumed, since the same
+      conversation would end on it again.
+    """
+    return (
+      self.subtype == "success" and self.fault is None and self.id is not None
+    )
 
 
 type Files = Callable[[AgentSpec, AgentTask, int, int], Path]
@@ -637,7 +727,13 @@ class Runner:
   when less than `min_fix_usd` is left or the session cannot go on. A
   resumed session reports in its cost that of the runs before it, so each
   run's cost is what that total grew by; each is passed to `spent` as soon
-  as it ends.
+  as it ends. A run that reported no cost, such as one killed on its timeout,
+  has the cost None, and nothing is passed to `spent`.
+
+  A run with a fault (`Trace.fault`), and one with a schema that gave no
+  structured output (the fault `model`), has the status `failed`, and its
+  session cannot go on: a fix does not run, and the next start of its key or
+  of `continue_session` starts a new session.
 
   Where a run's files go is the caller's `files`, such as `numbered`; a new
   session's working directory on this machine is a directory of the path
@@ -649,9 +745,9 @@ class Runner:
 
   With `continue_session`, the runner drives one session at a time: each
   start after the first resumes the session of the one before when that
-  printed an ID, and starts a new one when it did not. `current` is that
-  session; leave a runner of this kind to one attempt, whose states run it
-  one at a time.
+  printed an ID and had no fault, and starts a new one when it did not.
+  `current` is that session; leave a runner of this kind to one attempt,
+  whose states run it one at a time.
 
   A start whose spec has a `session` key goes on with the session kept under
   that key, whatever `continue_session` says, and leaves `current` alone:
@@ -699,7 +795,7 @@ class Runner:
       min_fix_usd: The least of a start's cap that a fix runs on.
       serve: Entered around each run of `claude`, for what the dataset
         serves while one runs, such as a gateway.
-      spent: Called with each run's cost.
+      spent: Called with each run's cost, when it reported one.
     """
     self.session: Session = dataclasses.replace(session, persist=True)
     self.files: Files = files
@@ -755,7 +851,11 @@ class Runner:
           self._keyed[key] = conversation
       else:
         conversation = self.current if self.continue_session else None
-        if conversation is None or conversation.id is None:
+        if (
+          conversation is None
+          or conversation.id is None
+          or conversation.fault is not None
+        ):
           self._remove(conversation)
           conversation = Conversation(cwd=path, on_host=on_host)
           if self.continue_session:
@@ -833,8 +933,9 @@ class Runner:
 
     Returns:
       The session's ID, what it has cost, the number of its start, whether
-      it runs on this machine and its working directory there; for a session
-      with a key, also the key and how its last run ended.
+      it runs on this machine, its working directory there and its last
+      run's fault; for a session with a key, also the key and how its last
+      run ended.
 
     Raises:
       TypeError: When session is not a `Conversation`.
@@ -847,6 +948,7 @@ class Runner:
       "number": session.number,
       "on_host": session.on_host,
       "cwd": str(session.cwd),
+      "fault": session.fault,
     }
     if session.key is not None:
       point |= {"session": session.key, "subtype": session.subtype}
@@ -943,22 +1045,24 @@ class Runner:
     conversation.id = result.session_id
     conversation.subtype = result.subtype
     conversation.last = self.last = result
-    spent = 0.0
+    spent = None
     if result.cost_usd is not None:
       spent = max(result.cost_usd - conversation.total_usd, 0.0)
       conversation.total_usd = max(conversation.total_usd, result.cost_usd)
-    conversation.start_usd += spent
-    self._spent(spent)
-    status = "failed" if result.subtype in FAILED_ENDINGS else "ok"
+      conversation.start_usd += spent
+      self._spent(spent)
+    fault = result.fault
     answer = result.text if result.text is not None else result.subtype
     if conversation.schema is not None:
       if result.output is None:
-        status = "failed"
+        fault = fault or MODEL
         answer = f"no structured output: {result.subtype}"
         if result.rejected is not None:
           answer += f"; the last one rejected: {json.dumps(result.rejected)}"
       else:
         answer = json.dumps(result.output)
+    conversation.fault = fault
+    status = "ok" if fault is None else "failed"
     return AgentRun(
       conversation,
       status,
@@ -969,6 +1073,9 @@ class Runner:
       conversation.resumable,
       TRACE_FORMAT,
       resumed,
+      fault,
+      result.stop_reason,
+      result.error,
     )
 
 
@@ -991,10 +1098,12 @@ def _conversation(point: Data) -> Conversation:
   )
   on_host, cwd = point.get("on_host"), point.get("cwd")
   key, subtype = point.get("session"), point.get("subtype")
+  fault = point.get("fault")
   if (
     not (id_ is None or isinstance(id_, str))
     or not (key is None or isinstance(key, str))
     or not (subtype is None or isinstance(subtype, str))
+    or not (fault is None or isinstance(fault, str))
     or isinstance(total, bool)
     or not isinstance(total, int | float)
     or isinstance(number, bool)
@@ -1008,6 +1117,7 @@ def _conversation(point: Data) -> Conversation:
     on_host=on_host,
     id=id_,
     subtype=subtype,
+    fault=fault,
     total_usd=total,
     number=number,
     key=key,
