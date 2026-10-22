@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -347,6 +348,66 @@ def test_a_sigterm_during_a_fan_out_kills_its_sessions_with_their_children(
   else:
     os.kill(child, signal.SIGKILL)
     pytest.fail("the session's child outlived the stopped fan_out")
+
+
+def test_an_interrupt_that_leaves_the_popens_lock_held_still_ends_the_session(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # An interrupt that comes just after a timed Popen.wait takes the Popen's
+  # lock leaves the lock held. A timer gives it back 40 s later, so that a
+  # session that waits for the lock fails the time bound instead of hanging.
+  fake = Fake(tmp_path, [{"hang": True}])
+  pids = fake.log / "pids"
+  timers: list[threading.Timer] = []
+
+  def wait(process: subprocess.Popen[bytes], *_args: object) -> int:
+    # The fake reads its prompt to the end first.
+    assert process.stdin is not None
+    process.stdin.close()
+    deadline = time.monotonic() + 10
+    while not pids.exists():
+      if time.monotonic() > deadline:
+        pytest.fail("the fake claude wrote no pids")
+      time.sleep(0.05)
+    lock = cast(threading.Lock, process._waitpid_lock)  # pyright: ignore[reportAttributeAccessIssue]
+    _ = lock.acquire()
+    timers.append(threading.Timer(40, lock.release))
+    timers[0].start()
+    raise KeyboardInterrupt
+
+  monkeypatch.setattr(stopping, "wait", wait)
+  started = time.monotonic()
+  try:
+    with pytest.raises(KeyboardInterrupt):
+      _ = fake.session.run(
+        "s", "Go.", run_dir=tmp_path, cwd=tmp_path / "w", tools=(), allow=(),
+        schema=None,
+      )  # fmt: skip
+    assert time.monotonic() - started < 20
+  finally:
+    for timer in timers:
+      timer.cancel()
+
+
+def test_an_interrupt_after_the_session_was_reaped_still_escapes(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # The interrupt comes after a Popen.wait reaped the session and before it
+  # set returncode.
+  fake = Fake(tmp_path, [{"echo": True}])
+
+  def wait(process: subprocess.Popen[bytes], *_args: object) -> int:
+    assert process.stdin is not None
+    process.stdin.close()
+    _ = os.waitpid(process.pid, 0)
+    raise KeyboardInterrupt
+
+  monkeypatch.setattr(stopping, "wait", wait)
+  with pytest.raises(KeyboardInterrupt):
+    _ = fake.session.run(
+      "s", "Go.", run_dir=tmp_path, cwd=tmp_path / "w", tools=(), allow=(),
+      schema=None,
+    )  # fmt: skip
 
 
 def test_a_sigterm_during_a_fan_out_starts_no_session_in_a_call_that_waits(

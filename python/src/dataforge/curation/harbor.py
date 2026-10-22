@@ -1011,7 +1011,7 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
     # here.
     with suppress(ProcessLookupError):
       os.killpg(process.pid, signal.SIGKILL)
-    _reap(process)
+    _ = stopping.reap(process)
 
 
 def _exited(process: subprocess.Popen[bytes], timeout: float) -> None:
@@ -1032,18 +1032,6 @@ def _exited(process: subprocess.Popen[bytes], timeout: float) -> None:
         return
   finally:
     os.close(pidfd)
-
-
-def _reap(process: subprocess.Popen[bytes]) -> None:
-  # Popen.wait without the Popen's lock (see _exited). An interrupt can come
-  # after a Popen.wait reaped the process and before it set returncode; its
-  # exit status is then lost, and taken as 0, as Popen takes it.
-  if process.returncode is None:
-    try:
-      _, status = os.waitpid(process.pid, 0)
-    except ChildProcessError:
-      status = 0
-    process.returncode = os.waitstatus_to_exitcode(status)
 
 
 def _started(outdir: Path) -> bool:

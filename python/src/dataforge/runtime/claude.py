@@ -496,7 +496,7 @@ class Session:
         # Whatever the session started and left running goes with it.
         with contextlib.suppress(ProcessLookupError):
           os.killpg(proc.pid, signal.SIGKILL)
-        _ = proc.wait()
+        _ = stopping.reap(proc)
         if not self.persist:
           remove_project_dir(cwd, self.env)
     trace = read_trace(trace_path)

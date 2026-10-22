@@ -18,6 +18,7 @@ calls end within the budget whatever hangs.
 from collections.abc import Callable
 import contextvars
 import math
+import os
 import subprocess
 import threading
 import time
@@ -147,6 +148,8 @@ def wait(
   """Send data to a process and wait for it, as `Popen.communicate` does.
 
   Its output is not read: the process writes it elsewhere, to files say.
+  Whatever it raises, an interrupt included, the process is then waited for
+  with `reap`, not `Popen.wait`.
 
   Args:
     process: The process.
@@ -174,3 +177,28 @@ def wait(
       data = None
       continue
     return process.returncode
+
+
+def reap(process: subprocess.Popen[bytes]) -> int:
+  """Wait for a process to exit and reap it, as `Popen.wait` does.
+
+  Not with `Popen.wait`: an interrupt that comes just after a timed
+  `Popen.wait` or `poll`, such as those of `wait`, has taken the Popen's lock
+  leaves the lock held, and every `Popen.wait` after that waits for the lock
+  forever. An interrupt can also come after a `Popen.wait` reaped the
+  process and before it set `returncode`; the exit status is then lost, and
+  taken as 0, as `Popen` takes it.
+
+  Args:
+    process: The process, one that exits: killed, say.
+
+  Returns:
+    Its exit status.
+  """
+  if process.returncode is None:
+    try:
+      _, status = os.waitpid(process.pid, 0)
+    except ChildProcessError:
+      status = 0
+    process.returncode = os.waitstatus_to_exitcode(status)
+  return process.returncode
