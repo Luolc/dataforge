@@ -2,6 +2,7 @@
 # The fakes implement protocols and take parameters they do not need.
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime, UTC
 import json
 from pathlib import Path
@@ -393,6 +394,26 @@ def test_a_retry_runs_only_the_review_whose_run_failed(
   tests = cast(dict[str, object], outcome.data["tests"])
   assert (tests["retried"], tests["cost_usd"]) == (True, 0.5)
   assert cast(dict[str, object], outcome.data["docs"])["retried"] is False
+
+
+def test_a_review_that_hit_its_own_cap_is_not_retried(
+  tmp_path: Path, task: Path
+) -> None:
+  class Capped(Judges):
+    @override
+    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+      run = super().start(spec, task, env)
+      return replace(run, fault="budget") if spec.name == "tests" else run
+
+  passed = verdicts(sound=PASS, tidy=PASS)
+  judges = Capped({"tests": [("failed", "")], "docs": [("ok", passed)]})
+  attempt = machine(rubric_state(tmp_path, judges, task)).run(tmp_path / "a")
+  assert attempt.status == "errored"
+  assert len(judges.starts["tests"]) == 1
+  assert (
+    "It was not retried: it hit its own spend cap, which a retry would hit"
+    + " again."
+  ) in report(attempt)
 
 
 @pytest.mark.parametrize(("max_cost_usd", "retried"), [(1.0, 1), (0.99, 0)])

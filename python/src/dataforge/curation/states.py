@@ -19,6 +19,7 @@ from dataforge.curation.actions import (
   Actions,
   AgentRun,
   AgentSpec,
+  BUDGET,
   Env,
   fan_out,
   HOST,
@@ -1073,8 +1074,10 @@ class RubricState(_ActionState):
   def retries(self, results: Sequence[ActionResult]) -> list[int]:
     """Choose which reviews that gave no verdicts run again in this visit.
 
-    Each review has a share of the visit's reserve, max_cost_usd divided by
-    the number of reviews. The reviews whose run failed are retried in order
+    A review whose run hit its own spend cap (the fault `budget`) is not
+    retried, since a retry would hit the same cap on the same prompt. Each
+    review has a share of the visit's reserve, max_cost_usd divided by the
+    number of reviews. The other reviews whose run failed are retried in order
     while what the visit has spent, a run that did not report its cost
     counted as a share, and a share for each retry, stay within
     max_cost_usd; with no reserve (0), each is retried. The share bounds
@@ -1087,7 +1090,11 @@ class RubricState(_ActionState):
     Returns:
       The indexes of the reviews to retry.
     """
-    failed = [i for i, result in enumerate(results) if _errored(result)]
+    failed = [
+      i
+      for i, result in enumerate(results)
+      if _errored(result) and not _capped(result)
+    ]
     if not self.max_cost_usd:
       return failed
     share = self.max_cost_usd / len(self.reviews)
@@ -1106,7 +1113,14 @@ class RubricState(_ActionState):
     ended = list(ended)
     for i, found in zip(retried, again, strict=True):
       ended[i] = found
-    unretried = "the visit's reserve has no room for it"
+
+    def unretried(result: ActionResult) -> str | None:
+      if not _errored(result):
+        return None
+      if _capped(result):
+        return "it hit its own spend cap, which a retry would hit again"
+      return "the visit's reserve has no room for it"
+
     judged = [
       dataclasses.replace(
         judge_review(
@@ -1114,7 +1128,7 @@ class RubricState(_ActionState):
           self.rubrics[review.name],
           result,
           earlier=first[i] if i in retried else None,
-          unretried=unretried if _errored(result) else None,
+          unretried=unretried(result),
         ),
         call=call.call,
         resumed=call.resumed,
@@ -1155,6 +1169,10 @@ def _why(run: AgentRun | None) -> str:
 
 def _errored(result: ActionResult) -> bool:
   return result.run is None or result.run.status != "ok"
+
+
+def _capped(result: ActionResult) -> bool:
+  return result.run is not None and result.run.fault == BUDGET
 
 
 def _reused(call: Call) -> ActionResult:

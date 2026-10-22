@@ -20,7 +20,7 @@ Read on 2026-10-22.
 import re
 
 from dataforge.curation.actions import INFRA, MODEL, TIMEOUT
-from dataforge.curation.harbor import NOT_STARTED
+from dataforge.curation.harbor import NOT_STARTED, TIMED_OUT
 
 TYPES: dict[str, str] = {
   # agents/installed/base.py: ApiError and each of its subclasses, which
@@ -101,8 +101,9 @@ UNCLEAR = frozenset(
 # says the session hit its own cap.
 _EXIT = "NonZeroAgentExitCodeError"
 _OWN_CAP = re.compile(r'"subtype"\s*:\s*"error_max_(budget_usd|turns)"')
-# What dataforge.curation.harbor gives when it stopped Harbor on its timeout.
-_OUR_TIMEOUT = "TimeoutError: Harbor ran past"
+# How dataforge.curation.harbor starts the exception of a trial it stopped
+# on its timeout, before what Harbor recorded.
+_OUR_TIMEOUT = f"{TIMED_OUT}: Harbor ran past"
 
 
 def trial_fault(exception: str | None) -> str | None:

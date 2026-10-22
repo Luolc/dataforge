@@ -75,7 +75,8 @@ THINKING_DISPLAYS = ("summarized", "omitted", "highlights")
 # The tools an agent has when its spec names none.
 TOOLS = ("Read", "Glob", "Grep", "Write", "Edit", "Bash")
 # How a session ends when it did no work the host could judge: it printed no
-# result, or Claude Code stopped on an error of its own.
+# result, or Claude Code stopped on an error of its own. Kept for callers that
+# read a Result's subtype; how a run is judged is its fault (Trace.fault).
 FAILED_ENDINGS = ("no result", "error_during_execution")
 # The fault of each ending that has one (`Trace.fault`). A session that hit its
 # own cap (`--max-budget-usd`, `--max-turns`) is `budget`; one that could not
