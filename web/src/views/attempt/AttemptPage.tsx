@@ -32,7 +32,8 @@ import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
 import { CodeView } from "../../ui/code";
-import { time } from "../../ui/format";
+import { TabBadge } from "../../ui/count";
+import { counted, time } from "../../ui/format";
 import { RunningIcon } from "../../ui/running";
 import {
   attemptStatus,
@@ -42,7 +43,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
-import { leading } from "../kind";
+import { declared, kindTitle, leading } from "../kind";
 import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
@@ -229,8 +230,10 @@ function Attempt({
   // A record that has ended wins over a /live read before it ended: the page
   // then shows the record alone.
   const live = attemptStatus(project, record) === null ? read : null;
-  const recorded = deliverablesOf(record);
-  const deliverables = [...recorded, ...declaredMissing(project, record)];
+  const deliverables = [
+    ...deliverablesOf(record),
+    ...declaredMissing(project, record),
+  ];
   const kinds = tabKinds(project, deliverables);
   const itemsOf = (kind: string) => deliverables.filter((d) => d.kind === kind);
   const current = currentOf(record, live);
@@ -242,26 +245,29 @@ function Attempt({
   const versions = useTabVersions(project, attempt);
   const ownTab = own.find((t) => t.name === tab);
   const tabs = [
-    { key: "runs", title: "Runs", count: <>{runs}</> },
+    {
+      key: "runs",
+      title: "Runs",
+      count: <TabBadge label={counted(runs, "run")}>{runs}</TabBadge>,
+    },
     ...kinds.map((kind) => {
-      const first = leading(itemsOf(kind));
-      const counted = recorded.filter((d) => d.kind === kind);
-      const one = leading(counted);
+      const items = itemsOf(kind);
+      const title = kindTitle(project, kind, items);
+      const one = leading(project, items);
       return {
         key: kind,
-        title: first?.title ?? kind,
-        count:
-          one === undefined ? (
-            "—"
-          ) : (
-            <KindCount
-              kind={kind}
-              project={project.id}
-              attempt={attempt}
-              item={one}
-              items={counted}
-            />
-          ),
+        title,
+        count: one && (
+          <KindCount
+            kind={kind}
+            title={title}
+            project={project.id}
+            attempt={attempt}
+            item={one}
+            items={items}
+            word={declared(project, one.name)?.count}
+          />
+        ),
       };
     }),
     ...own.map((t) => ({
@@ -412,11 +418,7 @@ function Tabs({
           className="relative flex target flex-none items-center gap-2 px-3 font-medium whitespace-nowrap text-fg-2 hover:text-fg aria-[current=page]:text-fg aria-[current=page]:after:absolute aria-[current=page]:after:inset-x-1.5 aria-[current=page]:after:-bottom-px aria-[current=page]:after:h-0.5 aria-[current=page]:after:rounded-full aria-[current=page]:after:bg-accent"
         >
           {t.title}
-          {t.count !== undefined && (
-            <span className="min-w-5 rounded-full bg-active px-1.5 py-px text-center text-2xs text-fg-2 tabular-nums">
-              {t.count}
-            </span>
-          )}
+          {t.count}
         </Link>
       ))}
     </nav>

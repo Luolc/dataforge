@@ -149,6 +149,7 @@ def test_projects_leave_out_where_the_files_are(
     "session": {"thinking": "hidden"},
     "not_ended": None,
     "deliverables": [],
+    "kinds": {},
     "trials": None,
     "definition": None,
     "task": None,
@@ -190,6 +191,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "title": "Task",
       "no_trace": None,
       "count": None,
+      "default": False,
     },
     {
       "name": "review",
@@ -197,6 +199,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "title": "Review",
       "no_trace": None,
       "count": None,
+      "default": False,
     },
     {
       "name": "regrade",
@@ -204,8 +207,37 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "title": "Regrade",
       "no_trace": "No agent.",
       "count": "pass",
+      "default": False,
     },
   ]
+
+
+def project_deliverables(project: dict[str, object]) -> list[dict[str, object]]:
+  return cast(list[dict[str, object]], project["deliverables"])
+
+
+def test_projects_carry_a_kind_s_title_and_its_default(
+  tree: Tree, static: Path
+) -> None:
+  _ = tree.project.write_text(
+    PROJECT
+    + "deliverables:\n"
+    + "  - {name: regrade, kind: trials, title: Regrade}\n"
+    + "  - {name: pass_at_k, kind: trials, title: Pass@k, default: true}\n"
+    + "  - {name: review, kind: report, title: Review}\n"
+    + "kinds: {report: {title: Reviews}}\n"
+  )
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert [(d["name"], d["default"]) for d in project_deliverables(project)] == [
+    ("regrade", False),
+    ("pass_at_k", True),
+    ("review", False),
+  ]
+  assert project["kinds"] == {"report": {"title": "Reviews"}}
 
 
 def test_projects_carry_the_trial_diff(tree: Tree, static: Path) -> None:

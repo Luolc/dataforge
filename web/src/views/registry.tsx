@@ -12,11 +12,13 @@ import type {
   LiveInfo,
   Project,
 } from "../api/types";
+import { TabBadge } from "../ui/count";
+import { counted } from "../ui/format";
 import { ChoiceMenu } from "../ui/menu";
 import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
 import FilesView from "./files";
-import { type DeliverableProps, leading, reachedFirst } from "./kind";
+import { declared, type DeliverableProps, leading, reachedFirst } from "./kind";
 import ReportView from "./report";
 import TrialsView from "./trials";
 import { COUNTED } from "./trials/status";
@@ -34,15 +36,18 @@ interface ItemProps {
   attempt: string;
   item: Deliverable;
   /** The word after a count, as the project file names it for the item. */
-  counted?: string | null | undefined;
+  word?: string | null | undefined;
 }
 
 interface Kind {
   View: ComponentType<DeliverableProps>;
   /** Show every deliverable of the kind, one under another, not a menu. */
   stack: boolean;
-  /** The tab's count. */
-  Count: ComponentType<ItemProps & { items: Deliverable[] }>;
+  /**
+   * The tab's count, of the deliverable given for a kind that shows one at
+   * a time, else of every deliverable of the kind; said with `of` before it.
+   */
+  Count: ComponentType<ItemProps & { items: Deliverable[]; of: string }>;
   /** One line on a deliverable's card, when its path was reached. */
   Line: ComponentType<ItemProps>;
 }
@@ -51,34 +56,88 @@ interface Kind {
 function FileCount({ project, attempt, item }: ItemProps) {
   const count = useFileCount(project, attempt, item.path);
   if (count.state === "loading") return null;
-  if (count.state === "error") {
-    return (
-      <CircleAlert
-        role="img"
-        aria-label={`Could not count the files: ${count.message}`}
-        className="inline size-3 text-bad"
-      />
-    );
-  }
+  if (count.state === "error") return <CountFailed message={count.message} />;
   return <>{`${count.data.files}${count.data.complete ? "" : "+"}`}</>;
 }
 
-function solved(item: Deliverable): string {
-  if (item.path === null) return NOT_RUN;
+/** The same count on a tab, with its unit in full. */
+function FileBadge({ of, ...props }: ItemProps & { of: string }) {
+  const count = useFileCount(props.project, props.attempt, props.item.path);
+  if (count.state === "loading")
+    return <TabBadge label={`${of}Counting the files`}>{null}</TabBadge>;
+  if (count.state === "error")
+    return (
+      <TabBadge label={`${of}Could not count the files: ${count.message}`}>
+        <CountFailed message={count.message} />
+      </TabBadge>
+    );
+  const { files, complete } = count.data;
+  return (
+    <TabBadge
+      label={
+        of +
+        (complete
+          ? counted(files, "file")
+          : `At least ${counted(files, "file")}`)
+      }
+    >
+      {`${files.toString()}${complete ? "" : "+"}`}
+    </TabBadge>
+  );
+}
+
+function CountFailed({ message }: { message: string }) {
+  return (
+    <CircleAlert
+      role="img"
+      aria-label={`Could not count the files: ${message}`}
+      className="inline size-3 text-bad"
+    />
+  );
+}
+
+/**
+ * How many of a trials deliverable's k trials it counts, as `word` says,
+ * short and in full.
+ */
+function solved(
+  item: Deliverable,
+  word: string,
+): { short: string; full: string } {
+  if (item.path === null) return { short: NOT_RUN, full: NOT_RUN };
   const value = item.value?.value;
-  const shown =
-    typeof value === "number" || typeof value === "string"
-      ? String(value)
-      : "—";
-  return `${shown} / ${item.k ?? 0}`;
+  const k = (item.k ?? 0).toString();
+  if (typeof value === "number" || typeof value === "string")
+    return {
+      short: `${String(value)} / ${k}`,
+      full: `${String(value)} of ${k} ${word}`,
+    };
+  return {
+    short: `— / ${k}`,
+    full: `${counted(item.k ?? 0, "trial")}, ${word} not known`,
+  };
+}
+
+/** A count of the deliverables of a kind the attempt reached; Not run with none. */
+function reachedBadge(items: Deliverable[], unit: string) {
+  const reached = items.filter((item) => item.path !== null).length;
+  return reached === 0 ? (
+    <TabBadge label={NOT_RUN} />
+  ) : (
+    <TabBadge label={counted(reached, unit)}>{reached}</TabBadge>
+  );
 }
 
 const kinds: Partial<Record<string, Kind>> = {
   files: {
     View: FilesView,
     stack: false,
-    Count: (props) =>
-      props.item.path === null ? NOT_RUN : <FileCount {...props} />,
+    Count: ({ of, ...props }) =>
+      props.item.path === null ? (
+        <TabBadge label={of + NOT_RUN}>{NOT_RUN}</TabBadge>
+      ) : (
+        <FileBadge of={of} {...props} />
+      ),
     Line: (props) => (
       <>
         <FileCount {...props} /> files
@@ -88,16 +147,17 @@ const kinds: Partial<Record<string, Kind>> = {
   trials: {
     View: TrialsView,
     stack: false,
-    Count: ({ item }) => solved(item),
-    Line: ({ item, counted }) => `${solved(item)} ${counted ?? COUNTED}`,
+    Count: ({ item, of, word }) => {
+      const { short, full } = solved(item, word ?? COUNTED);
+      return <TabBadge label={of + full}>{short}</TabBadge>;
+    },
+    Line: ({ item, word }) =>
+      `${solved(item, word ?? COUNTED).short} ${word ?? COUNTED}`,
   },
   report: {
     View: ReportView,
     stack: true,
-    Count: ({ items }) => {
-      const reached = items.filter((item) => item.path !== null).length;
-      return reached === 0 ? NOT_RUN : reached;
-    },
+    Count: ({ items }) => reachedBadge(items, "report"),
     Line: ({ item }) => (
       <code className="font-mono text-xs">{item.path?.split("/").at(-1)}</code>
     ),
@@ -107,7 +167,7 @@ const kinds: Partial<Record<string, Kind>> = {
 const unknown: Kind = {
   View: ({ deliverable }) => <DeliverableCard item={deliverable} />,
   stack: true,
-  Count: ({ items }) => items.length,
+  Count: ({ items }) => reachedBadge(items, "deliverable"),
   Line: ({ item }) => <code className="font-mono text-xs">{item.kind}</code>,
 };
 
@@ -116,13 +176,19 @@ function kindOf(kind: string): Kind {
   return kinds[kind] ?? unknown;
 }
 
-/** The count on a kind's tab. */
+/**
+ * The count on a kind's tab, of every deliverable of the kind for one that
+ * stacks them, else of the one the tab opens on, named before the count when
+ * the tab's title is not its own.
+ */
 export function KindCount({
   kind,
+  title,
   ...props
-}: ItemProps & { items: Deliverable[]; kind: string }) {
-  const { Count } = kindOf(kind);
-  return <Count {...props} />;
+}: ItemProps & { items: Deliverable[]; kind: string; title: string }) {
+  const { Count, stack } = kindOf(kind);
+  const of = stack || title === props.item.title ? "" : `${props.item.title}: `;
+  return <Count of={of} {...props} />;
 }
 
 /** A deliverable's line on its card in the Summary. */
@@ -139,7 +205,7 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
   const { View, stack, Count } = kindOf(kind);
   const [query, setQuery] = useSearchParams();
   const asked = props.items.find((d) => d.name === query.get("deliverable"));
-  const chosen = (asked ?? leading(props.items))?.name;
+  const chosen = (asked ?? leading(props.project, props.items))?.name;
   const setChosen = (name: string) => {
     setQuery((before) => {
       const next = new URLSearchParams(before);
@@ -161,10 +227,12 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
             ...choice(item),
             aside: (
               <Count
+                of=""
                 project={props.project.id}
                 attempt={props.attempt}
                 item={item}
                 items={[item]}
+                word={declared(props.project, item.name)?.count}
               />
             ),
           }))}

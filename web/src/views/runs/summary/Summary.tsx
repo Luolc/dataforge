@@ -298,7 +298,7 @@ function Deliverables({ project, attempt, record }: Props) {
                         project={project.id}
                         attempt={attempt}
                         item={item}
-                        counted={declared(project, item.name)?.count}
+                        word={declared(project, item.name)?.count}
                       />
                     )}
                   </td>

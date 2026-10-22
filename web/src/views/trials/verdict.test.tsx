@@ -30,6 +30,8 @@ const files: Record<string, string> = {
   "artifacts/regrade/1/regrade-3/harbor.log": "",
 };
 
+let shown: Project = project;
+
 function show(at: string, record: unknown = regrade) {
   vi.stubGlobal(
     "fetch",
@@ -50,7 +52,7 @@ function show(at: string, record: unknown = regrade) {
     }),
   );
   render(
-    <ProjectsContext value={{ state: "ok", data: [project] }}>
+    <ProjectsContext value={{ state: "ok", data: [shown] }}>
       <MemoryRouter initialEntries={[`/regrade/attempt?id=regrade${at}`]}>
         <Routes>
           <Route path=":project/attempt" element={<AttemptPage />} />
@@ -62,6 +64,7 @@ function show(at: string, record: unknown = regrade) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  shown = project;
 });
 
 /**
@@ -143,18 +146,36 @@ describe("the Summary's line for a trials deliverable", () => {
 });
 
 describe("the menu of a tab's trials deliverables", () => {
-  it("gives each its count", async () => {
+  it("gives each its count, in full to a reader", async () => {
     show("&tab=trials");
 
     const menu = await screen.findByRole("button", { name: "Pass@k" });
     fireEvent.pointerDown(menu, { button: 0, ctrlKey: false });
-    // Its name keeps the title apart from the count.
+    const pass = screen.getByRole("menuitem", { name: /^Pass@k/ });
+    expect(pass).toHaveAccessibleName(/^Pass@k\s*1 of 3 solved$/);
+    expect(pass).toHaveTextContent(/^Pass@k1 \/ 3/);
+    const regraded = screen.getByRole("menuitem", { name: /^Regrade/ });
+    expect(regraded).toHaveAccessibleName(/^Regrade\s*2 of 4 held$/);
+    expect(regraded).toHaveTextContent(/^Regrade2 \/ 4/);
+  });
+});
+
+describe("the tab of a trials deliverable", () => {
+  it("counts under the project's word", async () => {
+    // The tab is counted by the first deliverable the record reached.
+    shown = {
+      ...project,
+      deliverables: [
+        { name: "pass_at_k", kind: "trials", title: "Pass@k", count: "kept" },
+        ...(project.deliverables ?? []).slice(1),
+      ],
+    };
+    show("");
+
+    const tabs = await screen.findByRole("navigation", { name: "Attempt" });
     expect(
-      screen.getByRole("menuitem", { name: "Pass@k, 1 / 3" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("menuitem", { name: "Regrade, 2 / 4" }),
-    ).toBeVisible();
+      within(tabs).getByRole("link", { name: /^Pass@k/ }),
+    ).toHaveAccessibleName(/^Pass@k\s*1 of 3 kept$/);
   });
 });
 
