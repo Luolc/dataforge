@@ -28,7 +28,14 @@ from dataforge import stopping
 from dataforge.gateway import Channel, Price, proxy, read_ledger, serve, Spend
 from dataforge.gateway.channels import DRAINED
 from dataforge.gateway.session import _Refuser, _Refusing, holders
-from dataforge.gateway.spend import Meter, Total, total
+from dataforge.gateway.spend import (
+  by_model,
+  choose,
+  FALLBACK,
+  Meter,
+  Total,
+  total,
+)
 from tests.gateway.fakes import (
   call,
   Launcher,
@@ -938,6 +945,76 @@ def test_total_warns_of_a_ledgers_lines_once_as_they_come(
     f"{path}: 1 lines priced at the fallback, $0.0380",
     f"{path}: 2 lines priced at the fallback, $0.0760",
   ]
+
+
+@pytest.mark.parametrize(
+  ("geo", "how"),
+  [("not_available", None), ("global", None), ("us", FALLBACK)],
+)
+def test_a_refusals_inference_geo_takes_the_models_price_and_us_does_not(
+  geo: str, how: str | None
+):
+  # A refused reply has the `inference_geo` "not_available".
+  usage = {"input_tokens": 100, "output_tokens": 0, "inference_geo": geo}
+  chosen = choose(
+    Channel.CLAUDE, usage, "claude-model", None, PRICES, FALLBACK_PRICE
+  )
+  price = PRICES["claude-model"] if how is None else FALLBACK_PRICE
+  assert chosen == (price, how)
+
+
+def test_a_reply_of_claude_opus_5_is_priced_at_its_list_price(tmp_path: Path):
+  # A million tokens of each kind at $5, $25, $0.50, $6.25 and $10.
+  usage = {
+    "input_tokens": 1_000_000,
+    "output_tokens": 1_000_000,
+    "cache_read_input_tokens": 1_000_000,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 1_000_000,
+      "ephemeral_1h_input_tokens": 1_000_000,
+    },
+  }
+  ledger = ledger_of(
+    tmp_path / "spend.jsonl",
+    {"channel": "CLAUDE", "model": "claude-opus-5", "usage": usage},
+  )
+  found = total(ledger)
+  assert (found.usd, found.fallback_usd) == (pytest.approx(46.75), 0.0)
+
+
+def test_by_model_sums_a_channels_lines_as_total_counts_them(tmp_path: Path):
+  ledger = ledger_of(
+    tmp_path / "spend.jsonl",
+    # A line's own cost, an earlier proxy's line without `channel` among them.
+    {"channel": "CLAUDE", "model": "claude-model", "usage": CLAUDE_USAGE,
+     "cost_usd": 0.5, "priced_as": None},
+    {"at": "t", "model": "claude-model", "usage": CLAUDE_USAGE, "usd": 1.0},
+    # Lines priced here, by the reply's model, else the requested one, else
+    # at the fallback.
+    {"channel": "CLAUDE", "model": "claude-model", "usage": CLAUDE_USAGE},
+    {"channel": "CLAUDE", "model": None, "requested_model": "claude-model",
+     "usage": CLAUDE_USAGE},
+    {"channel": "CLAUDE", "model": "renamed", "usage": CLAUDE_USAGE},
+    {"channel": "CLAUDE", "model": None, "requested_model": None,
+     "usage": CLAUDE_USAGE},
+    {"channel": "CODEX", "model": "codex-model", "usage": CODEX_USAGE},
+    # Nothing to count.
+    {"channel": "CLAUDE", "model": "claude-model", "usage": {},
+     "cost_usd": None, "reason": "a reply without usage"},
+    {"at": "t", "channel": "CLAUDE", "capped": "spent"},
+  )  # fmt: skip
+  claude = by_model(ledger, prices=PRICES, fallback=FALLBACK_PRICE)
+  codex = by_model(
+    ledger, channel=Channel.CODEX, prices=PRICES, fallback=FALLBACK_PRICE
+  )
+  assert claude == {
+    "claude-model": pytest.approx(1.5 + COST[Channel.CLAUDE] * 2),
+    "renamed": pytest.approx(0.038),
+    "": pytest.approx(0.038),
+  }
+  assert codex == {"codex-model": pytest.approx(COST[Channel.CODEX])}
+  found = total(ledger, prices=PRICES, fallback=FALLBACK_PRICE)
+  assert sum(claude.values()) + sum(codex.values()) == pytest.approx(found.usd)
 
 
 def test_a_capped_session_of_a_stopped_call_ends_within_the_stops_budget(

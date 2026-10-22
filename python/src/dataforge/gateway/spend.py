@@ -7,10 +7,10 @@ the `response` of `response.completed`, `response.done`,
 `response.incomplete` or `response.failed` (`CODEX`); of a reply without any,
 read as JSON, from its top-level `model` and `usage`. `Spend` prices it, and
 the ledger gets one line per reply (`record`), each written whole and synced
-before the proxy goes on; `read_ledger` reads it back, and `total` prices and
-sums it. A reply is priced by the model it names, else by the model its
-request named, else at a fallback price (`choose`): a gateway may answer under
-another name than the one asked for.
+before the proxy goes on; `read_ledger` reads it back, `total` prices and
+sums it, and `by_model` sums it by model. A reply is priced by the model it
+names, else by the model its request named, else at a fallback price
+(`choose`): a gateway may answer under another name than the one asked for.
 """
 
 from collections.abc import Mapping
@@ -67,11 +67,11 @@ class Price:
 
 # The Claude API's list prices for global routing at the standard speed, read
 # on 2026-10-20 from https://platform.claude.com/docs/en/about-claude/pricing
-# (`claude-sonnet-5` on 2026-10-22, whose $2 and $10 the page says are now its
-# standard price), and, for Pi and Codex CLI, an estimate, since the
-# gateway's `CODEX` channel bills a ChatGPT subscription, not these prices:
-# litellm's for OpenAI's API, from the entry `gpt-6-astra` of
-# `model_prices_and_context_window.json` at its tag v1.106.0 (commit
+# (`claude-sonnet-5`, whose $2 and $10 the page says are now its standard
+# price, and `claude-opus-5` on 2026-10-22), and, for Pi and Codex CLI, an
+# estimate, since the gateway's `CODEX` channel bills a ChatGPT subscription,
+# not these prices: litellm's for OpenAI's API, from the entry `gpt-6-astra`
+# of `model_prices_and_context_window.json` at its tag v1.106.0 (commit
 # 955bdaafa8b72b2b6ff728048f272fbc06049f63), read on 2026-10-20, the prices up
 # to 272k input tokens a request, so that a request past that, which that file
 # prices at about twice as much, counts for less than the API would charge;
@@ -80,6 +80,10 @@ PRICES: Mapping[str, Price] = MappingProxyType({
   "claude-opus-5-5": Price(
     input=4.0, output=20.0, cache_read=0.2, cache_write_5m=5.0,
     cache_write_1h=8.0,
+  ),
+  "claude-opus-5": Price(
+    input=5.0, output=25.0, cache_read=0.5, cache_write_5m=6.25,
+    cache_write_1h=10.0,
   ),
   "claude-opus-4-8": Price(
     input=5.0, output=25.0, cache_read=0.5, cache_write_5m=6.25,
@@ -108,10 +112,15 @@ HIGHEST = Price(
   input=16.5, output=82.5, cache_read=1.65, cache_write_5m=20.625,
   cache_write_1h=33.0,
 )  # fmt: skip
-# The `speed` and `inference_geo` of a `CLAUDE` reply that a model's price
-# fits; a reply without them is taken as standard.
-STANDARD: Mapping[str, str] = MappingProxyType(
-  {"speed": "standard", "inference_geo": "global"}
+# The values of `speed` and `inference_geo` of a `CLAUDE` reply that a model's
+# price fits; a reply without them is taken as standard. A refused reply can
+# have the `inference_geo` "not_available": it ran no US-only inference, the
+# one `inference_geo` that the pricing page prices above global on 2026-10-22.
+STANDARD: Mapping[str, frozenset[str]] = MappingProxyType(
+  {
+    "speed": frozenset({"standard"}),
+    "inference_geo": frozenset({"global", "not_available"}),
+  }
 )
 # Each search of Claude's web search tool, on the same page.
 WEB_SEARCH_USD = 0.01
@@ -269,11 +278,11 @@ def choose(
   Returns:
     The price of the model the reply names, with None; else that of the model
     its request named, with `REQUESTED`; else the fallback, with `FALLBACK`,
-    as for a `CLAUDE` reply at a `speed` or `inference_geo` other than
-    `STANDARD`'s; None when there is no fallback then.
+    as for a `CLAUDE` reply at a `speed` or `inference_geo` that `STANDARD`
+    does not hold; None when there is no fallback then.
   """
   standard = channel is not Channel.CLAUDE or all(
-    usage.get(k, v) in (v, None) for k, v in STANDARD.items()
+    usage.get(k) in (None, *values) for k, values in STANDARD.items()
   )
   if standard:
     for name, how in ((model, None), (requested, REQUESTED)):
@@ -614,6 +623,40 @@ def total(
       fallback_usd,
     )
   return Total(usd, fallback_usd)
+
+
+def by_model(
+  ledger: Path,
+  *,
+  channel: Channel = Channel.CLAUDE,
+  prices: Mapping[str, Price] = PRICES,
+  fallback: Price | None = HIGHEST,
+) -> dict[str, float]:
+  """Price a channel's replies in a ledger by model, as `total` does.
+
+  Args:
+    ledger: The ledger; none counts as empty.
+    channel: The channel whose lines count, a line without `channel` being
+      `CLAUDE`'s.
+    prices: Each model's prices.
+    fallback: The price of a reply that no model's price fits; None to leave
+      such a reply out.
+
+  Returns:
+    Each model's sum, in US dollars, by the model the reply names, else the
+    model its request named, else the empty string; its values add up to
+    what `total` counts of the channel's lines.
+  """
+  found: dict[str, float] = {}
+  for line in read_ledger(ledger):
+    if line.get("channel", Channel.CLAUDE) != channel:
+      continue
+    usd = _line_usd(line, prices, fallback)
+    if usd is None:
+      continue
+    name = _text(line.get("model")) or _text(line.get("requested_model")) or ""
+    found[name] = found.get(name, 0.0) + usd[0]
+  return found
 
 
 def _number(value: object) -> float | None:
