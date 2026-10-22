@@ -372,6 +372,52 @@ describe("the home page", () => {
     }
   });
 
+  it("says in a column of a tab not run how the tab's job stands", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        { title: "A", field: ["a"], format: "text" },
+        { title: "B", field: ["b"], format: "text" },
+        { title: "C", field: ["c"], format: "text" },
+      ],
+    };
+    const job = {
+      id: 98,
+      queue: "slow",
+      labels: { action: "note", item: "t-new" },
+      state: "canceled",
+      memory_mib: 1,
+      queued_at: 1772442900,
+      started_at: null,
+      ended_at: 1772443200,
+      exit_code: null,
+      cancel_requested_at: 1772443200,
+    };
+    const pause = { queue: "slow", paused_at: 1772442000, reason: null };
+    ROWS[3] = {
+      ...must(ROWS[3]),
+      values: [null, null, null],
+      reads: ["not run", "not run", "not run"],
+      queued: [
+        { job, paused: pause, reason: null },
+        { job: null, paused: pause, reason: null },
+        { job: null, paused: null, reason: null },
+      ],
+    };
+    try {
+      show("/sample", withColumns);
+      const item = (await screen.findByText("t-new")).closest("tr");
+      const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-3);
+      expect(cells.map((c) => c.textContent)).toEqual([
+        "Canceled (job 98) · Queue paused",
+        "Not run · Queue paused",
+        "Not run",
+      ]);
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [], reads: null, queued: null };
+    }
+  });
+
   it("shows each row's status as an icon first, a spinner while it runs", async () => {
     // With older records shown, so the unreadable one has its row too.
     show("/sample?older=1");

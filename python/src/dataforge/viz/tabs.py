@@ -77,6 +77,20 @@ def fields(
   return [_found(read, version, field) for field in part.fields]
 
 
+def version_title(tab: Tab, attempt: int, version: str) -> dict[str, object]:
+  """Read the value a version is named by in its tab's menu.
+
+  Args:
+    tab: A tab with a version_title.
+    attempt: The attempt's directory.
+    version: The version's directory, one of versions().
+
+  Returns:
+    The value as fields() gives one.
+  """
+  return _found(_reader(attempt), version, cast(TabField, tab.version_title))
+
+
 def column_value(
   project: Project, column: Column, attempt: int
 ) -> dict[str, object]:

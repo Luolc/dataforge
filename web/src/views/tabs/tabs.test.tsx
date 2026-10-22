@@ -235,13 +235,51 @@ describe("a project's tab of a Markdown file", () => {
     show();
 
     expect(
-      await screen.findByText(
-        "Not run: this attempt has no Notes yet (no directory matching notes or notes-*).",
-      ),
+      await screen.findByText("Not run: this attempt has no Notes yet."),
     ).toBeVisible();
     expect(
       within(nav()).getByRole("link", { name: /^Notes/ }),
     ).toHaveTextContent("NotesNot run");
+  });
+
+  it("names each version by its version_title, by its directory where it has none", async () => {
+    const titled: Project = {
+      ...project,
+      tabs: project.tabs?.map((t) => ({
+        ...t,
+        version_title: { format: "time" as const },
+      })),
+    };
+    const [notes] = three;
+    const versions = notes?.versions ?? [];
+    serve(
+      [
+        {
+          name: "notes",
+          versions: versions.map((v, i) => ({
+            ...v,
+            title: [
+              field("2026-03-02T09:15:00Z"),
+              field("2026-03-01T08:00:00Z"),
+              notRun(`${v.dir}/status.json: No such file or directory`),
+            ][i],
+          })),
+        },
+      ],
+      { "notes/out/notes.md": "# First notes\n" },
+    );
+    show("&tab=notes", titled);
+    const button = await screen.findByRole("button", {
+      name: "Version: 2026-03-02 09:15 UTC",
+    });
+
+    fireEvent.pointerDown(button, { button: 0, ctrlKey: false });
+
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "2026-03-02 09:15 UTC",
+      "2026-03-01 08:00 UTC",
+      "notes-1",
+    ]);
   });
 
   it("says Not run for a version whose Markdown is not there yet", async () => {
@@ -422,10 +460,87 @@ describe("a project's tab of several parts", () => {
     show("&tab=post", parted);
 
     expect(
-      await screen.findByText(
-        "Not run: this attempt has no Post yet (no directory matching post or post-*).",
-      ),
+      await screen.findByText("Not run: this attempt has no Post yet."),
     ).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Post" })).toBeNull();
+  });
+});
+
+describe("a project's tab with no version, that names its job", () => {
+  const withJob: Project = {
+    ...project,
+    jobs: [
+      { action: "note", label: "Notes", queue: "slow", subject: "attempt" },
+    ],
+    tabs: project.tabs?.map((t) => ({ ...t, job: "note" })),
+  };
+  const job = {
+    id: 98,
+    queue: "slow",
+    labels: { action: "note", item: "older/task-0301" },
+    state: "canceled",
+    memory_mib: 1,
+    queued_at: 1772442900,
+    started_at: null,
+    ended_at: 1772443200,
+    exit_code: null,
+    cancel_requested_at: 1772443200,
+  };
+  const pause = {
+    queue: "slow",
+    paused_at: 1772442000,
+    reason: "held until asked",
+  };
+
+  it("says how its newest job stands, and that its queue is paused", async () => {
+    serve(
+      [
+        {
+          name: "notes",
+          queued: { job, paused: pause, reason: null },
+          versions: [],
+        },
+      ],
+      {},
+    );
+    show("&tab=notes", withJob);
+
+    expect(
+      await screen.findByText("Not run: this attempt has no Notes yet."),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Job 98" })).toHaveAttribute(
+      "href",
+      "/queue",
+    );
+    expect(screen.getByText("Canceled")).toBeVisible();
+    expect(
+      screen.getByText(
+        "queued 2026-03-02 09:15 UTC · ended 2026-03-02 09:20 UTC",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "The slow queue has been paused since 2026-03-02 09:00 UTC: held until asked.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("says when no job for it has been queued, and nothing of a queue not paused", async () => {
+    serve(
+      [
+        {
+          name: "notes",
+          queued: { job: null, paused: null, reason: null },
+          versions: [],
+        },
+      ],
+      {},
+    );
+    show("&tab=notes", withJob);
+
+    expect(
+      await screen.findByText("No job for it has been queued."),
+    ).toBeVisible();
+    expect(screen.queryByText(/paused/)).toBeNull();
   });
 });

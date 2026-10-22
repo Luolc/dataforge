@@ -35,6 +35,10 @@ with a status the project calls resumable, and the lock is not held."""
 PLACEHOLDER = "{item}"
 """The one placeholder of an action's argv and key: the data item's ID."""
 
+SUBJECTS = ("item", "attempt")
+"""What the item label of a job another tool queues names: a data item's ID,
+or an attempt's."""
+
 PARAM_FORMATS = ("number", "usd")
 """The formats an action's parameter may take."""
 
@@ -147,12 +151,18 @@ class Tab:
     parts: The Markdown files it shows from each version, in order: one,
       named and titled as the tab, for a tab of one file; else two or more,
       each an entry of the tab's column.
+    version_title: The value a version is named by in the tab's menu, read
+      from a JSON file in it; None to name it by its directory.
+    job: The action of the jobs, of the project's jobs and of subject
+      "attempt", that make its versions; None when it names none.
   """
 
   name: str
   title: str
   versions: tuple[str, ...]
   parts: tuple[TabPart, ...]
+  version_title: TabField | None = None
+  job: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +280,23 @@ class Action:
 
 
 @dataclass(frozen=True, slots=True)
+class JobKind:
+  """Jobs another tool puts in the queue for a project, which a page shows.
+
+  Attributes:
+    action: Their action label.
+    label: How a page names the action.
+    queue: The queue they go to, one of the site's queue file.
+    subject: What their item label names, one of SUBJECTS.
+  """
+
+  action: str
+  label: str
+  queue: str
+  subject: str
+
+
+@dataclass(frozen=True, slots=True)
 class Deliverable:
   """A deliverable the dataset's declaration names, as a record names it.
 
@@ -337,6 +364,7 @@ class Project:
       project file writes it, or its file name alone when that is absolute,
       so that no page shows where the server keeps it; None with monitor.
     actions: What a data item's page may put in a queue, in order.
+    jobs: The jobs another tool puts in the queue for the project.
     tabs: The attempt page's tabs of Markdown files, in order.
   """
 
@@ -361,6 +389,7 @@ class Project:
   monitor: Path | None = None
   monitor_shown: str | None = None
   actions: tuple[Action, ...] = ()
+  jobs: tuple[JobKind, ...] = ()
   tabs: tuple[Tab, ...] = ()
 
   def public(self) -> dict[str, object]:
@@ -398,6 +427,10 @@ class Project:
             }
             for part in t.parts
           ],
+          "version_title": None
+          if t.version_title is None
+          else {"format": t.version_title.format},
+          "job": t.job,
         }
         for t in self.tabs
       ],
@@ -416,6 +449,15 @@ class Project:
       "actions": [
         {"name": a.name, "label": a.label, "queue": a.queue}
         for a in self.actions
+      ],
+      "jobs": [
+        {
+          "action": j.action,
+          "label": j.label,
+          "queue": j.queue,
+          "subject": j.subject,
+        }
+        for j in self.jobs
       ],
     }
 
@@ -524,6 +566,7 @@ def load_project(path: Path) -> Project:
       "task",
       "monitor",
       "actions",
+      "jobs",
       "tabs",
     },
   )
@@ -549,7 +592,8 @@ def load_project(path: Path) -> Project:
   statuses = _statuses(path, data.get("statuses"))
   not_ended = _not_ended(path, data.get("not_ended"))
   deliverables = _deliverables(path, data.get("deliverables"))
-  tabs = _tabs(path, data.get("tabs"), deliverables)
+  jobs = _jobs(path, data.get("jobs"), actions)
+  tabs = _tabs(path, data.get("tabs"), deliverables, jobs)
   return Project(
     id=id_,
     name=_str(path, "name", data["name"]),
@@ -578,6 +622,7 @@ def load_project(path: Path) -> Project:
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
     actions=actions,
+    jobs=jobs,
     tabs=tabs,
   )
 
@@ -791,7 +836,10 @@ def _format(path: Path, where: str, entry: Mapping[str, object]) -> str:
 
 
 def _tabs(
-  path: Path, value: object, deliverables: tuple[Deliverable, ...]
+  path: Path,
+  value: object,
+  deliverables: tuple[Deliverable, ...],
+  jobs: tuple[JobKind, ...],
 ) -> tuple[Tab, ...]:
   if value is None:
     return ()
@@ -808,7 +856,7 @@ def _tabs(
       where,
       entry,
       required={"name", "title", "versions"},
-      optional={"file", "fields", "parts"},
+      optional={"file", "fields", "parts", "version_title", "job"},
     )
     name = _str(path, f"{where}.name", entry["name"])
     if not _ID.fullmatch(name):
@@ -834,6 +882,78 @@ def _tabs(
         title=title,
         versions=_versions(path, f"{where}.versions", entry["versions"]),
         parts=parts,
+        version_title=_version_title(
+          path, f"{where}.version_title", entry.get("version_title"), title
+        ),
+        job=_tab_job(path, f"{where}.job", entry.get("job"), jobs),
+      )
+    )
+  return tuple(found)
+
+
+def _tab_job(
+  path: Path, where: str, value: object, jobs: tuple[JobKind, ...]
+) -> str | None:
+  if value is None:
+    return None
+  job = _str(path, where, value)
+  if not any(j.action == job and j.subject == "attempt" for j in jobs):
+    raise ConfigError(
+      f"{path}: {where}: {job!r} is not a job of subject attempt"
+    )
+  return job
+
+
+def _version_title(
+  path: Path, where: str, value: object, title: str
+) -> TabField | None:
+  if value is None:
+    return None
+  entry = _mapping(path, where, value)
+  _keys(path, where, entry, required={"file", "field"}, optional={"format"})
+  return TabField(
+    title=title,
+    file=_relative(
+      path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
+    ),
+    field=_field_keys(path, where, entry["field"]),
+    format=_format(path, where, entry),
+  )
+
+
+def _jobs(
+  path: Path, value: object, actions: tuple[Action, ...]
+) -> tuple[JobKind, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: jobs: not a non-empty list")
+  found: list[JobKind] = []
+  for i, item in enumerate(cast(list[object], value)):
+    where = f"jobs[{i}]"
+    entry = _mapping(path, where, item)
+    _keys(
+      path,
+      where,
+      entry,
+      required={"action", "label", "queue"},
+      optional={"subject"},
+    )
+    action = _str(path, f"{where}.action", entry["action"])
+    if any(j.action == action for j in found) or any(
+      a.name == action for a in actions
+    ):
+      raise ConfigError(
+        f"{path}: {where}.action: {action!r} repeated or an action's"
+      )
+    subject = _str(path, f"{where}.subject", entry.get("subject", "item"))
+    _one_of(path, f"{where}.subject", subject, SUBJECTS)
+    found.append(
+      JobKind(
+        action=action,
+        label=_str(path, f"{where}.label", entry["label"]),
+        queue=_str(path, f"{where}.queue", entry["queue"]),
+        subject=subject,
       )
     )
   return tuple(found)
@@ -989,13 +1109,17 @@ def _monitor(
 def _check_queues(
   path: Path, project: Project, config: queue.Config | None
 ) -> None:
-  for i, action in enumerate(project.actions):
-    where = f"project {project.id}: actions[{i}].queue"
+  named = [
+    *((f"actions[{i}]", a.queue) for i, a in enumerate(project.actions)),
+    *((f"jobs[{i}]", j.queue) for i, j in enumerate(project.jobs)),
+  ]
+  for at, name in named:
+    where = f"project {project.id}: {at}.queue"
     if config is None:
       raise ConfigError(f"{path}: queue: missing, and {where} names one")
-    if action.queue not in config.queues:
+    if name not in config.queues:
       raise ConfigError(
-        f"{path}: queue: {where}: {action.queue!r} is not in the queue file"
+        f"{path}: queue: {where}: {name!r} is not in the queue file"
       )
 
 
