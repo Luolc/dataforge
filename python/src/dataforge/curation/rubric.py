@@ -37,11 +37,6 @@ from typing import cast, TypeIs
 from dataforge.curation.actions import ActionResult
 from dataforge.curation.engine import Data, Input, Version
 
-TEXT_SUFFIXES = frozenset(
-  {"", ".cfg", ".md", ".patch", ".py", ".sh", ".toml", ".txt"}
-)
-"""The file suffixes a review reads as text; other files are named only."""
-
 MAX_FILE_CHARS = 40_000
 """How much of one file a review reads; the rest is cut."""
 
@@ -392,24 +387,25 @@ def block_text(path: Path) -> str:
 
   Args:
     path: A file, given as its text, or a directory, given as each file in
-      it, a file whose suffix is not in TEXT_SUFFIXES only named.
+      it; a file that is not text, UTF-8 that holds no NUL, only named.
 
   Returns:
     The text; each file's text and path HTML-escaped, and cut after
     MAX_FILE_CHARS characters.
   """
   if not path.is_dir():
-    return _read(path)
+    text = _read(path)
+    return _binary(path, path.name) if text is None else text
   parts: list[str] = []
   for file in sorted(path.rglob("*")):
     if not file.is_file() or "__pycache__" in file.parts:
       continue
-    at = html.escape(str(file.relative_to(path)))
-    if file.suffix not in TEXT_SUFFIXES:
-      size = file.stat().st_size
-      parts.append(f'<file path="{at}" skipped="true" bytes="{size}"/>')
+    at = str(file.relative_to(path))
+    text = _read(file)
+    if text is None:
+      parts.append(_binary(file, at))
     else:
-      parts.append(f'<file path="{at}">\n{_read(file)}\n</file>')
+      parts.append(f'<file path="{html.escape(at)}">\n{text}\n</file>')
   return "\n".join(parts) or "None."
 
 
@@ -800,12 +796,28 @@ def _previous(value: object) -> str:
   return "\n\n".join(lines)
 
 
-def _read(path: Path) -> str:
-  text = path.read_text(errors="replace")
-  if len(text) <= MAX_FILE_CHARS:
-    return _escape(text)
-  cut = _escape(text[:MAX_FILE_CHARS])
-  return f"{cut}\n... [cut, {len(text)} characters in all]"
+def _read(path: Path) -> str | None:
+  # None for a file that is not strict UTF-8 or holds a NUL. Read a part at
+  # a time, so that a large binary file stops at its first part and a large
+  # text file is not held whole.
+  kept, size = "", 0
+  try:
+    with path.open(encoding="utf-8") as file:
+      while part := file.read(MAX_FILE_CHARS):
+        if "\0" in part:
+          return None
+        kept += part[: max(MAX_FILE_CHARS - size, 0)]
+        size += len(part)
+  except UnicodeDecodeError:
+    return None
+  if size <= MAX_FILE_CHARS:
+    return _escape(kept)
+  return f"{_escape(kept)}\n... [cut, {size} characters in all]"
+
+
+def _binary(path: Path, at: str) -> str:
+  size = path.stat().st_size
+  return f'<file path="{html.escape(at)}" skipped="binary" bytes="{size}"/>'
 
 
 def _integer(value: object) -> TypeIs[int]:

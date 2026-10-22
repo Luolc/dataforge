@@ -33,6 +33,7 @@ from dataforge.curation import (
 )
 from dataforge.curation.engine import Attempt
 from dataforge.curation.rubric import (
+  block_text,
   CROSS_CRITERIA,
   MAX_FILE_CHARS,
   NOTES,
@@ -208,7 +209,7 @@ Give one verdict per rubric criterion, using its id, then the summary."""
 
 FILES = """\
 <tests>
-<file path="data.bin" skipped="true" bytes="3"/>
+<file path="data.bin" skipped="binary" bytes="3"/>
 <file path="test.sh">
 exit 0
 
@@ -626,6 +627,42 @@ def test_a_review_without_verdicts_is_reported_as_such(
     "no verdict",
     "no verdict",
   ]
+
+
+def test_a_file_in_any_language_is_given_whole_and_a_long_one_cut(
+  tmp_path: Path,
+) -> None:
+  tests = {
+    "parse_test.go": "func TestParse(t *testing.T) {}\n",
+    "ParseTest.java": "@Test void parses() {}\n",
+    "parse.rs": "#[test]\nfn parses() {}\n",
+    "parse_spec.rb": "it 'parses' do\nend\n",
+    "parse_test.exs": 'test "parses" do\nend\n',
+  }
+  for name, text in tests.items():
+    _ = (tmp_path / name).write_text(text)
+  _ = (tmp_path / "long_test.go").write_text("é" * (MAX_FILE_CHARS + 5))
+  found = block_text(tmp_path)
+  for name, text in tests.items():
+    assert f'<file path="{name}">\n{text}\n</file>' in found
+  cut = f"{'é' * MAX_FILE_CHARS}\n... [cut, {MAX_FILE_CHARS + 5} characters"
+  assert f'<file path="long_test.go">\n{cut} in all]\n</file>' in found
+
+
+def test_a_file_not_in_utf_8_or_with_a_nul_is_only_named(
+  tmp_path: Path,
+) -> None:
+  _ = (tmp_path / "latin1.txt").write_bytes(b"caf\xe9\n")
+  _ = (tmp_path / "nul_test.go").write_bytes(b"package p\x00\n")
+  _ = (tmp_path / "late.md").write_bytes(b"x" * MAX_FILE_CHARS + b"\x00")
+  assert block_text(tmp_path) == (
+    f'<file path="late.md" skipped="binary" bytes="{MAX_FILE_CHARS + 1}"/>\n'
+    '<file path="latin1.txt" skipped="binary" bytes="5"/>\n'
+    '<file path="nul_test.go" skipped="binary" bytes="11"/>'
+  )
+  assert block_text(tmp_path / "latin1.txt") == (
+    '<file path="latin1.txt" skipped="binary" bytes="5"/>'
+  )
 
 
 def test_no_input_can_close_its_block(tmp_path: Path, task: Path) -> None:
