@@ -33,6 +33,7 @@ from dataforge.viz.paths import (
   read_regular,
   RefusedError,
 )
+from dataforge.viz.task import read_task
 
 CSP = (
   "default-src 'self'; script-src 'self'; connect-src 'self';"
@@ -80,6 +81,7 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/api/projects/{p}/live", api.live_status),
     ("/api/projects/{p}/files", api.files),
     ("/api/projects/{p}/tabs", api.tabs),
+    ("/api/projects/{p}/task", api.task),
     ("/api/projects/{p}/actions", api.actions),
     ("/api/projects/{p}/monitor/runs", api.monitor_runs),
     ("/api/projects/{p}/monitor/window", api.monitor_window),
@@ -195,6 +197,13 @@ class _Api:
           for tab in project.tabs
         ]
       )
+
+  def task(self, p: str, attempt: str | None = None) -> Response:
+    project = self._project(p)
+    if project.task is None:
+      raise RefusedError(404, f"the project {p!r} names no task")
+    with open_attempt(project, _attempt(attempt)) as root:
+      return JSONResponse(read_task(project.task, root))
 
   def actions(self, p: str, item: str | None = None) -> Response:
     project = self._project(p)

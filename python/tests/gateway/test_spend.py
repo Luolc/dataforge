@@ -820,17 +820,17 @@ def test_a_reply_no_price_fits_is_priced_at_the_fallback(socket_dir: Path):
   assert line["priced_as"] == "fallback"
 
 
+# Only bodies the screen lets through: one it cannot read is refused before
+# the spend sees it.
 @pytest.mark.parametrize(
   ("body", "headers"),
   [
-    pytest.param(b"not json", JSON, id="not-json"),
     pytest.param(b'{"model": "claude-model"}', {}, id="no-json-type"),
     pytest.param(
       gzip.compress(b'{"model": "claude-model"}'),
       JSON | {"Content-Encoding": "gzip"},
       id="compressed",
     ),
-    pytest.param(b'["claude-model"]', JSON, id="not-an-object"),
     pytest.param(b'{"model": 1}', JSON, id="not-a-name"),
   ],
 )
