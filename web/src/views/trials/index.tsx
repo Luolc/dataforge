@@ -13,7 +13,7 @@ import { DiffView } from "../../ui/diff";
 import { duration, span, usd } from "../../ui/format";
 import { RunningIcon } from "../../ui/running";
 import { attemptStatus, toneGlyph, toneText } from "../../ui/status";
-import { StatusLabel } from "../../ui/status-mark";
+import { OutcomeLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import { DeliverableCard } from "../DeliverableCard";
 import { FromRun } from "../FromRun";
@@ -124,7 +124,7 @@ export default function TrialsView({
             {visit !== undefined && (
               <p className="flex items-center gap-2 text-xs text-fg-3">
                 Outcome{" "}
-                <StatusLabel
+                <OutcomeLabel
                   project={project}
                   word={visit.outcome}
                   ended={attemptStatus(project, record) !== null}

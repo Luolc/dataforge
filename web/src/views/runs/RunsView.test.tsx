@@ -85,6 +85,23 @@ describe("the Runs column", () => {
     expect(runs.queryByText(/no action recorded/)).toBeNull();
   });
 
+  it("shows a run that raised as Exception whatever the project file says", () => {
+    const runs = show(
+      {
+        ...sampleProject,
+        statuses: {
+          ...sampleProject.statuses,
+          raised: { label: "Crashed", tone: "warn" },
+        },
+      },
+      records.raised,
+    );
+
+    expect(runs.getByRole("img", { name: "Exception" })).toBeVisible();
+    expect(runs.getByText(/^Exception ·/)).toBeVisible();
+    expect(runs.queryByText(/Crashed/)).toBeNull();
+  });
+
   it("shows a run with no outcome as Not ended while its attempt runs", () => {
     const runs = show(sampleProject);
 

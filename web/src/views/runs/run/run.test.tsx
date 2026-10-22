@@ -428,6 +428,38 @@ describe("a run's files, logs and words", () => {
       ),
     ).toBeVisible();
   });
+
+  it("shows a run's raised or interrupted as the viewer's words, not the project file's", () => {
+    const shown = {
+      ...project,
+      statuses: {
+        ...project.statuses,
+        raised: { label: "Crashed", tone: "warn" as const },
+        interrupted: { label: "Cut short", tone: "neutral" as const },
+      },
+    };
+    for (const [outcome, label] of [
+      ["raised", "Exception"],
+      ["interrupted", "Run interrupted"],
+    ] as const) {
+      const rec = structuredClone(records.raised);
+      must(rec.visits.at(-1)).outcome = outcome;
+      const { unmount } = show(rec, rec.visits.length - 1, shown);
+
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+        label,
+      );
+      expect(
+        within(step(/^Output/)).getByRole("img", { name: label }),
+      ).toBeVisible();
+      // A bad outcome's Output starts open, a warn one's folded.
+      if (toggleOf(step(/^Output/)).getAttribute("aria-expanded") === "false")
+        fireEvent.click(toggleOf(step(/^Output/)));
+      const field = within(step(/^Output/)).getByText("Outcome");
+      expect(field.nextElementSibling).toHaveTextContent(label);
+      unmount();
+    }
+  });
 });
 
 describe("a visit's Markdown", () => {

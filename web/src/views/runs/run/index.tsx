@@ -21,7 +21,7 @@ import {
   stateTitle,
   outcomeOf,
 } from "../../../ui/status";
-import { StatusLabel } from "../../../ui/status-mark";
+import { OutcomeLabel, StatusLabel } from "../../../ui/status-mark";
 import { attemptHref } from "../../attempt/href";
 import { size, useFile } from "../../files/file";
 import { Files } from "../../files/index";
@@ -81,7 +81,7 @@ export default function RunPage({
       <header className="px-5 py-3.5">
         <h2 className="flex items-center gap-2 text-md font-semibold">
           {title}
-          <StatusLabel
+          <OutcomeLabel
             project={project}
             word={visit.outcome}
             ended={attemptStatus(project, record) !== null}
@@ -473,7 +473,7 @@ function InputStep({
         <dl className={fields}>
           <Field name="Report from">{runLink(input.from)}</Field>
           <Field name="Outcome">
-            <StatusLabel
+            <OutcomeLabel
               project={project}
               word={before.outcome}
               ended={attemptStatus(project, record) !== null}
@@ -639,7 +639,7 @@ function OutputStep({
     >
       <dl className={fields}>
         <Field name="Outcome">
-          <StatusLabel
+          <OutcomeLabel
             project={project}
             word={visit.outcome}
             ended={end !== null}

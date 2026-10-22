@@ -8,7 +8,7 @@ import {
   type Tone,
   type Visit,
 } from "../../../api/types";
-import { statusOf } from "../../../ui/status";
+import { outcomeOf } from "../../../ui/status";
 import type { Listed } from "../../trials/source";
 
 /** The statuses the engine gives an action, and how each reads. */
@@ -116,6 +116,6 @@ export function startsOpen(
     actions: visit.actions.map(
       (a, i) => i === first || actionStatus(a.status).tone === "bad",
     ),
-    output: statusOf(project, visit.outcome).tone === "bad",
+    output: outcomeOf(project, visit.outcome, false).tone === "bad",
   };
 }

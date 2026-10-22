@@ -1,6 +1,6 @@
 // A status word drawn as a label or an icon in its tone.
 import type { Project, Tone } from "../api/types";
-import { outcomeOf, toneGlyph } from "./status";
+import { outcomeOf, statusOf, toneGlyph } from "./status";
 
 const toneLabel: Record<Tone, string> = {
   good: "bg-good-label text-good-label-fg",
@@ -16,18 +16,29 @@ const toneIcon: Record<Tone, string> = {
   neutral: "text-neutral",
 };
 
-/**
- * A word as a tone-coloured label. With ended, the word is a visit's outcome
- * in an attempt that has ended, so a null word is No outcome.
- */
+/** A status word as a tone-coloured label. */
 export function StatusLabel({
   project,
   word,
-  ended = false,
 }: {
   project: Pick<Project, "statuses">;
   word: string | null;
-  ended?: boolean;
+}) {
+  return <ToneLabel {...statusOf(project, word)} />;
+}
+
+/**
+ * A visit's outcome as a tone-coloured label; ended says whether its attempt
+ * has ended, so a null outcome is No outcome.
+ */
+export function OutcomeLabel({
+  project,
+  word,
+  ended,
+}: {
+  project: Pick<Project, "statuses">;
+  word: string | null;
+  ended: boolean;
 }) {
   return <ToneLabel {...outcomeOf(project, word, ended)} />;
 }
@@ -47,16 +58,27 @@ export function ToneLabel({ label, tone }: { label: string; tone: Tone }) {
 
 /**
  * A status word as its tone's icon, in outline in the tone's colour; its
- * label is read out, not shown. ended is as for StatusLabel.
+ * label is read out, not shown.
  */
 export function StatusIcon({
   project,
   word,
-  ended = false,
 }: {
   project: Pick<Project, "statuses">;
   word: string | null;
-  ended?: boolean;
+}) {
+  return <ToneIcon {...statusOf(project, word)} />;
+}
+
+/** A visit's outcome as its tone's icon; ended is as for OutcomeLabel. */
+export function OutcomeIcon({
+  project,
+  word,
+  ended,
+}: {
+  project: Pick<Project, "statuses">;
+  word: string | null;
+  ended: boolean;
 }) {
   return <ToneIcon {...outcomeOf(project, word, ended)} />;
 }

@@ -3,7 +3,7 @@ import type { Project, Visit } from "../../api/types";
 import { usd, visitCost, visitTime } from "../../ui/format";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { liveStatus, outcomeOf, stateTitle } from "../../ui/status";
-import { StatusIcon } from "../../ui/status-mark";
+import { OutcomeIcon } from "../../ui/status-mark";
 
 /**
  * A visit of the record. With since, it is the visit the attempt runs now:
@@ -31,7 +31,9 @@ export function VisitLine({
     );
   return (
     <Line
-      icon={<StatusIcon project={project} word={visit.outcome} ended={ended} />}
+      icon={
+        <OutcomeIcon project={project} word={visit.outcome} ended={ended} />
+      }
       title={stateTitle(project, visit.state)}
       sub={
         <>

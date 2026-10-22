@@ -119,6 +119,20 @@ describe("the files view", () => {
     );
   });
 
+  it("opens the first file of the folder the page names, and that folder", async () => {
+    show(task, `${root}/src`);
+
+    expect(await preview()).toHaveTextContent("src/tinyparse/header.py");
+    expect(
+      await screen.findByRole("link", { name: "header.py" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "src" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.queryByText(/a directory, not a file/)).toBeNull();
+  });
+
   it("ignores a named file outside its own path", async () => {
     show(task, "artifacts/review/1/report.md");
 
