@@ -55,6 +55,36 @@ describe("the Runs column", () => {
     expect(runs.queryByText(/Not ended/)).toBeNull();
   });
 
+  it("says a run with no action has no time recorded, its cost still shown", () => {
+    const [author, check] = records.raised.visits;
+    const record = {
+      ...records.raised,
+      visits: [must(author), { ...must(check), actions: [] }],
+    };
+    const runs = show(sampleProject, record);
+
+    expect(
+      runs.getByText("Exception · no action recorded · $0.00"),
+    ).toBeVisible();
+    expect(runs.getByText(/^done · \d+(m \d+)?s · \$/)).toBeVisible();
+  });
+
+  it("says a run whose action's times do not read has no time, not no action", () => {
+    const [author, check] = records.raised.visits;
+    const action = must(must(check).actions[0]);
+    const record = {
+      ...records.raised,
+      visits: [
+        must(author),
+        { ...must(check), actions: [{ ...action, started_at: "not a time" }] },
+      ],
+    };
+    const runs = show(sampleProject, record);
+
+    expect(runs.getByText(/^Exception · — · \$/)).toBeVisible();
+    expect(runs.queryByText(/no action recorded/)).toBeNull();
+  });
+
   it("shows a run with no outcome as Not ended while its attempt runs", () => {
     const runs = show(sampleProject);
 

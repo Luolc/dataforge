@@ -6,10 +6,11 @@ import older from "../../../fixtures/oldrec/attempts/older/task-0301/record.json
 import passed from "../../../fixtures/attempts/batch-1/task-0001/record.json";
 import midway from "../../../fixtures/live-deliverables/attempts/task-0301/2026-03-04T101500Z/record.json";
 import running from "../../../fixtures/attempts/batch-2/task-0005/record.json";
-import { sampleProject } from "../../../fixtures/sample";
-import type { Project } from "../../api/types";
+import { must, records, sampleProject } from "../../../fixtures/sample";
+import type { AttemptRecord, Deliverable, Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
 import { AttemptPage } from "./AttemptPage";
+import { asShown } from "./declared";
 
 // Declared in another order than the record's, with one the record lacks.
 const project: Project = {
@@ -103,7 +104,7 @@ describe("the deliverables a project declares", () => {
 
     expect(
       await screen.findByText(
-        /This attempt has not reached the state that makes it\./,
+        /the attempt has not reached the state that makes it yet\./,
       ),
     ).toBeVisible();
   });
@@ -117,7 +118,7 @@ describe("the deliverables a project declares", () => {
     const card = screen.getByRole("table");
     expect(within(card).getAllByRole("row")).toHaveLength(5);
     expect(
-      within(card).getAllByText(/This attempt has not reached the state/),
+      within(card).getAllByText(/the attempt has not reached the state/),
     ).toHaveLength(4);
   });
 
@@ -141,7 +142,7 @@ describe("the deliverables a project declares", () => {
     expect(
       (await screen.findByText("Deliverables", { selector: "dt" })).nextSibling,
     ).toHaveTextContent("3 of 4");
-    expect(screen.getByText(/This attempt ended without it\./)).toBeVisible();
+    expect(screen.getByText(/the attempt ended without it\./)).toBeVisible();
   });
 
   it("count a kind the viewer does not know by the ones reached", async () => {
@@ -196,6 +197,7 @@ describe("a tab of several deliverables of one kind", () => {
     const pass = record.deliverables.find((d) => d.name === "pass_at_k");
     if (pass === undefined) throw new Error("no pass_at_k");
     const unreached = (state: string) => ({
+      state,
       visit: null,
       visit_index: null,
       path: null,
@@ -242,13 +244,15 @@ describe("a tab of several deliverables of one kind", () => {
     const menu = await screen.findByRole("button", { name: /Pass@k/ });
     expect(menu).toHaveTextContent(/^Pass@k$/);
     expect(await screen.findByText(/2 \/ 4 solved/)).toBeVisible();
-    expect(screen.queryByText("regrade was never visited")).toBeNull();
+    expect(screen.queryByText("the attempt never reached regrade.")).toBeNull();
   });
 
   it("opens on the first declared when none was reached", async () => {
     show(withRegrade(false, false), "&tab=trials", twice);
 
-    expect(await screen.findByText("regrade was never visited")).toBeVisible();
+    expect(
+      await screen.findByText("the attempt never reached regrade."),
+    ).toBeVisible();
   });
 
   // As twice, with pass@k marked as the one to name the tab by while none
@@ -310,6 +314,7 @@ describe("a tab of several deliverables of one kind", () => {
       ...(reached
         ? {}
         : {
+            state: "tighten",
             visit: null,
             visit_index: null,
             path: null,
@@ -349,7 +354,7 @@ describe("a tab of several deliverables of one kind", () => {
   it("of reports stacks the reached ones first, then the others", async () => {
     show(withTightened(false), "&tab=report", reviews);
 
-    await screen.findByText("Not run: tighten was never visited");
+    await screen.findByText("Not run: the attempt never reached tighten.");
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
     ).toEqual(["Review", "Tightened review"]);
@@ -428,10 +433,11 @@ describe("a running attempt's record", () => {
     const reviews = early.deliverables.find((d) => d.name === "reviews");
     if (reviews === undefined) throw new Error("no reviews");
     Object.assign(reviews, {
+      state: "tighten",
       visit: null,
       visit_index: null,
       path: null,
-      reason: "review was never visited",
+      reason: "tighten was never visited",
     });
     show(early, "", live);
 
@@ -439,7 +445,9 @@ describe("a running attempt's record", () => {
     expect(
       (await screen.findByText("Deliverables", { selector: "dt" })).nextSibling,
     ).toHaveTextContent("2 of 3");
-    expect(screen.getByText("Not run: review was never visited")).toBeVisible();
+    expect(
+      screen.getByText("Not run: the attempt has not reached tighten yet."),
+    ).toBeVisible();
   });
 });
 
@@ -485,3 +493,88 @@ describe("a deliverable's title", () => {
 function never(): never {
   throw new Error("no deliverable");
 }
+
+describe("why a deliverable has no path, in the viewer's words", () => {
+  // passed: author, check, author, check, review, then solve (Pass@k).
+  const ended = records.passed;
+  const running: AttemptRecord = { ...ended, status: null };
+  const entry = (over: Partial<Deliverable>): Deliverable => ({
+    ...must(ended.deliverables?.find((d) => d.name === "pass_at_k")),
+    visit: null,
+    visit_index: null,
+    path: null,
+    reason: "the engine's own words",
+    ...over,
+  });
+  const why = (record: AttemptRecord, item: Deliverable) =>
+    must(
+      asShown(sampleProject, { ...record, deliverables: [item] })
+        .deliverables?.[0],
+    ).reason;
+  const before = (n: number, outcome: string | null) => ({
+    ...running,
+    visits: [
+      ...ended.visits.slice(0, n),
+      { ...must(ended.visits[n]), outcome },
+    ],
+  });
+
+  it("names the state by its title, and says whether the attempt runs on", () => {
+    const item = entry({ state: "regrade" });
+    const regraded = { ...sampleProject.states, regrade: { title: "Regrade" } };
+    const project = { ...sampleProject, states: regraded };
+    const shown = (record: AttemptRecord) =>
+      must(
+        asShown(project, { ...record, deliverables: [item] }).deliverables,
+      )[0]?.reason;
+
+    expect(shown(ended)).toBe("the attempt never reached Regrade.");
+    expect(shown(running)).toBe("the attempt has not reached Regrade yet.");
+  });
+
+  it("says a state in its first run has not finished one", () => {
+    expect(why(before(5, null), entry({}))).toBe(
+      "Pass@k has not finished a run yet.",
+    );
+    // Its process stopped and the attempt ended with a status meanwhile.
+    expect(why({ ...before(5, null), status: "exhausted" }, entry({}))).toBe(
+      "Pass@k never finished a run.",
+    );
+  });
+
+  it("says a state ran only after the run the attempt kept", () => {
+    const kept = { ...ended, kept_visit: 1 };
+
+    expect(why(kept, entry({ state: "review" }))).toBe(
+      "review ran only after the run the attempt kept, run 2.",
+    );
+  });
+
+  it("says a state's runs do not include the one the deliverable takes", () => {
+    expect(why(ended, entry({}))).toBe(
+      "Pass@k's 1 run does not include the one this takes.",
+    );
+    expect(why(running, entry({ state: "author" }))).toBe(
+      "author's 2 runs do not include the one this takes yet.",
+    );
+  });
+
+  it("says which run wrote no output the deliverable takes", () => {
+    const item = entry({
+      name: "task",
+      kind: "files",
+      state: "author",
+      output: "task",
+      visit: 2,
+      visit_index: 2,
+    });
+
+    expect(why(ended, item)).toBe("author · run 3 wrote no task.");
+  });
+
+  it("keeps the record's reason of one that has a path", () => {
+    const item = entry({ path: "artifacts/solve/1", visit_index: 5 });
+
+    expect(why(ended, { ...item, reason: null })).toBeNull();
+  });
+});

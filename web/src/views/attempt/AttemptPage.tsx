@@ -47,7 +47,7 @@ import { kindTitle, leading } from "../kind";
 import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
-import { declaredMissing, retitled, tabKinds } from "./declared";
+import { asShown, declaredMissing, tabKinds } from "./declared";
 import { attemptHref } from "./href";
 import { TabCount, TabView } from "../tabs";
 import { useTabVersions } from "../tabs/versions";
@@ -226,7 +226,7 @@ function Attempt({
   /** The part of a project's tab shown, by name; null for its first. */
   part: string | null;
 }) {
-  const record = retitled(project, recordRead);
+  const record = asShown(project, recordRead);
   // A record that has ended wins over a /live read before it ended: the page
   // then shows the record alone.
   const live = attemptStatus(project, record) === null ? read : null;
