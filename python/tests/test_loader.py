@@ -819,6 +819,7 @@ states:
       inputs: [out]
       outputs: [environment, task]
       memory_gb: ${{ inputs.memory_gb }}
+      build: true
       outcomes: [pass, fail]
     feedback: ${check_feedback}
     transitions:
@@ -1005,6 +1006,7 @@ def by_hand(
             inputs=("out",),
             outputs=("environment", "task"),
             memory_gb=8,
+            build=True,
           ),
           ("pass", "fail"),
         ),

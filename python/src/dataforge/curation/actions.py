@@ -203,22 +203,24 @@ class ResourcePool:
       self.release(memory_gb)
 
   @contextmanager
-  def build(self, memory_gb: float) -> Generator[None]:
+  def build(self, memory_gb: float | None) -> Generator[None]:
     """Hold a build slot and a reservation while the with block runs.
 
     For an image build, whose writes to the disk no write_limit caps: it
     waits for a slot first and then for the memory, so that a build waiting
-    for a slot holds no memory.
+    for a slot holds no memory. A caller that holds memory of this pool
+    already must not take a slot, as it would wait for one while holding
+    memory that a build holding a slot may be waiting for.
 
     Args:
-      memory_gb: The memory to reserve, as reserve takes it.
+      memory_gb: The memory to reserve, as reserve takes it; None for none.
 
     Yields:
       Nothing; the slot and the memory are held until the block ends.
     """
     slot = self._builds.wait(1, lambda held: len(held) < self.builds)
     try:
-      with self.reserve(memory_gb):
+      with nullcontext() if memory_gb is None else self.reserve(memory_gb):
         yield
     finally:
       slot.release()
@@ -240,9 +242,13 @@ def _mem_available_gb() -> float | None:
 
 
 def _reserve(
-  pool: ResourcePool | None, memory_gb: float | None
+  pool: ResourcePool | None, memory_gb: float | None, build: bool = False
 ) -> AbstractContextManager[None]:
-  if pool is None or memory_gb is None:
+  if pool is None:
+    return nullcontext()
+  if build:
+    return pool.build(memory_gb)
+  if memory_gb is None:
     return nullcontext()
   return pool.reserve(memory_gb)
 
@@ -494,13 +500,18 @@ class WriteLimit:
       if value is not None and value <= 0:
         raise ValueError(f"write limit {name} {value} is not positive")
 
+  @property
+  def caps(self) -> bool:
+    """Whether it sets a cap."""
+    return self.bps is not None or self.iops is not None
+
   def docker_args(self) -> list[str]:
     """Return the arguments of `docker create` that set the caps.
 
     Returns:
       `--device-write-bps` and `--device-write-iops`, each only when set.
     """
-    if self.bps is None and self.iops is None:
+    if not self.caps:
       return []
     device = write_device(self.root)
     args: list[str] = []
@@ -524,10 +535,14 @@ def write_device(root: Path, sysfs: Path = SYSFS) -> str:
     The disk, such as /dev/nvme0n1.
 
   Raises:
-    ValueError: When root's file system is on no block device, as a tmpfs
-      or an overlay is not.
+    ValueError: When root does not exist, or its file system is on no block
+      device, as a tmpfs or an overlay is not.
   """
-  number = root.stat().st_dev
+  try:
+    number = root.stat().st_dev
+  except FileNotFoundError as error:
+    hint = "give the write limit a root on the disk the containers write to"
+    raise ValueError(f"{root} does not exist: {hint}") from error
   node = sysfs / "dev" / "block" / f"{os.major(number)}:{os.minor(number)}"
   if not node.exists():
     raise ValueError(f"{root} is on no block device ({node} is missing)")
@@ -743,7 +758,7 @@ class Docker:
 
   def _write_checks(self, host: dict[str, object]) -> dict[str, bool | None]:
     limit = self.write_limit
-    if limit is None or (limit.bps is None and limit.iops is None):
+    if limit is None or not limit.caps:
       return {}
     device = write_device(limit.root)
 
@@ -1178,6 +1193,9 @@ class ScriptSpec:
     memory_gb: On the host, reserved from the pool while it runs; in a Docker
       env the env's reservation covers it.
     optional_inputs: More inputs, each left out when it does not exist yet.
+    build: Whether it builds an image: it then runs only on the host and
+      holds one of the pool's build slots while it runs, taken before its
+      memory_gb (`ResourcePool.build`).
   """
 
   argv: Sequence[str]
@@ -1185,6 +1203,7 @@ class ScriptSpec:
   outputs: Sequence[str] = ()
   memory_gb: float | None = None
   optional_inputs: Sequence[Input] = ()
+  build: bool = False
 
 
 VERDICT = "verdict.json"
@@ -1506,10 +1525,13 @@ class Actions:
   ) -> tuple[datetime, CommandResult, str | None]:
     # Runs a script, collects its outputs and reads its summary; the caller
     # records it.
+    if spec.build and not isinstance(env, Host):
+      # A Docker env's container may hold the pool's memory already.
+      raise ValueError("a script that builds an image runs on the host")
     index, started_at = ctx.claim(spec.outputs), datetime.now(UTC)
     inputs = ctx.resolve(spec.inputs, spec.optional_inputs)
     memory_gb = spec.memory_gb if isinstance(env, Host) else None
-    with _reserve(self.pool, memory_gb):
+    with _reserve(self.pool, memory_gb, spec.build):
       env.start(self.pool)
       try:
         staged = env.stage(ctx, index, inputs, None)
