@@ -4,6 +4,10 @@ from dataforge.curation.faults import trial_fault, trial_judged
 
 # Harbor's NonZeroAgentExitCodeError, as agents/installed/base.py words it.
 EXIT = "NonZeroAgentExitCodeError: Command failed (exit 1): claude -p\nstdout: "
+# What dataforge.curation.harbor puts first when the container hit its limit.
+PIDS_HIT = (
+  "NonZeroAgentExitCodeError: the agent's container hit its process limit"
+)
 
 
 @pytest.mark.parametrize(
@@ -23,6 +27,9 @@ EXIT = "NonZeroAgentExitCodeError: Command failed (exit 1): claude -p\nstdout: "
     (EXIT + '{"type":"result","subtype":"error_max_budget_usd"}', None, True),
     (EXIT + '{"type": "result", "subtype": "error_max_turns"}', None, True),
     (EXIT + "\nstderr: Killed", None, False),
+    (PIDS_HIT + " (512) 530 times; Command failed (exit 134)", None, True),
+    # Only dataforge's words right after the type count, not the agent's.
+    (EXIT + PIDS_HIT.split(": ", 1)[1] + " (512) 1 times;", None, False),
   ],
 )
 def test_a_trial_exception_reads_as_its_fault(
