@@ -26,12 +26,13 @@ from dataforge.queue import (
   load_config,
   submit,
 )
+from dataforge.queue import scheduler as scheduler_module
 from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
 from dataforge.queue.store import row as read_row
 from dataforge.queue.wrapper import _wait  # pyright: ignore[reportPrivateUsage]
 from dataforge.queue.wrapper import main as wrapper
-from dataforge.runs import SCHEMA_MAJOR, Store
+from dataforge.runs import NewerSchemaError, SCHEMA_MAJOR, Store
 
 QUEUE_FILE = """
 queues: {alpha: 1, beta: 2}
@@ -707,10 +708,31 @@ def test_a_store_that_cannot_be_reconciled_is_logged_once_and_jobs_start(
   job = put(config, "alpha", "true")
   until(ended(config, job), scheduler)
   scheduler.tick()
-  warnings = [
-    r.getMessage() for r in caplog.records if "runs" in r.getMessage()
-  ]
-  assert len(warnings) == 1
-  assert "schema_major" in warnings[0]
+  [logged] = [r for r in caplog.records if "runs" in r.getMessage()]
+  assert logged.exc_info is not None
+  assert logged.exc_info[0] is NewerSchemaError
   assert state(config, job).state == "done"
   assert scheduler.config.runs[1] == Path.home() / "none" / "runs.sqlite"
+
+
+def test_whatever_a_stores_reconcile_raises_the_jobs_start(
+  config: Config,
+  scheduler: Scheduler,
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+):
+  def broken(*_args: object) -> list[str]:
+    raise RuntimeError("a bug")
+
+  monkeypatch.setattr(scheduler_module, "reconcile", broken)
+  scheduler.config = with_runs(tmp_path, "runs.sqlite")
+  first, second = put(config, "alpha", "true"), put(config, "alpha", "true")
+  until(ended(config, first, second), scheduler)
+  assert [state(config, job).state for job in (first, second)] == [
+    "done",
+    "done",
+  ]
+  [logged] = [r for r in caplog.records if "runs" in r.getMessage()]
+  assert logged.exc_info is not None
+  assert logged.exc_info[0] is RuntimeError

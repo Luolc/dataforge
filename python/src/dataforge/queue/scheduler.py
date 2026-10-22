@@ -19,9 +19,10 @@ Each look at the table (a tick) does four things:
   first.
 - Each store of attempts the queue file lists under runs is reconciled with
   no hooks (dataforge.runs.reconcile): an attempt whose process is gone, such
-  as one killed with SIGKILL, is made interrupted. It runs no dataset code. A
-  store that cannot be reconciled is logged, once until its error changes,
-  and the tick goes on.
+  as one killed with SIGKILL, is made interrupted. It runs no dataset code.
+  Whatever a store's reconcile raises, short of SystemExit and
+  KeyboardInterrupt, is logged with its traceback, once until it changes,
+  and the tick goes on with the next store.
 
 A job runs as `python -m dataforge.queue.wrapper <database> <id>
 <cancel_grace_s>`, in a session of its own: the wrapper runs the command and
@@ -52,7 +53,7 @@ from dataforge.queue.proc import (
   signal_group,
 )
 from dataforge.queue.store import connect, Job, select, write
-from dataforge.runs import NewerSchemaError, reconcile, Store
+from dataforge.runs import reconcile, Store
 
 _LOST = """
 UPDATE jobs SET state = ?, ended_at = ?
@@ -155,10 +156,13 @@ class Scheduler:
   def _reconcile(self, path: Path) -> None:
     try:
       done = reconcile(Store(path))
-    except (sqlite3.Error, OSError, NewerSchemaError) as error:
-      if self._failing.get(path) != str(error):
-        self._failing[path] = str(error)
-        _log.warning("runs %s: not reconciled: %s", path, error)
+    # The scheduler is the machine's; a store's reconcile goes with it, and
+    # nothing it raises may stop the scheduler.
+    except Exception as error:  # noqa: BLE001
+      said = f"{type(error).__name__}: {error}"
+      if self._failing.get(path) != said:
+        self._failing[path] = said
+        _log.exception("runs %s: not reconciled", path)
       return
     _ = self._failing.pop(path, None)
     for line in done:
