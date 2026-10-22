@@ -21,9 +21,14 @@ const project = {
   },
 };
 
-function show(rec: AttemptRecord, index: number, shown = project) {
+function show(
+  rec: AttemptRecord,
+  index: number,
+  shown = project,
+  url = "/sample/attempt?id=p4%2Ftask-0101&tab=runs",
+) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[url]}>
       <RunPage
         project={shown}
         attempt="p4/task-0101"
@@ -85,6 +90,7 @@ describe("which steps start open", () => {
       false,
       false,
       false, // the closing script
+      false, // Files
       false, // Output, in range
     ]);
   });
@@ -125,8 +131,13 @@ describe("which steps start open", () => {
 
     rerender(page(1));
 
-    // Input, the script, then the Output of a failed check.
-    expect(steps().map(([, open]) => open)).toEqual([false, false, true]);
+    // Input, the script, its Files, then the Output of a failed check.
+    expect(steps().map(([, open]) => open)).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ]);
   });
 
   it("each toggle names the body it opens", () => {
@@ -182,11 +193,11 @@ describe("the input and the output", () => {
     show(failed, 2);
     const input = step(/^Input/);
 
-    expect(within(input).getByRole("link")).toHaveAttribute(
+    const from = within(input).getByRole("link", { name: "check · run 2" });
+    expect(from).toHaveAttribute(
       "href",
       "/sample/attempt?id=p4%2Ftask-0101&tab=runs&run=1",
     );
-    expect(within(input).getByRole("link")).toHaveTextContent("check · run 2");
     expect(within(input).getByText("Fail")).toBeVisible();
     expect(
       within(input).getByText("artifacts/check/1/feedback.md"),
@@ -271,7 +282,6 @@ describe("what the record does not have", () => {
 
     expect(toggleOf(step3)).toHaveTextContent("agent— · $2.75");
     expect(within(step3).getAllByText("—")).not.toHaveLength(0);
-    expect(within(step3).getByText("none")).toBeVisible();
     expect(
       within(step3).getByText("The record names no trace for this session."),
     ).toBeVisible();
@@ -285,7 +295,125 @@ describe("what the record does not have", () => {
 
     expect(screen.getByText("The visit recorded no actions.")).toBeVisible();
     expect(within(step(/^Output/)).getAllByText("Not ended")).toHaveLength(2);
-    expect(within(step(/^Output/)).getAllByText("none")).toHaveLength(2);
+    expect(within(step(/^Output/)).getByText("—")).toBeVisible();
+    expect(within(step(/^Output/)).queryByText("Transition mark")).toBeNull();
+  });
+});
+
+describe("a run's files, logs and words", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("links each output to the Files step of the run that wrote it", () => {
+    show(records.passed, 1);
+    fireEvent.click(toggleOf(step(/^script/)));
+
+    expect(
+      within(step(/^script/)).getByRole("link", { name: "log" }),
+    ).toHaveAttribute(
+      "href",
+      "/sample/attempt?id=p4%2Ftask-0101&tab=runs&run=1&file=artifacts%2Fcheck%2F1%2Fcheck.log",
+    );
+    expect(step(/^Files/)).toBeDefined();
+  });
+
+  it("opens the Files step on the file the page names, with the visit's tree", async () => {
+    fakeFiles({ "artifacts/check/1/check.log": "2 failed\n" });
+    // jsdom draws nothing, so it has no scrollIntoView.
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    show(
+      records.passed,
+      1,
+      project,
+      "/sample/attempt?id=p4%2Ftask-0101&tab=runs&run=1&file=artifacts%2Fcheck%2F1%2Fcheck.log",
+    );
+
+    const files = step(/^Files/);
+    expect(toggleOf(files)).toHaveAttribute("aria-expanded", "true");
+    expect(toggleOf(files)).toHaveTextContent("artifacts/check/1");
+    expect(
+      await within(files).findByRole("heading", {
+        level: 3,
+        name: "check.log",
+      }),
+    ).toBeVisible();
+    expect(scroll).toHaveBeenCalledOnce();
+    // @ts-expect-error -- jsdom's Element has no scrollIntoView to put back.
+    delete Element.prototype.scrollIntoView;
+  });
+
+  it("has no Files step when no output of the visit is in its directory", () => {
+    show(failed, 2);
+
+    expect(steps().map(([name]) => name)).not.toContainEqual(
+      expect.stringMatching(/^Files/),
+    );
+  });
+
+  it("lists an action's logs, each opening to its preview", async () => {
+    fakeFiles({ "logs/check/1/1.log": "out\nerr\n" });
+    const rec = structuredClone(records.passed);
+    must(must(rec.visits[1]).actions[0]).logs = ["logs/check/1/1.log"];
+    show(rec, 1);
+    fireEvent.click(toggleOf(step(/^script/)));
+
+    const log = within(step(/^script/)).getByRole("button", {
+      name: "logs/check/1/1.log",
+    });
+    expect(log).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(log);
+    expect(log).toHaveAttribute("aria-expanded", "true");
+    expect(
+      await within(step(/^script/)).findByRole("heading", {
+        level: 3,
+        name: "1.log",
+      }),
+    ).toBeVisible();
+  });
+
+  it("says a record from before logs names none", () => {
+    show(records.passed, 1);
+    fireEvent.click(toggleOf(step(/^script/)));
+
+    expect(
+      within(step(/^script/)).getByText("This record names no logs."),
+    ).toBeVisible();
+  });
+
+  it("gives an action's duration, and tells it from a session's own", () => {
+    show(failed, 2);
+
+    expect(
+      within(step(/^agent/)).getByText(/from the action's start/),
+    ).toHaveTextContent(
+      "14m 17s, from the action's start to its end; the session below counts its own time alone",
+    );
+  });
+
+  it("names a transition's mark when there is one", () => {
+    const rec = structuredClone(records.passed);
+    must(rec.visits[1]).mark = "retry";
+    show(rec, 1);
+    // A failed check's Output starts open.
+    expect(toggleOf(step(/^Output/))).toHaveAttribute("aria-expanded", "true");
+
+    expect(within(step(/^Output/)).getByText("Transition mark")).toBeVisible();
+    expect(within(step(/^Output/)).getByText("retry")).toBeVisible();
+  });
+
+  it("shows an interrupted run as Interrupted", () => {
+    const rec = structuredClone(records.raised);
+    const last = must(rec.visits.at(-1));
+    last.outcome = "interrupted";
+    show(rec, rec.visits.length - 1);
+
+    expect(
+      within(screen.getByRole("heading", { level: 2 })).getByText(
+        "Interrupted",
+      ),
+    ).toBeVisible();
   });
 });
 

@@ -289,6 +289,9 @@ const action = z.looseObject({
     .nullable()
     .optional(),
   session: z.unknown().optional(),
+  // What the action printed, as files of the attempt; a record from before
+  // logs has none.
+  logs: z.array(z.string()).optional(),
 });
 export type Action = z.infer<typeof action>;
 

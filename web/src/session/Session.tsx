@@ -69,7 +69,7 @@ export function SessionBody({
           {badge}
           {shownTotals === "all" && (
             <>
-              <Total label="duration">
+              <Total label="session">
                 {totals.seconds === null ? "—" : duration(totals.seconds)}
               </Total>
               <Total label="cost">

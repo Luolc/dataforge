@@ -52,7 +52,8 @@ export function FilesCard({
   );
 }
 
-function Files({
+/** A file tree of root and the preview of the file chosen in it. */
+export function Files({
   project,
   attempt,
   root,
