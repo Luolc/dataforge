@@ -16,6 +16,13 @@ export type Read = (typeof READS)[number];
 
 const FORMAT = z.enum(["text", "number", "usd", "duration", "time"]);
 
+const TAB_PART = z.looseObject({
+  name: z.string(),
+  title: z.string(),
+  file: z.string(),
+  fields: z.array(z.looseObject({ title: z.string(), format: FORMAT })),
+});
+
 export const project = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -48,16 +55,16 @@ export const project = z.looseObject({
   definition: z.string().nullable().optional(),
   // Whether the project names a resource monitor database.
   monitor: z.boolean().optional(),
-  // The attempt page's tabs of a Markdown file, each found in the
-  // directories of an attempt that match its versions.
+  // The attempt page's tabs of Markdown files, each found in the
+  // directories of an attempt that match its versions: one part, the tab's
+  // own file, or two or more, each an entry of the tab's column.
   tabs: z
     .array(
       z.looseObject({
         name: z.string(),
         title: z.string(),
         versions: z.array(z.string()),
-        file: z.string(),
-        fields: z.array(z.looseObject({ title: z.string(), format: FORMAT })),
+        parts: z.tuple([TAB_PART], TAB_PART),
       }),
     )
     .optional(),
@@ -71,23 +78,29 @@ export const project = z.looseObject({
 export type Project = z.infer<typeof project>;
 export type Column = Project["columns"][number];
 export type ProjectTab = NonNullable<Project["tabs"]>[number];
+export type TabPart = ProjectTab["parts"][number];
 export const projects = z.array(project);
 
 // Each tab of the project, with the versions an attempt has of it, the first
-// shown by default, and the value of each of its fields in each: read found,
-// value the JSON value, null among them; else value null and reason why
-// there is none.
+// shown by default, and the value of each field of each of its parts in each:
+// read found, value the JSON value, null among them; else value null and
+// reason why there is none.
 export const tabVersions = z.array(
   z.looseObject({
     name: z.string(),
     versions: z.array(
       z.looseObject({
         dir: z.string(),
-        fields: z.array(
+        parts: z.array(
           z.looseObject({
-            read: z.enum(READS),
-            value: z.unknown(),
-            reason: z.string().nullable(),
+            name: z.string(),
+            fields: z.array(
+              z.looseObject({
+                read: z.enum(READS),
+                value: z.unknown(),
+                reason: z.string().nullable(),
+              }),
+            ),
           }),
         ),
       }),

@@ -119,6 +119,7 @@ export function AttemptPage() {
       : null;
   const tab = query.get("tab") ?? "runs";
   const run = runOf(query.get("run"));
+  const part = query.get("part");
   const discarded = runOf(query.get("discarded"));
   // A stage of the attempt's definition, or its workflow file, from the Runs
   // tab's column; it wins over a run, for a project that names a definition.
@@ -183,6 +184,7 @@ export function AttemptPage() {
         run={run}
         discarded={discarded}
         defn={defn}
+        part={part}
       />
     );
   return (
@@ -207,6 +209,7 @@ function Attempt({
   run,
   discarded,
   defn,
+  part,
 }: {
   project: Project;
   attempt: string;
@@ -218,6 +221,8 @@ function Attempt({
   run: number | null;
   discarded: number | null;
   defn: string | null;
+  /** The part of a project's tab shown, by name; null for its first. */
+  part: string | null;
 }) {
   const record = retitled(project, recordRead);
   // A record that has ended wins over a /live read before it ended: the page
@@ -300,6 +305,7 @@ function Attempt({
           project={project}
           attempt={attempt}
           tab={ownTab}
+          part={part}
           loaded={versions}
         />
       ) : (

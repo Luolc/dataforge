@@ -34,15 +34,20 @@ deliverables:
   - { name: task, kind: files, title: Task }
   - { name: pass_at_k, kind: trials, title: Pass@k }
   - { name: review, kind: report, title: Review }
-# Each attempt's notes, a Markdown file in one or more of its directories,
-# the first of them shown by default; made up, as the attempts are.
+# Each attempt's notes and the prompt they were written from, Markdown files
+# in one or more of its directories, the first of them shown by default; made
+# up, as the attempts are.
 tabs:
   - name: notes
     title: Notes
     versions: [notes, "notes-*"]
-    file: out/notes.md
-    fields:
-      - { title: Verdict, file: tags.json, field: [verdict, value] }
-      - { title: Confidence, file: tags.json, field: [verdict, confidence] }
-      - { title: Outcome, file: status.json, field: [outcome] }
-      - { title: Spent, file: status.json, field: [cost_usd], format: usd }
+    parts:
+      - name: notes
+        title: Notes
+        file: out/notes.md
+        fields:
+          - { title: Verdict, file: tags.json, field: [verdict, value] }
+          - { title: Confidence, file: tags.json, field: [verdict, confidence] }
+          - { title: Outcome, file: status.json, field: [outcome] }
+          - { title: Spent, file: status.json, field: [cost_usd], format: usd }
+      - { name: prompt, title: Prompt, file: prompt.md }
