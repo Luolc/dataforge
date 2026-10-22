@@ -1031,7 +1031,10 @@ def test_an_interrupt_that_leaves_the_popens_lock_held_still_stops_harbor(
   timers: list[threading.Timer] = []
 
   def wait(process: subprocess.Popen[bytes], *_args: object) -> int:
+    deadline = time.monotonic() + 10
     while not (out / "pids").exists():
+      if time.monotonic() > deadline:
+        pytest.fail("the fake harbor wrote no pids")
       time.sleep(0.05)
     lock = cast(threading.Lock, process._waitpid_lock)  # pyright: ignore[reportAttributeAccessIssue]
     _ = lock.acquire()
@@ -1051,6 +1054,22 @@ def test_an_interrupt_that_leaves_the_popens_lock_held_still_stops_harbor(
       timer.cancel()
     for pid in alive(out):
       os.kill(pid, signal.SIGKILL)
+
+
+def test_an_interrupt_after_harbor_was_reaped_still_escapes(
+  tmp_path: Path, fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # The interrupt comes after a Popen.wait reaped Harbor and before it set
+  # returncode.
+  def wait(process: subprocess.Popen[bytes], *_args: object) -> int:
+    _ = os.waitpid(process.pid, 0)
+    raise KeyboardInterrupt
+
+  monkeypatch.setattr(stopping, "wait", wait)
+  with pytest.raises(KeyboardInterrupt):
+    _ = runner(fakes, "exit").run(
+      task(tmp_path), "nop", Limits(2), outdir(tmp_path)
+    )
 
 
 @pytest.mark.parametrize("mode", ["hang", "interrupt"])
