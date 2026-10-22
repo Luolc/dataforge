@@ -105,10 +105,8 @@ export function span(from: string, to: string): number | null {
   return Number.isNaN(seconds) ? null : seconds;
 }
 
-export const visitStart = (v: Visit): string | undefined =>
-  v.actions[0]?.started_at;
-export const visitEnd = (v: Visit): string | undefined =>
-  v.actions.at(-1)?.ended_at;
+const visitStart = (v: Visit): string | undefined => v.actions[0]?.started_at;
+const visitEnd = (v: Visit): string | undefined => v.actions.at(-1)?.ended_at;
 
 /**
  * When an attempt started and ended, as the home page's listing takes them:
