@@ -2,9 +2,10 @@
 
 A test's ID is its file, from the project's root, and the titles of its
 describe blocks and its own, each after ` > `; an ID of a file or a describe
-block covers the tests in it. Each runner is the project's own, the first
-node_modules/.bin/<runner> from the directory up to the root, else the one
-on the PATH; node:test is the `node` on the PATH.
+block covers the tests in it. An ID names a file, not a directory: one that
+names a directory runs nothing and is an error. Each runner is the
+project's own, the first node_modules/.bin/<runner> from the directory up
+to the root, else the one on the PATH; node:test is the `node` on the PATH.
 """
 
 from __future__ import annotations
