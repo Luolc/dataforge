@@ -26,8 +26,26 @@ export function reachedFirst(items: Deliverable[]): Deliverable[] {
 
 /**
  * The deliverable of a kind that its tab is titled and counted by and opens
- * on: the first the attempt reached, else the first.
+ * on: the first the attempt reached, else the one the project marks
+ * default, else the first.
  */
-export function leading(items: Deliverable[]): Deliverable | undefined {
-  return reachedFirst(items)[0];
+export function leading(
+  project: Project,
+  items: Deliverable[],
+): Deliverable | undefined {
+  const reached = items.find((item) => item.path !== null);
+  if (reached !== undefined) return reached;
+  const marked = (project.deliverables ?? []).filter((d) => d.default === true);
+  return (
+    items.find((item) => marked.some((d) => d.name === item.name)) ?? items[0]
+  );
+}
+
+/** The title of a kind's tab: the project's for the kind, else its leading one's. */
+export function kindTitle(
+  project: Project,
+  kind: string,
+  items: Deliverable[],
+): string {
+  return project.kinds?.[kind]?.title ?? leading(project, items)?.title ?? kind;
 }
