@@ -26,7 +26,7 @@ export const UNREADABLE_KEY = "~unreadable";
 /** A status word for an attempt that has ended with no status word. */
 export const NO_STATUS_KEY = "~no-status";
 /** A status word for an attempt that may have stopped and has. */
-export const STOPPED_KEY = "~stopped";
+const STOPPED_KEY = "~stopped";
 
 export type Group = "open" | "ended" | "unreadable";
 
