@@ -31,6 +31,7 @@ from typing import cast, override
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation import (
   ActionResult,
   Actions,
@@ -1295,3 +1296,38 @@ def test_a_review_retried_after_a_refusal_starts_a_new_session(
   assert option(fake.argv(2), "--resume") == []
   assert (runs / "r-1.trace.jsonl").exists()
   assert (runs / "r-2.trace.jsonl").exists()
+
+
+def test_a_review_whose_call_was_stopped_after_a_refusal_is_not_retried(
+  tmp_path: Path,
+) -> None:
+  rubric = tmp_path / "rubric.toml"
+  _ = rubric.write_text(
+    'system = "Judge."\n[[criteria]]\nid = "a"\nquestion = "A?"\n'
+  )
+  item = tmp_path / "item.md"
+  _ = item.write_text("An item.\n")
+  refused = result(
+    session_id="s1", is_error=True, stop_reason="refusal", total_cost_usd=0.1
+  )
+  fake = Fake(tmp_path, [{"lines": [refused]}, {"lines": [result()]}])
+  stop = stopping.Stop()
+  runs = tmp_path / "runs"
+  # The stop comes once the refused session ended, before the retry.
+  runner = claude.Runner(
+    fake.session, claude.numbered(runs), spent=lambda _: stop.set()
+  )
+  state = RubricState(
+    "rubric",
+    {"pass": End("passed"), "fail": End("failed"), "error": End("errored")},
+    actions=Actions(agent_runner=runner),
+    reviews=[Review("r", rubric, {"item": item})],
+    resume=True,
+  )
+  machine = Machine([state])
+  with pytest.raises(stopping.Stopped):
+    _ = stopping.under(stop, lambda: machine.run(tmp_path / "attempt"))()
+  assert stop.is_set()
+  assert (runs / "r-1.prompt.md").exists()
+  assert not (runs / "r-2.prompt.md").exists()
+  assert len(fake.calls()) == 1
