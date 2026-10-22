@@ -1,0 +1,468 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.1.0",
+  "results": {
+    "tool": {
+      "name": "testrunner"
+    },
+    "summary": {
+      "tests": 44,
+      "passed": 43,
+      "failed": 0,
+      "skipped": 1,
+      "pending": 0,
+      "other": 0,
+      "start": 1772442000000,
+      "stop": 1772442004210
+    },
+    "tests": [
+      {
+        "name": "tests/test_fold_deep.py::test_fold_rejects_a_nesting_past_the_limit",
+        "status": "passed",
+        "duration": 41,
+        "suite": ["f2p"],
+        "labels": {
+          "id": "f2p::tests/test_fold_deep.py::test_fold_rejects_a_nesting_past_the_limit",
+          "runner": "pytest",
+          "kind": "security",
+          "principle": "p1"
+        }
+      },
+      {
+        "name": "tests/test_fold_deep.py::test_fold_keeps_a_nesting_at_the_limit",
+        "status": "passed",
+        "duration": 37,
+        "suite": ["f2p"],
+        "labels": {
+          "id": "f2p::tests/test_fold_deep.py::test_fold_keeps_a_nesting_at_the_limit",
+          "runner": "pytest",
+          "kind": "behavior",
+          "principle": "p1"
+        }
+      },
+      {
+        "name": "tests/test_fold_deep.py::test_fold_reports_where_it_stopped",
+        "status": "passed",
+        "duration": 1420,
+        "suite": ["f2p"],
+        "labels": {
+          "id": "f2p::tests/test_fold_deep.py::test_fold_reports_where_it_stopped",
+          "runner": "pytest",
+          "kind": "behavior"
+        }
+      },
+      {
+        "name": "tests/test_fold_deep.py::test_fold_of_an_empty_document",
+        "status": "passed",
+        "duration": 3,
+        "suite": ["f2p"],
+        "labels": {
+          "id": "f2p::tests/test_fold_deep.py::test_fold_of_an_empty_document",
+          "runner": "pytest",
+          "kind": "edge"
+        }
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_1",
+        "status": "passed",
+        "duration": 9,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_1",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_2",
+        "status": "passed",
+        "duration": 16,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_2",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_3",
+        "status": "passed",
+        "duration": 23,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_3",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_4",
+        "status": "passed",
+        "duration": 30,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_4",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_5",
+        "status": "passed",
+        "duration": 37,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_5",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_6",
+        "status": "passed",
+        "duration": 44,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_6",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_scan.py::test_scan_case_1",
+        "status": "passed",
+        "duration": 9,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_scan.py::test_scan_case_1",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_scan.py::test_scan_case_2",
+        "status": "passed",
+        "duration": 16,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_scan.py::test_scan_case_2",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_scan.py::test_scan_case_3",
+        "status": "passed",
+        "duration": 23,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_scan.py::test_scan_case_3",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_scan.py::test_scan_case_4",
+        "status": "passed",
+        "duration": 30,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_scan.py::test_scan_case_4",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_scan.py::test_scan_case_5",
+        "status": "passed",
+        "duration": 37,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_scan.py::test_scan_case_5",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_scan.py::test_scan_case_6",
+        "status": "passed",
+        "duration": 44,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_scan.py::test_scan_case_6",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_token.py::test_token_case_1",
+        "status": "passed",
+        "duration": 9,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_token.py::test_token_case_1",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_token.py::test_token_case_2",
+        "status": "passed",
+        "duration": 16,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_token.py::test_token_case_2",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_token.py::test_token_case_3",
+        "status": "passed",
+        "duration": 23,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_token.py::test_token_case_3",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_token.py::test_token_case_4",
+        "status": "passed",
+        "duration": 30,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_token.py::test_token_case_4",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_token.py::test_token_case_5",
+        "status": "passed",
+        "duration": 37,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_token.py::test_token_case_5",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_token.py::test_token_case_6",
+        "status": "passed",
+        "duration": 44,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_token.py::test_token_case_6",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_number.py::test_number_case_1",
+        "status": "passed",
+        "duration": 9,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_number.py::test_number_case_1",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_number.py::test_number_case_2",
+        "status": "passed",
+        "duration": 16,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_number.py::test_number_case_2",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_number.py::test_number_case_3",
+        "status": "passed",
+        "duration": 23,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_number.py::test_number_case_3",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_number.py::test_number_case_4",
+        "status": "passed",
+        "duration": 30,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_number.py::test_number_case_4",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_number.py::test_number_case_5",
+        "status": "passed",
+        "duration": 37,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_number.py::test_number_case_5",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_number.py::test_number_case_6",
+        "status": "passed",
+        "duration": 44,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_number.py::test_number_case_6",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_string.py::test_string_case_1",
+        "status": "passed",
+        "duration": 9,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_string.py::test_string_case_1",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_string.py::test_string_case_2",
+        "status": "passed",
+        "duration": 16,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_string.py::test_string_case_2",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_string.py::test_string_case_3",
+        "status": "passed",
+        "duration": 23,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_string.py::test_string_case_3",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_string.py::test_string_case_4",
+        "status": "passed",
+        "duration": 30,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_string.py::test_string_case_4",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_string.py::test_string_case_5",
+        "status": "passed",
+        "duration": 37,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_string.py::test_string_case_5",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_string.py::test_string_case_6",
+        "status": "skipped",
+        "duration": 44,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_string.py::test_string_case_6",
+          "runner": "pytest"
+        },
+        "message": "needs the optional icu extra"
+      },
+      {
+        "name": "tests/test_nest.py::test_nest_case_1",
+        "status": "passed",
+        "duration": 9,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_nest.py::test_nest_case_1",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_nest.py::test_nest_case_2",
+        "status": "passed",
+        "duration": 16,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_nest.py::test_nest_case_2",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_nest.py::test_nest_case_3",
+        "status": "passed",
+        "duration": 23,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_nest.py::test_nest_case_3",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_nest.py::test_nest_case_4",
+        "status": "passed",
+        "duration": 30,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_nest.py::test_nest_case_4",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_nest.py::test_nest_case_5",
+        "status": "passed",
+        "duration": 37,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_nest.py::test_nest_case_5",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_nest.py::test_nest_case_6",
+        "status": "passed",
+        "duration": 44,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_nest.py::test_nest_case_6",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_bench.py::test_parse_size[small]",
+        "status": "passed",
+        "duration": 210,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_bench.py::test_parse_size",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_bench.py::test_parse_size[medium]",
+        "status": "passed",
+        "duration": 210,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_bench.py::test_parse_size",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_bench.py::test_parse_size[large]",
+        "status": "passed",
+        "duration": 9100,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_bench.py::test_parse_size",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_bench.py::test_parse_size[a-very-long-generated-parameter-id-that-wraps-in-a-narrow-column]",
+        "status": "passed",
+        "duration": 210,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_bench.py::test_parse_size",
+          "runner": "pytest"
+        }
+      }
+    ]
+  }
+}

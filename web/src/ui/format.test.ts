@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bytes, clock, cores, epoch, instant, time } from "./format";
+import { bytes, clock, cores, duration, epoch, instant, time } from "./format";
 
 describe("the formatters the Monitor page reads", () => {
   it("write bytes in binary units", () => {
@@ -34,5 +34,15 @@ describe("the formatters the Monitor page reads", () => {
     expect(time("2026-03-02T03:00:00+00:00", zone)).toBe(
       "2026-03-01 19:00 PST",
     );
+  });
+});
+
+describe("a duration", () => {
+  it("rounds to the second, unless fine asks for a test's time under 10s", () => {
+    expect(duration(0.34)).toBe("0s");
+    expect(duration(0.34, true)).toBe("340ms");
+    expect(duration(0, true)).toBe("0ms");
+    expect(duration(1.42, true)).toBe("1.4s");
+    expect(duration(75, true)).toBe("1m 15s");
   });
 });
