@@ -26,17 +26,12 @@ function show(name: keyof typeof records, project = sampleProject) {
 }
 
 describe("Summary", () => {
-  it("says what of the cost the resumptions carried over", () => {
-    show("resumed");
-
-    expect(screen.getByText("$5.71 of $40.00")).toBeVisible();
-    expect(screen.getByText("$0.37 carried over 1 resumption")).toBeVisible();
-  });
-
-  it("says nothing of carried cost when nothing was resumed", () => {
+  it("keeps the deliverables and the reason, the heading having the rest", () => {
     show("passed");
 
-    expect(screen.queryByText(/carried over/)).toBeNull();
+    expect(screen.getByText("Deliverables", { selector: "dt" })).toBeVisible();
+    for (const moved of ["Started", "Status", "Total duration", "Cost"])
+      expect(screen.queryByText(moved, { selector: "dt" })).toBeNull();
   });
 
   it("draws the machine with its states linked to their last runs", () => {
@@ -121,23 +116,6 @@ describe("the Summary's Task card", () => {
   });
 });
 
-describe("an attempt's status", () => {
-  it("is raised when a state raised, else Not ended until it ends", () => {
-    const { unmount } = show("raised");
-    expect(screen.getByText("raised")).toBeVisible();
-    unmount();
-
-    show("running");
-    expect(screen.getByText("Not ended")).toBeVisible();
-  });
-
-  it("is Not ended while its status is one the project names as not ended", () => {
-    show("passed", { ...sampleProject, not_ended: ["passed"] });
-
-    expect(screen.getByText("Not ended")).toBeVisible();
-  });
-});
-
 describe("the Summary of a running attempt", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -159,56 +137,10 @@ describe("the Summary of a running attempt", () => {
         />
       </MemoryRouter>,
     );
-    const item = (key: string) =>
-      must(screen.getByText(key).nextElementSibling);
     return {
-      item,
       graph: screen.getByRole("group", { name: "State machine" }),
     };
   }
-
-  it("says Running and its total goes on from its start", () => {
-    const { item } = showLive(runningIn());
-
-    expect(item("Status")).toHaveTextContent("Running");
-    expect(item("Total duration")).toHaveTextContent("30m 0s");
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-    expect(item("Total duration")).toHaveTextContent("30m 2s");
-    // The cost is the record's, and does not go on.
-    expect(item("Cost")).toHaveTextContent("$");
-  });
-
-  it("counts the total on from the job's start before any action has one", () => {
-    const first = {
-      ...inReview,
-      visits: [{ ...must(inReview.visits[0]), outcome: null, actions: [] }],
-    };
-    render(
-      <MemoryRouter>
-        <Summary
-          project={sampleProject}
-          attempt="batch-1/task-0001"
-          record={first}
-          live={runningIn({
-            index: 0,
-            recorded: true,
-            since: "2026-03-02T09:30:00+00:00",
-          })}
-        />
-      </MemoryRouter>,
-    );
-    const item = (key: string) =>
-      must(screen.getByText(key).nextElementSibling);
-
-    expect(item("Started")).toHaveTextContent("2026-03-02 09:30 UTC");
-    expect(item("Total duration")).toHaveTextContent("15m 0s");
-    act(() => {
-      vi.advanceTimersByTime(3000);
-    });
-    expect(item("Total duration")).toHaveTextContent("15m 3s");
-  });
 
   it("draws the state it runs as running, the transition into it taken", () => {
     const { graph } = showLive(runningIn());
@@ -233,37 +165,9 @@ describe("the Summary of a running attempt", () => {
     expect(review).toHaveTextContent("1m 25s");
   });
 
-  it("takes a record that has ended over a /live read before it ended", () => {
-    render(
-      <MemoryRouter>
-        <Summary
-          project={sampleProject}
-          attempt="batch-1/task-0001"
-          record={records.passed}
-          live={runningIn({ index: records.passed.visits.length })}
-        />
-      </MemoryRouter>,
-    );
-    const item = (key: string) =>
-      must(screen.getByText(key).nextElementSibling);
+  it("draws no state as running when it may have stopped", () => {
+    const { graph } = showLive(mayHaveStopped);
 
-    expect(item("Status")).toHaveTextContent("Passed");
-    expect(item("Total duration")).toHaveTextContent("1h 10m");
-    act(() => {
-      vi.advanceTimersByTime(60_000);
-    });
-    expect(item("Total duration")).toHaveTextContent("1h 10m");
-  });
-
-  it("stops the total at the record's when it may have stopped", () => {
-    const { item, graph } = showLive(mayHaveStopped);
-
-    expect(item("Status")).toHaveTextContent("May have stopped");
-    expect(item("Total duration")).toHaveTextContent("28m 39s");
-    act(() => {
-      vi.advanceTimersByTime(5000);
-    });
-    expect(item("Total duration")).toHaveTextContent("28m 39s");
     expect(within(graph).queryByRole("img", { name: "Running" })).toBeNull();
   });
 });

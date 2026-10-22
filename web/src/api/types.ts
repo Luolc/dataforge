@@ -210,18 +210,22 @@ const actionParam = z.looseObject({
 });
 export type ActionParam = z.infer<typeof actionParam>;
 
-// Each of a data item's actions, why it may not be submitted now (null when
-// it may) and the numbers a person may set for it.
-export const actionStates = z.array(
-  z.looseObject({
-    name: z.string(),
-    label: z.string(),
-    queue: z.string(),
-    reason: z.string().nullable(),
-    params: z.array(actionParam),
-  }),
-);
-export type ActionState = z.infer<typeof actionStates>[number];
+// A data item's newest attempt that can be read, the one an action that goes
+// on with a stopped attempt takes, and each of its actions, why it may not be
+// submitted now (null when it may) and the numbers a person may set for it.
+export const actionStates = z.looseObject({
+  newest: z.string().nullable(),
+  actions: z.array(
+    z.looseObject({
+      name: z.string(),
+      label: z.string(),
+      queue: z.string(),
+      reason: z.string().nullable(),
+      params: z.array(actionParam),
+    }),
+  ),
+});
+export type ActionState = z.infer<typeof actionStates>["actions"][number];
 
 // A job of the queue, as a page may show it; times in seconds since the
 // epoch.

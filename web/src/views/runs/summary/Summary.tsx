@@ -11,28 +11,11 @@ import {
   type Project,
 } from "../../../api/types";
 import { Card } from "../../../ui/card";
-import {
-  duration,
-  span,
-  time,
-  usd,
-  visitEnd,
-  visitStart,
-} from "../../../ui/format";
 import { Markdown } from "../../../ui/markdown";
-import { Elapsed } from "../../../ui/running";
-import {
-  attemptStatus,
-  liveStatus,
-  NOT_RUN,
-  stateTitle,
-  statusOf,
-  toneText,
-} from "../../../ui/status";
+import { NOT_RUN, stateTitle } from "../../../ui/status";
 import { declaredMissing } from "../../attempt/declared";
 import { attemptHref } from "../../attempt/href";
 import { KindLine } from "../../registry";
-import { carried } from "../resumed/resumed";
 import { Graph } from "./Graph";
 import { layout } from "./graph";
 import { useMeasure } from "./measure";
@@ -61,7 +44,7 @@ export function Summary({
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <TopRow project={project} record={record} live={live} />
+      <TopRow project={project} record={record} />
       <Card
         title="State machine"
         aside={`${runs.toString()} runs · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
@@ -80,90 +63,24 @@ export function Summary({
   );
 }
 
+/** What the attempt delivered, and the reason it ended; the page's heading has the rest. */
 function TopRow({
   project,
   record,
-  live,
 }: {
   project: Project;
   record: AttemptRecord;
-  live: LiveInfo | null;
 }) {
-  const first = record.visits[0];
-  const last = record.visits.at(-1);
-  // A first visit with no action yet has no start of its own: /live gives
-  // the one the attempt's job has.
-  const started =
-    (first ? visitStart(first) : undefined) ??
-    (live?.current?.index === 0
-      ? (live.current.since ?? undefined)
-      : undefined);
-  const ended = last ? visitEnd(last) : undefined;
-  const seconds =
-    started !== undefined && ended !== undefined ? span(started, ended) : null;
-  // While it runs, the total goes on from its start; once it has stopped,
-  // or may have, it is the record's. A record read after the attempt ended
-  // is the record's, whatever /live read before.
-  const over = attemptStatus(project, record) !== null;
-  const word = over ? null : (live?.live ?? null);
-  const running = word === "running";
-  const status =
-    word !== null
-      ? liveStatus[word]
-      : statusOf(project, attemptStatus(project, record));
-  const budget = record.budget;
   const missing = declaredMissing(project, record);
-  const carry = carried(record);
-  const items = [
-    { key: "Started", value: started === undefined ? "—" : time(started) },
-    {
-      key: "Status",
-      value: <span className={toneText[status.tone]}>{status.label}</span>,
-    },
-    {
-      key: "Total duration",
-      value:
-        running && started !== undefined ? (
-          <Elapsed since={started} />
-        ) : seconds === null ? (
-          "—"
-        ) : (
-          duration(seconds)
-        ),
-    },
-    {
-      key: "Cost",
-      value: !budget ? (
-        "This record has no budget."
-      ) : (
-        <>
-          {budget.max_usd === null
-            ? usd(budget.cost_usd)
-            : `${usd(budget.cost_usd)} of ${usd(budget.max_usd)}`}
-          {carry.usd > 0 && (
-            <span className="block text-xs font-normal text-fg-3">
-              {`${usd(carry.usd)} carried over ${carry.count.toString()} ${carry.count === 1 ? "resumption" : "resumptions"}`}
-            </span>
-          )}
-        </>
-      ),
-    },
-    {
-      key: "Deliverables",
-      value: deliveredOf(record.deliverables, missing.length),
-    },
-  ];
   return (
     <section className="rounded-panel border border-line">
       <dl className="flex flex-wrap gap-x-12 gap-y-3 px-5 py-4">
-        {items.map((item) => (
-          <div key={item.key}>
-            <dt className="text-xs text-fg-3">{item.key}</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">
-              {item.value}
-            </dd>
-          </div>
-        ))}
+        <div>
+          <dt className="text-xs text-fg-3">Deliverables</dt>
+          <dd className="mt-1 text-lg font-semibold tabular-nums">
+            {deliveredOf(record.deliverables, missing.length)}
+          </dd>
+        </div>
       </dl>
       {record.reason !== null && (
         <p className="border-t border-line px-5 py-3 text-fg-2">

@@ -97,7 +97,9 @@ describe("a record an older dataforge wrote", () => {
   it("shows its Summary and says what it lacks", async () => {
     show(older);
 
-    expect(await screen.findByText("This record has no budget.")).toBeVisible();
+    // No budget: the cost is its runs', $2.15 + $1.62, with no cap.
+    expect(await screen.findByText("$3.77 of —")).toBeVisible();
+    expect(screen.getByText("from its runs")).toBeVisible();
     expect(screen.getByText("This record has no graph.")).toBeVisible();
     expect(screen.getByText("This record has no summaries.")).toBeVisible();
     expect(screen.getByText("This record has no deliverables.")).toBeVisible();

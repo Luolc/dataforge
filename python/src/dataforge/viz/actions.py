@@ -140,13 +140,33 @@ def unavailable(
       return "No attempt of this item can be read."
     if newest["live"] is None:
       if newest["status"] not in project.resumable:
-        return "The newest attempt of this item has ended."
+        return _not_resumable(project, action, item, newest)
       if newest["held"] is True:
         return "An attempt of this item is running: its lock is held."
       return None
     if newest["live"] != live.MAY_HAVE_STOPPED:
       return "The newest attempt of this item is running."
   return None
+
+
+def _not_resumable(
+  project: Project, action: Action, item: str, newest: dict[str, object]
+) -> str:
+  # Why an action with when "stopped" may not go on with the item's newest
+  # attempt, which has ended: what it needs, and how that one ended.
+  def label(status: object) -> str:
+    if not isinstance(status, str):
+      return "with no status"
+    return project.statuses.get(status, {}).get("label", status)
+
+  needs = " or ".join(
+    ["may have stopped", *(f"ended {label(s)}" for s in project.resumable)]
+  )
+  stamp = str(newest["id"]).removeprefix(f"{item}/")
+  return (
+    f"{action.label} needs an attempt that {needs}; the newest, {stamp},"
+    + f" ended {label(newest['status'])}."
+  )
 
 
 def submit(

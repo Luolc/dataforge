@@ -1,5 +1,5 @@
 // How numbers, times and costs read on every page.
-import type { Action, Column, Read, Visit } from "../api/types";
+import type { Action, AttemptRecord, Column, Read, Visit } from "../api/types";
 import { NOT_RUN } from "./status";
 
 /**
@@ -109,6 +109,22 @@ export const visitStart = (v: Visit): string | undefined =>
   v.actions[0]?.started_at;
 export const visitEnd = (v: Visit): string | undefined =>
   v.actions.at(-1)?.ended_at;
+
+/**
+ * When an attempt started and ended, as the home page's listing takes them:
+ * its first action's start and its last action's end, whichever visits they
+ * are in.
+ */
+export function attemptTimes(record: AttemptRecord): {
+  started: string | undefined;
+  ended: string | undefined;
+} {
+  const actions = record.visits.flatMap((v) => v.actions);
+  return {
+    started: actions[0]?.started_at,
+    ended: actions.at(-1)?.ended_at ?? undefined,
+  };
+}
 
 /** A visit's seconds, from its first action's start to its last's end. */
 export function visitSeconds(v: Visit): number | null {
