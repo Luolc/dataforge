@@ -271,7 +271,7 @@ FORMATS: tuple[Format, ...] = (
   ),
   Format(
     "dataforge.curation.record",
-    3,
+    4,
     _record,
     (
       "an attempt's record, Attempt.to_json, in the store's rows and the"
