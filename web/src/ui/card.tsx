@@ -1,14 +1,19 @@
 import type { ReactNode } from "react";
 
-/** A bordered card with a heading row; aside sits at the heading's right. */
+/**
+ * A bordered card with a heading row; aside sits at the heading's right, and
+ * byline on a line of its own under them.
+ */
 export function Card({
   title,
   aside,
+  byline,
   children,
   flush = false,
 }: {
   title: ReactNode;
   aside?: ReactNode;
+  byline?: ReactNode;
   children: ReactNode;
   flush?: boolean;
 }) {
@@ -21,6 +26,9 @@ export function Card({
         </h2>
         {aside !== undefined && (
           <div className="min-w-0 text-xs text-fg-3">{aside}</div>
+        )}
+        {byline !== undefined && (
+          <p className="w-full min-w-0 text-xs text-fg-3">{byline}</p>
         )}
       </header>
       <div className={flush ? "" : "px-5 py-4"}>{children}</div>
