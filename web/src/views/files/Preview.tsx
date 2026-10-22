@@ -10,6 +10,8 @@ import { fileTypeOf } from "../../ui/file-kind";
 import { Markdown } from "../../ui/markdown";
 import { type FileContent, size, tooLarge, useFile } from "./file";
 
+const lines = (n: number) => `${n.toString()} line${n === 1 ? "" : "s"}`;
+
 const lineCount = (text: string) =>
   (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n").length;
 
@@ -39,7 +41,7 @@ export function Preview({
         <h3 className="py-1.5 font-mono text-xs break-all">{name}</h3>
         <span className="flex flex-none items-center gap-3 text-xs text-fg-3 tabular-nums">
           {content?.kind === "text" &&
-            `${lineCount(content.text).toString()} lines · ${size(content.size)}`}
+            `${lines(lineCount(content.text))} · ${size(content.size)}`}
           {content?.kind === "binary" && size(content.size)}
           {served && source.href && (
             <a

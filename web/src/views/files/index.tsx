@@ -1,7 +1,7 @@
 // The files view: a deliverable's file tree on the left and a read-only
 // preview of the chosen file on the right. The chosen file is the page's
 // `file`, a path relative to the attempt, used only when it is under this
-// deliverable's path.
+// deliverable's path; a directory there opens its first file.
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
@@ -12,7 +12,7 @@ import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
 import { fromARun } from "../source";
-import { firstFile } from "./entries";
+import { fileAt, firstFile } from "./entries";
 import { Preview } from "./Preview";
 import { Tree } from "./Tree";
 
@@ -69,7 +69,8 @@ export function FilesCard({
   );
 }
 
-function Files({
+/** A file tree of root and the preview of the file chosen in it. */
+export function Files({
   project,
   attempt,
   root,
@@ -86,7 +87,21 @@ function Files({
     chosen === null ? JSON.stringify([project, attempt, root]) : null,
     (signal) => firstFile(source, project, attempt, root, signal),
   );
-  const selected = chosen ?? (first.state === "ok" ? first.data : null);
+  const opened = useLoaded(
+    chosen === null ? null : JSON.stringify([project, attempt, chosen]),
+    (signal) =>
+      chosen === null
+        ? Promise.resolve(null)
+        : fileAt(source, project, attempt, chosen, signal),
+  );
+  // The chosen path is shown as it is when it cannot be told a directory.
+  const shown =
+    chosen === null
+      ? first
+      : opened.state === "error"
+        ? { state: "ok" as const, data: chosen }
+        : opened;
+  const selected = shown.state === "ok" ? shown.data : null;
   return (
     <div className="grid grid-cols-[minmax(calc(var(--spacing)*48),calc(var(--spacing)*64))_minmax(0,1fr)]">
       <div className="border-r border-line bg-tree">
@@ -96,7 +111,7 @@ function Files({
             project={project}
             attempt={attempt}
             root={root}
-            selected={selected}
+            selected={selected ?? chosen}
           />
         )}
       </div>
@@ -108,10 +123,10 @@ function Files({
           path={selected}
           name={selected.slice(root.length + 1)}
         />
-      ) : first.state === "loading" ? (
+      ) : shown.state === "loading" ? (
         <Note>Loading…</Note>
-      ) : first.state === "error" ? (
-        <Note>{first.message}</Note>
+      ) : shown.state === "error" ? (
+        <Note>{shown.message}</Note>
       ) : (
         <Note>No file to show.</Note>
       )}
