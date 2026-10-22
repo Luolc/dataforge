@@ -7,7 +7,7 @@ gives the states: each runs and returns an outcome, maps each outcome to the nex
 end, and has its `max_visits`. `Machine` (`dataforge.curation.engine`) runs them, ends the
 attempt at a cap or a guard, and records it. The actions a state runs
 (`dataforge.curation.actions`) are `agent`, `script`, `judge` and `trial`, each in an environment
-(`Host()` or a `Docker` container), plus `fan_out`; they share memory, and image builds a few
+(`Host()` or a `Docker` container), plus `fan_out`; they share memory, and image builds take
 build slots, through a `ResourcePool`, whose reservations every process of the machine counts, in
 the state directory
 (`dataforge.statedir`: `DATAFORGE_STATE_DIR`, else `$XDG_STATE_HOME/dataforge`, else
