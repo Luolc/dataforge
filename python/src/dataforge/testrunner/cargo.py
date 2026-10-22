@@ -10,9 +10,11 @@ crate's directory, on the project's own target directory and with its
 environment as it is, so the project's own build compiles them.
 
 Stable libtest writes no machine-readable report, so its text is read: the
-`Running` line cargo writes before each test binary, and a line for each
-test's result. A test's code can write such a line itself, bypassing
-libtest's capture; a name reported twice in one binary is an error.
+`Running` line cargo writes before each test binary, a line for each test's
+result and the binary's `test result` line, which counts them. A test's code
+can write such lines itself, bypassing libtest's capture, so a binary's
+results hold only when it ran once and its count is of what its lines
+report: else each of its tests is an error.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ _DOC = re.compile(r"\s*Doc-tests \S+\s*")
 _TEST = re.compile(r"test (.+?) (?:- should panic )?\.\.\. ?(.*)")
 _RESULT = re.compile(r"(ok|FAILED|ignored)(?:, .*)?")
 _SECTION = re.compile(r"---- (.+?) stdout ----")
+_TOTAL = re.compile(r"(\d+) passed; (\d+) failed; (\d+) ignored;")
 _STATUS = {"ok": "passed", "FAILED": "failed", "ignored": "skipped"}
 
 
@@ -83,10 +86,11 @@ def _root(rest: tuple[str, ...]) -> bool:
 class Cargo(Runner):
   """cargo test, its text output read.
 
-  A binary that ends with no `test result` line, such as one a test aborts,
-  is an errored case named as its file; when no binary runs, as when a
-  target does not compile, each listed file is one, with cargo's first
-  error as its message. Doc tests are not run.
+  A binary whose results do not hold, such as one a test aborts before its
+  `test result` line, is an errored case named as its file, and so is each
+  of its tests; when no binary runs, as when a target does not compile,
+  each listed file is one, with cargo's first error as its message. Doc
+  tests are not run.
   """
 
   _REPORT = "cargo.txt"
@@ -153,27 +157,24 @@ def cargo_cases(ctx: Context, text: str, sources: list[str]) -> list[Case]:
   Returns:
     A case for each test a binary reported, in its order.
   """
-  cases: list[Case] = []
-  ran = False
+  binaries: list[_Binary] = []
   binary: _Binary | None = None
   for line in text.splitlines():
     running = _RUNNING.fullmatch(line)
     if running or _DOC.fullmatch(line):
-      if binary is not None:
-        cases += binary.end()
       binary = None
       if running:
-        ran = True
         source = Path(running.group(1))
         binary = _Binary(
           rel(ctx, source if source.is_absolute() else ctx.dir / source)
         )
+        binaries.append(binary)
       continue
     if binary is not None:
       binary.read(line)
-  if binary is not None:
-    cases += binary.end()
-  if not ran:
+  seen = [b.source for b in binaries]
+  cases = [c for b in binaries for c in b.end(seen.count(b.source) > 1)]
+  if not binaries:
     error = next(
       (x.strip() for x in text.splitlines() if x.startswith("error")), None
     )
@@ -194,7 +195,8 @@ class _Binary:
     self.started: list[str] = []
     self.output: dict[str, list[str]] = {}
     self.section: str | None = None
-    self.done: bool = False
+    self.counted: dict[str, int] = dict.fromkeys(_STATUS.values(), 0)
+    self.totals: list[dict[str, int]] = []
 
   def read(self, line: str) -> None:
     section = _SECTION.fullmatch(line)
@@ -205,7 +207,13 @@ class _Binary:
       return
     if line == "failures:" or line.startswith("test result: "):
       self.section = None
-      self.done = self.done or line.startswith("test result: ")
+      total = _TOTAL.search(line)
+      if line.startswith("test result: "):
+        self.totals.append(
+          dict(zip(_STATUS.values(), map(int, total.groups()), strict=True))
+          if total
+          else {}
+        )
       return
     if self.section is not None:
       self.output[self.section].append(line)
@@ -222,13 +230,23 @@ class _Binary:
     if name in self.results:
       self.twice.add(name)
     self.results[name] = _STATUS[result.group(1)]
+    self.counted[self.results[name]] += 1
 
-  def end(self) -> list[Case]:
+  def end(self, again: bool) -> list[Case]:
+    # Unless the binary ran once and its one `test result` line counts what
+    # its lines report, a line may be forged or missing, and none holds.
+    whole = None
+    if again:
+      whole = "a test binary of its file ran twice"
+    elif not self.totals:
+      whole = "its test binary ended with no result"
+    elif self.totals != [self.counted]:
+      whole = "its results do not match its binary's count of them"
     cases: list[Case] = []
     for name in self.started:
       trace = "\n".join(self.output.get(name, [])).strip() or None
       status = self.results.get(name)
-      error = None
+      error = whole
       if name in self.twice:
         error = "it was reported twice"
       elif status is None:
@@ -243,15 +261,9 @@ class _Binary:
           file=self.source,
         )
       )
-    if not self.done:
+    if whole:
       cases.append(
-        Case(
-          self.source,
-          "failed",
-          error=True,
-          message="its test binary ended with no result",
-          file=self.source,
-        )
+        Case(self.source, "failed", error=True, message=whole, file=self.source)
       )
     return cases
 

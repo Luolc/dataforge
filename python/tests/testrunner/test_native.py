@@ -218,18 +218,65 @@ def test_cargo_cases_read_libtests_text(tmp_path: Path):
   ]
 
 
-def test_cargo_cases_count_a_name_twice_or_unended_as_errors(tmp_path: Path):
+RUNNING = "     Running tests/a.rs (target/debug/deps/a-1)"
+
+
+def result(passed: int) -> str:
+  return f"test result: ok. {passed} passed; 0 failed; 0 ignored; 0 measured"
+
+
+@pytest.mark.parametrize(
+  ("lines", "names", "why", "times"),
+  [
+    # A line a test's code wrote past libtest's capture.
+    (
+      ["test one ... ok", "test never_runs ... ok", result(1)],
+      {"one": "", "never_runs": ""},
+      "its results do not match its binary's count of them",
+      1,
+    ),
+    (
+      ["test one ... ok", "test one ... ok", "test two ...", result(1)],
+      {"one": "it was reported twice", "two": "it did not end"},
+      "its results do not match its binary's count of them",
+      1,
+    ),
+    (
+      ["test one ... ok", result(1), RUNNING, "test one ... ok", result(1)],
+      {"one": ""},
+      "a test binary of its file ran twice",
+      2,
+    ),
+    (
+      ["test one ... ok"],
+      {"one": ""},
+      "its test binary ended with no result",
+      1,
+    ),
+  ],
+)
+def test_cargo_cases_hold_a_binarys_results_only_when_it_counts_them(
+  tmp_path: Path,
+  lines: list[str],
+  names: dict[str, str],
+  why: str,
+  times: int,
+):
   ctx = context(tmp_path)
-  text = """     Running tests/a.rs (target/debug/deps/a-1)
-running 2 tests
-test one ... ok
-test one ... ok
-test two ...
-test result: ok. 2 passed; 0 failed
-"""
+  found = summary(cargo.cargo_cases(ctx, "\n".join([RUNNING, *lines]), []))
+  cases = [
+    (f"tests/a.rs::{n}", "failed", True, m or why) for n, m in names.items()
+  ]
+  whole = ("tests/a.rs", "failed", True, why)
+  assert found == [*cases, whole] * times
+
+
+def test_cargo_cases_take_a_binary_that_counts_its_results(tmp_path: Path):
+  ctx = context(tmp_path)
+  text = "\n".join([RUNNING, "test one ... ok", "test two ... ok", result(2)])
   assert summary(cargo.cargo_cases(ctx, text, [])) == [
-    ("tests/a.rs::one", "failed", True, "it was reported twice"),
-    ("tests/a.rs::two", "failed", True, "it did not end"),
+    ("tests/a.rs::one", "passed", False, None),
+    ("tests/a.rs::two", "passed", False, None),
   ]
 
 
@@ -253,4 +300,13 @@ def test_go_cases_count_a_test_that_never_ends_as_an_error():
   assert summary(gotest.go_cases(text)) == [
     ("m/p::TestHangs", "failed", True, "it did not end"),
     ("m/p", "failed", True, "panic: test timed out"),
+  ]
+
+
+def test_go_cases_count_a_test_that_ends_twice_as_an_error():
+  test = {"Package": "m/p", "Test": "TestA"}
+  events = [{"Action": a, **test} for a in ("run", "fail", "pass")]
+  text = "\n".join(json.dumps(e) for e in events)
+  assert summary(gotest.go_cases(text)) == [
+    ("m/p::TestA", "failed", True, "it ended twice"),
   ]

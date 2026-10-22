@@ -69,7 +69,8 @@ class GoTest(Runner):
   (such as a TestMain that exits early), is an errored case named as the
   package, which its listed tests with no case of their own take as theirs;
   a test that starts and never ends, as when another of its package panics
-  or the package times out, is an errored case of its own.
+  or the package times out, or ends twice, as a line its code writes can
+  make it, is an errored case of its own.
   """
 
   _REPORT = "go.json"
@@ -127,6 +128,7 @@ class _Events:
     self.ends: dict[tuple[str, str], tuple[str, float]] = {}
     self.output: dict[tuple[str, str], list[str]] = {}
     self.failed: set[str] = set()
+    self.twice: set[tuple[str, str]] = set()
 
   def add(self, event: dict[str, object]) -> None:
     action = event.get("Action")
@@ -143,6 +145,8 @@ class _Events:
     if action in ("output", "build-output") and isinstance(out, str):
       self.output.setdefault(key, []).append(out)
     elif action in ("pass", "fail", "skip") and key[1]:
+      if key in self.ends:
+        self.twice.add(key)
       self.ends[key] = (action, _seconds(event.get("Elapsed")))
     elif whole:
       self.failed.add(package)
@@ -161,6 +165,9 @@ class _Events:
       )
     end = self.ends.get(key)
     name = f"{package}{SEP}{test}"
+    if key in self.twice:
+      why = "it ended twice"
+      return Case(name, "failed", error=True, message=why, trace=trace)
     if end is None:
       return Case(
         name, "failed", error=True, message="it did not end", trace=trace
