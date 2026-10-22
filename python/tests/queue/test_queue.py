@@ -311,9 +311,17 @@ def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
     return read_row(conn, job_id)
 
   monkeypatch.setattr("dataforge.queue.wrapper.row", flaky)
-  child = subprocess.Popen(
-    ["sh", "-c", f"until [ -e {go} ]; do sleep 0.05; done; exit 3"]
-  )
+  # The command gives up with 99 after about 10 s, when no read comes.
+  script = f"""
+    i=0
+    until [ -e {go} ]; do
+      [ $i -lt 200 ] || exit 99
+      i=$((i + 1))
+      sleep 0.05
+    done
+    exit 3
+  """
+  child = subprocess.Popen(["sh", "-c", script])
   try:
     # As after a SIGTERM that was no cancellation, with a short grace period:
     # the row is read each time it passes.
