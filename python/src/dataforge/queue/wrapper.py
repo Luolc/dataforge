@@ -10,10 +10,11 @@ job's end is written also when no scheduler waits for it.
 
 A command still running cancel_grace_s after its cancellation was asked for
 gets SIGKILL to its process group from the wrapper, so that it ends also while
-no scheduler runs. The wrapper leads that group and ends with it: a child of
-it that has left the group for a session of its own sends the signal, and
-writes the end, canceled with no exit code, once nothing of the group runs,
-as a scheduler does for a wrapper that is gone.
+no scheduler runs; the wrapper keeps the cancel_grace_s it was started with.
+The wrapper leads that group and ends with it: a child of it that has left the
+group for a session of its own sends the signal, and writes the end, canceled
+with no exit code, once nothing of the group runs, as a scheduler does for a
+wrapper that is gone.
 """
 
 from collections.abc import Sequence
@@ -21,6 +22,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -106,7 +108,8 @@ def _wait(
 ) -> int | None:
   # Wait for the command, or until grace has passed since the job's
   # cancellation was asked for. The row is read again each time a signal
-  # comes until it says when, since a cancellation's SIGTERM is one.
+  # comes until it says when, since a cancellation's SIGTERM is one, and a
+  # read that fails is tried again at the next.
   asked: float | None = None
   wake, woken = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
   ended = os.pidfd_open(child.pid)
@@ -114,9 +117,15 @@ def _wait(
   try:
     while True:
       if grace is not None and asked is None:
-        with connect(path) as conn:
-          now = row(conn, job_id)
-        asked = None if now is None else now.cancel_requested_at
+        try:
+          with connect(path) as conn:
+            now = row(conn, job_id)
+        except sqlite3.Error as error:
+          # The command runs on: a wrapper that exited here would leave the
+          # scheduler to take the job for lost and kill it.
+          print(f"wrapper: job {job_id}: {error}", file=sys.stderr)
+        else:
+          asked = None if now is None else now.cancel_requested_at
       timeout = (
         None
         if grace is None or asked is None

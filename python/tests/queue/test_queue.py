@@ -28,6 +28,7 @@ from dataforge.queue import (
 )
 from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
+from dataforge.queue.store import row as read_row
 from dataforge.queue.wrapper import main as wrapper
 
 QUEUE_FILE = """
@@ -290,6 +291,41 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
   # A scheduler that runs again changes nothing of the ended job.
   scheduler.tick()
   assert state(config, job) == done
+
+
+def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
+  config: Config, monkeypatch: pytest.MonkeyPatch
+):
+  job = put(config, "alpha", "sh", "-c", "sleep 0.2; exit 3")
+  me = leader(os.getpid())
+  assert me is not None
+  with closing(sqlite3.connect(config.database)) as conn, conn:
+    _ = conn.execute(
+      """
+      UPDATE jobs SET state = 'running', pid = ?, starttime = ?, boot_id = ?
+      WHERE id = ?
+      """,
+      (*me, job.id),
+    )
+  reads = 0
+
+  def flaky(conn: sqlite3.Connection, job_id: int) -> Job | None:
+    nonlocal reads
+    reads += 1
+    # The second read is the wrapper's while the command runs.
+    if reads == 2:
+      raise sqlite3.OperationalError("database is locked")
+    return read_row(conn, job_id)
+
+  monkeypatch.setattr("dataforge.queue.wrapper.row", flaky)
+  handler = signal.getsignal(signal.SIGTERM)
+  try:
+    assert wrapper([str(config.database), str(job.id), "0.5"]) == 0
+  finally:
+    _ = signal.signal(signal.SIGTERM, handler)
+  assert reads == 3
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("failed", 3)
 
 
 def log(config: Config, job: Job) -> str:

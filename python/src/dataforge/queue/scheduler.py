@@ -21,11 +21,10 @@ Each look at the table (a tick) does three things:
 A job runs as `python -m dataforge.queue.wrapper <database> <id>
 <cancel_grace_s>`, in a session of its own: the wrapper runs the command and
 writes its end, so that a job outlives the scheduler, and a scheduler started
-again takes the running
-jobs as they are, knowing each by its wrapper's pid, starttime and boot, and
-kills none. A wrapper that is gone while processes of its group run still
-(it alone was killed) has its group killed, and its end is recorded once
-nothing of the group runs.
+again takes the running jobs as they are, knowing each by its wrapper's pid,
+starttime and boot, and kills none. A wrapper that is gone while processes of
+its group run still (it alone was killed) has its group killed, and its end is
+recorded once nothing of the group runs.
 """
 
 from collections.abc import Callable
