@@ -43,6 +43,9 @@ build-backend = "uv_build"
 line-length = 80
 indent-width = 2
 include = ["*.py", "*.pyi", "**/pyproject.toml"]
+# dataforge.testrunner is copied into tasks, whose Python may be 3.12; its
+# tests run it there too.
+per-file-target-version = { "src/dataforge/testrunner/**" = "py312" }
 
 [tool.ruff.lint]
 select = [

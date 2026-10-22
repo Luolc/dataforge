@@ -35,6 +35,7 @@ import { KindLine } from "../../registry";
 import { carried } from "../resumed/resumed";
 import { Graph } from "./Graph";
 import { layout } from "./graph";
+import { useMeasure } from "./measure";
 import { TaskCard } from "./Task";
 
 interface Props {
@@ -55,7 +56,8 @@ export function Summary({
   const runHref = (index: number) =>
     attemptHref(project.id, attempt, { tab: "runs", run: index });
   const current = currentOf(record, live);
-  const machine = layout(record, project, current);
+  const measure = useMeasure();
+  const machine = layout(record, project, current, measure);
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   return (
     <div className="flex min-w-0 flex-col gap-4">
