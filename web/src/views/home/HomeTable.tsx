@@ -33,7 +33,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { Chip, control } from "../../ui/chip";
-import { HintContent } from "../../ui/hint";
+import { Hint, HintContent } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
@@ -212,12 +212,20 @@ function specs(project: Project): Spec[] {
         const read = l.row.reads?.[index] ?? null;
         if (read === null) return formatValue(raw(l), column);
         const shown = readValue(read, raw(l), column);
+        if (read === "found" && raw(l) !== null) return shown;
         // A value it has not read, or null, is a word of the viewer's, kept
-        // whole.
-        return read === "found" && raw(l) !== null ? (
-          shown
+        // whole; null says on hover what it stands for.
+        const word = (
+          <span
+            className={`whitespace-nowrap text-fg-3 ${read === "found" ? "underline decoration-faint decoration-dotted underline-offset-3" : ""}`}
+          >
+            {shown}
+          </span>
+        );
+        return read === "found" ? (
+          <Hint hint="Its file gives null for this value.">{word}</Hint>
         ) : (
-          <span className="whitespace-nowrap text-fg-3">{shown}</span>
+          word
         );
       },
     };

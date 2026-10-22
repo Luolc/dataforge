@@ -11,6 +11,7 @@ import ipaddress
 import os
 from pathlib import Path
 import re
+from types import MappingProxyType
 from typing import cast
 
 import yaml
@@ -19,6 +20,9 @@ from dataforge import queue
 
 TONES = ("good", "bad", "warn", "neutral")
 """The tones a status may take."""
+
+NO_LABELS: Mapping[str, str] = MappingProxyType({})
+"""The labels of a column or a field that names none."""
 
 FORMATS = ("text", "number", "usd", "duration", "time")
 """The formats a column may take."""
@@ -101,7 +105,7 @@ class Column:
   format: str
   file: tuple[str, ...] | None = None
   tab: str | None = None
-  labels: Mapping[str, str] = field(default_factory=dict[str, str])
+  labels: Mapping[str, str] = NO_LABELS
   description: str | None = None
 
 
@@ -122,7 +126,7 @@ class TabField:
   file: tuple[str, ...]
   field: tuple[str, ...]
   format: str
-  labels: Mapping[str, str] = field(default_factory=dict[str, str])
+  labels: Mapping[str, str] = NO_LABELS
 
 
 @dataclass(frozen=True, slots=True)

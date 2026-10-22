@@ -430,7 +430,12 @@ describe("the home page", () => {
       ]);
       // A word of the viewer's, kept on one line and set apart from values.
       expect(cells[0]?.firstElementChild).toHaveClass("whitespace-nowrap");
-      expect(cells[2]?.firstElementChild).toHaveClass("text-fg-3");
+      const given = cells[2]?.querySelector(".text-fg-3");
+      expect(given).toHaveClass("decoration-dotted");
+      fireEvent.focus(must(given?.closest("[tabindex]") ?? undefined));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "Its file gives null for this value.",
+      );
     } finally {
       ROWS[3] = { ...must(ROWS[3]), values: [], reads: null };
     }
