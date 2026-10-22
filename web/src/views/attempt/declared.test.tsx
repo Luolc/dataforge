@@ -251,6 +251,25 @@ describe("a tab of several deliverables of one kind", () => {
 
     expect(await tabs()).toContain("Tightened review2");
   });
+
+  it("of reports stacks the reached ones first, then the others", async () => {
+    show(withTightened(false), "&tab=report", reviews);
+
+    await screen.findByText("Not run: tighten was never visited");
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual(["Review", "Tightened review"]);
+  });
+
+  it("of reports keeps the declared order when all were reached", async () => {
+    show(withTightened(true), "&tab=report", reviews);
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+      ).toEqual(["Tightened review", "Review"]);
+    });
+  });
 });
 
 describe("a running attempt's record", () => {
