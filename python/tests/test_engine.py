@@ -907,6 +907,77 @@ def test_a_blocking_guard_leaves_stopped_unset(tmp_path: Path) -> None:
   )
 
 
+def faulted(
+  ledger: dict[str, float], usd: float, fault: str | None
+) -> Callable[[Context], Outcome]:
+  """Return a step whose calls cost usd and that gives "error" with fault.
+
+  Args:
+    ledger: What the attempt's calls cost so far, under "usd".
+    usd: What the step's calls cost.
+    fault: The outcome's fault.
+
+  Returns:
+    The step.
+  """
+
+  def step(ctx: Context) -> Outcome:
+    ledger["usd"] += usd
+    return Outcome("error", reason="the run ended", fault=fault)
+
+  return step
+
+
+def test_an_end_whose_visit_hit_its_own_cap_ends_with_budget(
+  tmp_path: Path,
+) -> None:
+  ledger = {"usd": 0.0}
+  attempt = Machine(
+    [Step("a", faulted(ledger, 0.5, "budget"), {"error": End("error")})],
+    max_cost_usd=3.0,
+    spent_usd=lambda attempt: ledger["usd"],
+  ).run(tmp_path)
+  assert (attempt.status, attempt.reason, attempt.stopped) == (
+    "budget",
+    "a visit 1: the run ended",
+    None,
+  )
+
+
+def test_an_end_whose_visit_hit_its_own_cap_after_a_mark_keeps_it(
+  tmp_path: Path,
+) -> None:
+  ledger = {"usd": 0.0}
+  attempt = Machine(
+    [
+      Step("a", lambda _: Outcome("x"), {"x": Goto("b", mark="too_hard")}),
+      Step("b", faulted(ledger, 0.5, "budget"), {"error": End("error")}),
+    ],
+  ).run(tmp_path)
+  assert (attempt.status, attempt.kept_visit) == ("too_hard", 0)
+  assert attempt.reason == "b visit 1: the run ended"
+
+
+@pytest.mark.parametrize(
+  ("fault", "usd", "status"),
+  [("model", 3.0, "budget"), ("model", 2.99, "error"), (None, 3.0, "error")],
+)
+def test_an_end_with_a_fault_once_the_attempt_spent_its_cap_ends_with_budget(
+  tmp_path: Path, fault: str | None, usd: float, status: str
+) -> None:
+  ledger = {"usd": 0.0}
+  attempt = Machine(
+    [Step("a", faulted(ledger, usd, fault), {"error": End("error")})],
+    max_cost_usd=3.0,
+    spent_usd=lambda attempt: ledger["usd"],
+  ).run(tmp_path)
+  assert attempt.status == status
+  if status == "budget":
+    assert attempt.reason == (
+      "a visit 1: $3.00 spent of the $3.00 the attempt may spend; the run ended"
+    )
+
+
 def test_end_on_last_visit_ends_instead_of_going_back(tmp_path: Path) -> None:
   def machine(last: bool) -> Machine:
     return Machine(

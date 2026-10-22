@@ -56,6 +56,10 @@ class Outcome:
       visit writes no feedback.
     reason: Why the attempt ends, when the outcome's transition is an End:
       the attempt's reason becomes "<state> visit <n>: <reason>".
+    fault: Why the visit gave nothing to judge, one of the FAULTS words of
+      dataforge.curation.actions, such as its agent run's, or None. When the
+      transition is an End, "budget", or any fault once the attempt has
+      spent all it may, ends the attempt as the cost cap does instead.
   """
 
   name: str
@@ -63,6 +67,7 @@ class Outcome:
   last: bool = False
   feedback: Mapping[str, str] | None = None
   reason: str | None = None
+  fault: str | None = None
 
 
 @dataclass(frozen=True)
@@ -743,8 +748,9 @@ class Context:
 class Machine:
   """Runs attempts over a list of states; the first state is the start.
 
-  Before each state is entered, the cost cap and then guard may block it,
-  which ends the attempt. on_step gets the attempt when a visit begins, after
+  Before each state is entered, the cost cap and then guard may block it, which
+  ends the attempt; so does a spend cap that cut a visit whose outcome would
+  end it (Outcome.fault). on_step gets the attempt when a visit begins, after
   each claim and record of its actions, after the visit and when the attempt
   ends, one call at a time. A subclass may override either method instead of
   passing it. One machine may run several attempts at once, each with its own
@@ -1139,6 +1145,27 @@ class Machine:
       return "budget", f"{where}: {why}"
     return None
 
+  def _capped(self, attempt: Attempt, outcome: Outcome) -> str | None:
+    # Why a spend cap cut a visit that gave nothing to judge, if one did: a
+    # cap of its own, or the attempt's, all of which it has spent; a model
+    # proxy that caps the attempt's sessions refuses them then, whatever a
+    # session makes of the refusal.
+    if outcome.fault is None:
+      return None
+    said = outcome.reason or f"the fault {outcome.fault}"
+    if outcome.fault == "budget":
+      return said
+    cap = self.max_cost_usd
+    if cap is None:
+      return None
+    measure(attempt, self.spent_usd)
+    if attempt.cost_usd < cap:
+      return None
+    return (
+      f"${attempt.cost_usd:.2f} spent of the ${cap:.2f} the attempt may"
+      f" spend; {said}"
+    )
+
   def _reaches(
     self, start: str, goal: str, visits: Counter[str], closed: set[str]
   ) -> bool:
@@ -1202,9 +1229,13 @@ class Machine:
         f"{state.name} has no transition for outcome {outcome.name!r}"
       )
     if isinstance(transition, End):
+      where = f"{state.name} visit {ctx.visit}"
+      if (why := self._capped(attempt, outcome)) is not None:
+        _stop(attempt, "budget", f"{where}: {why}")
+        return None
       attempt.status = transition.status
       if outcome.reason is not None:
-        attempt.reason = f"{state.name} visit {ctx.visit}: {outcome.reason}"
+        attempt.reason = f"{where}: {outcome.reason}"
       return None
     record.mark = transition.mark
     if transition.end_on_last_visit and not self._reaches(
