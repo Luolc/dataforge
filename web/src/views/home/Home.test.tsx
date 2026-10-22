@@ -447,7 +447,7 @@ describe("the home page", () => {
     );
 
     expect(cells.querySelector("ol li")).toHaveTextContent(
-      "Pass@kRun interrupted",
+      "R1Pass@kRun interrupted",
     );
     expect(within(cells).getByText("Cut short")).toBeVisible();
   });
