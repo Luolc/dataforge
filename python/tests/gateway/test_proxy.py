@@ -406,6 +406,24 @@ def test_a_call_that_asks_the_model_side_to_reach_out_is_refused_unsent(
     ),
     pytest.param(
       Channel.CLAUDE,
+      claude(Tools=[{"type": "web_search_20250305", "name": "web_search"}]),
+      "tool type 'web_search_20250305'",
+      id="key-in-another-case",
+    ),
+    pytest.param(
+      Channel.CLAUDE,
+      claude(tools=["web_search"]),
+      "tool 'web_search'",
+      id="tool-not-an-object",
+    ),
+    pytest.param(
+      Channel.CODEX,
+      codex(prompt={"id": "pmpt_x"}),
+      "field 'prompt'",
+      id="stored-prompt",
+    ),
+    pytest.param(
+      Channel.CLAUDE,
       claude(
         messages=user(
           {
@@ -522,6 +540,12 @@ def test_the_proxy_passes_what_stays_with_the_client(
     (
       None,
       b'{"tools": [{"type": "web_search"}], "tools": []}',
+      400,
+      "a JSON object with a duplicate key",
+    ),
+    (
+      None,
+      b'{"tools": [], "Tools": [{"type": "web_search"}]}',
       400,
       "a JSON object with a duplicate key",
     ),

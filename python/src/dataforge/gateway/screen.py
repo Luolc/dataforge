@@ -8,9 +8,14 @@ unless every tool it declares is one its client runs itself and it names
 nothing for the model's side to fetch. The tool types are allowed, not
 refused, so that one an API adds later is refused until it is added here.
 
-A body is read as UTF-8 JSON whose objects have no duplicate keys, so that the
-gateway cannot read in it a field the proxy did not see; one that is not, or
-that decompresses past `channels.MAX_BODY`, is refused too.
+The top-level fields that bring in what the body does not show (`mcp_servers`,
+`container`, `prompt`) are refused by name instead, and so only those the
+documents below list.
+
+A body is read as UTF-8 JSON whose objects have no duplicate keys, compared
+without case, so that the gateway cannot read in it a field the proxy did not
+see; one that is not, or that decompresses past `channels.MAX_BODY`, is
+refused too.
 
 The tool types and fields, as read on 2026-10-22: the Messages API's at
 https://platform.claude.com/docs/en/api/messages (each `tools` variant and
@@ -18,8 +23,8 @@ content source) and
 https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview (which
 tools are server tools); the Responses API's at
 https://developers.openai.com/api/reference/resources/responses/methods/create
-(each `tools` variant, `additional_tools`, `tool_search_output`, and the
-`image_url` and `file_url` inputs).
+(each `tools` variant, `additional_tools`, `tool_search_output`, `prompt`,
+and the `image_url` and `file_url` inputs).
 """
 
 from collections.abc import Callable
@@ -42,9 +47,14 @@ TOOLS: dict[Channel, frozenset[str | None]] = {
     {"function", "custom", "namespace", "local_shell", "tool_search"}
   ),
 }
-# The Messages API's top-level fields that connect the model's side to an MCP
-# server or a code execution container.
-_FIELDS = ("mcp_servers", "container")
+# The top-level fields that bring in what the body does not show, by channel:
+# the Messages API's, which connect the model's side to an MCP server or a code
+# execution container, and the Responses API's stored prompt, which may carry
+# tools of its own.
+_FIELDS: dict[Channel, tuple[str, ...]] = {
+  Channel.CLAUDE: ("mcp_servers", "container"),
+  Channel.CODEX: ("prompt",),
+}
 # The Messages API's image and document sources other than a URL.
 _SOURCES = frozenset({"base64", "text", "content", "file"})
 # The Responses API's fields that may name a URL for the model's side to fetch.
@@ -151,7 +161,9 @@ type _Json = dict[str, _Json] | list[_Json] | str | int | float | bool | None
 
 
 def _object(pairs: list[tuple[str, _Json]]) -> dict[str, _Json]:
-  found = dict(pairs)
+  # Keys are compared casefolded, as a parser that matches them without case
+  # would read them.
+  found = {k.casefold(): v for k, v in pairs}
   if len(found) != len(pairs):
     raise _RefusedError("a JSON object with a duplicate key")
   return found
@@ -168,10 +180,9 @@ def _parsed(body: bytes) -> dict[str, _Json]:
 
 
 def _check(channel: Channel, body: dict[str, _Json]) -> None:
-  if channel is Channel.CLAUDE:
-    for field in _FIELDS:
-      if body.get(field) not in (None, [], {}):
-        raise _RefusedError(f"field {field!r}", asked=True)
+  for field in _FIELDS[channel]:
+    if body.get(field) not in (None, [], {}):
+      raise _RefusedError(f"field {field!r}", asked=True)
   skip = _SKIP[channel]
   nodes: list[_Json] = [body]
   while nodes:
@@ -190,6 +201,8 @@ def _check(channel: Channel, body: dict[str, _Json]) -> None:
 def _check_tools(channel: Channel, tools: _Json) -> None:
   for tool in tools if isinstance(tools, list) else [tools]:
     if not isinstance(tool, dict):
+      if isinstance(tools, list):
+        raise _RefusedError(f"tool {_shown(tool)}", asked=True)
       continue
     kind = tool.get("type")
     if not _among(kind, TOOLS[channel]):
