@@ -824,11 +824,20 @@ def _safe(name: str) -> str:
   return "".join(c if c.isalnum() or c in "-._" else "_" for c in name)
 
 
+_LS = ("-a", "--no-trunc", "--format", "{{.ID}}\t{{.Mounts}}")
+_GONE_WHILE_LISTING = ("No such container", "snapshot not found")
+
+
 def _mounting(path: Path, docker: str) -> list[str]:
   root = str(path.resolve())
-  listed = _docker(
-    docker, "container", "ls", "-a", "--no-trunc", "--format", "{{json .}}"
-  )
+  # `ls` asks the daemon for each container's size only when its format uses
+  # one (`{{json .}}` does), and that fails for a container removed while it
+  # runs; a format of two fields leaves the sizes out.
+  listed = _docker(docker, "container", "ls", *_LS)
+  if listed.returncode != 0 and any(
+    gone in listed.stderr for gone in _GONE_WHILE_LISTING
+  ):
+    listed = _docker(docker, "container", "ls", *_LS)
   if listed.returncode != 0:
     raise DockerError(f"docker container ls failed: {listed.stderr.strip()}")
   # `ls` joins a container's mount sources with commas, a source that has
@@ -837,10 +846,9 @@ def _mounting(path: Path, docker: str) -> list[str]:
   under = re.compile(f"(?:^|,){re.escape(root)}(?:/|,|$)")
   ids: list[str] = []
   for line in listed.stdout.splitlines():
-    if line.strip():
-      container = cast(Mapping[str, object], json.loads(line))
-      if under.search(str(container.get("Mounts") or "")):
-        ids.append(str(container["ID"]))
+    container, _, mounts = line.partition("\t")
+    if container.strip() and under.search(mounts):
+      ids.append(container.strip())
   if not ids:
     return []
   inspected = _docker(docker, "container", "inspect", *ids)

@@ -208,8 +208,19 @@ gone_file = here / "gone.json"
 gone_ids = json.loads(gone_file.read_text()) if gone_file.exists() else []
 if argv[0] == "container" and "--filter" not in argv:
     if argv[1] == "ls":
+        fail_file = here / "ls-fail.json"
+        if fail_file.exists():
+            fail = json.loads(fail_file.read_text())
+            if fail["times"] > 0:
+                fail["times"] -= 1
+                fail_file.write_text(json.dumps(fail))
+                print(fail["stderr"], file=sys.stderr)
+                sys.exit(1)
+        if "{{json .}}" in argv or any("Size" in a for a in argv):
+            print("rw layer snapshot not found for container", file=sys.stderr)
+            sys.exit(1)
         for i, sources in mounts.items():
-            print(json.dumps({"ID": i, "Mounts": ",".join(sources)}))
+            print(i + "\\t" + ",".join(sources))
         sys.exit(0)
     if argv[1] == "inspect":
         print(json.dumps([
@@ -887,7 +898,14 @@ def test_the_cleanup_chowns_and_removes_what_has_the_label(
   assert chown[:3] == ["run", "--rm", f"--label={LABEL}={label}"]
   assert f"--volume={out.resolve()}:/trial" in chown
   assert ["container", "rm", "-f", "c1", "c2"] in calls
-  release = ["container", "ls", "-a", "--no-trunc", "--format", "{{json .}}"]
+  release = [
+    "container",
+    "ls",
+    "-a",
+    "--no-trunc",
+    "--format",
+    "{{.ID}}\t{{.Mounts}}",
+  ]
   assert all(
     f"label={LABEL}={label}" in call
     for call in calls
@@ -1501,6 +1519,65 @@ def test_only_containers_that_ls_shows_mounting_the_trial_are_inspected(
   assert ["container", "rm", "-f", "verifier", "whole"] in docker_calls(fakes)
   left = json.loads((fakes[1].parent / "mounts.json").read_text())
   assert set(left) == {"next-door", "other"}
+
+
+def ls_fails(
+  fakes: tuple[Path, Path], stderr: str, times: int, source: str
+) -> None:
+  directory = fakes[1].parent
+  _ = (directory / "mounts.json").write_text(json.dumps({"v": [source]}))
+  _ = (directory / "ls-fail.json").write_text(
+    json.dumps({"stderr": stderr, "times": times})
+  )
+
+
+@pytest.mark.parametrize(
+  "stderr",
+  [
+    "Error response from daemon: rw layer snapshot not found for container c",
+    "Error response from daemon: No such container: c",
+  ],
+)
+def test_a_container_gone_while_ls_runs_is_listed_again(
+  tmp_path: Path, fakes: tuple[Path, Path], stderr: str
+) -> None:
+  out = outdir(tmp_path)
+  ls_fails(fakes, stderr, 1, str(out.resolve() / "job" / "t" / "verifier"))
+  result = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  assert result.exception is None
+  assert ["container", "rm", "-f", "v"] in docker_calls(fakes)
+
+
+@pytest.mark.parametrize(
+  ("stderr", "times"),
+  [
+    ("Error response from daemon: rw layer snapshot not found for c", 2),
+    ("Cannot connect to the Docker daemon", 1),
+  ],
+)
+def test_ls_that_fails_again_or_otherwise_is_a_docker_error(
+  tmp_path: Path, fakes: tuple[Path, Path], stderr: str, times: int
+) -> None:
+  out = outdir(tmp_path)
+  ls_fails(fakes, stderr, times, str(out.resolve() / "job" / "t" / "verifier"))
+  with pytest.raises(DockerError, match="docker container ls failed"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  lists = [c for c in docker_calls(fakes) if c[:2] == ["container", "ls"]]
+  assert len([c for c in lists if "--no-trunc" in c]) == (
+    2 if "snapshot" in stderr else 1
+  )
+
+
+def test_ls_asks_for_no_size(tmp_path: Path, fakes: tuple[Path, Path]) -> None:
+  out = outdir(tmp_path)
+  source = str(out.resolve() / "job" / "t" / "verifier")
+  _ = (fakes[1].parent / "mounts.json").write_text(json.dumps({"v": [source]}))
+  _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  ls = next(c for c in docker_calls(fakes) if "--no-trunc" in c)
+  fmt = ls[ls.index("--format") + 1]
+  assert "json" not in fmt
+  assert "Size" not in fmt
+  assert "--size" not in ls
 
 
 @pytest.mark.parametrize(
