@@ -1096,10 +1096,23 @@ def _read(
     ),
     None,
   )
+  readable = (
+    traced is not None
+    and traced[1].stat(follow_symlinks=False).st_size <= TRACE_LIMIT
+  )
+  # Harbor recorded no exception, yet the session says it ended on an error.
+  if (
+    exception is None
+    and traced is not None
+    and readable
+    and traced[0].format == "claude-code-stream-json"
+    and claude.read_trace(traced[1]).is_error
+  ):
+    exception = "SessionError: the agent's session ended with is_error"
   cost = agent.get("cost_usd")
   if isinstance(cost, bool) or not isinstance(cost, int | float):
     cost = None
-    if traced and traced[1].stat(follow_symlinks=False).st_size <= TRACE_LIMIT:
+    if traced is not None and readable:
       cost = traced[0].cost(traced[1])
   return TrialResult(
     {key: float(value) for key, value in rewards.items()},
