@@ -1,16 +1,34 @@
 import { describe, expect, it } from "vitest";
 
 import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
+import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
+import tangle from "../../../../fixtures/graph/attempts/batch-1/task-0303/record.json";
+import rollout from "../../../../fixtures/graph/attempts/batch-1/task-0304/record.json";
+import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
   inReview,
+  measured,
   must,
   records,
   reviewSince,
   runningIn,
   sampleProject,
 } from "../../../../fixtures/sample";
-import { record } from "../../../api/types";
-import { END, lanes, layout, takenCounts } from "./graph";
+import { type AttemptRecord, record } from "../../../api/types";
+import {
+  CARD_WIDTH,
+  type Edge,
+  END,
+  type Layout,
+  layout,
+  LINE,
+  LOOP_WIDTH,
+  takenCounts,
+  TEXT_WIDTH,
+  textHeight,
+  textTop,
+} from "./graph";
+import { widest } from "./measure";
 
 describe("the graph", () => {
   it("counts the transitions the visits took", () => {
@@ -32,17 +50,90 @@ describe("the graph", () => {
 
     expect(edge("author", "check").taken).toBe(true);
     expect(edge("author", "check").label.parts).toEqual([
-      { outcome: "done", taken: 2 },
+      { outcome: "done", taken: 2, to: null },
     ]);
     expect(edge("review", "author").taken).toBe(false);
     expect(edge("author", END).taken).toBe(false);
     expect(edge("solve", END).taken).toBe(true);
     // Every outcome is named, the taken one with its count.
     expect(edge("solve", END).label.parts).toEqual([
-      { outcome: "in_range", taken: 1 },
-      { outcome: "all_solved", taken: 0 },
-      { outcome: "none_solved", taken: 0 },
+      { outcome: "in_range", taken: 1, to: null },
+      { outcome: "all_solved", taken: 0, to: null },
+      { outcome: "none_solved", taken: 0, to: null },
     ]);
+  });
+
+  it("draws a transition not taken back or to the end, between states that ran, as a stub naming where it goes", () => {
+    const drawn = must(layout(records.passed, sampleProject));
+    const edge = (from: string, to: string) =>
+      must(drawn.edges.find((e) => e.key === `${from}\0${to}`));
+
+    // Not taken, back to a state before it, both ran.
+    expect(edge("review", "author")).toMatchObject({
+      stub: true,
+      taken: false,
+    });
+    expect(edge("review", "author").label.parts).toEqual([
+      { outcome: "fail", taken: 0, to: "author" },
+    ]);
+    // Not taken, to the end.
+    expect(edge("author", END)).toMatchObject({ stub: true, taken: false });
+    expect(must(edge("author", END).label.parts[0]).to).toBe("End");
+    // Taken, back or to the end: drawn all the way.
+    expect(edge("check", "author")).toMatchObject({ stub: false, taken: true });
+    expect(edge("solve", END)).toMatchObject({ stub: false, taken: true });
+    // Ahead to another state, taken or not: drawn all the way.
+    expect(edge("author", "check").stub).toBe(false);
+    const ahead = must(
+      must(layout(record.parse(rollout), sampleProject)).edges.find(
+        (e) => e.key === "unit\0stage",
+      ),
+    );
+    expect(ahead).toMatchObject({ stub: false, taken: false });
+    expect(drawn.edges.filter((e) => e.stub).map((e) => e.key)).toEqual([
+      `author\0${END}`,
+      `review\0author`,
+    ]);
+  });
+
+  it("draws every transition of a state that never ran all the way", () => {
+    const drawn = must(layout(record.parse(rollout), sampleProject));
+    const stub = (from: string, to: string) =>
+      must(drawn.edges.find((e) => e.key === `${from}\0${to}`)).stub;
+    // Back and not taken: a stub between two states that ran, not out of
+    // one that never ran.
+    expect(stub("compile", "scaffold")).toBe(true);
+    expect(stub("rollback", "outline")).toBe(false);
+    expect(stub("archive", "verify")).toBe(false);
+    expect(stub("rollback", END)).toBe(false);
+
+    // The seeded machines, each walked, so that some states ran and some
+    // did not.
+    let touched = 0;
+    for (let seed = 0; seed < 300; seed++) {
+      const drawn = must(
+        layout(machine(1200000 + seed, 12, 5, true), sampleProject),
+      );
+      const idle = new Set(
+        drawn.nodes.filter((n) => n.idle && n.key !== END).map((n) => n.key),
+      );
+      for (const e of drawn.edges) {
+        if (e.from === e.to || !(idle.has(e.from) || idle.has(e.to))) continue;
+        touched++;
+        // Its arrow stops 3 short of the top or the bottom of its target.
+        const to = must(drawn.nodes.find((n) => n.key === e.to));
+        const end = must(
+          [...e.path.matchAll(/L\s*(-?[\d.]+)\s+(-?[\d.]+)/g)].at(-1),
+        );
+        const [x, y] = [Number(end[1]), Number(end[2])];
+
+        expect(e.stub).toBe(false);
+        expect(x).toBeGreaterThanOrEqual(to.x);
+        expect(x).toBeLessThanOrEqual(to.x + to.width);
+        expect([to.y - 3, to.y + to.height + 3]).toContain(y);
+      }
+    }
+    expect(touched).toBeGreaterThan(0);
   });
 
   it("marks states not run and the end by the attempt's status", () => {
@@ -103,59 +194,488 @@ describe("the graph", () => {
       sub: "Not run",
     });
   });
+});
 
-  it("puts the edges back to one state in one lane", () => {
-    const drawn = must(layout(record.parse(busy), sampleProject));
-    const laneOf = (to: string) =>
-      new Set(
-        drawn.edges.filter((e) => e.back && e.to === to).map((e) => e.label.y),
+// The shapes a layout draws, read back from its SVG paths and its labels as
+// the page draws them, so that what is checked is what shows. A corner
+// rounded by Q is read as the corner itself; a curve (a loop) as the box
+// round its points.
+type Point = [number, number];
+interface Rect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+function shapesOf(path: string) {
+  const segments: [Point, Point][] = [];
+  const curves: Rect[] = [];
+  let at: Point = [0, 0];
+  for (const [, op, args] of path.matchAll(/([MLHQC])([^MLHQC]*)/g)) {
+    const n = (args ?? "")
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    const to = (x = 0, y = 0): Point => [x, y];
+    if (op === "M") at = to(n[0], n[1]);
+    else if (op === "L" || op === "H") {
+      const next = op === "L" ? to(n[0], n[1]) : to(n[0], at[1]);
+      segments.push([at, next]);
+      at = next;
+    } else if (op === "Q") {
+      const corner = to(n[0], n[1]);
+      const next = to(n[2], n[3]);
+      segments.push([at, corner], [corner, next]);
+      at = next;
+    } else {
+      const pts = [at, to(n[0], n[1]), to(n[2], n[3]), to(n[4], n[5])];
+      curves.push({
+        x0: Math.min(...pts.map((p) => p[0])),
+        y0: Math.min(...pts.map((p) => p[1])),
+        x1: Math.max(...pts.map((p) => p[0])),
+        y1: Math.max(...pts.map((p) => p[1])),
+      });
+      at = to(n[4], n[5]);
+    }
+  }
+  return { segments, curves };
+}
+
+/** A label's box: 7 a character, 14 a line, its last line's baseline at y. */
+function labelBox(edge: Edge): Rect {
+  const { label } = edge;
+  const lines = label.parts.map(
+    (p) =>
+      `${p.outcome}${p.taken > 0 ? ` ×${String(p.taken)}` : ""}${p.to === null ? "" : ` → ${p.to}`}`,
+  );
+  const w = Math.max(...lines.map((l) => l.length)) * 7;
+  const x0 = label.x;
+  return {
+    x0,
+    y0: label.y - 10 - (lines.length - 1) * 14,
+    x1: x0 + w,
+    y1: label.y + 3,
+  };
+}
+
+const overlap = (p: Rect, q: Rect) =>
+  Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) > 0.5 &&
+  Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0) > 0.5;
+const segmentRect = ([a, b]: [Point, Point]): Rect => ({
+  x0: Math.min(a[0], b[0]),
+  y0: Math.min(a[1], b[1]),
+  x1: Math.max(a[0], b[0]),
+  y1: Math.max(a[1], b[1]),
+});
+// Whether a segment runs through a box's inside.
+const through = (s: [Point, Point], r: Rect) => {
+  const b = segmentRect(s);
+  const length = (lo: number, hi: number, r0: number, r1: number) =>
+    Math.min(hi, r1) - Math.max(lo, r0) > 0.5;
+  if (b.y0 === b.y1)
+    return b.y0 > r.y0 && b.y0 < r.y1 && length(b.x0, b.x1, r.x0, r.x1);
+  if (b.x0 === b.x1)
+    return b.x0 > r.x0 && b.x0 < r.x1 && length(b.y0, b.y1, r.y0, r.y1);
+  return overlap(b, r);
+};
+// Whether two segments run along the same line for a stretch.
+const along = (s: [Point, Point], t: [Point, Point]) => {
+  const p = segmentRect(s);
+  const q = segmentRect(t);
+  if (p.y0 === p.y1 && q.y0 === q.y1 && p.y0 === q.y0)
+    return Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) > 0.5;
+  if (p.x0 === p.x1 && q.x0 === q.x1 && p.x0 === q.x0)
+    return Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0) > 0.5;
+  return false;
+};
+
+/** Every way a layout's shapes get in each other's way, as text. */
+function clashes(drawn: Layout): string[] {
+  const found: string[] = [];
+  const cards = drawn.nodes.map((n) => ({
+    key: n.key,
+    x0: n.x,
+    y0: n.y,
+    x1: n.x + n.width,
+    y1: n.y + n.height,
+  }));
+  const shapes = drawn.edges.map((e) => ({
+    e,
+    ...shapesOf(e.path),
+    label: labelBox(e),
+  }));
+  const name = (e: Edge) => `${e.from}>${e.to === END ? "end" : e.to}`;
+  for (const a of shapes) {
+    for (const c of cards) {
+      if (a.segments.some((s) => through(s, c)))
+        found.push(`${name(a.e)} runs through ${c.key}`);
+      if (a.curves.some((r) => overlap(r, c)))
+        found.push(`${name(a.e)}'s loop covers ${c.key}`);
+      if (overlap(a.label, c))
+        found.push(`${name(a.e)}'s label covers ${c.key}`);
+    }
+    for (const b of shapes) {
+      if (a === b) continue;
+      if (b.segments.some((s) => through(s, a.label)))
+        found.push(`${name(b.e)} runs through ${name(a.e)}'s label`);
+      if (b.curves.some((r) => overlap(r, a.label)))
+        found.push(`${name(b.e)}'s loop covers ${name(a.e)}'s label`);
+      if (b.segments.some((s) => a.curves.some((r) => through(s, r))))
+        found.push(`${name(b.e)} runs through ${name(a.e)}'s loop`);
+      if (a.e.key < b.e.key) {
+        if (overlap(a.label, b.label))
+          found.push(`${name(a.e)}'s and ${name(b.e)}'s labels overlap`);
+        if (a.segments.some((s) => b.segments.some((t) => along(s, t))))
+          found.push(`${name(a.e)} and ${name(b.e)} run along each other`);
+      }
+    }
+  }
+  return found;
+}
+
+// A synthetic machine from a seeded generator (an LCG, its high bits): 1 to
+// most states, 1 to outs outcomes each, of words from 1 to 19 characters;
+// a fifth of the edges to one busy state, a tenth to the state itself, a
+// fifth to the end and the rest to any state; with walk, visits along the
+// edges, so that labels carry counts.
+const WORDS = [
+  "ok",
+  "no",
+  "x",
+  "done",
+  "pass",
+  "fail",
+  "error",
+  "held",
+  "in_range",
+  "retry_later",
+  "needs_more_work",
+  "a_very_long_outcome",
+];
+
+function machine(
+  seed: number,
+  most: number,
+  outs: number,
+  walk: boolean,
+): AttemptRecord {
+  let s = seed;
+  const rand = (n: number) => {
+    s = (s * 1103515245 + 12345) % 2147483648;
+    return Math.floor(s / 65536) % n;
+  };
+  const names = Array.from(
+    { length: 1 + rand(most) },
+    (_, i) => `q${String(i)}`,
+  );
+  const busy = must(names[rand(names.length)]);
+  const edges = names.flatMap((from) => {
+    const used = new Set<string>();
+    return Array.from({ length: 1 + rand(outs) }, (_, k) => {
+      const word = must(WORDS[rand(WORDS.length)]);
+      const outcome = used.has(word) ? `${word}${String(k)}` : word;
+      used.add(outcome);
+      const r = rand(10);
+      const to =
+        r < 2
+          ? null
+          : r < 4
+            ? busy
+            : r < 5
+              ? from
+              : must(names[rand(names.length)]);
+      return {
+        from,
+        outcome,
+        to,
+        end: to === null ? "passed" : null,
+        report: false,
+        mark: null,
+        end_on_last_visit: false,
+      };
+    });
+  });
+  const visits: AttemptRecord["visits"] = [];
+  for (let state = walk ? names[0] : undefined; state !== undefined;) {
+    const here = edges.filter((e) => e.from === state);
+    const e = must(here[rand(here.length)]);
+    visits.push({
+      ...must(records.passed.visits[0]),
+      state,
+      visit: visits.length + 1,
+      outcome: e.outcome,
+    });
+    state = visits.length < 25 ? (e.to ?? undefined) : undefined;
+  }
+  return {
+    ...records.passed,
+    visits,
+    graph: {
+      start: must(names[0]),
+      states: names.map((name) => ({
+        name,
+        kind: "AgentState",
+        max_visits: 3,
+        on_exhausted: "exhausted",
+        max_cost_usd: null,
+      })),
+      edges,
+    },
+  };
+}
+
+/**
+ * How long the machines may take: a few seconds here, more on a slower
+ * runner.
+ */
+const MACHINES_MS = 30_000;
+
+/** How many machines of each size the test lays out, with walks and not. */
+const SIZES = [
+  { most: 6, outs: 3, count: 800 },
+  { most: 12, outs: 5, count: 600 },
+  { most: 20, outs: 6, count: 150 },
+  { most: 30, outs: 4, count: 30 },
+];
+
+/** Titles of tangle's states that break into more than one line. */
+const long = {
+  critique: { title: "Second pass on the edits" },
+  probe: { title: "a_state_name_with_no_spaces_at_all" },
+};
+
+describe("the layout's shapes", () => {
+  it("keep loops, labels and edges out of each other's way", () => {
+    const found = Object.fromEntries(
+      Object.entries({ busy, early, tangle, rollout }).map(([name, json]) => [
+        name,
+        clashes(must(layout(record.parse(json), sampleProject))),
+      ]),
+    );
+
+    expect(found).toEqual({ busy: [], early: [], tangle: [], rollout: [] });
+  });
+
+  it("make each card as tall as its text and as wide as its busiest side needs", () => {
+    const sizes = (drawn: Layout) => {
+      // The ports on the top and the bottom of each card, from where its
+      // edges start and end; an arrow stops 3 short of its card.
+      const ports = new Map<string, number>();
+      for (const e of drawn.edges) {
+        if (e.from === e.to) continue;
+        const ys = [...e.path.matchAll(/[ML]\s*-?[\d.]+\s+(-?[\d.]+)/g)].map(
+          (m) => Number(m[1]),
+        );
+        for (const [key, y] of [
+          [e.from, must(ys[0])],
+          [e.to, must(ys.at(-1))],
+        ] as const) {
+          const n = must(drawn.nodes.find((c) => c.key === key));
+          const side = Math.abs(y - n.y) < Math.abs(y - n.y - n.height) ? 0 : 1;
+          const at = `${key} ${String(side)}`;
+          ports.set(at, (ports.get(at) ?? 0) + 1);
+        }
+      }
+      const loops = new Map(
+        drawn.edges
+          .filter((e) => e.from === e.to)
+          .map((e) => [e.from, e.label.parts.length]),
+      );
+      return drawn.nodes.map((n) => ({
+        width: n.width,
+        height: n.height,
+        wants: {
+          width: Math.max(
+            CARD_WIDTH,
+            ...[0, 1].map((side) => {
+              const count = ports.get(`${n.key} ${String(side)}`) ?? 0;
+              return count > 0 ? (count - 1) * 12 + 20 : 0;
+            }),
+          ),
+          height: Math.max(
+            textHeight(n),
+            (loops.get(n.key) ?? 0) * LINE + LOOP_WIDTH,
+          ),
+        },
+      }));
+    };
+    const tangled = sizes(
+      must(layout(record.parse(tangle), { ...sampleProject, states: long })),
+    );
+    const machines = Array.from({ length: 200 }, (_, i) =>
+      sizes(must(layout(machine(3000000 + i, 30, 6, false), sampleProject))),
+    );
+
+    for (const all of [tangled, ...machines])
+      for (const s of all)
+        expect({ width: s.width, height: s.height }).toEqual(s.wants);
+    // Heights differ with the title's lines, and widths with the ports.
+    expect(new Set(tangled.map((s) => s.height)).size).toBeGreaterThan(1);
+    expect(
+      machines.some((all) => new Set(all.map((s) => s.width)).size > 1),
+    ).toBe(true);
+  });
+
+  it("break each line of a card to fit its width, cutting nothing", () => {
+    const states = {
+      ...long,
+      assemble: { title: "MMMMMMMMMMMMMMM" },
+      refine: { title: "WWWWW mmmmm" },
+    };
+    const project = { ...sampleProject, states };
+    const words = (text: string) => text.replaceAll(" ", "");
+    for (const measure of [measured, widest]) {
+      const drawn = must(layout(record.parse(tangle), project, null, measure));
+      // No card grows for its text, each line fits beside the icon, and
+      // the lines hold the whole text.
+      for (const n of drawn.nodes) {
+        expect(n.width).toBe(CARD_WIDTH);
+        for (const line of n.lines)
+          expect(measure(line, "title")).toBeLessThanOrEqual(TEXT_WIDTH);
+        for (const line of n.under)
+          expect(measure(line, "sub")).toBeLessThanOrEqual(TEXT_WIDTH);
+        expect(words(n.lines.join(""))).toBe(words(n.title));
+        // On one line, runs and time are joined by a dot; on two, not.
+        expect([
+          words(n.time === null ? n.sub : `${n.sub} · ${n.time}`),
+          words(n.sub + (n.time ?? "")),
+        ]).toContain(words(n.under.join("")));
+      }
+    }
+
+    const drawn = must(layout(record.parse(tangle), project, null, measured));
+    const lines = (key: string) =>
+      must(drawn.nodes.find((n) => n.key === key)).lines;
+    expect(lines("critique")).toEqual(["Second pass on", "the edits"]);
+    for (const key of ["probe", "assemble", "refine"])
+      expect(lines(key).length).toBeGreaterThan(1);
+  });
+
+  it("centre each card's text in its height", () => {
+    let taller = 0;
+    for (let seed = 0; seed < 100; seed++) {
+      const drawn = must(
+        layout(
+          machine(5000000 + seed, 8, 5, true),
+          sampleProject,
+          null,
+          measured,
+        ),
+      );
+      for (const n of drawn.nodes) {
+        if (n.height <= textHeight(n)) continue;
+        taller++;
+        // Its padding, where the card is only as tall as its text.
+        const pad = textTop({ ...n, height: textHeight(n) });
+        const text = textHeight(n) - 2 * pad;
+        expect(textTop(n)).toBeCloseTo(n.height - textTop(n) - text);
+      }
+    }
+    expect(taller).toBeGreaterThan(0);
+  });
+
+  it("lay the cards out top to bottom, those a state leads to from left to right in the order of its transitions", () => {
+    // a forks to b and c, which both go to the end; first is the state the
+    // transition a lists first leads to.
+    const fork = (states: string[], first: string, second: string) =>
+      must(
+        layout(
+          {
+            ...records.passed,
+            visits: [],
+            graph: {
+              start: "a",
+              states: states.map((name) => ({
+                name,
+                kind: "AgentState",
+                max_visits: 3,
+                on_exhausted: "exhausted",
+                max_cost_usd: null,
+              })),
+              edges: [
+                ["a", "one", first],
+                ["a", "two", second],
+                ["b", "done", null],
+                ["c", "done", null],
+              ].map(([from, outcome, to]) => ({
+                from: must(from),
+                outcome: must(outcome),
+                to: to ?? null,
+                end: to === null ? "passed" : null,
+                report: false,
+                mark: null,
+                end_on_last_visit: false,
+              })),
+            },
+          },
+          sampleProject,
+          null,
+          measured,
+        ),
+      );
+    for (const states of [
+      ["a", "b", "c"],
+      ["a", "c", "b"],
+    ])
+      for (const [first, second] of [
+        ["b", "c"],
+        ["c", "b"],
+      ] as const) {
+        const drawn = fork(states, first, second);
+        const node = (key: string) =>
+          must(drawn.nodes.find((n) => n.key === key));
+        const [a, one, two, end] = ["a", first, second, END].map(node);
+
+        for (const below of [must(one), must(two)])
+          expect(must(a).y + must(a).height).toBeLessThan(below.y);
+        for (const above of [must(one), must(two)])
+          expect(above.y + above.height).toBeLessThan(must(end).y);
+        // The two share a layer, the first one's card left of the other's.
+        expect(must(one).y).toBe(must(two).y);
+        expect(must(one).x + must(one).width).toBeLessThan(must(two).x);
+      }
+  });
+
+  it("keep apart two edges that swap heights between two layers", () => {
+    const found = swapped.graphs.map((graph) =>
+      clashes(
+        must(
+          layout(
+            record.parse({ ...records.passed, visits: [], graph }),
+            sampleProject,
+          ),
+        ),
+      ),
+    );
+
+    expect(found).toEqual([[], []]);
+  });
+
+  it(
+    "keep out of each other's way on any machine",
+    () => {
+      for (const rec of Object.values(records))
+        expect(clashes(must(layout(rec, sampleProject)))).toEqual([]);
+      const found = SIZES.flatMap(({ most, outs, count }) =>
+        Array.from({ length: count }, (_, i) => 100000 * most + i).flatMap(
+          (seed) =>
+            [false, true].flatMap((walk) => {
+              const drawn = must(
+                layout(machine(seed, most, outs, walk), sampleProject),
+              );
+              const c = clashes(drawn);
+              return c.length > 0
+                ? [{ seed, most, outs, walk, clashes: c.slice(0, 3) }]
+                : [];
+            }),
+        ),
       );
 
-    expect(drawn.edges.filter((e) => e.back && e.to === "draft").length).toBe(
-      7,
-    );
-    expect(laneOf("draft").size).toBe(1);
-    expect(laneOf("build").size).toBe(1);
-    expect(laneOf("draft")).not.toEqual(laneOf("build"));
-  });
-});
-
-describe("lanes", () => {
-  it("puts a shorter span inside a longer one, and disjoint ones together", () => {
-    expect(
-      lanes([
-        [0, 9],
-        [1, 3],
-        [4, 6],
-        [2, 5],
-      ]),
-    ).toEqual([2, 0, 0, 1]);
-  });
-});
-
-describe("the lanes of the edges", () => {
-  it("run at least 36 apart, the nearest 22 from the cards", () => {
-    const drawn = must(layout(record.parse(busy), sampleProject));
-    const card = must(drawn.nodes[0]);
-    const ys = (back: boolean) =>
-      [
-        ...new Set(
-          drawn.edges
-            .filter((e) => e.back === back && !e.label.stack && e.from !== e.to)
-            .map((e) => e.label.y + 5),
-        ),
-      ].sort((a, b) => a - b);
-    const below = ys(true);
-    const above = ys(false).reverse();
-    const gaps = (list: number[]) =>
-      list.slice(1).map((y, i) => Math.abs(y - must(list[i])));
-
-    expect(below.length).toBeGreaterThan(1);
-    expect(above.length).toBeGreaterThan(1);
-    expect(must(below[0]) - (card.y + card.height)).toBe(22);
-    expect(card.y - must(above[0])).toBe(22);
-    for (const gap of [...gaps(below), ...gaps(above)]) expect(gap).toBe(36);
-  });
+      expect(found).toEqual([]);
+    },
+    MACHINES_MS,
+  );
 });
 
 describe("a running attempt's layout", () => {

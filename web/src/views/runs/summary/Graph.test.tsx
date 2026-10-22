@@ -7,10 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.json";
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
-import { must, sampleProject } from "../../../../fixtures/sample";
+import { measured, must, sampleProject } from "../../../../fixtures/sample";
 import { type Project, record } from "../../../api/types";
+import { TEMPLATES } from "../../../ui/template";
 import { Graph } from "./Graph";
-import { type Layout, layout } from "./graph";
+import { END, type Layout, layout, TEXT_WIDTH } from "./graph";
 
 // As fixtures/graph/project.yaml, as /api/projects would serve it.
 const project: Project = {
@@ -109,6 +110,38 @@ describe("the machine's graph", () => {
     );
   });
 
+  it("lights a stub with the state it leaves and the state it names", () => {
+    const { graph, edge, node } = show(busy);
+    // An edge's key is its two ends with a NUL between; the end's own key
+    // starts with one.
+    const stubs = [...graph.querySelectorAll('[data-stub="true"]')].map(
+      (g): [string, string] => {
+        const key = must(g.getAttribute("data-edge"));
+        const i = key.indexOf("\0");
+        return [key.slice(0, i), key.slice(i + 1)];
+      },
+    );
+    // A stub back to another state, and a state at neither of its ends.
+    const [from, to] = must(stubs.find(([, t]) => t !== END));
+    const other = must(
+      busy.graph.states
+        .map((st) => st.name)
+        .find((k) => k !== from && k !== to),
+    );
+
+    fireEvent.pointerEnter(node(to));
+    expect(lit(edge(from, to))).toBe("true");
+    fireEvent.pointerLeave(node(to));
+    fireEvent.pointerEnter(node(from));
+    expect(lit(edge(from, to))).toBe("true");
+    fireEvent.pointerLeave(node(from));
+    fireEvent.pointerEnter(node(other));
+    expect(lit(edge(from, to))).toBe("false");
+    expect(edge(from, to).getAttribute("class")).toContain(
+      "opacity-[var(--opacity-idle)]",
+    );
+  });
+
   it("lights a focused state, but a hovered one wins over it", () => {
     const { edge, node } = show(busy);
 
@@ -186,32 +219,196 @@ describe("the machine's graph", () => {
   });
 });
 
-describe("edges that share a lane", () => {
-  // Dashes line up only when every edge in the lane starts where the others
-  // do: at the state they go back to.
-  it("start at the state they go back to, so their dashes stay dashes", () => {
-    const { graph } = show(early);
-    const back = [...graph.querySelectorAll('[data-taken="false"]')].filter(
-      (g) => {
-        const [from, to] = (g.getAttribute("data-edge") ?? "").split("\0");
-        return to === "draft" && from !== "draft";
-      },
-    );
-    const starts = back.map(
-      (g) =>
-        /^M[\d.]+ [\d.]+/.exec(
-          g.querySelector("path")?.getAttribute("d") ?? "",
-        )?.[0],
-    );
+describe("the pulses along a hovered state's edges", () => {
+  const pulses = (el: Element) => el.querySelectorAll(".pulse").length;
+  const css = readFileSync("src/ui/theme.css", "utf8");
+  // The rule outside the reduced-motion block, which indents its own deeper.
+  // A value as one line, however the formatter wraps it.
+  const flat = (value: string | undefined) =>
+    must(value).replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")");
+  const rule = (selector: string) =>
+    flat(must(new RegExp(`\\n {2}\\.${selector} \\{([^}]*)\\}`).exec(css))[1]);
+  const keyframes = (name: string) =>
+    must(
+      new RegExp(
+        `@keyframes ${name} \\{\\s*from \\{\\s*stroke-dashoffset: ([^;]+);\\s*\\}\\s*to \\{\\s*stroke-dashoffset: ([^;]+);`,
+      ).exec(css),
+    )
+      .slice(1)
+      .map(flat);
+  const token = (name: string) =>
+    flat(must(new RegExp(`\\n {2}--${name}: ([^;]+);`).exec(css))[1]);
 
-    expect(back.length).toBeGreaterThan(3);
-    expect(new Set(starts).size).toBe(1);
-    for (const g of back)
-      expect(g.querySelector("path")?.getAttribute("class")).toContain(
-        "stroke-dasharray",
-      );
+  it("run only along the lit edges taken once the attempt has ended", () => {
+    const { edge, node } = show(busy);
+    expect(pulses(edge("regrade", "recheck"))).toBe(0);
+
+    fireEvent.pointerEnter(node("recheck"));
+
+    expect(pulses(edge("regrade", "recheck"))).toBeGreaterThan(0);
+    expect(pulses(edge("recheck", "draft"))).toBeGreaterThan(0);
+    expect(pulses(edge("recheck", "review"))).toBe(0);
+    expect(pulses(edge("check", "review"))).toBe(0);
   });
 
+  it("run along lit edges not taken too while it runs, but not a stub's", () => {
+    const { edge, node } = show(early);
+
+    fireEvent.pointerEnter(node("smoke"));
+
+    expect(
+      edge("build", "smoke").querySelector(".stroke-pulse .pulse"),
+    ).not.toBeNull();
+    expect(
+      edge("smoke", "check").querySelector(".stroke-pulse-not-taken .pulse"),
+    ).not.toBeNull();
+    expect(edge("smoke", "draft").getAttribute("data-stub")).toBe("true");
+    expect(pulses(edge("smoke", "draft"))).toBe(0);
+  });
+
+  it("go when the hover ends", () => {
+    const { edge, node } = show(busy);
+    fireEvent.pointerEnter(node("recheck"));
+    expect(pulses(edge("regrade", "recheck"))).toBeGreaterThan(0);
+
+    fireEvent.pointerLeave(node("recheck"));
+
+    expect(pulses(edge("regrade", "recheck"))).toBe(0);
+  });
+
+  it("glow along the edges taken only", () => {
+    const { edge, node } = show(early);
+
+    fireEvent.pointerEnter(node("smoke"));
+
+    expect(edge("build", "smoke").querySelector(".pulse-glow")).not.toBeNull();
+    expect(edge("smoke", "check").querySelector(".pulse-glow")).toBeNull();
+  });
+
+  it("run from the state an edge leaves to the one it goes to, at one speed, again and again", () => {
+    // A dash offset that falls moves the dashes on along the path.
+    const [from, to] = keyframes("pulse-run");
+    expect(to).toBe(`calc(${String(from)} - var(--pulse-spacing))`);
+    expect(rule("pulse")).toMatch(
+      /animation: pulse-run var\(--duration-pulse\) var\(--ease-pulse\) infinite;/,
+    );
+    expect(token("ease-pulse")).toBe("linear");
+
+    const { graph, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const drawn = [...graph.querySelectorAll<SVGElement>(".pulse")];
+    expect(drawn.length).toBeGreaterThan(0);
+    for (const path of drawn) {
+      expect(path.getAttribute("style")).not.toMatch(
+        /--pulse-spacing|--duration-pulse|animation/,
+      );
+    }
+  });
+
+  it("come out of the state an edge leaves", () => {
+    // The mask's dash opens from the start, falling by the multiple of the
+    // spacing it runs over in as many periods: the dashes' own speed.
+    expect(keyframes("pulse-open")).toEqual([
+      "calc(var(--pulse-spacing) * var(--pulse-open) - var(--pulse-lead))",
+      "calc(0px - var(--pulse-lead))",
+    ]);
+    expect(rule("pulse-open")).toMatch(
+      /animation: pulse-open calc\(var\(--duration-pulse\) \* var\(--pulse-open\)\)\s+var\(--ease-pulse\);/,
+    );
+
+    const { edge, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const masked = must(edge("build", "smoke").querySelector("g[mask]"));
+    const id = must(
+      /^url\(#(.+)\)$/.exec(masked.getAttribute("mask") ?? ""),
+    )[1];
+    const mask = must(
+      [...document.querySelectorAll("mask")].find((m) => m.id === id),
+    );
+    expect(mask.querySelector("path.pulse-open")).not.toBeNull();
+    expect(masked.querySelector(".pulse")).not.toBeNull();
+  });
+
+  it("leave the start of an edge open once the mask has opened", () => {
+    // Held at its last frame, the mask would hide the lead it ran ahead by;
+    // at rest its dash starts where the path does.
+    expect(rule("pulse-open")).not.toMatch(/forwards|both|stroke-dashoffset/);
+  });
+
+  it("fade from the head to the tail", () => {
+    const { edge, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const comet = [
+      ...must(
+        edge("build", "smoke").querySelector(".stroke-pulse"),
+      ).querySelectorAll<SVGElement>(".pulse"),
+    ].map((path) => ({
+      // How much of the tail is cut from this dash: the more, the shorter.
+      cut: Number(
+        must(
+          /var\(--pulse-tail\) \* ([\d.]+)\)\)$/.exec(
+            path.style.getPropertyValue("--pulse-dash"),
+          ),
+        )[1],
+      ),
+      opacity: Number(path.style.opacity),
+    }));
+    expect(comet.length).toBeGreaterThan(1);
+
+    const longestFirst = comet.toSorted((a, b) => a.cut - b.cut);
+    for (const [longer, shorter] of longestFirst
+      .slice(1)
+      .map((dash, i) => [must(longestFirst[i]), dash] as const)) {
+      expect(shorter.cut).toBeGreaterThan(longer.cut);
+      expect(shorter.opacity).toBeGreaterThan(longer.opacity);
+    }
+  });
+
+  it("are as wide as a lit edge taken, and 3px, wider than its dashed line, on one not taken", () => {
+    expect(token("pulse-width")).toBe("var(--stroke-lit)");
+    expect(token("pulse-width-not-taken")).toBe("3px");
+    expect(parseFloat(token("pulse-width-not-taken"))).toBeGreaterThan(
+      parseFloat(token("stroke-lit-not-taken")),
+    );
+
+    const { edge, node } = show(early);
+    fireEvent.pointerEnter(node("smoke"));
+    const line = (g: Element) => must(g.querySelector(":scope > path"));
+    expect(line(edge("build", "smoke")).getAttribute("class")).toContain(
+      "[stroke-width:var(--stroke-lit)]",
+    );
+    expect(line(edge("smoke", "check")).getAttribute("class")).toContain(
+      "[stroke-width:var(--stroke-lit-not-taken)]",
+    );
+    expect(
+      edge("build", "smoke")
+        .querySelector(".stroke-pulse")
+        ?.getAttribute("class"),
+    ).not.toContain("--pulse-width");
+    expect(
+      edge("smoke", "check")
+        .querySelector(".stroke-pulse-not-taken")
+        ?.getAttribute("class"),
+    ).toContain("[--pulse-width:var(--pulse-width-not-taken)]");
+  });
+
+  it("stand still and stay in sight for reduced motion", () => {
+    const reduced =
+      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n {2}\}/.exec(
+        css,
+      )?.[1];
+
+    expect(reduced).toMatch(
+      /\.pulse \{\s*animation: none;\s*stroke-dashoffset: calc\(var\(--pulse-dash\) - var\(--pulse-spacing\) \/ 2\);/,
+    );
+    expect(reduced).not.toMatch(/display: none|visibility: hidden|opacity: 0/);
+    expect(reduced).toMatch(
+      /\.pulse-open \{\s*animation: none;\s*stroke-dashoffset: 0;/,
+    );
+  });
+});
+
+describe("edges not taken", () => {
   it("are drawn under the taken ones, lit or not", () => {
     const { graph, edge, node } = show(busy);
     // Draft's edges back include ones not taken, now lit.
@@ -276,10 +473,40 @@ describe("what was not run or not taken, at rest", () => {
 
     expect(text.length).toBeGreaterThan(0);
     expect(lines.length).toBeGreaterThan(0);
-    for (const c of [...text, ...labels])
+    // A state not run is filled with app, and the graph is drawn on card.
+    for (const c of text)
       expect(contrast(hex(c), hex("app"))).toBeGreaterThanOrEqual(4.5);
+    for (const c of labels)
+      expect(contrast(hex(c), hex("card"))).toBeGreaterThanOrEqual(4.5);
     for (const c of lines)
-      expect(contrast(hex(c), hex("app"))).toBeGreaterThanOrEqual(3);
+      for (const ground of ["app", "card"])
+        expect(contrast(hex(c), hex(ground))).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// Each colour template's value of a token: the root's, else contrast's.
+const templateHex = (template: string, name: string) => {
+  const block =
+    new RegExp(`html\\[data-template="${template}"\\] \\{([^}]*)\\}`).exec(
+      theme,
+    )?.[1] ?? "";
+  return (
+    new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6});`).exec(block)?.[1] ??
+    hex(name)
+  );
+};
+
+describe("the graph's ground", () => {
+  it("is the card's body, as the Deliverables table's is, not its head", () => {
+    const { graph } = show(early);
+    const frame = must(graph.parentElement);
+
+    expect(frame).toHaveClass("bg-card");
+    expect(frame).not.toHaveClass("bg-app");
+    for (const { id: template } of TEMPLATES)
+      expect(templateHex(template, "card")).not.toBe(
+        templateHex(template, "head"),
+      );
   });
 });
 
@@ -315,16 +542,16 @@ describe("a running attempt's machine", () => {
   }
 
   it("opens with the state it runs in the middle of the frame", () => {
-    frameOf(600, 300);
+    frameOf(240, 300);
     const { drawn, x } = showRunning();
     const node = must(drawn.nodes.find((n) => n.key === "smoke"));
 
     expect(x).toBeLessThan(0);
-    expect(x + (node.x + node.width / 2)).toBeCloseTo(300);
+    expect(x + (node.x + node.width / 2)).toBeCloseTo(120);
   });
 
   it("keeps its view when the attempt goes on to another state", () => {
-    frameOf(600, 300);
+    frameOf(240, 300);
     const { graph, x } = showRunning();
     const on = {
       ...smoke,
@@ -336,7 +563,7 @@ describe("a running attempt's machine", () => {
     const later = must(layout(record.parse(early), project, on));
     // The state it runs in now would sit elsewhere in the frame.
     const solve = must(later.nodes.find((n) => n.key === "solve"));
-    expect(300 - (solve.x + solve.width / 2)).not.toBeCloseTo(x);
+    expect(120 - (solve.x + solve.width / 2)).not.toBeCloseTo(x);
 
     rerenderWith(later);
 
@@ -348,6 +575,66 @@ describe("a running attempt's machine", () => {
     expect(must(graph.querySelector("g")).getAttribute("transform")).toMatch(
       new RegExp(`^translate\\(${String(x)} 0\\)`),
     );
+  });
+
+  it("keeps each line of a card within it, a running state's time on a line of its own", () => {
+    // Draft runs again, its second visit not recorded yet.
+    const draft = {
+      state: "draft",
+      visit: 2,
+      index: 3,
+      recorded: false,
+      since: "2026-03-09T13:16:40+00:00",
+    };
+    const drawn = must(layout(record.parse(early), project, draft, measured));
+    const { container } = render(
+      <MemoryRouter>
+        <Graph project={project} layout={drawn} runHref={() => "/run"} />
+      </MemoryRouter>,
+    );
+    const linesOf = (key: string) => {
+      const card = must(
+        [...container.querySelectorAll("[data-node]")].find(
+          (g) => g.getAttribute("data-node") === key,
+        ),
+      );
+      // A tspan with no y of its own goes on along its line, as SVG draws it.
+      return [...card.querySelectorAll("text")].flatMap((text) => {
+        const font = (text.getAttribute("class") ?? "").includes(
+          "font-semibold",
+        )
+          ? ("title" as const)
+          : ("sub" as const);
+        const spans = [...text.querySelectorAll("tspan")];
+        if (spans.length === 0)
+          return [
+            { text: text.textContent, y: Number(text.getAttribute("y")), font },
+          ];
+        const lines: { text: string; y: number; font: typeof font }[] = [];
+        for (const span of spans) {
+          const y = span.getAttribute("y");
+          const last = lines.at(-1);
+          if (y === null && last) last.text += span.textContent;
+          else lines.push({ text: span.textContent, y: Number(y), font });
+        }
+        return lines;
+      });
+    };
+
+    for (const n of drawn.nodes)
+      for (const line of linesOf(n.key)) {
+        expect(measured(line.text, line.font)).toBeLessThanOrEqual(TEXT_WIDTH);
+        // Its baseline in the card, room left under it for the descenders.
+        expect(line.y).toBeGreaterThan(0);
+        expect(line.y).toBeLessThanOrEqual(n.height - 4);
+      }
+    const under = linesOf("draft")
+      .filter((l) => l.font === "sub")
+      .map((l) => l.text);
+    expect(under).toEqual([
+      "2 runs · Running",
+      expect.stringMatching(/^\d+h \d+m$/),
+    ]);
   });
 
   it("opens at its left end when no state runs", () => {

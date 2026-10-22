@@ -5,7 +5,7 @@ ConfigError naming the file and the key that is wrong.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 import ipaddress
 import os
@@ -29,7 +29,8 @@ THINKING = ("collapsed", "expanded", "hidden")
 WHEN = ("idle", "stopped")
 """The conditions an action may take besides its own key's: idle, no attempt
 of the item runs (its lock is not held); stopped, the item's newest attempt
-may have stopped (it has not ended and the lock is not held)."""
+may have stopped (it has not ended and the lock is not held), or has ended
+with a status the project calls resumable, and the lock is not held."""
 
 PLACEHOLDER = "{item}"
 """The one placeholder of an action's argv and key: the data item's ID."""
@@ -116,8 +117,25 @@ class TabField:
 
 
 @dataclass(frozen=True, slots=True)
+class TabPart:
+  """A Markdown file a tab shows from each of its versions.
+
+  Attributes:
+    name: Its name, in the URL; of [a-z0-9-].
+    title: Its title.
+    file: The Markdown file, relative to each version's directory.
+    fields: The values shown above the Markdown, in order.
+  """
+
+  name: str
+  title: str
+  file: tuple[str, ...]
+  fields: tuple[TabField, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Tab:
-  """A tab of the attempt page that shows a Markdown file of the attempt.
+  """A tab of the attempt page that shows Markdown files of the attempt.
 
   Attributes:
     name: Its name, in the URL; of [a-z0-9-].
@@ -126,15 +144,15 @@ class Tab:
       the attempt's directory, in order; a pattern may hold "*", which
       matches any run of characters, and matches no name that starts with
       "." unless it does too.
-    file: The Markdown file, relative to each version's directory.
-    fields: The values shown above the Markdown, in order.
+    parts: The Markdown files it shows from each version, in order: one,
+      named and titled as the tab, for a tab of one file; else two or more,
+      each an entry of the tab's column.
   """
 
   name: str
   title: str
   versions: tuple[str, ...]
-  file: tuple[str, ...]
-  fields: tuple[TabField, ...] = ()
+  parts: tuple[TabPart, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +285,23 @@ class Deliverable:
 
 
 @dataclass(frozen=True, slots=True)
+class Trials:
+  """What the trials view reads in a trial's directory besides its record.
+
+  Attributes:
+    diff: The path of a trial's diff in its directory; None when the
+      dataset names none.
+    tests: The path of a trial's test results, a CTRF report, in its
+      directory; None when the dataset names none.
+    kinds: Each test kind's label, by the kind a test's labels give.
+  """
+
+  diff: tuple[str, ...] | None = None
+  tests: tuple[str, ...] | None = None
+  kinds: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class Project:
   """A dataset's project file, as loaded.
 
@@ -285,13 +320,17 @@ class Project:
     thinking: How a session view first shows thinking, one of THINKING.
     not_ended: The status words of an attempt that has not ended; None for
       the engine's own rule.
+    resumable: The statuses of an attempt that has ended and that an action
+      with when "stopped" may still go on with; none by default.
     lock: The path of the lock file in an item's directory; None when the
       dataset names none.
     deliverables: The deliverables an attempt has once it ends, in order.
-    trial_diff: The path of a trial's diff in its directory; None when the
-      dataset names none.
+    trials: What the trials view reads in a trial's directory; None when
+      the dataset names nothing.
     definition: The path of the definition snapshot in an attempt's
       directory; None when the dataset names none.
+    task: The path of the task.toml of an attempt's task in its directory,
+      whose metadata the Summary shows; None when the dataset names none.
     monitor: The resource monitor's SQLite database; None when the dataset
       names none.
     monitor_shown: The database as a page may show it: monitor.db as the
@@ -313,10 +352,12 @@ class Project:
   columns: tuple[Column, ...]
   thinking: str
   not_ended: tuple[str, ...] | None = None
+  resumable: tuple[str, ...] = ()
   lock: tuple[str, ...] | None = None
   deliverables: tuple[Deliverable, ...] = ()
-  trial_diff: tuple[str, ...] | None = None
+  trials: Trials | None = None
   definition: tuple[str, ...] | None = None
+  task: tuple[str, ...] | None = None
   monitor: Path | None = None
   monitor_shown: str | None = None
   actions: tuple[Action, ...] = ()
@@ -346,8 +387,17 @@ class Project:
           "name": t.name,
           "title": t.title,
           "versions": list(t.versions),
-          "file": "/".join(t.file),
-          "fields": [{"title": f.title, "format": f.format} for f in t.fields],
+          "parts": [
+            {
+              "name": part.name,
+              "title": part.title,
+              "file": "/".join(part.file),
+              "fields": [
+                {"title": f.title, "format": f.format} for f in part.fields
+              ],
+            }
+            for part in t.parts
+          ],
         }
         for t in self.tabs
       ],
@@ -357,12 +407,11 @@ class Project:
         {"name": d.name, "kind": d.kind, "title": d.title}
         for d in self.deliverables
       ],
-      "trials": None
-      if self.trial_diff is None
-      else {"diff": "/".join(self.trial_diff)},
+      "trials": None if self.trials is None else _public_trials(self.trials),
       "definition": None
       if self.definition is None
       else "/".join(self.definition),
+      "task": None if self.task is None else "/".join(self.task),
       "monitor": self.monitor is not None,
       "actions": [
         {"name": a.name, "label": a.label, "queue": a.queue}
@@ -467,10 +516,12 @@ def load_project(path: Path) -> Project:
       "columns",
       "session",
       "not_ended",
+      "resumable",
       "lock",
       "deliverables",
       "trials",
       "definition",
+      "task",
       "monitor",
       "actions",
       "tabs",
@@ -495,6 +546,8 @@ def load_project(path: Path) -> Project:
     else _relative(path, "lock", _str(path, "lock", data["lock"]))
   )
   actions = _actions(path, data.get("actions"), item, lock)
+  statuses = _statuses(path, data.get("statuses"))
+  not_ended = _not_ended(path, data.get("not_ended"))
   deliverables = _deliverables(path, data.get("deliverables"))
   tabs = _tabs(path, data.get("tabs"), deliverables)
   return Project(
@@ -505,19 +558,23 @@ def load_project(path: Path) -> Project:
     attempts=attempts,
     record=_relative(path, "record", _str(path, "record", data["record"])),
     states=_entries(path, "states", data.get("states"), {"title"}),
-    statuses=_statuses(path, data.get("statuses")),
+    statuses=statuses,
     item=item,
     columns=_columns(path, data.get("columns"), tabs),
     thinking=_thinking(path, data.get("session")),
-    not_ended=_not_ended(path, data.get("not_ended")),
+    not_ended=not_ended,
+    resumable=_resumable(path, data.get("resumable"), statuses, not_ended),
     lock=lock,
     deliverables=deliverables,
-    trial_diff=_trial_diff(path, data.get("trials")),
+    trials=_trials(path, data.get("trials")),
     definition=None
     if data.get("definition") is None
     else _relative(
       path, "definition", _str(path, "definition", data["definition"])
     ),
+    task=None
+    if data.get("task") is None
+    else _relative(path, "task", _str(path, "task", data["task"])),
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
     actions=actions,
@@ -750,8 +807,8 @@ def _tabs(
       path,
       where,
       entry,
-      required={"name", "title", "versions", "file"},
-      optional={"fields"},
+      required={"name", "title", "versions"},
+      optional={"file", "fields", "parts"},
     )
     name = _str(path, f"{where}.name", entry["name"])
     if not _ID.fullmatch(name):
@@ -761,18 +818,59 @@ def _tabs(
         f"{path}: {where}.name: {name!r} is repeated, runs or a kind's"
       )
     taken.add(name)
+    title = _str(path, f"{where}.title", entry["title"])
+    if "parts" in entry:
+      for key in ("file", "fields"):
+        if key in entry:
+          raise ConfigError(f"{path}: {where}.{key}: given with parts")
+      parts = _tab_parts(path, f"{where}.parts", entry["parts"])
+    elif "file" not in entry:
+      raise ConfigError(f"{path}: {where}.file: missing, and no parts")
+    else:
+      parts = (_tab_part(path, where, entry, name, title),)
     found.append(
       Tab(
         name=name,
-        title=_str(path, f"{where}.title", entry["title"]),
+        title=title,
         versions=_versions(path, f"{where}.versions", entry["versions"]),
-        file=_relative(
-          path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
-        ),
-        fields=_tab_fields(path, f"{where}.fields", entry.get("fields")),
+        parts=parts,
       )
     )
   return tuple(found)
+
+
+def _tab_parts(path: Path, where: str, value: object) -> tuple[TabPart, ...]:
+  # One file is written as the tab's own file, so a tab of parts has two.
+  if not isinstance(value, list) or len(cast(list[object], value)) < 2:
+    raise ConfigError(f"{path}: {where}: not a list of two or more")
+  found: list[TabPart] = []
+  for i, item in enumerate(cast(list[object], value)):
+    at = f"{where}[{i}]"
+    entry = _mapping(path, at, item)
+    _keys(
+      path, at, entry, required={"name", "title", "file"}, optional={"fields"}
+    )
+    name = _str(path, f"{at}.name", entry["name"])
+    if not _ID.fullmatch(name):
+      raise ConfigError(f"{path}: {at}.name: {name!r} is not of [a-z0-9-]")
+    if any(p.name == name for p in found):
+      raise ConfigError(f"{path}: {at}.name: {name!r} is repeated")
+    title = _str(path, f"{at}.title", entry["title"])
+    found.append(_tab_part(path, at, entry, name, title))
+  return tuple(found)
+
+
+def _tab_part(
+  path: Path, where: str, entry: Mapping[str, object], name: str, title: str
+) -> TabPart:
+  return TabPart(
+    name=name,
+    title=title,
+    file=_relative(
+      path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
+    ),
+    fields=_tab_fields(path, f"{where}.fields", entry.get("fields")),
+  )
 
 
 def _versions(path: Path, where: str, value: object) -> tuple[str, ...]:
@@ -838,14 +936,36 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
   return tuple(found)
 
 
-def _trial_diff(path: Path, value: object) -> tuple[str, ...] | None:
+def _trials(path: Path, value: object) -> Trials | None:
   if value is None:
     return None
   mapping = _mapping(path, "trials", value)
-  _keys(path, "trials", mapping, required={"diff"}, optional=set())
-  return _relative(
-    path, "trials.diff", _str(path, "trials.diff", mapping["diff"])
+  _keys(
+    path, "trials", mapping, required=set(), optional={"diff", "tests", "kinds"}
   )
+  paths = {
+    key: _relative(path, f"trials.{key}", _str(path, f"trials.{key}", given))
+    for key in ("diff", "tests")
+    if (given := mapping.get(key)) is not None
+  }
+  if not paths:
+    raise ConfigError(f"{path}: trials: names neither diff nor tests")
+  kinds = mapping.get("kinds")
+  if kinds is not None and "tests" not in paths:
+    raise ConfigError(f"{path}: trials.kinds: without trials.tests")
+  return Trials(
+    diff=paths.get("diff"),
+    tests=paths.get("tests"),
+    kinds=_entries(path, "trials.kinds", kinds, {"label"}),
+  )
+
+
+def _public_trials(trials: Trials) -> dict[str, object]:
+  return {
+    "diff": None if trials.diff is None else "/".join(trials.diff),
+    "tests": None if trials.tests is None else "/".join(trials.tests),
+    "kinds": trials.kinds,
+  }
 
 
 def _monitor(
@@ -1052,6 +1172,25 @@ def _not_ended(path: Path, value: object) -> tuple[str, ...] | None:
   if not isinstance(value, list) or not value:
     raise ConfigError(f"{path}: not_ended: not a non-empty list")
   return tuple(_str(path, "not_ended", w) for w in cast(list[object], value))
+
+
+def _resumable(
+  path: Path,
+  value: object,
+  statuses: dict[str, dict[str, str]],
+  not_ended: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: resumable: not a non-empty list")
+  words = tuple(_str(path, "resumable", w) for w in cast(list[object], value))
+  for word in words:
+    if word not in statuses:
+      raise ConfigError(f"{path}: resumable: {word!r} is not one of statuses")
+    if word in (not_ended or ()):
+      raise ConfigError(f"{path}: resumable: {word!r} is also in not_ended")
+  return words
 
 
 def _thinking(path: Path, value: object) -> str:

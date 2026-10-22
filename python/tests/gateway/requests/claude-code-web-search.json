@@ -1,0 +1,46 @@
+{
+ "model": "placeholder",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "placeholder text"
+    }
+   ]
+  }
+ ],
+ "system": [
+  {
+   "type": "text",
+   "text": "placeholder text"
+  },
+  {
+   "type": "text",
+   "text": "placeholder text"
+  },
+  {
+   "type": "text",
+   "text": "placeholder text"
+  }
+ ],
+ "tools": [
+  {
+   "type": "web_search_20250305",
+   "name": "web_search",
+   "max_uses": 8
+  }
+ ],
+ "tool_choice": {
+  "type": "auto"
+ },
+ "metadata": {
+  "user_id": "placeholder"
+ },
+ "max_tokens": 128000,
+ "output_config": {
+  "effort": "medium"
+ },
+ "stream": true
+}

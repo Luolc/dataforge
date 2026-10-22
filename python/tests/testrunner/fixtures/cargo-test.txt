@@ -1,0 +1,65 @@
+   Compiling core_x v0.1.0 (/w/crates/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src/lib.rs (/w/target/debug/deps/core_x-6fd2d59148232787)
+
+running 4 tests
+test tests::ignored ... ignored
+test tests::adds ... ok
+test tests::fails ... FAILED
+test tests::panics - should panic ... ok
+
+failures:
+
+---- tests::fails stdout ----
+
+thread 'tests::fails' (249) panicked at crates/core/src/lib.rs:16:9:
+assertion `left == right` failed
+  left: 2
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::fails
+
+test result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+     Running unittests src/main.rs (/w/target/debug/deps/core_x-c4b53fe83c8c8ef8)
+
+running 1 test
+test tests::runs_main ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/other.rs (/w/target/debug/deps/other-58e35af7c2d5840c)
+
+running 1 test
+test other_two ... FAILED
+
+failures:
+
+---- other_two stdout ----
+
+thread 'other_two' (254) panicked at crates/core/tests/other.rs:6:5:
+other two failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    other_two
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test other`
+     Running tests/parse.rs (/w/target/debug/deps/parse-24510dd1ae5f2f98)
+
+running 2 tests
+error: test failed, to rerun pass `--test parse`
+
+Caused by:
+  process didn't exit successfully: `/w/target/debug/deps/parse-24510dd1ae5f2f98 'tests::adds' 'tests::fails' 'tests::ignored' 'tests::panics' 'tests::runs_main' parses aborts other_two` (signal: 6, SIGABRT: process abort signal)
+error: 3 targets failed:
+    `--lib`
+    `--test other`
+    `--test parse`

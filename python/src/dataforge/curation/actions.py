@@ -5,20 +5,24 @@ container) are independent. Memory is shared through a ResourcePool, whose
 reservations every process of the machine counts: a Docker env reserves its
 memory_gb from start to stop, a trial what its runner's memory_gb gives, a host
 script its memory_gb; each waits while the pool is short. CPUs are not
-reserved; a container's cpus and cpu_shares divide them.
+reserved; a container's cpus and cpu_shares divide them. Image builds, whose
+writes to the disk no limit of a container reaches, take one of the pool's
+build slots each.
 """
 
 import codecs
 from collections.abc import Callable, Generator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import errno
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shlex
 import shutil
 import stat
@@ -26,8 +30,9 @@ import subprocess
 import tempfile
 import threading
 from types import TracebackType
-from typing import cast, Protocol, Self
+from typing import cast, NoReturn, Protocol, Self
 
+from dataforge import stopping
 from dataforge.curation.engine import (
   ActionRecord,
   Context,
@@ -37,6 +42,8 @@ from dataforge.curation.engine import (
 )
 from dataforge.leases import Lease, Leases
 from dataforge.statedir import state_dir
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -62,10 +69,13 @@ class ActionResult:
     log: What the action printed, and why it failed if it did.
     value: The parsed JSON answer of an agent run with an output_schema, such
       as a judge.
-    cost_usd: What it cost, in US dollars.
+    cost_usd: What it cost, in US dollars; for an agent whose runs did not
+      all report their cost, what those that did cost.
     run: An agent's last run.
     validation: The last run of an agent's validator on the host, if it ran.
     fixes: How many times the validator resumed an agent's session.
+    cost_known: Whether cost_usd is all it cost: False when a run of the
+      agent did not report its cost.
   """
 
   status: str
@@ -76,11 +86,17 @@ class ActionResult:
   run: AgentRun | None = None
   validation: CommandResult | None = None
   fixes: int = 0
+  cost_known: bool = True
 
   @property
   def ok(self) -> bool:
     """Whether the status is "ok"."""
     return self.status == "ok"
+
+
+BUILDS = 1
+"""How many image builds a pool lets run at once unless it is given another
+number."""
 
 
 class ResourcePool:
@@ -94,9 +110,18 @@ class ResourcePool:
   ValueError. The reservations of a process that ended, killed too, are given
   back. It counts whole MiB, so that a fraction of a GB is given back exactly
   as it was taken.
+
+  Image builds also take a build slot (`build`), a lease in `builds/` of the
+  state directory, counted the same way: no more than this pool's builds hold
+  one at once, in all processes.
   """
 
-  def __init__(self, memory_gb: float, max_running: int | None = None) -> None:
+  def __init__(
+    self,
+    memory_gb: float,
+    max_running: int | None = None,
+    builds: int = BUILDS,
+  ) -> None:
     """Make a pool.
 
     Args:
@@ -104,11 +129,16 @@ class ResourcePool:
         with what the reservations of every process hold, which the memory
         they reserved may already be using.
       max_running: How many reservations may be held at once; None for any.
+      builds: How many build slots may be held at once.
 
     Raises:
-      ValueError: When memory_gb is not positive or is more than is available.
+      ValueError: When memory_gb is not positive or is more than is
+        available, or builds is less than 1.
     """
+    if builds < 1:
+      raise ValueError(f"a pool of {builds} build slots")
     self._leases: Leases = Leases(state_dir() / "memory")
+    self._builds: Leases = Leases(state_dir() / "builds")
     available = _mem_available_gb()
     if available is not None:
       available += sum(self._leases.held()) / 1024
@@ -118,6 +148,7 @@ class ResourcePool:
       )
     self.memory_gb: float = memory_gb
     self.max_running: int | None = max_running
+    self.builds: int = builds
     self._total_mb: int = _mb(memory_gb)
     self._held: dict[int, list[Lease]] = {}
     self._lock: threading.Lock = threading.Lock()
@@ -180,6 +211,29 @@ class ResourcePool:
     finally:
       self.release(memory_gb)
 
+  @contextmanager
+  def build(self, memory_gb: float | None) -> Generator[None]:
+    """Hold a build slot and a reservation while the with block runs.
+
+    For an image build, whose writes to the disk no container limit caps: it
+    waits for a slot first and then for the memory, so that a build waiting
+    for a slot holds no memory. A caller that holds memory of this pool
+    already must not take a slot, as it would wait for one while holding
+    memory that a build holding a slot may be waiting for.
+
+    Args:
+      memory_gb: The memory to reserve, as reserve takes it; None for none.
+
+    Yields:
+      Nothing; the slot and the memory are held until the block ends.
+    """
+    slot = self._builds.wait(1, lambda held: len(held) < self.builds)
+    try:
+      with nullcontext() if memory_gb is None else self.reserve(memory_gb):
+        yield
+    finally:
+      slot.release()
+
 
 def _mb(gb: float) -> int:
   return round(gb * 1024)
@@ -197,9 +251,13 @@ def _mem_available_gb() -> float | None:
 
 
 def _reserve(
-  pool: ResourcePool | None, memory_gb: float | None
+  pool: ResourcePool | None, memory_gb: float | None, build: bool = False
 ) -> AbstractContextManager[None]:
-  if pool is None or memory_gb is None:
+  if pool is None:
+    return nullcontext()
+  if build:
+    return pool.build(memory_gb)
+  if memory_gb is None:
     return nullcontext()
   return pool.reserve(memory_gb)
 
@@ -374,13 +432,18 @@ class Host:
 
     Returns:
       Its result.
-    """
+
+    Raises:
+      subprocess.TimeoutExpired: It ran past what is left of the budget of a
+        stopped `fan_out` (`dataforge.stopping`); it is killed.
+    """  # noqa: DOC502
     done = subprocess.run(
       list(argv),
       capture_output=True,
       text=True,
       check=False,
       env={**os.environ, **env},
+      timeout=stopping.left(None),
     )
     return CommandResult(done.returncode, done.stdout + done.stderr)
 
@@ -416,6 +479,29 @@ class Mount:
   read_only: bool = True
 
 
+_CARRY = "/dataforge/carry"
+"""Where Docker.replace keeps the diffs it carries, in each container."""
+
+# The diff git apply takes whatever the tree's config says: plain a/ and b/
+# paths from the top, no external diff or text conversion, no renames.
+_DIFF = (
+  "--cached",
+  "--binary",
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-renames",
+  "--no-relative",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+)
+
+_OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+_GITLINK = "160000"
+"""The mode git gives a repository inside a tree, as `--raw` prints it."""
+
+
 def run_docker(args: Sequence[str]) -> CommandResult:
   """Run one docker command.
 
@@ -424,9 +510,17 @@ def run_docker(args: Sequence[str]) -> CommandResult:
 
   Returns:
     Its result.
-  """
+
+  Raises:
+    subprocess.TimeoutExpired: It ran past what is left of the budget of a
+      stopped `fan_out` (`dataforge.stopping`); it is killed.
+  """  # noqa: DOC502
   done = subprocess.run(
-    ["docker", *args], capture_output=True, text=True, check=False
+    ["docker", *args],
+    capture_output=True,
+    text=True,
+    check=False,
+    timeout=stopping.left(None),
   )
   return CommandResult(done.returncode, done.stdout + done.stderr)
 
@@ -436,7 +530,8 @@ class Docker:
   """A container, kept across visits, that each action starts and stops.
 
   `docker create` makes it on first use, `docker start` and `docker stop`
-  bracket each action in it, and leaving its `with` removes it.
+  bracket each action in it, and leaving its `with` removes it. Between
+  actions, replace puts a container of another image in its place.
 
   Inputs are copied in under /dataforge/<state>/<visit>/<action>/inputs, outputs
   copied out from .../outputs, and a validator copied to
@@ -453,7 +548,7 @@ class Docker:
   what a dataset adds, such as a gateway.
 
   Attributes:
-    image: The image.
+    image: The image, which replace changes.
     mounts: Bind mounts.
     outputs: A writable mount every action writes its outputs straight into,
       instead of .../outputs, so what one visit wrote is still there in the
@@ -621,12 +716,15 @@ class Docker:
     Returns:
       The arguments after `docker`.
     """
+    return self._create_args(self.image)
+
+  def _create_args(self, image: str) -> list[str]:
     return [
       "create",
       "--init",
       *self._limit_args(),
       *self._run_args(),
-      self.image,
+      image,
       "sleep",
       "infinity",
     ]
@@ -680,7 +778,9 @@ class Docker:
     Raises:
       BaseException: Whatever creating, starting or post_start raised; the
         memory is given back, and after a failed post_start the container is
-        stopped.
+        stopped. Stopped, with the memory given back, when the stop of the
+        call this thread runs is set before the container is created or
+        started.
     """
     with self._lock:
       if self._users == 0:
@@ -688,6 +788,8 @@ class Docker:
           pool.acquire(self.memory_gb)
           self._pool = pool
         try:
+          # Also once the memory came, which may be long after the call began.
+          stopping.check()
           if self._id is None:
             self._id = self._docker(self.create_args()).strip()
           if self.pre_start is not None:
@@ -725,6 +827,186 @@ class Docker:
       if self._id is not None:
         _ = self._docker(["rm", "--force", self._id])
         self._id = None
+
+  def replace(
+    self,
+    image: str,
+    carry: Sequence[str] = (),
+    pool: ResourcePool | None = None,
+  ) -> None:
+    """Go on in a container of another image, with the changes of carry.
+
+    Called between actions, such as once the host has built image from a
+    Dockerfile a session wrote. The new container has this env's options,
+    mounts and labels, so only the image differs. Of each git work tree that
+    carry names, by its top in the container, it gets the changes against
+    `HEAD`: the files `HEAD` tracks that differ and the untracked files git
+    does not ignore, as a binary diff the old container makes and the new one
+    applies to `HEAD`, so that those files are as in the old tree, but no file
+    git ignores, which the new image may have built anew. It carries them only
+    onto a tree whose `HEAD` has the same tree as the old one's. When that
+    differs or a change does not apply, such as a file the diff adds that git
+    ignores in the new tree, it removes the new container, keeps the old one
+    as this env's and raises, so no change is lost; else it removes the old
+    one, and a removal that fails is logged and left to the dataset's
+    cleanup, as the env has gone on in the new one. A git repository inside
+    a tree, such as a submodule, whose files or commit differ from `HEAD`, or
+    a submodule's directory that holds files but is no repository, makes it
+    raise before it creates the new one, since a diff holds only that
+    repository's commit. The two run one at a time, only for git and
+    the copies, without pre_start and post_start, and with memory_gb reserved
+    from pool. An env with no container yet only takes the image.
+
+    Args:
+      image: The new container's image.
+      carry: The work trees whose changes go along, by their paths in the
+        container.
+      pool: The pool to reserve memory_gb from while a container runs, if any.
+
+    Raises:
+      RuntimeError: When an action runs in the env, a docker or git command
+        fails, such as on a path of carry that is not the top of a work tree,
+        a tree's `HEAD` differs between the two containers, or a repository
+        inside a tree differs from `HEAD`.
+    """  # noqa: DOC503
+    with self._lock:
+      if self._users:
+        raise RuntimeError("replace runs between actions, not during one")
+      old = self._id
+      if old is None:
+        self.image = image
+        return
+      with (
+        _reserve(pool, self.memory_gb),
+        tempfile.TemporaryDirectory(prefix="dataforge-carry-") as into,
+      ):
+        taken = self._take(old, carry, Path(into))
+        new = None
+        try:
+          new = self._docker(self._create_args(image)).strip()
+          self._give(new, taken)
+        except BaseException:
+          if new is not None:
+            _ = self.cli(["rm", "--force", new])
+          raise
+      self._id, self.image = new, image
+      removed = self.cli(["rm", "--force", old])
+      if removed.exit_code != 0:
+        _log.warning("replace left the old container %s: %s", old, removed.log)
+
+  def _take(
+    self, container: str, carry: Sequence[str], into: Path
+  ) -> list[tuple[str, str, Path]]:
+    # Each tree's path, its HEAD's tree and the diff, copied out into into.
+    if not carry:
+      return []
+    _ = self._docker(["start", container])
+    try:
+      taken: list[tuple[str, str, Path]] = []
+      _ = self._in(container, ["mkdir", "-p", _CARRY], root=True)
+      _ = self._in(container, ["chmod", "0777", _CARRY], root=True)
+      for number, tree in enumerate(carry):
+        head = self._head(container, tree)
+        patch = f"{_CARRY}/{number}.patch"
+        # An index of its own, so that the tree's own is left as it is.
+        index = {"GIT_INDEX_FILE": f"{_CARRY}/{number}.index"}
+        for argv in (
+          ["git", "read-tree", "HEAD"],
+          ["git", "add", "--all"],
+          ["git", "diff", *_DIFF, f"--output={patch}", "HEAD"],
+        ):
+          _ = self._in(container, argv, workdir=tree, env=index)
+        self._no_repositories(container, tree, index)
+        local = into / f"{number}.patch"
+        _ = self._docker(["cp", f"{container}:{patch}", str(local)])
+        if not stat.S_ISREG(local.lstat().st_mode):
+          raise RuntimeError(f"the diff of {tree} is not a regular file")
+        taken.append((tree, head, local))
+      _ = self._in(container, ["rm", "-rf", _CARRY], root=True)
+    except BaseException:
+      _ = self.cli(["stop", container])
+      raise
+    _ = self._docker(["stop", container])
+    return taken
+
+  def _give(
+    self, container: str, taken: Sequence[tuple[str, str, Path]]
+  ) -> None:
+    # Apply what _take took; the caller removes the container if this raises.
+    if not taken:
+      return
+    _ = self._docker(["start", container])
+    _ = self._in(container, ["mkdir", "-p", _CARRY], root=True)
+    _ = self._in(container, ["chmod", "0777", _CARRY], root=True)
+    for number, (tree, head, local) in enumerate(taken):
+      found = self._head(container, tree)
+      if found != head:
+        why = f"{tree}: HEAD has the tree {head} in the old container"
+        raise RuntimeError(f"{why}, {found} in the new one")
+      # What the image's build left in the tree that git does not ignore goes,
+      # so the old tree's diff makes the new one's as the session left it.
+      for argv in (
+        ["git", "reset", "--hard", "--quiet", "HEAD"],
+        ["git", "clean", "-d", "--force", "--quiet"],
+      ):
+        _ = self._in(container, argv, workdir=tree)
+      if local.stat().st_size:
+        patch = f"{_CARRY}/{number}.patch"
+        _ = self._docker(["cp", str(local), f"{container}:{patch}"])
+        apply = ["git", "apply", "--whitespace=nowarn", patch]
+        _ = self._in(container, apply, workdir=tree)
+    _ = self._in(container, ["rm", "-rf", _CARRY], root=True)
+    _ = self._docker(["stop", container])
+
+  def _no_repositories(
+    self, container: str, tree: str, index: Mapping[str, str]
+  ) -> None:
+    # A repository inside the tree, a submodule or one the session made, is
+    # one line of the diff, its commit, and none of its files; so one that
+    # differs from HEAD, its files or commit, is refused, and so is a
+    # submodule's directory that holds files but is no repository of its
+    # own, such as one never checked out, whose files git does not see.
+    argv = [
+      "git",
+      "diff",
+      "--raw",
+      "--no-renames",
+      "--ignore-submodules=none",
+      "HEAD",
+    ]
+    for line in self._in(container, argv, workdir=tree, env=index).split("\n"):
+      modes, _, path = line.partition("\t")
+      if line.startswith(":") and _GITLINK in modes.lstrip(":").split()[:2]:
+        self._refuse(tree, "differs from HEAD", path)
+    argv = ["git", "ls-files", "--stage", "-z"]
+    for entry in self._in(container, argv, workdir=tree, env=index).split("\0"):
+      mode, _, path = entry.partition("\t")
+      if not mode.startswith(_GITLINK):
+        continue
+      listed = self.cli(
+        ["exec", "--workdir", tree, container, "ls", "-A", "--", path]
+      )
+      if listed.exit_code != 0 or not listed.log.strip():
+        continue
+      inside = str(PurePosixPath(tree) / path)
+      prefix = self._in(
+        container, ["git", "rev-parse", "--show-prefix"], workdir=inside
+      )
+      if prefix.partition("\n")[0]:
+        self._refuse(tree, "holds files but is no repository", path)
+
+  @staticmethod
+  def _refuse(tree: str, why: str, path: str) -> NoReturn:
+    whole = f"a git repository inside the tree {why}, which a diff cannot carry"
+    raise RuntimeError(f"{tree}: {whole}: {path}")
+
+  def _head(self, container: str, tree: str) -> str:
+    # The tree of HEAD in the work tree whose top is tree.
+    argv = ["git", "rev-parse", "--show-prefix", "HEAD^{tree}"]
+    lines = self._in(container, argv, workdir=tree).split("\n")
+    if len(lines) < 2 or lines[0] or not _OBJECT.fullmatch(lines[1]):
+      raise RuntimeError(f"{tree} is not the top of a git work tree")
+    return lines[1]
 
   def __enter__(self) -> Self:
     """Return the env; leaving the with block removes the container.
@@ -867,11 +1149,29 @@ class Docker:
 
     Raises:
       RuntimeError: When it exits with another status.
-    """
-    user = ["--user", "0"] if root else []
-    result = self.cli(["exec", *user, cast(str, self._id), *argv])
+    """  # noqa: DOC502
+    return self._in(cast(str, self._id), argv, root=root)
+
+  def _in(
+    self,
+    container: str,
+    argv: Sequence[str],
+    *,
+    root: bool = False,
+    workdir: str | None = None,
+    env: Mapping[str, str] | None = None,
+  ) -> str:
+    # Run a command in container, as _exec_ok does.
+    options = ["--user", "0"] if root else []
+    if workdir is not None:
+      options += ["--workdir", workdir]
+    for key, value in (env or {}).items():
+      options += ["--env", f"{key}={value}"]
+    result = self.cli(["exec", *options, container, *argv])
     if result.exit_code != 0:
-      raise RuntimeError(f"{' '.join(argv)} failed in {self._id}: {result.log}")
+      raise RuntimeError(
+        f"{' '.join(argv)} failed in {container}: {result.log}"
+      )
     return result.log
 
   def _docker(self, args: Sequence[str]) -> str:
@@ -952,14 +1252,27 @@ class AgentTask:
   resume_prompt: str | None = None
 
 
+# Why a run of an agent or a trial gave nothing that can be judged, when the
+# cause lies outside the task: the model's side (an API error, a refusal, rate
+# limits that outlasted the retries), our own timeout, the machine (Harbor,
+# Docker, the environment, the agent's tool itself) or a spend cap of the
+# session's own. dataforge.curation.faults reads a trial's exception as one.
+MODEL = "model"
+TIMEOUT = "timeout"
+INFRA = "infra"
+BUDGET = "budget"
+FAULTS = (MODEL, TIMEOUT, INFRA, BUDGET)
+
+
 @dataclass(frozen=True)
 class AgentRun:
   """One run of an agent.
 
   Attributes:
     session: Whatever the runner needs to resume it.
-    status: "ok" when it finished normally.
-    cost_usd: What it cost, in US dollars.
+    status: "ok" when it finished normally; not "ok" whenever it has a fault.
+    cost_usd: What it cost, in US dollars, or None when the runner could not
+      tell, as for a session killed before it reported its cost.
     trace: Its trace, if the runner keeps one.
     result: Its answer.
     ending: How it ended, in the runner's words, if the runner says.
@@ -967,17 +1280,26 @@ class AgentRun:
     trace_format: The trace's format, such as "claude-code-stream-json".
     resumed: Whether it went on with the session of an earlier run rather
       than start one, as a resume does and a start may (AgentSpec.session).
+    fault: One of FAULTS when it ended for a cause outside the task, or None
+      when it ended normally or the runner does not say.
+    stop_reason: Why the model stopped its last message, such as "refusal",
+      if the runner says.
+    error: The error the run ended on, such as an API error's message, cut
+      to a length the runner sets, if it ended on one.
   """
 
   session: object
   status: str
-  cost_usd: float
+  cost_usd: float | None
   trace: Path | None
   result: str
   ending: str | None = None
   resumable: bool = True
   trace_format: str | None = None
   resumed: bool = False
+  fault: str | None = None
+  stop_reason: str | None = None
+  error: str | None = None
 
 
 class AgentRunner(Protocol):
@@ -1034,6 +1356,9 @@ class ScriptSpec:
     memory_gb: On the host, reserved from the pool while it runs; in a Docker
       env the env's reservation covers it.
     optional_inputs: More inputs, each left out when it does not exist yet.
+    build: Whether it builds an image: it then runs only on the host and
+      holds one of the pool's build slots while it runs, taken before its
+      memory_gb (`ResourcePool.build`).
   """
 
   argv: Sequence[str]
@@ -1041,6 +1366,7 @@ class ScriptSpec:
   outputs: Sequence[str] = ()
   memory_gb: float | None = None
   optional_inputs: Sequence[Input] = ()
+  build: bool = False
 
 
 VERDICT = "verdict.json"
@@ -1217,7 +1543,7 @@ class Actions:
         prompt, staged.inputs, staged.outdir, staged.validator, resume_prompt
       )
       run = runner.start(spec, task, env)
-      cost, log, fixes = run.cost_usd, [run.result], 0
+      runs, log, fixes = [run], [run.result], 0
       check: CommandResult | None = None
       stale: list[str] = []
       first = run
@@ -1234,7 +1560,7 @@ class Actions:
             break
           fixes += 1
           run = runner.resume(run.session, fix)
-          cost += run.cost_usd
+          runs.append(run)
           log.append(run.result)
         # Only once every run of the action has returned.
         session = _checkpoint(runner, run.session)
@@ -1245,6 +1571,9 @@ class Actions:
     finally:
       env.stop()
     trace = _trace_inside(ctx.attempt.root, first)
+    costs = [r.cost_usd for r in runs]
+    cost = sum(c for c in costs if c is not None)
+    cost_known = None not in costs
     failures = _failures(fixes, check, stale)
     log.extend(failures)
     passed = run.status == "ok" and not failures
@@ -1267,6 +1596,7 @@ class Actions:
       session=session,
       trace=trace,
       trace_format=None if trace is None else first.trace_format,
+      cost_known=cost_known,
     )
     return dataclasses.replace(result, run=run, validation=check, fixes=fixes)
 
@@ -1282,7 +1612,11 @@ class Actions:
 
     Returns:
       Its result.
-    """
+
+    Raises:
+      ValueError: When the script builds an image (spec.build) and env is
+        not the host.
+    """  # noqa: DOC502
     started_at, done, summary = self._run(ctx, spec, env, {})
     passed = done.exit_code == 0
     return _finish(
@@ -1362,10 +1696,13 @@ class Actions:
   ) -> tuple[datetime, CommandResult, str | None]:
     # Runs a script, collects its outputs and reads its summary; the caller
     # records it.
+    if spec.build and not isinstance(env, Host):
+      # A Docker env's container may hold the pool's memory already.
+      raise ValueError("a script that builds an image runs on the host")
     index, started_at = ctx.claim(spec.outputs), datetime.now(UTC)
     inputs = ctx.resolve(spec.inputs, spec.optional_inputs)
     memory_gb = spec.memory_gb if isinstance(env, Host) else None
-    with _reserve(self.pool, memory_gb):
+    with _reserve(self.pool, memory_gb, spec.build):
       env.start(self.pool)
       try:
         staged = env.stage(ctx, index, inputs, None)
@@ -1451,17 +1788,42 @@ def fan_out[T](calls: Sequence[Callable[[], T]]) -> list[T]:
   """Run every call at once, each in its own thread.
 
   How many actually run at a time is up to the pool their actions reserve from.
+  The calls run under a stop (`dataforge.stopping`), the one of the call that
+  runs this fan_out, if any, else one of their own. When this thread is
+  interrupted while it waits for them, by the SystemExit of a SIGTERM or a
+  KeyboardInterrupt say, it sets the stop, so that the calls stop the children
+  they wait for and start no more, and raises the interrupt once they ended.
 
   Args:
     calls: The calls.
 
   Returns:
     Their results, in order.
-  """
+
+  Raises:
+    Exception: The error of the first call, in order, that failed, once the
+      calls ended.
+    BaseException: The interrupt, once the calls ended.
+  """  # noqa: DOC503
   if not calls:
     return []
+  stop = stopping.current() or stopping.Stop()
   with ThreadPoolExecutor(max_workers=len(calls)) as executor:
-    futures = [executor.submit(call) for call in calls]
+    futures: list[Future[T]] = []
+    try:
+      for call in calls:
+        futures.append(executor.submit(stopping.under(stop, call)))
+      _ = wait(futures)
+    except BaseException:
+      stop.set()
+      executor.shutdown(cancel_futures=True)
+      for future in futures:
+        error = None if future.cancelled() else future.exception()
+        # What a stopped call could not do on its way out, the interrupt
+        # would hide.
+        if error is not None and not isinstance(error, stopping.Stopped):
+          _log.warning("a call of a stopped fan_out raised %r", error)
+      raise
     return [future.result() for future in futures]
 
 
@@ -1713,6 +2075,7 @@ def _finish(
   session: Data | None = None,
   trace: Path | None = None,
   trace_format: str | None = None,
+  cost_known: bool = True,
 ) -> ActionResult:
   outputs = {
     name: ctx.outdir / name for name in names if (ctx.outdir / name).exists()
@@ -1734,9 +2097,12 @@ def _finish(
       session=session,
       trace=trace,
       trace_format=trace_format,
+      cost_known=cost_known,
     )
   )
-  return ActionResult(status, outputs, log, value, cost_usd)
+  return ActionResult(
+    status, outputs, log, value, cost_usd, cost_known=cost_known
+  )
 
 
 def _summary(path: Path) -> str | None:

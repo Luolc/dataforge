@@ -2,6 +2,7 @@
 # The fakes implement protocols and take parameters they do not need.
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime, UTC
 import json
 from pathlib import Path
@@ -37,6 +38,7 @@ from dataforge.curation.rubric import (
   NOTES,
   REREVIEW,
   Rubric,
+  RUBRIC_REPORT,
   VERDICTS_SCHEMA,
 )
 
@@ -123,7 +125,7 @@ def task(tmp_path: Path) -> Path:
 
 
 def rubric_state(
-  tmp_path: Path, reviewers: Reviewers, task: Path, **kwargs: object
+  tmp_path: Path, reviewers: Reviewers | Judges, task: Path, **kwargs: object
 ) -> RubricState:
   rubric = tmp_path / "rubric.toml"
   _ = rubric.write_text(RUBRIC)
@@ -175,6 +177,9 @@ def test_every_review_passing_passes(tmp_path: Path, task: Path) -> None:
     "passed": True,
     "failed": [],
     "verdicts": json.loads(verdicts(sound=PASS, tidy=PASS)),
+    "fault": None,
+    "error": None,
+    "retried": False,
   }
   spec = reviewers.specs["docs"]
   assert (spec.tools, spec.output_schema) == ((), VERDICTS_SCHEMA)
@@ -332,32 +337,120 @@ def test_a_failed_run_is_an_error_even_with_passing_verdicts(
   assert status == "errored"
 
 
-def test_an_error_gives_what_each_review_whose_run_failed_returned(
+def report(attempt: Attempt) -> str:
+  return attempt.visits[0].outputs[RUBRIC_REPORT].read_text()
+
+
+def machine(state: RubricState) -> Machine:
+  end = ScriptState(
+    "end",
+    {"ok": End("sent back")},
+    actions=Actions(),
+    spec=ScriptSpec(["true"]),
+  )
+  return Machine([state, end])
+
+
+def test_a_review_whose_run_failed_again_on_its_retry_is_an_error(
   tmp_path: Path, task: Path
 ) -> None:
   fail = verdicts(sound=("fail", "it breaks", "mend it"), tidy=PASS)
-  for answers, details in [
+  tests = (
+    "tests returned no verdicts twice: first (error_during_execution),"
+    + " then on a retry (error_during_execution)."
+  )
+  docs = "docs returned no verdicts twice: first (no result), then on a"
+  for answers, shown in [
     (
       {"tests": ("failed", ""), "docs": ("failed", "")},
-      "### tests\n\ntests returned no verdicts (error_during_execution).\n\n"
-      + "### docs\n\ndocs returned no verdicts (no result).",
+      [tests, docs + " retry (no result)."],
     ),
-    (
-      {"tests": ("failed", ""), "docs": ("ok", fail)},
-      "### tests\n\ntests returned no verdicts (error_during_execution).\n\n"
-      + "### docs\n\nsound: it breaks\nFix: mend it",
-    ),
+    ({"tests": ("failed", ""), "docs": ("ok", fail)}, [tests]),
   ]:
     reviewers = Reviewers(
       answers, {"tests": "error_during_execution", "docs": "no result"}
     )
-    state = rubric_state(tmp_path, reviewers, task, rename={"error": "fail"})
-    root = tmp_path / str(len(details))
-    status, outcome = run(state, root)
-    assert status == "sent back"
-    assert outcome is not None
-    assert outcome.name == "fail"
-    assert outcome.feedback == {"details": details}
+    state = rubric_state(tmp_path, reviewers, task)
+    attempt = machine(state).run(tmp_path / str(len(shown)))
+    assert attempt.status == "errored"
+    assert attempt.visits[0].outcome == "error"
+    assert attempt.reason == f"rubric visit 1: {' '.join(shown)}"
+    found = report(attempt)
+    assert all(line in found for line in shown)
+
+
+def test_a_retry_runs_only_the_review_whose_run_failed(
+  tmp_path: Path, task: Path
+) -> None:
+  passed = verdicts(sound=PASS, tidy=PASS)
+  judges = Judges(
+    {"tests": [("failed", ""), ("ok", passed)], "docs": [("ok", passed)]}
+  )
+  state = rubric_state(tmp_path, judges, task)
+  status, outcome = run(state, tmp_path / "a")
+  assert status == "passed"
+  assert outcome is not None
+  assert (len(judges.starts["tests"]), len(judges.starts["docs"])) == (2, 1)
+  tests = cast(dict[str, object], outcome.data["tests"])
+  assert (tests["retried"], tests["cost_usd"]) == (True, 0.5)
+  assert cast(dict[str, object], outcome.data["docs"])["retried"] is False
+
+
+def test_a_review_that_hit_its_own_cap_is_not_retried(
+  tmp_path: Path, task: Path
+) -> None:
+  class Capped(Judges):
+    @override
+    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+      run = super().start(spec, task, env)
+      return replace(run, fault="budget") if spec.name == "tests" else run
+
+  passed = verdicts(sound=PASS, tidy=PASS)
+  judges = Capped({"tests": [("failed", "")], "docs": [("ok", passed)]})
+  attempt = machine(rubric_state(tmp_path, judges, task)).run(tmp_path / "a")
+  assert attempt.status == "budget"
+  assert len(judges.starts["tests"]) == 1
+  assert (
+    "It was not retried: it hit its own spend cap, which a retry would hit"
+    + " again."
+  ) in report(attempt)
+
+
+@pytest.mark.parametrize(
+  ("docs", "status"), [("budget", "budget"), ("model", "errored")]
+)
+def test_reviews_that_hit_their_own_caps_end_the_attempt_with_budget(
+  tmp_path: Path, task: Path, docs: str, status: str
+) -> None:
+  faults = {"tests": "budget", "docs": docs}
+
+  class Faulted(Judges):
+    @override
+    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+      run = super().start(spec, task, env)
+      assert spec.name is not None
+      return replace(run, fault=faults[spec.name])
+
+  judges = Faulted({"tests": [("failed", "")], "docs": [("failed", "")] * 2})
+  attempt = machine(rubric_state(tmp_path, judges, task)).run(tmp_path / "a")
+  assert (attempt.status, attempt.visits[0].outcome) == (status, "error")
+
+
+@pytest.mark.parametrize(("max_cost_usd", "retried"), [(1.0, 1), (0.99, 0)])
+def test_a_review_is_retried_only_while_the_reserve_has_room_for_it(
+  tmp_path: Path, task: Path, max_cost_usd: float, retried: int
+) -> None:
+  # Two reviews of $0.25 each leave $0.50 of a $1 reserve, one share.
+  judges = Judges({"tests": [("failed", "")] * 2, "docs": [("failed", "")] * 2})
+  state = rubric_state(tmp_path, judges, task, max_cost_usd=max_cost_usd)
+  attempt = machine(state).run(tmp_path / "a")
+  assert attempt.status == "errored"
+  starts = {name: len(found) for name, found in judges.starts.items()}
+  assert starts == {"tests": 1 + retried, "docs": 1}
+  assert (
+    "docs returned no verdicts (success). It was not retried: the visit's"
+    + " reserve has no room for it."
+  ) in report(attempt)
 
 
 NUMBER = '[[criteria]]\nid = "a"\nquestion = 1\n'
@@ -521,7 +614,10 @@ def test_a_review_without_verdicts_is_reported_as_such(
   )
   report = attempt.visits[0].outputs["report.md"].read_text()
   assert "All 2 criteria pass." in report
-  assert "The review gave no verdicts (success)." in report
+  assert (
+    "docs returned no verdicts twice: first (success), then on a retry"
+    + " (success)."
+  ) in report
   table = cast(
     dict[str, list[dict[str, list[dict[str, str]]]]],
     json.loads(attempt.visits[0].outputs["rubric.json"].read_text()),
@@ -842,6 +938,9 @@ def test_a_review_whose_blocks_did_not_change_gives_its_answer_again(
     "passed": True,
     "failed": [],
     "verdicts": json.loads(passed),
+    "fault": None,
+    "error": None,
+    "retried": False,
   }
   rows = table(attempt, 2)
   assert (rows["tests"]["call"], rows["tests"]["reused"]) == (2, 1)
@@ -961,8 +1060,10 @@ def test_a_review_that_gave_no_verdicts_is_not_reused(
   tmp_path: Path, first: tuple[str, str]
 ) -> None:
   passed = verdicts(sound=PASS, tidy=PASS)
+  # A run that failed is retried in its visit, and fails again.
+  again = [first] if first[0] == "failed" else []
   judges = Judges(
-    {"tests": [first, ("ok", passed)], "docs": [("ok", passed)] * 2}
+    {"tests": [first, *again, ("ok", passed)], "docs": [("ok", passed)] * 2}
   )
   attempt = rounds(
     tmp_path,
@@ -973,7 +1074,7 @@ def test_a_review_that_gave_no_verdicts_is_not_reused(
     reuse_unchanged=True,
   )
   assert attempt.status == "passed"
-  [_, (spec, task)] = judges.starts["tests"]
+  spec, task = judges.starts["tests"][-1]
   # With no verdicts to go on from, the call is a first review again.
   assert task.resume_prompt is None
   assert REREVIEW not in task.prompt

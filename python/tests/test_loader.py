@@ -18,6 +18,7 @@ from dataforge.curation import (
   AgentSpec,
   AgentState,
   AgentTask,
+  Attempt,
   Deliverable,
   End,
   Env,
@@ -129,6 +130,20 @@ def states_of(doc: Doc) -> dict[str, dict[str, object]]:
   return doc["states"]  # pyright: ignore[reportReturnType]
 
 
+def test_load_gives_the_machine_its_measure_of_spend() -> None:
+  def spent_usd(attempt: Attempt) -> float:
+    return 1.0
+
+  machine = load(
+    yaml.safe_dump(base(), sort_keys=False),
+    inputs=INPUTS,
+    actions=Actions(),
+    spent_usd=spent_usd,
+  )
+  assert machine.spent_usd is spent_usd
+  assert load_doc(base()).spent_usd is None
+
+
 def test_a_declaration_loads_with_its_inputs_and_vars() -> None:
   machine = load_doc(base())
   make, check = machine.states
@@ -168,9 +183,15 @@ def test_deliverables_load_in_their_order() -> None:
       "source": {"state": "make"},
       "value": {"field": ["data", "solved"], "output": "verdict.json"},
     },
+    "regrade": {
+      "kind": "trials",
+      "title": "Regrade",
+      "source": {"state": "make"},
+      "match": "regrade-[0-9]*",
+    },
   }
   machine = load_doc(doc)
-  assert list(machine.deliverables) == ["verdict", "made", "runs"]
+  assert list(machine.deliverables) == ["verdict", "made", "runs", "regrade"]
   assert machine.deliverables == {
     "verdict": Deliverable(
       "report",
@@ -184,6 +205,9 @@ def test_deliverables_load_in_their_order() -> None:
       "pass@k",
       Source("make"),
       value=Value(("data", "solved"), "verdict.json"),
+    ),
+    "regrade": Deliverable(
+      "trials", "Regrade", Source("make"), match="regrade-[0-9]*"
     ),
   }
   assert load_doc(base()).deliverables == {}
@@ -370,6 +394,34 @@ def drop(path: str) -> Callable[[Doc], None]:
         },
       ),
       "deliverables.runs.value.field: expected a list, got a string",
+    ),
+    (
+      put(
+        "deliverables",
+        {
+          "made": {
+            "kind": "files",
+            "title": "Made",
+            "source": {"state": "make", "output": "out"},
+            "match": "trial-*",
+          }
+        },
+      ),
+      "deliverables.made: only trials have a match",
+    ),
+    (
+      put(
+        "deliverables",
+        {
+          "runs": {
+            "kind": "trials",
+            "title": "pass@k",
+            "source": {"state": "make"},
+            "match": "",
+          }
+        },
+      ),
+      "deliverables.runs: an empty match",
     ),
   ],
 )
@@ -782,6 +834,7 @@ states:
       inputs: [out]
       outputs: [environment, task]
       memory_gb: ${{ inputs.memory_gb }}
+      build: true
       outcomes: [pass, fail]
     feedback: ${check_feedback}
     transitions:
@@ -968,6 +1021,7 @@ def by_hand(
             inputs=("out",),
             outputs=("environment", "task"),
             memory_gb=8,
+            build=True,
           ),
           ("pass", "fail"),
         ),

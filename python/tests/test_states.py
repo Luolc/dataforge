@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 from typing import override
 
+import pytest
+
 from dataforge.curation import (
   ActionResult,
   Actions,
@@ -124,19 +126,33 @@ def pass_at_k(
   return outcome_of(tmp_path / "a", state)
 
 
-def test_pass_at_k_judges_only_the_trials_that_ran(tmp_path: Path) -> None:
-  results = [result(1.0), result(0.0, "agent crashed"), result(1.0)]
+@pytest.mark.parametrize(
+  ("exception", "fault"),
+  [
+    ("UnknownApiError: API Error: overloaded", "model"),
+    ("HarborNotStarted: Harbor did not start the trial", "infra"),
+    ("TimeoutError: Harbor ran past 60 s", "timeout"),
+    ("VerifierTimeoutError: timed out after 900.0 seconds", "unclear"),
+  ],
+)
+def test_pass_at_k_with_a_trial_that_cannot_be_judged_is_an_error(
+  tmp_path: Path, exception: str, fault: str
+) -> None:
+  # The sample does not shrink to the trials that ran.
+  results = [result(0.0), *[result(0.0, exception)] * 3]
   assert pass_at_k(tmp_path, results) == (
-    "all_solved",
-    {"solved": 2, "errors": 1, "k": 3},
+    "error",
+    {"solved": 0, "errors": 3, "faults": {fault: 3}, "k": 4},
   )
 
 
-def test_pass_at_k_with_every_trial_errored_is_an_error(tmp_path: Path) -> None:
-  results = [result(0.0, "docker daemon down")] * 3
+def test_pass_at_k_judges_a_trial_its_agent_ended_itself(
+  tmp_path: Path,
+) -> None:
+  results = [result(0.0, "AgentTimeoutError: ran past 3600 s"), result(1.0)]
   assert pass_at_k(tmp_path, results) == (
-    "error",
-    {"solved": 0, "errors": 3, "k": 3},
+    "in_range",
+    {"solved": 1, "errors": 0, "faults": {}, "k": 2},
   )
 
 
@@ -240,7 +256,94 @@ def test_agent_state_renders_its_prompts_and_gives_feedback(
     "ending": "success",
     "fixes": 0,
     "cost_usd": 0.5,
+    "fault": None,
+    "stop_reason": None,
+    "error": None,
   }
+
+
+class Refused:
+  """A runner whose one run ends on a refusal it did not report a cost for."""
+
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    return AgentRun(
+      None,
+      "failed",
+      None,
+      None,
+      "API Error: flagged",
+      "success",
+      False,
+      fault="model",
+      stop_reason="refusal",
+      error="API Error: flagged",
+    )
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    raise AssertionError("no fixes here")
+
+
+def test_agent_state_gives_an_error_with_how_its_run_ended(
+  tmp_path: Path,
+) -> None:
+  spec = AgentSpec("Write.", tmp_path, validator=checker(tmp_path))
+  state = AgentState(
+    "author",
+    {"ok": End("passed"), "failed": End("failed"), "error": End("errored")},
+    actions=Actions(agent_runner=Refused()),
+    spec=spec,
+  )
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert attempt.status == "errored"
+  assert attempt.reason == (
+    "author visit 1: the agent's run ended success, model: API Error: flagged"
+  )
+  assert attempt.visits[0].data == {
+    "ending": "success",
+    "fixes": 0,
+    "cost_usd": None,
+    "fault": "model",
+    "stop_reason": "refusal",
+    "error": "API Error: flagged",
+  }
+
+
+class Capped:
+  """A runner whose one run ends on its own spend cap."""
+
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    return AgentRun(
+      None,
+      "failed",
+      1.5,
+      None,
+      "error_max_budget_usd",
+      "error_max_budget_usd",
+      False,
+      fault="budget",
+      error="Reached maximum budget ($1.5)",
+    )
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    raise AssertionError("no fixes here")
+
+
+def test_agent_state_whose_run_hit_its_own_cap_ends_the_attempt_with_budget(
+  tmp_path: Path,
+) -> None:
+  spec = AgentSpec("Write.", tmp_path, validator=checker(tmp_path))
+  state = AgentState(
+    "author",
+    {"ok": End("passed"), "failed": End("failed"), "error": End("errored")},
+    actions=Actions(agent_runner=Capped()),
+    spec=spec,
+  )
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert (attempt.status, attempt.visits[0].outcome) == ("budget", "error")
+  assert attempt.reason == (
+    "author visit 1: the agent's run ended error_max_budget_usd, budget:"
+    " Reached maximum budget ($1.5)"
+  )
 
 
 def agent_outcome(

@@ -12,7 +12,7 @@ import json
 import re
 from typing import cast
 
-from dataforge.viz.config import Column, Project, Tab, TabField
+from dataforge.viz.config import Column, Project, Tab, TabField, TabPart
 from dataforge.viz.paths import (
   FILE_LIMIT,
   list_dir,
@@ -58,11 +58,13 @@ MISSING = "missing"
 """A read whose file is there but refused, not JSON or without the keys."""
 
 
-def fields(tab: Tab, attempt: int, version: str) -> list[dict[str, object]]:
-  """Read the values of a tab's fields for one version.
+def fields(
+  part: TabPart, attempt: int, version: str
+) -> list[dict[str, object]]:
+  """Read the values of a tab's part's fields for one version.
 
   Args:
-    tab: The tab.
+    part: The part.
     attempt: The attempt's directory.
     version: The version's directory, one of versions().
 
@@ -72,7 +74,7 @@ def fields(tab: Tab, attempt: int, version: str) -> list[dict[str, object]]:
     why there is none, null when read is FOUND.
   """
   read = _reader(attempt)
-  return [_found(read, version, field) for field in tab.fields]
+  return [_found(read, version, field) for field in part.fields]
 
 
 def column_value(

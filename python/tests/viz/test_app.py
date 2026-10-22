@@ -151,6 +151,7 @@ def test_projects_leave_out_where_the_files_are(
     "deliverables": [],
     "trials": None,
     "definition": None,
+    "task": None,
     "monitor": False,
     "actions": [],
     "tabs": [],
@@ -192,7 +193,32 @@ def test_projects_carry_the_trial_diff(tree: Tree, static: Path) -> None:
     list[dict[str, object]], client(tree, static).get("/api/projects").json()
   )
 
-  assert project["trials"] == {"diff": "verifier/patch.diff"}
+  assert project["trials"] == {
+    "diff": "verifier/patch.diff",
+    "tests": None,
+    "kinds": {},
+  }
+
+
+def test_projects_carry_the_trial_tests_and_their_kinds(
+  tree: Tree, static: Path
+) -> None:
+  _ = tree.project.write_text(
+    PROJECT
+    + "trials:\n"
+    + "  tests: verifier/ctrf.json\n"
+    + "  kinds: {security: {label: Security}}\n"
+  )
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["trials"] == {
+    "diff": None,
+    "tests": "verifier/ctrf.json",
+    "kinds": {"security": {"label": "Security"}},
+  }
 
 
 def test_projects_carry_the_definition_s_path(tree: Tree, static: Path) -> None:
@@ -203,6 +229,16 @@ def test_projects_carry_the_definition_s_path(tree: Tree, static: Path) -> None:
   )
 
   assert project["definition"] == "run/definition.json"
+
+
+def test_projects_carry_the_task_s_path(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(PROJECT + "task: task/task.toml\n")
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["task"] == "task/task.toml"
 
 
 def test_attempts_are_newest_first_with_their_values(

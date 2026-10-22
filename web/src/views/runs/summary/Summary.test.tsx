@@ -88,6 +88,39 @@ describe("Summary", () => {
   });
 });
 
+describe("the Summary's Task card", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("follows the machine for a project that names a task", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            read: "not run",
+            reason: "task: No such file or directory",
+            legacy: false,
+            tests: null,
+            principles: null,
+          }),
+        ),
+      ),
+    );
+    show("passed", { ...sampleProject, task: "task/task.toml" });
+
+    const task = await screen.findByRole("heading", { name: "Task" });
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((h) => h.textContent);
+    expect(headings.indexOf("Task")).toBe(
+      headings.indexOf("State machine") + 1,
+    );
+    expect(task.closest("section")).toHaveTextContent("Not run");
+  });
+});
+
 describe("an attempt's status", () => {
   it("is raised when a state raised, else Not ended until it ends", () => {
     const { unmount } = show("raised");
@@ -189,7 +222,8 @@ describe("the Summary of a running attempt", () => {
     expect(
       within(review).getByRole("img", { name: "Running" }),
     ).toBeInTheDocument();
-    expect(review).toHaveTextContent("1 run · Running");
+    // Here, with no canvas to measure on, the line may break before Running.
+    expect(review).toHaveTextContent(/1 run ·\s*Running/);
     expect(review.querySelector("rect")).toHaveClass("stroke-accent");
     expect(into).toHaveAttribute("data-taken", "true");
     expect(review).toHaveTextContent("1m 21s");

@@ -1,7 +1,7 @@
 """A machine's states and transitions as data, and as a Mermaid flowchart.
 
-Machine.graph returns a Graph; mermaid renders one. A Graph is plain data that
-json.dumps takes as is.
+Machine.graph returns a Graph, and mermaid renders one. A Graph is plain data
+that json.dumps takes as is.
 """
 
 from typing import TypedDict

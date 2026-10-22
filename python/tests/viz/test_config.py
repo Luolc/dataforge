@@ -163,6 +163,18 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (("name: Example", "name: Example\nlock: ../.lock"), "lock"),
     (("name: Example", "name: Example\nnot_ended: running"), "not_ended"),
     (("name: Example", "name: Example\nnot_ended: []"), "not_ended"),
+    (("name: Example", "name: Example\nresumable: []"), "resumable"),
+    (
+      ("name: Example", "name: Example\nresumable: [canceled]"),
+      "resumable.*'canceled'",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\nresumable: [passed]\nnot_ended: [passed]",
+      ),
+      "resumable.*not_ended",
+    ),
     (("name: Example", "name: Example\ndeliverables: task"), "deliverables"),
     (
       (
@@ -194,7 +206,28 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
       ("name: Example", "name: Example\ntrials: {diff: /x.diff}"),
       r"trials\.diff: '/x\.diff' is not",
     ),
-    (("name: Example", "name: Example\ntrials: {}"), r"trials\.diff: missing"),
+    (
+      ("name: Example", "name: Example\ntrials: {}"),
+      "trials: names neither diff nor tests",
+    ),
+    (
+      ("name: Example", "name: Example\ntrials: {tests: ../ctrf.json}"),
+      r"trials\.tests: '\.\./ctrf\.json' is not",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ntrials: {diff: x, kinds: {a: {label: A}}}",
+      ),
+      r"trials\.kinds: without trials\.tests",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ntrials: {tests: x, kinds: {a: {title: A}}}",
+      ),
+      r"trials\.kinds\.a\.title: unknown key",
+    ),
     (
       ("name: Example", "name: Example\ntrials: {diff: x, glob: y}"),
       r"trials\.glob: unknown key",
@@ -210,6 +243,14 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       ("name: Example", "name: Example\ndefinition: [d.json]"),
       "definition: not a non-empty string",
+    ),
+    (
+      ("name: Example", "name: Example\ntask: ../task.toml"),
+      r"task: '\.\./task\.toml' is not",
+    ),
+    (
+      ("name: Example", "name: Example\ntask: [task.toml]"),
+      "task: not a non-empty string",
     ),
     (("name: Example", "name: Example\nmonitor: {}"), r"monitor\.db: missing"),
     (("name: Example", "name: Example\nmonitor: {db: ''}"), r"monitor\.db"),

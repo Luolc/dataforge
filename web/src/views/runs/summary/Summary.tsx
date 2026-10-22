@@ -1,5 +1,6 @@
 // The Summary of an attempt's runs: the top row, the machine with the
-// transitions taken, the summaries its actions wrote and its deliverables.
+// transitions taken, the task's tests and principles, the summaries its
+// actions wrote and its deliverables.
 import { Link } from "react-router";
 
 import {
@@ -34,6 +35,8 @@ import { KindLine } from "../../registry";
 import { carried } from "../resumed/resumed";
 import { Graph } from "./Graph";
 import { layout } from "./graph";
+import { useMeasure } from "./measure";
+import { TaskCard } from "./Task";
 
 interface Props {
   project: Project;
@@ -53,7 +56,8 @@ export function Summary({
   const runHref = (index: number) =>
     attemptHref(project.id, attempt, { tab: "runs", run: index });
   const current = currentOf(record, live);
-  const machine = layout(record, project, current);
+  const measure = useMeasure();
+  const machine = layout(record, project, current, measure);
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -66,11 +70,10 @@ export function Summary({
         {machine ? (
           <Graph project={project} layout={machine} runHref={runHref} />
         ) : (
-          <p className="rounded-b-panel bg-app p-4 text-fg-3">
-            This record has no graph.
-          </p>
+          <p className="p-4 text-fg-3">This record has no graph.</p>
         )}
       </Card>
+      <TaskCard project={project} attempt={attempt} />
       <Summaries project={project} record={record} runHref={runHref} />
       <Deliverables project={project} attempt={attempt} record={record} />
     </div>

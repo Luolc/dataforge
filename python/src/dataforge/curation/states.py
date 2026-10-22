@@ -5,6 +5,7 @@ agent and limits) and renaming their outcomes, or subclasses them to override
 how the result becomes an outcome.
 """
 
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from datetime import datetime, UTC
@@ -18,6 +19,7 @@ from dataforge.curation.actions import (
   Actions,
   AgentRun,
   AgentSpec,
+  BUDGET,
   Env,
   fan_out,
   HOST,
@@ -36,6 +38,7 @@ from dataforge.curation.engine import (
   Outcome,
   State,
 )
+from dataforge.curation.faults import trial_fault, trial_judged
 from dataforge.curation.rubric import (
   block_text,
   Call,
@@ -139,11 +142,16 @@ class _ActionState(State):
 class AgentState(_ActionState):
   """Runs one agent, on the spec it is given or the one a subclass makes.
 
-  Outcomes: "ok" (the run ended well and its outputs, answer and validator,
-  if any, pass), "failed" (they do not) or "error" (the run itself failed,
-  so there is nothing to judge). Data: {"ending", "fixes", "cost_usd"}. On
-  "failed" the outcome's feedback is {"details": the validator's last output,
-  or the action's log when the validator passed or there is none}.
+  Outcomes: "ok" (the run ended well and its outputs, answer and validator, if
+  any, pass), "failed" (they do not) or "error" (the run itself failed, so
+  there is nothing to judge: an API error, a refusal, a timeout or the
+  session's own spend cap, say; its reason gives the run's ending, fault and
+  error, and its fault is the run's, Outcome.fault). Data: {"ending", "fixes",
+  "cost_usd", "fault", "stop_reason", "error"}: the last run's ending, its
+  fault, the model's stop reason and the error it ended on, as AgentRun has
+  them, and cost_usd None when a run did not report its cost. On "failed" the
+  outcome's feedback is {"details": the validator's last output, or the
+  action's log when the validator passed or there is none}.
 
   Attributes:
     OUTCOMES: The outcomes it gives, before rename.
@@ -253,11 +261,15 @@ class AgentState(_ActionState):
     data = {
       "ending": None if run is None else run.ending,
       "fixes": result.fixes,
-      "cost_usd": result.cost_usd,
+      "cost_usd": result.cost_usd if result.cost_known else None,
+      "fault": None if run is None else run.fault,
+      "stop_reason": None if run is None else run.stop_reason,
+      "error": None if run is None else run.error,
     }
     last = self.last_if_unresumable and run is not None and not run.resumable
     if run is None or run.status != "ok":
-      return Outcome("error", data, last)
+      fault = None if run is None else run.fault
+      return Outcome("error", data, last, reason=_why(run), fault=fault)
     if result.ok:
       return Outcome("ok", data, last)
     check = result.validation
@@ -513,10 +525,15 @@ class TrialState(_ActionState):
 class PassAtKState(TrialState):
   """Runs k trials at once, recorded as the outputs "trial-0" to "trial-<k-1>".
 
-  Outcomes: "all_solved", "none_solved" or "in_range", judged on the trials that
-  ran (no exception), so a failure of the trial machinery never reads as a hard
-  task; "error" when none ran. Data: {"solved": n, "errors": m, "k": k}. With a
-  judge, the judge decides instead, given the k trials' outputs as inputs.
+  Outcomes: "all_solved", "none_solved" or "in_range", judged on all k
+  trials; "error" when any of them cannot be judged
+  (dataforge.curation.faults.trial_judged), such as one that the model's API,
+  our timeout or the machine ended, so that neither a failure of the trial
+  machinery nor a smaller sample decides how hard the task reads. Data:
+  {"solved": n, "errors": m, "faults": {fault: count}, "k": k}, where errors
+  counts the trials that cannot be judged and faults those of them by
+  `trial_fault`, "unclear" for those with none. With a judge, the judge
+  decides instead, given the k trials' outputs as inputs.
 
   Attributes:
     OUTCOMES: The outcomes it gives, before rename; with a judge, the
@@ -598,16 +615,20 @@ class PassAtKState(TrialState):
     if self.judge is not None:
       names = [f"trial-{i}" for i in range(len(results))]
       return _judged(self.actions.judge(ctx, self.judge, names))
-    ran = [result for result in results if result.exception is None]
-    solved = sum(self.solved(result) for result in ran)
+    stopped = [r.exception for r in results if not trial_judged(r.exception)]
+    solved = sum(self.solved(result) for result in results)
+    faults = Counter(trial_fault(e) or "unclear" for e in stopped)
     data = {
       "solved": solved,
-      "errors": len(results) - len(ran),
+      "errors": len(stopped),
+      "faults": dict(sorted(faults.items())),
       "k": len(results),
     }
-    if not ran:
+    if stopped:
       return Outcome("error", data)
-    name = {0: "none_solved", len(ran): "all_solved"}.get(solved, "in_range")
+    name = {0: "none_solved", len(results): "all_solved"}.get(
+      solved, "in_range"
+    )
     return Outcome(name, data)
 
   @override
@@ -812,12 +833,19 @@ class RubricState(_ActionState):
   Outcomes: "pass" when every review passes; "fail" when one fails, with
   feedback {"details": the findings of each failed review, in order, under
   "### <name>"}; "error", with that feedback, where a review whose agent run
-  failed gives "<name> returned no verdicts (<ending>).", if one did, so there
-  is nothing to judge. Data: each review's {"ending", "cost_usd", "passed",
-  "failed", "verdicts"}, by name. Every visit, whatever its outcome, also
-  writes the outputs RUBRIC_TABLE (rubric_table), RUBRIC_REPORT
-  (rubric_report) and, for each review, "<name>" CALL_SUFFIX, its Call,
-  recorded as an action of kind "report".
+  failed, such as on a refusal, a timeout or no structured output, gives
+  "<name> returned no verdicts (<how it ended>).", if one did, so there is
+  nothing to judge (judge_review), and those findings as its reason; its fault
+  (Outcome.fault) is "budget" when each such review hit its own spend cap,
+  else the first other fault of their runs. A review whose run failed is run
+  once more in the same visit, as retries chooses, and the reviews that gave
+  verdicts are not; the retry's answer is the call's. Data: each review's
+  {"ending", "cost_usd", "passed", "failed", "verdicts", "fault", "error",
+  "retried"}, by name. Every visit, whatever its outcome, also writes the
+  outputs RUBRIC_TABLE (rubric_table), RUBRIC_REPORT (rubric_report), which
+  gives the finding of each review that gave no verdicts, and, for each
+  review, "<name>" CALL_SUFFIX, its Call, recorded as an action of kind
+  "report".
 
   Each visit calls each review once. A call compares its blocks with those
   of the last call of the review in this state that gave verdicts, one for
@@ -1046,21 +1074,73 @@ class RubricState(_ActionState):
     )
     return ran, result
 
+  def retries(self, results: Sequence[ActionResult]) -> list[int]:
+    """Choose which reviews that gave no verdicts run again in this visit.
+
+    A review whose run hit its own spend cap (the fault `budget`) is not
+    retried, since a retry would hit the same cap on the same prompt. Each
+    review has a share of the visit's reserve, max_cost_usd divided by the
+    number of reviews. The other reviews whose run failed are retried in order
+    while what the visit has spent, a run that did not report its cost
+    counted as a share, and a share for each retry, stay within
+    max_cost_usd; with no reserve (0), each is retried. The share bounds
+    what a retry spends only when max_cost_usd is at least the number of
+    reviews times each review's spend cap.
+
+    Args:
+      results: The first run of each review, in order.
+
+    Returns:
+      The indexes of the reviews to retry.
+    """
+    failed = [
+      i
+      for i, result in enumerate(results)
+      if _errored(result) and not _capped(result)
+    ]
+    if not self.max_cost_usd:
+      return failed
+    share = self.max_cost_usd / len(self.reviews)
+    spent = sum(r.cost_usd if r.cost_known else share for r in results)
+    room = int((self.max_cost_usd - spent) / share + 1e-9)
+    return failed[: max(room, 0)]
+
   @override
   def run(self, ctx: Context) -> Outcome:
     workdir = ctx.outdir if self.workdir is None else self.workdir
-    ended = fan_out(
-      [self.call(ctx, review, workdir) for review in self.reviews]
-    )
+    calls = [self.call(ctx, review, workdir) for review in self.reviews]
+    ended = fan_out(calls)
+    first = [result for _, result in ended]
+    retried = self.retries(first)
+    again = fan_out([calls[i] for i in retried])
+    ended = list(ended)
+    for i, found in zip(retried, again, strict=True):
+      ended[i] = found
+
+    def unretried(result: ActionResult) -> str | None:
+      if not _errored(result):
+        return None
+      if _capped(result):
+        return "it hit its own spend cap, which a retry would hit again"
+      return "the visit's reserve has no room for it"
+
     judged = [
       dataclasses.replace(
-        judge_review(review.name, self.rubrics[review.name], result),
+        judge_review(
+          review.name,
+          self.rubrics[review.name],
+          result,
+          earlier=first[i] if i in retried else None,
+          unretried=unretried(result),
+        ),
         call=call.call,
         resumed=call.resumed,
         reused=call.reused,
         changed=call.changed,
       )
-      for review, (call, result) in zip(self.reviews, ended, strict=True)
+      for i, (review, (call, result)) in enumerate(
+        zip(self.reviews, ended, strict=True)
+      )
     ]
     calls = {
       review.name: call
@@ -1072,8 +1152,45 @@ class RubricState(_ActionState):
     if not failed:
       return self.renamed(Outcome("pass", data))
     details = "\n\n".join(f"### {j.name}\n\n{j.findings}" for j in failed)
-    name = "error" if any(j.errored for j in failed) else "fail"
-    return self.renamed(Outcome(name, data, feedback={"details": details}))
+    if errored := [j for j in failed if j.errored]:
+      why = " ".join(j.findings for j in errored)
+      return self.renamed(
+        Outcome(
+          "error",
+          data,
+          feedback={"details": details},
+          reason=why,
+          fault=_fault(errored),
+        )
+      )
+    return self.renamed(Outcome("fail", data, feedback={"details": details}))
+
+
+def _why(run: AgentRun | None) -> str:
+  # Why an agent's run gave nothing to judge, as an attempt's reason.
+  if run is None:
+    return "the agent did not run"
+  why = f"the agent's run ended {run.ending}"
+  if run.fault is not None:
+    why += f", {run.fault}"
+  return why if run.error is None else f"{why}: {run.error}"
+
+
+def _fault(errored: Sequence[Judgment]) -> str | None:
+  # The fault of reviews that gave nothing to judge: `budget` when each hit
+  # its own cap, else the first other fault one of them has.
+  faults = [judgment.data["fault"] for judgment in errored]
+  if all(fault == BUDGET for fault in faults):
+    return BUDGET
+  return next((f for f in faults if isinstance(f, str) and f != BUDGET), None)
+
+
+def _errored(result: ActionResult) -> bool:
+  return result.run is None or result.run.status != "ok"
+
+
+def _capped(result: ActionResult) -> bool:
+  return result.run is not None and result.run.fault == BUDGET
 
 
 def _reused(call: Call) -> ActionResult:

@@ -1,6 +1,6 @@
 from collections.abc import Callable, Generator
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import io
 import json
 import os
@@ -26,9 +26,13 @@ from dataforge.queue import (
   load_config,
   submit,
 )
+from dataforge.queue import scheduler as scheduler_module
 from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
+from dataforge.queue.store import row as read_row
+from dataforge.queue.wrapper import _wait  # pyright: ignore[reportPrivateUsage]
 from dataforge.queue.wrapper import main as wrapper
+from dataforge.runs import NewerSchemaError, SCHEMA_MAJOR, Store
 
 QUEUE_FILE = """
 queues: {alpha: 1, beta: 2}
@@ -75,6 +79,18 @@ def readings() -> Readings:
 def scheduler(config: Config, readings: Readings) -> Generator[Scheduler]:
   scheduler = Scheduler(config, readings)
   yield scheduler
+  _clean_up(config, scheduler)
+
+
+@pytest.fixture
+def patient(config: Config, readings: Readings) -> Generator[Scheduler]:
+  # Its cancel_grace_s is far longer than any wait of a test.
+  scheduler = Scheduler(replace(config, cancel_grace_s=60.0), readings)
+  yield scheduler
+  _clean_up(scheduler.config, scheduler)
+
+
+def _clean_up(config: Config, scheduler: Scheduler) -> None:
   # Start nothing more, kill what a test left running, and wait for the
   # wrappers.
   if not config.database.exists():
@@ -243,9 +259,11 @@ def test_canceling_a_queued_job_ends_it_at_once(config: Config):
   assert done.ended_at is not None and done.cancel_requested_at is not None
 
 
-def test_canceling_a_running_job_sends_its_group_sigterm(
-  config: Config, scheduler: Scheduler
-):
+def test_canceling_a_running_job_sends_its_group_sigterm(patient: Scheduler):
+  # A SIGKILL after the grace period takes the wrapper too, and the end would
+  # have no exit code: the grace period must not pass on a loaded machine
+  # before the wrapper has written it.
+  config, scheduler = patient.config, patient
   job = put(config, "alpha", "sh", "-c", "echo ready; exec sleep 30")
   until(lambda: "ready" in log(config, job), scheduler)
   asked = cancel(config, job.id)
@@ -265,9 +283,69 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill(
   assert state(config, job).state == "running"
   until(ended(config, job), scheduler)
   done = state(config, job)
-  # The SIGKILL took the wrapper too: the scheduler wrote the end.
+  # The SIGKILL took the wrapper too: the end has no exit code.
   assert (done.state, done.exit_code) == ("canceled", None)
   assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
+
+
+def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
+  config: Config, scheduler: Scheduler
+):
+  job = put(config, "alpha", "sh", "-c", "trap '' TERM; echo ready; sleep 30")
+  until(lambda: "ready" in log(config, job), scheduler)
+  started = state(config, job).leader()
+  assert started is not None
+  # No tick from here on, as with the scheduler stopped.
+  _ = cancel(config, job.id)
+  deadline = time.monotonic() + 20
+  while state(config, job).ended_at is None:
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("canceled", None)
+  assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
+  assert not group_alive(started)
+  # A scheduler that runs again changes nothing of the ended job.
+  scheduler.tick()
+  assert state(config, job) == done
+
+
+def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
+  config: Config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+  job = put(config, "alpha", "true")
+  go = tmp_path / "go"
+  reads = 0
+
+  def flaky(conn: sqlite3.Connection, job_id: int) -> Job | None:
+    nonlocal reads
+    reads += 1
+    if reads == 1:
+      # The command ends only after this read.
+      go.touch()
+      raise sqlite3.OperationalError("database is locked")
+    return read_row(conn, job_id)
+
+  monkeypatch.setattr("dataforge.queue.wrapper.row", flaky)
+  # The command gives up with 99 after about 10 s, when no read comes.
+  script = f"""
+    i=0
+    until [ -e {go} ]; do
+      [ $i -lt 200 ] || exit 99
+      i=$((i + 1))
+      sleep 0.05
+    done
+    exit 3
+  """
+  child = subprocess.Popen(["sh", "-c", script])
+  try:
+    # As after a SIGTERM that was no cancellation, with a short grace period:
+    # the row is read each time it passes.
+    assert _wait(child, config.database, job.id, 0.1, lambda: True) == 3
+  finally:
+    child.kill()
+    _ = child.wait()
+  assert reads >= 1
 
 
 def log(config: Config, job: Job) -> str:
@@ -279,13 +357,17 @@ def test_a_restarted_scheduler_takes_the_running_jobs_as_they_are(
   config: Config, scheduler: Scheduler, tmp_path: Path
 ):
   job = put(config, "alpha", "sh", "-c", "echo ready; sleep 2; exit 4")
+  # The served scheduler reads the machine's own load; a busy machine must
+  # not keep it from starting the job.
+  served = tmp_path / "served.yaml"
+  _ = served.write_text(QUEUE_FILE.replace("max_load1: 4", "max_load1: 10000"))
   serving = subprocess.Popen(
     [
       Path(sys.executable).parent / "dataforge",
       "queue",
       "serve",
       "--config",
-      str(tmp_path / "queue.yaml"),
+      str(served),
     ],
     stderr=subprocess.DEVNULL,
   )
@@ -513,7 +595,14 @@ def test_the_database_and_the_logs_default_to_the_state_directory(
 
 @pytest.mark.parametrize(
   "line",
-  ["max_running: 0", "queues: {}", "max_load1: -1", "colour: blue"],
+  [
+    "max_running: 0",
+    "queues: {}",
+    "max_load1: -1",
+    "colour: blue",
+    "runs: runs.sqlite",
+    "runs: ['']",
+  ],
 )
 def test_a_queue_file_that_fails_a_check_is_refused(tmp_path: Path, line: str):
   path = tmp_path / "queue.yaml"
@@ -557,3 +646,107 @@ def test_count_reads_without_making_the_database(config: Config):
   with pytest.raises(FileNotFoundError):
     _ = count(config)
   assert not config.database.exists()
+
+
+# An attempt's process: it takes the item's row in the store given, ignores
+# SIGTERM, and runs until SIGKILL ends it, never writing the row again.
+HOLDER = """
+import signal, sys, time
+from pathlib import Path
+from dataforge.runs import Store
+from dataforge.runs.reconcile import job_from_env, this_process
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+store = Store(Path(sys.argv[1]))
+me, job = this_process(), job_from_env()
+assert store.insert("item/1", "item", Path("/r"), me, job)
+print("held", flush=True)
+time.sleep(600)
+"""
+
+
+def with_runs(tmp_path: Path, *stores: str) -> Config:
+  path = tmp_path / "runs.yaml"
+  _ = path.write_text(QUEUE_FILE + f"runs: [{', '.join(stores)}]\n")
+  return load_config(path)
+
+
+@pytest.mark.parametrize(
+  ("canceled", "stopped_by"), [(True, "person"), (False, "lost")]
+)
+def test_an_attempt_killed_with_sigkill_is_interrupted_within_a_tick(
+  config: Config,
+  scheduler: Scheduler,
+  tmp_path: Path,
+  canceled: bool,
+  stopped_by: str,
+):
+  scheduler.config = with_runs(tmp_path, "runs.sqlite")
+  store = Store(tmp_path / "runs.sqlite")
+  job = put(config, "alpha", sys.executable, "-c", HOLDER, str(store.path))
+  # The wrapper's first line quotes the code, held in it too.
+  until(lambda: "held" in log(config, job).splitlines(), scheduler)
+  [row] = store.rows()
+  holder = row.holder
+  assert holder is not None
+  # The wrapper set the variables the attempt's row holds.
+  assert (row.job_id, row.job_db) == (job.id, str(config.database.resolve()))
+  if canceled:
+    # SIGTERM is ignored, and the wrapper sends SIGKILL after the grace.
+    _ = cancel(config, job.id)
+  else:
+    os.kill(holder.pid, signal.SIGKILL)
+  deadline = time.monotonic() + 20
+  while alive(holder):
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
+  assert store.rows()[0].state == "running"
+  scheduler.tick()
+  [row] = store.rows()
+  assert (row.state, row.stopped_by) == ("interrupted", stopped_by)
+
+
+def test_a_store_that_cannot_be_reconciled_is_logged_once_and_jobs_start(
+  config: Config,
+  scheduler: Scheduler,
+  tmp_path: Path,
+  caplog: pytest.LogCaptureFixture,
+):
+  scheduler.config = with_runs(tmp_path, "runs.sqlite", "~/none/runs.sqlite")
+  store = Store(tmp_path / "runs.sqlite")
+  store.create()
+  with closing(sqlite3.connect(store.path, autocommit=True)) as conn:
+    _ = conn.execute(
+      "UPDATE meta SET value = ? WHERE name = 'schema_major'",
+      (SCHEMA_MAJOR + 1,),
+    )
+  job = put(config, "alpha", "true")
+  until(ended(config, job), scheduler)
+  scheduler.tick()
+  [logged] = [r for r in caplog.records if "runs" in r.getMessage()]
+  assert logged.exc_info is not None
+  assert logged.exc_info[0] is NewerSchemaError
+  assert state(config, job).state == "done"
+  assert scheduler.config.runs[1] == Path.home() / "none" / "runs.sqlite"
+
+
+def test_whatever_a_stores_reconcile_raises_the_jobs_start(
+  config: Config,
+  scheduler: Scheduler,
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+):
+  def broken(*_args: object) -> list[str]:
+    raise RuntimeError("a bug")
+
+  monkeypatch.setattr(scheduler_module, "reconcile", broken)
+  scheduler.config = with_runs(tmp_path, "runs.sqlite")
+  first, second = put(config, "alpha", "true"), put(config, "alpha", "true")
+  until(ended(config, first, second), scheduler)
+  assert [state(config, job).state for job in (first, second)] == [
+    "done",
+    "done",
+  ]
+  [logged] = [r for r in caplog.records if "runs" in r.getMessage()]
+  assert logged.exc_info is not None
+  assert logged.exc_info[0] is RuntimeError

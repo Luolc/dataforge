@@ -10,8 +10,11 @@ A dataset project gives it; dataforge knows no queue by name. It is YAML:
   logs: logs                   # optional; relative to the file
   cancel_grace_s: 30           # optional: SIGTERM to SIGKILL
   poll_s: 2                    # optional: between two looks at the table
+  runs: [~/data/runs.sqlite]   # optional: stores of attempts to reconcile
 
-The database and the logs default to the state directory's queue/.
+The database and the logs default to the state directory's queue/. Each
+store of attempts (dataforge.runs) under runs is an absolute path, one that
+starts with ~/, or one relative to the file.
 """
 
 from dataclasses import dataclass
@@ -34,6 +37,7 @@ _KEYS = {
   "logs",
   "cancel_grace_s",
   "poll_s",
+  "runs",
 }
 
 
@@ -54,6 +58,7 @@ class Config:
     logs: The directory of the jobs' logs.
     cancel_grace_s: How long a canceled job has between SIGTERM and SIGKILL.
     poll_s: How long the scheduler sleeps between two looks at the table.
+    runs: The stores of attempts the scheduler reconciles at each look.
   """
 
   queues: dict[str, int]
@@ -64,6 +69,7 @@ class Config:
   logs: Path
   cancel_grace_s: float = 30.0
   poll_s: float = 2.0
+  runs: tuple[Path, ...] = ()
 
 
 def load_config(path: Path) -> Config:
@@ -108,7 +114,20 @@ def load_config(path: Path) -> Config:
       path, "cancel_grace_s", data.get("cancel_grace_s", 30.0)
     ),
     poll_s=_number(path, "poll_s", data.get("poll_s", 2.0), positive=True),
+    runs=_runs(base, path, data.get("runs", [])),
   )
+
+
+def _runs(base: Path, path: Path, value: object) -> tuple[Path, ...]:
+  if not isinstance(value, list):
+    raise ConfigError(f"{path}: runs must be a list of paths")
+  stores: list[Path] = []
+  for item in cast(list[object], value):
+    if not isinstance(item, str) or not item:
+      raise ConfigError(f"{path}: runs: {item!r} is not a path")
+    store = Path(item).expanduser() if item.startswith("~/") else Path(item)
+    stores.append(store if store.is_absolute() else base / store)
+  return tuple(stores)
 
 
 def _queues(path: Path, value: object) -> dict[str, int]:
