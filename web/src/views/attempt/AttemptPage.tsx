@@ -21,6 +21,7 @@ import { z } from "zod";
 import {
   type AttemptRecord,
   currentOf,
+  type Deliverable,
   deliverablesOf,
   type LiveInfo,
   liveInfo,
@@ -243,10 +244,13 @@ function Attempt({
   const tabs = [
     { key: "runs", title: "Runs", count: <>{runs}</> },
     ...kinds.map((kind) => {
+      // Titled and counted by the first of the kind that the attempt
+      // reached, else by the first.
+      const reached = (d: Deliverable) => d.path !== null;
       const items = itemsOf(kind);
-      const first = items[0];
+      const first = items.find(reached) ?? items[0];
       const counted = recorded.filter((d) => d.kind === kind);
-      const one = counted[0];
+      const one = counted.find(reached) ?? counted[0];
       return {
         key: kind,
         title: first?.title ?? kind,

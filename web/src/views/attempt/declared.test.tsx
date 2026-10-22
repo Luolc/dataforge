@@ -135,6 +135,69 @@ describe("the deliverables a project declares", () => {
   });
 });
 
+describe("a tab of several deliverables of one kind", () => {
+  // Two trials, the first declared reached only by some attempts.
+  const twice: Project = {
+    ...sampleProject,
+    deliverables: [
+      { name: "regrade", kind: "trials", title: "Regrade" },
+      { name: "pass_at_k", kind: "trials", title: "Pass@k" },
+    ],
+  };
+  // The record of an attempt that ended, with a regrade declared before its
+  // pass@k: reached or not, and pass@k reached or not.
+  const withRegrade = (regraded: boolean, solved = true): unknown => {
+    const record = structuredClone(passed);
+    const pass = record.deliverables.find((d) => d.name === "pass_at_k");
+    if (pass === undefined) throw new Error("no pass_at_k");
+    const unreached = (state: string) => ({
+      visit: null,
+      visit_index: null,
+      path: null,
+      reason: `${state} was never visited`,
+    });
+    const regrade = {
+      ...pass,
+      name: "regrade",
+      title: "Regrade",
+      state: "regrade",
+      value: { ...pass.value, value: 1 },
+      ...(regraded ? {} : unreached("regrade")),
+    };
+    const kept = { ...pass, ...(solved ? {} : unreached("solve")) };
+    return {
+      ...record,
+      deliverables: record.deliverables.flatMap((d) =>
+        d === pass ? [regrade, kept] : [d],
+      ),
+    };
+  };
+
+  it("is titled and counted by the first the attempt reached", async () => {
+    show(withRegrade(false), "", twice);
+
+    expect(await tabs()).toContain("Pass@k2 / 4");
+  });
+
+  it("is titled and counted by the first declared, when it was reached", async () => {
+    show(withRegrade(true), "", twice);
+
+    expect(await tabs()).toContain("Regrade1 / 4");
+  });
+
+  it("is titled by the first declared when none was reached", async () => {
+    show(withRegrade(false, false), "", twice);
+
+    expect(await tabs()).toContain("RegradeNot run");
+  });
+
+  it("opens on the first declared, from its menu as before", async () => {
+    show(withRegrade(false), "&tab=trials", twice);
+
+    expect(await screen.findByText("regrade was never visited")).toBeVisible();
+  });
+});
+
 describe("a running attempt's record", () => {
   // As the engine writes it while its pass@4 runs: the task and the reviews
   // made, the trials started.
