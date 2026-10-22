@@ -1,16 +1,25 @@
 from collections.abc import Callable
 import json
 from pathlib import Path
+import subprocess
 from typing import cast
 
 import pytest
 
-from dataforge.queue.proc import Leader
-from dataforge.runs import QueueJob, reconcile, run_attempt, Store
+from dataforge.queue.proc import Leader, leader
+from dataforge.runs import (
+  AttemptRow,
+  QueueJob,
+  reconcile,
+  run_attempt,
+  Store,
+)
+from tests.processes import WAIT
 from tests.runs.conftest import after, at_once, queue_db, visits
 from tests.runs.fake import FakeHooks, KEPT, WHOLE
 
 ITEM = "item-1"
+AT = "2026-01-01T00:00:00+00:00"
 
 
 def test_a_row_whose_holder_is_gone_is_interrupted_as_its_job_says(
@@ -62,12 +71,119 @@ def test_a_row_its_holder_ended_is_never_changed(
     cost_usd=1.0,
   )
   assert store.settle("a/1")
+  assert store.cleaned("a/1", {}, None, by="runner")
   before, events = store.rows(), store.events("a/1")
   assert reconcile(store) == []
   assert reconcile(store, hooks) == []
   assert store.rows() == before
   assert store.events("a/1") == events
   assert not hooks.calls()
+
+
+def _settled(store: Store, holder: Leader, attempt_id: str = "a/1") -> None:
+  # A row its holder ended and settled, and did not clean up.
+  assert store.insert(attempt_id, "a", Path("/r"), holder, None)
+  assert store.end(
+    attempt_id,
+    holder,
+    by="runner",
+    outcome="passed",
+    reason=None,
+    record={"status": "passed", "visits": []},
+    cost_usd=1.0,
+  )
+  assert store.settle(attempt_id)
+
+
+def test_a_settled_row_whose_holder_is_gone_is_cleaned_up_once(
+  store: Store, hooks: FakeHooks, gone: Leader
+) -> None:
+  _settled(store, gone)
+  assert reconcile(store) == []
+  assert reconcile(store, hooks) == ["a/1: cleaned up"]
+  last = store.events("a/1")[-1]
+  assert (last.from_state, last.to_state, last.by, last.detail) == (
+    "ended",
+    "ended",
+    "reconcile",
+    {"cleanup_left": {}, "raised": None},
+  )
+  assert reconcile(store, hooks) == []
+  assert hooks.hook_calls("cleanup") == ["cleanup a/1"]
+
+
+@pytest.mark.parametrize("case", ["alive", "no holder", "not settled"])
+def test_a_row_whose_holder_runs_has_none_or_is_not_settled_is_not_cleaned_up(
+  store: Store, hooks: FakeHooks, gone: Leader, case: str
+) -> None:
+  with subprocess.Popen(["sleep", "60"]) as other:
+    try:
+      if case == "alive":
+        held = leader(other.pid)
+        assert held is not None
+        _settled(store, held)
+      elif case == "no holder":
+        assert store.add(
+          AttemptRow(
+            id="a/1",
+            item="a",
+            root="/r",
+            state="ended",
+            outcome="passed",
+            reason=None,
+            machine_status="passed",
+            stopped_by=None,
+            record=None,
+            cost_usd=None,
+            progress_at=None,
+            holder=None,
+            job_id=None,
+            job_db=None,
+            resumable=None,
+            resume_problem=None,
+            resume_checked_at=None,
+            created_at=AT,
+            ended_at=AT,
+            settled_at=AT,
+          )
+        )
+      else:
+        hooks.fail_in = "on_ended"
+        assert store.insert("a/1", "a", Path("/r"), gone, None)
+        assert store.end(
+          "a/1",
+          gone,
+          by="runner",
+          outcome="passed",
+          reason=None,
+          record=None,
+          cost_usd=None,
+        )
+      _ = reconcile(store, hooks)
+    finally:
+      other.kill()
+      _ = other.wait(WAIT)
+  assert not hooks.hook_calls("cleanup")
+
+
+def test_of_two_that_clean_up_a_row_at_once_one_adds_its_event(
+  store: Store,
+  hooks: FakeHooks,
+  gone: Leader,
+  barrier: Callable[[], None],
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  _settled(store, gone)
+  # Each has run the cleanup before either adds the event.
+  monkeypatch.setattr(Store, "cleaned", after(barrier, Store.cleaned))
+
+  def again() -> None:
+    _ = reconcile(store, hooks)
+
+  assert at_once(again, again) == [0, 0]
+  assert len(hooks.hook_calls("cleanup")) == 2
+  cleanups = [e for e in store.events("a/1") if e.from_state == "ended"]
+  assert len(cleanups) == 1
 
 
 def test_without_hooks_an_interrupted_row_whose_machine_ended_stays(

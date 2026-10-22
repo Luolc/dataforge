@@ -27,6 +27,7 @@ from dataforge.queue.proc import Leader
 from dataforge.runs.hooks import Hooks
 from dataforge.runs.reconcile import (
   cancel_requested,
+  clean_up,
   job_from_env,
   outcome_of,
   reconcile,
@@ -78,7 +79,8 @@ def run_attempt(
   one takes it over; a take_over that fails makes the row interrupted again,
   not resumable. Every other interrupted row of the item, and the one it
   could not go on with when it starts a new one, is ended with
-  hooks.given_up. After the cleanup it reconciles the whole store.
+  hooks.given_up, settled and cleaned up. After the cleanup it reconciles the
+  whole store.
 
   The end is written in one transaction, retried after each wait of
   END_RETRIES_S; when it still fails, the process exits EXIT_UNWRITTEN with
@@ -204,8 +206,8 @@ class _Runner:
       why += f": {row.resume_problem}"
     if self.store.abandon(row.id, self.hooks.given_up, why):
       ended = self.store.get(row.id)
-      if ended is not None:
-        _ = settle(self.store, self.hooks, ended)
+      if ended is not None and settle(self.store, self.hooks, ended):
+        _ = clean_up(self.store, self.hooks, ended, by="runner")
 
   def _machine(
     self, stack: ExitStack
@@ -327,7 +329,9 @@ class _Runner:
     for each in raised:
       _log.warning("%s: the cleanup raised %s", ended.id, each)
     try:
-      self.store.cleaned(ended.id, left, "; ".join(raised) or None)
+      _ = self.store.cleaned(
+        ended.id, left, "; ".join(raised) or None, by="runner"
+      )
       events = self.store.events(ended.id)
     except _STORE_ERRORS as error:
       _log.warning("%s: the cleanup was not written: %s", ended.id, error)
