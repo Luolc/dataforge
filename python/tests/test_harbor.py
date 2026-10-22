@@ -33,18 +33,20 @@ from dataforge.curation.harbor import (
 )
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json, starts the trial
-# (writes its config.json) and then does what FAKE_MODE says: "ok",
-# "exception", "no-reward", "exit" (exit 3 with no result) or "hang" (start a
-# child, write its own and the child's pid, sleep); "interrupt" also sends its
-# parent SIGUSR1 before it sleeps, and "stubborn" does too, and again on SIGTERM
-# instead of exiting. With FAKE_NOT_STARTED, it prints that many lines, each
-# padded with FAKE_PAD x's, and then the text of FAKE_LAST_FILE if given,
-# instead of starting the trial. With FAKE_STRAGGLER, the
-# child ignores SIGTERM, so it outlives harbor. The agent's cost is FAKE_COST,
-# 0.25 by default and null for "none"; with FAKE_TRACE, the agent directory gets
-# a Claude Code trace whose last result event costs that much. FAKE_LINKS, a
-# JSON object, gives symlinks to make in the trial's directory, by path inside
-# it, FAKE_FILES files to write there and FAKE_FIFO a FIFO to make there.
+# (writes its config.json) and then does what FAKE_MODE says: "ok", "exception",
+# "no-reward", "exit" (exit 3 with no result) or "hang" (start a child, write
+# its own and the child's pid, sleep); "interrupt" also sends its parent SIGUSR1
+# before it sleeps, and "stubborn" does too, and again on SIGTERM instead of
+# exiting; "cancelled" sleeps, and on SIGTERM writes a result whose exception is
+# CancelledError, as Harbor does, and exits 1. With FAKE_NOT_STARTED, it prints
+# that many lines, each padded with FAKE_PAD x's, and then the text of
+# FAKE_LAST_FILE if given, instead of starting the trial. With FAKE_STRAGGLER,
+# the child ignores SIGTERM, so it outlives harbor. The agent's cost is
+# FAKE_COST, 0.25 by default and null for "none"; with FAKE_TRACE, the agent
+# directory gets a Claude Code trace whose last result event costs that much.
+# FAKE_LINKS, a JSON object, gives symlinks to make in the trial's directory, by
+# path inside it, FAKE_FILES files to write there and FAKE_FIFO a FIFO to make
+# there.
 FAKE_HARBOR = """\
 import json, os, pathlib, signal, subprocess, sys, time
 argv = sys.argv[1:]
@@ -66,6 +68,17 @@ else:
     (trial / "config.json").write_text("{}")
 if mode == "exit":
     sys.exit(3)
+if mode == "cancelled":
+    def cancelled(*_):
+        (trial / "result.json").write_text(json.dumps({
+            "verifier_result": None,
+            "exception_info": {"exception_type": "CancelledError",
+                               "exception_message": ""},
+        }))
+        sys.exit(1)
+    signal.signal(signal.SIGTERM, cancelled)
+    (jobs / "pids").write_text(str(os.getpid()))
+    time.sleep(60)
 if mode in ("hang", "interrupt", "stubborn"):
     if "FAKE_STRAGGLER" in os.environ:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -811,6 +824,24 @@ def test_a_hung_harbor_is_stopped_with_its_children(
     assert result.exception == "TimeoutError: Harbor ran past 1 s"
     for pid in alive(out):
       pytest.fail(f"process {pid} of the fake harbor is still running")
+  finally:
+    for pid in alive(out):
+      os.kill(pid, signal.SIGKILL)
+
+
+def test_a_trial_past_the_timeout_says_so_before_what_harbor_recorded(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  # Harbor, stopped, records the trial's cancellation as its exception.
+  out = outdir(tmp_path)
+  try:
+    result = replace(runner(fakes, "cancelled"), timeout=1.0).run(
+      task(tmp_path), "nop", Limits(2), out
+    )
+    assert result.exception == (
+      "TimeoutError: Harbor ran past 1 s; Harbor recorded CancelledError: "
+    )
+    assert result.rewards == {}
   finally:
     for pid in alive(out):
       os.kill(pid, signal.SIGKILL)

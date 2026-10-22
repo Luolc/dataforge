@@ -1,8 +1,10 @@
-# Synthetic trials that left a diff, for the trials view's Diff tab: the
-# attempt of p3's pass-at-k, made up and run nowhere, with a made-up
-# `verifier/patch.diff` in trials 1, 2 and 5; trials 3 and 4 left none.
+# Synthetic trials that left a diff and test results, for the trials view's
+# Diff and Tests tabs: the attempt of p3's pass-at-k, made up and run
+# nowhere, with a made-up `verifier/patch.diff` in trials 1, 2 and 5 (3 and 4
+# left none) and a made-up CTRF `verifier/ctrf.json` in trials 1, 2 and 5,
+# the most tests in trial 1; trial 3 left none and trial 4's is not CTRF.
 id: trialdiff
-name: Trial diff samples
+name: Trial diff and test samples
 color: "#7fb5f5"
 attempts_dir: attempts
 attempts: "*"
@@ -15,4 +17,9 @@ statuses:
 item: { depth: 1, title: Task }
 columns: []
 session: { thinking: collapsed }
-trials: { diff: verifier/patch.diff }
+trials:
+  diff: verifier/patch.diff
+  tests: verifier/ctrf.json
+  kinds:
+    security: { label: Security }
+    behavior: { label: Behavior }
