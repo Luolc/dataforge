@@ -19,6 +19,7 @@ import time
 
 import pytest
 
+from dataforge import stopping
 from dataforge.gateway import Channel, channels, proxy, serve
 from dataforge.gateway.session import holders
 from tests.gateway.fakes import (
@@ -291,4 +292,23 @@ def test_serve_raises_when_a_process_is_left_behind(
   deadline = time.monotonic() + 5
   while holders(path) and time.monotonic() < deadline:
     time.sleep(0.1)
+  assert holders(path) == []
+
+
+def test_a_stopped_fan_outs_session_ends_within_the_stops_budget(
+  launcher: Launcher, socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+  # A launcher that ignores SIGTERM gets END_S, or what is left of the budget.
+  monkeypatch.setattr(stopping, "BUDGET_S", 2.0)
+  launcher.write("http://127.0.0.1:9", deaf=True)
+  path = socket_dir / "model.sock"
+  stop = stopping.Stop()
+
+  def run() -> float:
+    with serve(Channel.CLAUDE, path):
+      stop.set()
+      return time.monotonic()
+
+  stopped = stopping.under(stop, run)()
+  assert time.monotonic() - stopped < stopping.BUDGET_S + 1
   assert holders(path) == []

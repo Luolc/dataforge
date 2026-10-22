@@ -16,7 +16,6 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
-import threading
 import time
 from typing import cast
 
@@ -122,6 +121,7 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 # the line in a file "inspect-error" when there is one, exiting 1 when it said
 # anything, and `container rm` removes them unless "stuck" is there. `run` (the
 # chown) writes to alive.json which of the pids in the trial's "pids" still run.
+# While a file "hang" is next to it, each call sleeps 600 s once recorded.
 # `compose` goes to the real docker on PATH, which only reads compose files
 # here.
 FAKE_DOCKER = """\
@@ -130,6 +130,9 @@ here = pathlib.Path(__file__).parent
 argv = sys.argv[1:]
 with (here / "calls.jsonl").open("a") as f:
     f.write(json.dumps(argv) + "\\n")
+if (here / "hang").exists():
+    import time
+    time.sleep(600)
 def running(pid):
     try:
         stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
@@ -729,10 +732,62 @@ def test_a_sigterm_during_a_fan_out_stops_every_harbor_at_once(
         os.kill(pid, signal.SIGKILL)
 
 
+def test_a_stopped_fan_out_raises_within_its_budget_whatever_hangs(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+) -> None:
+  # Harbor ignores SIGTERM and every docker command hangs: what is not done
+  # within the budget is logged, not waited for.
+  monkeypatch.setattr(stopping, "BUDGET_S", 4.0)
+  monkeypatch.setattr(harbor, "STOPPED_S", 1.0)
+  base, task_dir = runner(fakes, "deaf"), task(tmp_path)
+  outs = [outdir(tmp_path, f"trial-{i}") for i in range(2)]
+  calls = [partial(base.run, task_dir, "nop", Limits(2), out) for out in outs]
+  _ = (fakes[1].parent / "hang").write_text("")
+  try:
+    with sigterm_once(lambda: all((o / "pids").exists() for o in outs)) as sent:
+      with pytest.raises(SystemExit):
+        _ = fan_out(calls)
+      ended = time.monotonic()
+    assert ended - sent[0] < stopping.BUDGET_S + 1
+    for out in outs:
+      for pid in alive(out):
+        pytest.fail(f"process {pid} of the fake harbor is still running")
+    skipped = [
+      r.getMessage() for r in caplog.records if "out of time" in r.getMessage()
+    ]
+    assert len(skipped) == 2
+    assert all(f"{LABEL}=" in message for message in skipped)
+  finally:
+    for out in outs:
+      for pid in alive(out) if (out / "pids").exists() else []:
+        os.kill(pid, signal.SIGKILL)
+
+
+def test_a_stopped_trial_removes_its_containers_before_its_files_are_given_back(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  trial = runner(fakes, "hang")
+  run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
+  with sigterm_once((out / "pids").exists), pytest.raises(SystemExit):
+    _ = fan_out([run])
+  calls = docker_calls(fakes)
+  by_label = next(
+    i
+    for i, args in enumerate(calls)
+    if args[:2] == ["container", "ls"] and "--filter" in args
+  )
+  chown = next(i for i, args in enumerate(calls) if args[0] == "run")
+  assert by_label < chown
+
+
 def test_a_trial_of_a_stopped_fan_out_starts_nothing(
   tmp_path: Path, fakes: tuple[Path, Path]
 ) -> None:
-  out, stop = outdir(tmp_path), threading.Event()
+  out, stop = outdir(tmp_path), stopping.Stop()
   entered: list[Path] = []
 
   @contextmanager

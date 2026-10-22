@@ -8,6 +8,11 @@ waits in such a call checks the stop: `check` before it starts one, `wait`
 while it waits for one, each raising Stopped once the stop is set, so that the
 call ends its child in its own `except BaseException` or `finally` and starts
 nothing more. Outside `fan_out` there is no stop, and neither ever raises.
+
+A stop set has a deadline, BUDGET_S after it was set: each command that a
+stopped call runs on its way out gets `left(timeout)` as its timeout, its own
+timeout or what is left until the deadline, whichever is less, so that the
+calls end within the budget whatever hangs.
 """
 
 from collections.abc import Callable
@@ -16,12 +21,41 @@ import math
 import subprocess
 import threading
 import time
-from typing import final
+from typing import final, overload
 
 # How often `wait` looks at the stop.
 POLL_S = 0.5
+# How long a stop gives the commands its calls run on their way out.
+BUDGET_S = 40.0
 
-_stop: contextvars.ContextVar[threading.Event | None] = contextvars.ContextVar(
+
+@final
+class Stop:
+  """The stop of the calls of one `fan_out`, and its deadline once set."""
+
+  def __init__(self) -> None:
+    """Make a stop not set."""
+    self._lock: threading.Lock = threading.Lock()
+    self._set: threading.Event = threading.Event()
+    self.deadline: float = math.inf
+
+  def set(self) -> None:
+    """Set the stop, its deadline BUDGET_S from now; again does nothing."""
+    with self._lock:
+      if not self._set.is_set():
+        self.deadline = time.monotonic() + BUDGET_S
+        self._set.set()
+
+  def is_set(self) -> bool:
+    """Return whether the stop is set.
+
+    Returns:
+      Whether it is.
+    """
+    return self._set.is_set()
+
+
+_stop: contextvars.ContextVar[Stop | None] = contextvars.ContextVar(
   "stop", default=None
 )
 
@@ -34,7 +68,7 @@ class Stopped(BaseException):
   """
 
 
-def current() -> threading.Event | None:
+def current() -> Stop | None:
   """Return the stop of the call this thread runs.
 
   Returns:
@@ -43,7 +77,7 @@ def current() -> threading.Event | None:
   return _stop.get()
 
 
-def under[T](stop: threading.Event, call: Callable[[], T]) -> Callable[[], T]:
+def under[T](stop: Stop, call: Callable[[], T]) -> Callable[[], T]:
   """Bind a call to a stop, for a thread to run.
 
   Args:
@@ -61,6 +95,37 @@ def under[T](stop: threading.Event, call: Callable[[], T]) -> Callable[[], T]:
     return call()
 
   return lambda: context.run(run)
+
+
+def stopped() -> bool:
+  """Return whether the stop of the call this thread runs is set.
+
+  Returns:
+    Whether it is; False outside `fan_out`'s calls.
+  """
+  stop = _stop.get()
+  return stop is not None and stop.is_set()
+
+
+@overload
+def left(timeout: float) -> float: ...
+@overload
+def left(timeout: None) -> float | None: ...
+def left(timeout: float | None) -> float | None:
+  """Return the timeout of a command of the call this thread runs.
+
+  Args:
+    timeout: The command's own timeout, or None for none.
+
+  Returns:
+    timeout while the call's stop is not set; once it is, what is left until
+    its deadline, at least 0, when that is less.
+  """
+  stop = _stop.get()
+  if stop is None or not stop.is_set():
+    return timeout
+  rest = max(stop.deadline - time.monotonic(), 0.0)
+  return rest if timeout is None else min(timeout, rest)
 
 
 def check() -> None:

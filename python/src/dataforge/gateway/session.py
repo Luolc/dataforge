@@ -28,6 +28,7 @@ import threading
 import time
 from typing import final, IO, override
 
+from dataforge import stopping
 from dataforge.gateway.channels import Channel, DRAINED, MAX_BODY
 from dataforge.gateway.pause import (
   active,
@@ -319,7 +320,7 @@ class _Launch:
       return
     self._stop()
     if self.stderr is not None:
-      self.stderr.join(5)
+      self.stderr.join(stopping.left(5))
     self.socket.unlink(missing_ok=True)
     if left := holders(self.socket):
       for pid in left:
@@ -331,10 +332,11 @@ class _Launch:
     process = self.process
     if process is None or process.poll() is not None:
       return
-    # The launcher passes SIGTERM to its client and then ends the session.
+    # The launcher passes SIGTERM to its client and then ends the session; a
+    # stopped fan_out's call gives it only what is left of the stop's budget.
     process.send_signal(signal.SIGTERM)
     try:
-      _ = process.wait(timeout=END_S)
+      _ = process.wait(timeout=stopping.left(END_S))
     except subprocess.TimeoutExpired:
       os.killpg(process.pid, signal.SIGKILL)
       _ = process.wait()

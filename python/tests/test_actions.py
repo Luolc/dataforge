@@ -186,7 +186,7 @@ def test_a_docker_env_of_a_stopped_fan_out_does_not_start() -> None:
     calls.append(args)
     return CommandResult(0, "c1\n")
 
-  env, stop = Docker("solver:1", cli=cli), threading.Event()
+  env, stop = Docker("solver:1", cli=cli), stopping.Stop()
 
   def start() -> None:
     stop.set()

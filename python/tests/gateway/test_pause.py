@@ -410,7 +410,7 @@ def test_a_pause_another_process_began_holds_this_ones_calls():
 
 
 def test_a_wait_for_a_pause_ends_once_the_stop_of_its_call_is_set():
-  stop = threading.Event()
+  stop = stopping.Stop()
   with pausing(Backoff()) as pauses:
     got_429(60, 600)
     timer = threading.Timer(0.3, stop.set)
