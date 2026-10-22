@@ -183,9 +183,15 @@ def test_deliverables_load_in_their_order() -> None:
       "source": {"state": "make"},
       "value": {"field": ["data", "solved"], "output": "verdict.json"},
     },
+    "regrade": {
+      "kind": "trials",
+      "title": "Regrade",
+      "source": {"state": "make"},
+      "match": "regrade-[0-9]*",
+    },
   }
   machine = load_doc(doc)
-  assert list(machine.deliverables) == ["verdict", "made", "runs"]
+  assert list(machine.deliverables) == ["verdict", "made", "runs", "regrade"]
   assert machine.deliverables == {
     "verdict": Deliverable(
       "report",
@@ -199,6 +205,9 @@ def test_deliverables_load_in_their_order() -> None:
       "pass@k",
       Source("make"),
       value=Value(("data", "solved"), "verdict.json"),
+    ),
+    "regrade": Deliverable(
+      "trials", "Regrade", Source("make"), match="regrade-[0-9]*"
     ),
   }
   assert load_doc(base()).deliverables == {}
@@ -385,6 +394,34 @@ def drop(path: str) -> Callable[[Doc], None]:
         },
       ),
       "deliverables.runs.value.field: expected a list, got a string",
+    ),
+    (
+      put(
+        "deliverables",
+        {
+          "made": {
+            "kind": "files",
+            "title": "Made",
+            "source": {"state": "make", "output": "out"},
+            "match": "trial-*",
+          }
+        },
+      ),
+      "deliverables.made: only trials have a match",
+    ),
+    (
+      put(
+        "deliverables",
+        {
+          "runs": {
+            "kind": "trials",
+            "title": "pass@k",
+            "source": {"state": "make"},
+            "match": "",
+          }
+        },
+      ),
+      "deliverables.runs: an empty match",
     ),
   ],
 )

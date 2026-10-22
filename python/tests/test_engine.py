@@ -1355,6 +1355,112 @@ def test_a_running_visit_lists_the_trials_that_have_started(
   assert all("running" not in visit for visit in keys)
 
 
+class OutputTrials:
+  """A trial runner whose trials solve when their output ends in 1, 3, ... 9."""
+
+  def memory_gb(self, limits: Limits) -> float:
+    return 0.0
+
+  def run(
+    self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+  ) -> TrialResult:
+    reward = 1.0 if outdir.name[-1] in "13579" else 0.0
+    return TrialResult({"reward": reward}, None, 0.0, 1.0, {})
+
+
+REGRADE_OUTPUTS = (
+  "regrade-2",
+  "regrade-golden-1",
+  "regrade-10",
+  "regrade-reference",
+  "regrade-1",
+)
+
+
+def regrade(ctx: Context) -> Outcome:
+  actions = Actions(trial_runner=OutputTrials())
+  for output in REGRADE_OUTPUTS:
+    _ = actions.trial(ctx, output, ctx.outdir, "oracle", Limits(1))
+  return Outcome("done", {"solved": 1})
+
+
+def test_a_match_lists_only_the_trials_whose_output_matches(
+  tmp_path: Path,
+) -> None:
+  seen: list[list[tuple[str, bool]]] = []
+
+  def on_step(attempt: Attempt) -> None:
+    entry = cast(list[dict[str, object]], attempt.to_json()["deliverables"])[0]
+    trials = cast(list[dict[str, object]], entry["trials"])
+    seen.append([(cast(str, t["output"]), t["result"] is None) for t in trials])
+
+  attempt = Machine(
+    [Step("regrade", regrade, {"done": End("passed")})],
+    on_step=on_step,
+    deliverables={
+      "regrade": Deliverable(
+        "trials",
+        "Regrade",
+        Source("regrade"),
+        value=Value(["solved"]),
+        match="regrade-[0-9]*",
+      ),
+      "every": Deliverable("trials", "Every trial", Source("regrade")),
+    },
+  ).run(tmp_path / "attempt")
+  chosen, every = cast(
+    list[dict[str, object]], attempt.to_json()["deliverables"]
+  )
+  assert (chosen["match"], chosen["k"]) == ("regrade-[0-9]*", 3)
+  assert [
+    t["output"] for t in cast(list[dict[str, str]], chosen["trials"])
+  ] == [
+    "regrade-1",
+    "regrade-2",
+    "regrade-10",
+  ]
+  assert (every["match"], every["k"]) == (None, len(REGRADE_OUTPUTS))
+  # A trial that has started is listed only when it matches, too.
+  assert any(("regrade-10", True) in step for step in seen)
+  assert all(
+    output in ("regrade-1", "regrade-2", "regrade-10")
+    for step in seen
+    for output, _ in step
+  )
+
+
+def test_deliverables_of_an_ended_attempt_resolve_as_its_end_would(
+  tmp_path: Path,
+) -> None:
+  every = {"every": Deliverable("trials", "Every trial", Source("regrade"))}
+  chosen = {
+    "chosen": Deliverable(
+      "trials", "Chosen", Source("regrade"), match="regrade-[0-9]*"
+    )
+  }
+  states = [Step("regrade", regrade, {"done": End("passed")})]
+  root = tmp_path / "attempt"
+  records: list[dict[str, object]] = []
+  ran = Machine(
+    states, deliverables=every, on_step=lambda a: records.append(a.to_json())
+  ).run(root)
+  attempt = Attempt.from_json(root, records[-1])
+  assert Machine(states, deliverables=every).deliverables_of(attempt) == (
+    ran.deliverables
+  )
+  [entry] = Machine(states, deliverables=chosen).deliverables_of(attempt)
+  assert (entry["name"], entry["k"]) == ("chosen", 3)
+
+  running = Attempt.from_json(root, records[1])
+  assert running.visits[-1].outcome is None
+  with pytest.raises(ValueError, match="has no outcome"):
+    _ = Machine(states, deliverables=every).deliverables_of(running)
+
+  raised = Attempt.from_json(root, records[-1])
+  raised.visits[-1].outcome = "raised"
+  assert Machine(states, deliverables=every).deliverables_of(raised) == []
+
+
 def test_a_value_from_json_nested_too_deep_has_a_reason(tmp_path: Path) -> None:
   write = (
     "import os; open(os.environ['DATAFORGE_OUTPUTS'] + '/verdict.json', 'w')"

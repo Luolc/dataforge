@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
+import fnmatch
 import json
 import os
 from pathlib import Path
@@ -831,6 +832,33 @@ class Machine:
     ]
     return {"start": self.states[0].name, "states": states, "edges": edges}
 
+  def deliverables_of(self, attempt: Attempt) -> list[dict[str, object]]:
+    """Resolve this machine's deliverables in an attempt that has ended.
+
+    The result is what the attempt's end would have recorded had the machine
+    declared these deliverables then: [] when its last visit raised. It reads
+    the record and the outputs the record names, and runs nothing.
+
+    Args:
+      attempt: The attempt, as Attempt.from_json reads its record back.
+
+    Returns:
+      The deliverables, one entry each, in their order.
+
+    Raises:
+      ValueError: When the attempt's last visit has no outcome, as while it
+        runs.
+    """
+    if attempt.visits:
+      last = attempt.visits[-1].outcome
+      if last is None:
+        raise ValueError("its last visit has no outcome, so it has not ended")
+      if last == "raised":
+        return []
+    return [
+      _entry(name, item, attempt) for name, item in self.deliverables.items()
+    ]
+
   def run(self, root: Path) -> Attempt:
     """Run one attempt until an End, a cap or the guard ends it.
 
@@ -1215,7 +1243,8 @@ def _entry(name: str, item: Deliverable, attempt: Attempt) -> dict[str, object]:
   if item.kind == "trials":
     index = entry["visit_index"]
     visit = attempt.visits[index] if isinstance(index, int) else None
-    trials = [] if visit is None else _trials(visit, attempt.root)
+    trials = [] if visit is None else _trials(visit, attempt.root, item.match)
+    entry["match"] = item.match
     entry["k"] = len(trials)
     entry["value"] = None if item.value is None else _value(item.value, visit)
     entry["trials"] = trials
@@ -1264,13 +1293,20 @@ def _deliverable_visit(
   return found[0], ""
 
 
-def _trials(visit: Visit, root: Path) -> list[dict[str, object]]:
+def _trials(
+  visit: Visit, root: Path, match: str | None
+) -> list[dict[str, object]]:
+  def listed(output: str) -> bool:
+    return match is None or fnmatch.fnmatchcase(output, match)
+
   trials: list[tuple[tuple[str, int], dict[str, object]]] = []
   for action in visit.actions:
     trial = action.trial
     if trial is None:
       continue
     output = next(iter(action.outputs))
+    if not listed(output):
+      continue
     trace = _trace_json(trial.trace, trial.format, root)
     trials.append(
       (
@@ -1288,7 +1324,7 @@ def _trials(visit: Visit, root: Path) -> list[dict[str, object]]:
         },
       )
     )
-  for output in visit.running:
+  for output in filter(listed, visit.running):
     path = root / "artifacts" / visit.state / str(visit.visit) / output
     trials.append(
       (
