@@ -5,7 +5,7 @@ import "./chart.css";
 import { useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 
-import { clock, moment } from "../../ui/format";
+import { axisTime, DAY_S, moment } from "../../ui/format";
 import { colour, cssVar, px, useTemplate } from "./theme";
 import type { Pause } from "./types";
 
@@ -101,7 +101,12 @@ export function Chart(props: Props) {
         },
       },
       axes: [
-        { ...axis, values: (_u, splits) => splits.map((s) => clock(s)) },
+        {
+          ...axis,
+          // A dated tick is wider, so a longer window has fewer of them.
+          ...(to - from > DAY_S && { space: px("--spacing-chart-day") }),
+          values: (_u, splits) => splits.map((s) => axisTime(s, to - from)),
+        },
         {
           ...axis,
           size: px("--spacing-chart-axis"),
