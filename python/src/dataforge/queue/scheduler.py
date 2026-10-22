@@ -8,15 +8,16 @@ Each look at the table (a tick) does four things:
 - A running job whose cancellation is older than cancel_grace_s gets SIGKILL
   sent to its process group, as its wrapper sends it too, so that it ends
   also while no scheduler runs.
-- In one BEGIN IMMEDIATE transaction, queued jobs start while their queue and
-  the machine are under their caps, the 1-minute load is at most max_load1,
-  and the job's memory fits. A job fits when MemAvailable, less what running
-  jobs have declared but not yet grown to (their declared memory less the
-  resident memory of their session, never below 0), less what this tick has
-  started, leaves min_mem_available_mib once the job's memory is taken too.
-  Within a queue the oldest goes first, and a queue whose oldest does not fit
-  starts none this tick; across queues the oldest of their first jobs goes
-  first.
+- In one BEGIN IMMEDIATE transaction, queued jobs of the queues not paused
+  start while their queue and the machine are under their caps, the 1-minute
+  load is at most max_load1, and the job's memory fits. A job fits when
+  MemAvailable, less what running jobs have declared but not yet grown to
+  (their declared memory less the resident memory of their session, never
+  below 0), less what this tick has started, leaves min_mem_available_mib
+  once the job's memory is taken too. Within a queue the oldest goes first,
+  and a queue whose oldest does not fit starts none this tick; across queues
+  the oldest of their first jobs goes first. A paused queue's jobs wait and
+  hold no room; its running jobs run on.
 - Each store of attempts the queue file lists under runs is reconciled with
   no hooks (dataforge.runs.reconcile): an attempt whose process is gone, such
   as one killed with SIGKILL, is made interrupted. It runs no dataset code.
@@ -51,7 +52,13 @@ from dataforge.queue.proc import (
   Readings,
   signal_group,
 )
-from dataforge.queue.store import connect, Job, select, write
+from dataforge.queue.store import (
+  connect,
+  Job,
+  paused_queues,
+  select,
+  write,
+)
 from dataforge.queue.wrapper import command
 from dataforge.runs import reconcile, Store
 
@@ -185,7 +192,8 @@ class Scheduler:
     for job in running:
       counts[job.queue] = counts.get(job.queue, 0) + 1
     queued = select(conn, "state = 'queued'")
-    blocked: set[str] = set()
+    # A paused queue starts none, as one whose oldest does not fit.
+    blocked = paused_queues(conn)
     for job in queued:
       if total >= self.config.max_running:
         return
