@@ -323,14 +323,19 @@ class Inspect:
 
 
 def stop_with(
-  env: DockerEnvironment, monkeypatch: pytest.MonkeyPatch, process: Inspect
+  env: DockerEnvironment,
+  monkeypatch: pytest.MonkeyPatch,
+  process: Inspect,
+  size: Inspect | None = None,
 ) -> list[list[str]]:
-  """Stop env with compose, the inspect process and Harbor's stop faked.
+  """Stop env with compose, the inspect processes and Harbor's stop faked.
 
   Args:
     env: The environment to stop.
     monkeypatch: The test's.
-    process: What starting a process gives.
+    process: What starting the inspect of main's state gives.
+    size: What starting the inspect of main's size gives; SIZE_RW's by
+      default.
 
   Returns:
     The compose commands, the processes' argvs and Harbor's stops, in order.
@@ -343,6 +348,8 @@ def stop_with(
 
   async def exec_(*argv: str, **_kwargs: object) -> Inspect:
     calls.append(list(argv))
+    if "--size" in argv:
+      return Inspect(f"{SIZE_RW}\n".encode()) if size is None else size
     return process
 
   async def stop(_self: object, delete: bool) -> None:
@@ -356,6 +363,8 @@ def stop_with(
 
 
 INSPECT = ["inspect", "--format", "{{.State.OOMKilled}} {{.State.Pid}}", "c1"]
+INSPECT_SIZE = ["inspect", "--size", "--format", "{{.SizeRw}}", "c1"]
+SIZE_RW = 167079936
 # What the host shows of main's process 4242 and its cgroup.
 CGROUP = "/system.slice/docker-c1.scope"
 PIDS_READ = {"max": 530, "limit": "512"}
@@ -379,6 +388,11 @@ def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def pids_read(tmp_path: Path, session: str = "task__1__env") -> object:
   path = tmp_path / "trial" / harbor.PIDS_FILE.format(session)
+  return json.loads(path.read_text())
+
+
+def written_read(tmp_path: Path, session: str = "task__1__env") -> object:
+  path = tmp_path / "trial" / harbor.WRITTEN_FILE.format(session)
   return json.loads(path.read_text())
 
 
@@ -412,6 +426,7 @@ def test_stop_says_in_the_log_when_main_was_killed_for_memory(
   assert calls == [
     ["ps", "--all", "--quiet", "main"],
     ["docker", *INSPECT],
+    ["docker", *INSPECT_SIZE],
     ["harbor stop", "True"],
   ]
   assert [r.getMessage() for r in caplog.records] == logged
@@ -498,6 +513,8 @@ def test_a_separate_verifier_writes_its_own_reading(
   _ = stop_with(env, monkeypatch, Inspect(b"false 4242\n"))
   assert pids_read(tmp_path, "task__1__verifier__0") == PIDS_READ
   assert not (tmp_path / "trial" / "task__1__env.pids.json").exists()
+  assert written_read(tmp_path, "task__1__verifier__0") == {"bytes": SIZE_RW}
+  assert not (tmp_path / "trial" / "task__1__env.written.json").exists()
 
 
 @pytest.mark.usefixtures("slow_docker")
@@ -511,6 +528,7 @@ def test_stop_inspects_main_with_the_environments_engine(
   env = with_tmpfs(tmp_path, 2048)
   calls = stop_with(env, monkeypatch, Inspect(b"false 4242\n"))
   assert ["podman", *INSPECT] in calls
+  assert ["podman", *INSPECT_SIZE] in calls
 
 
 @pytest.mark.usefixtures("slow_docker")
@@ -530,5 +548,66 @@ def test_an_inspect_past_its_timeout_is_killed_and_the_stop_goes_on(
     "dataforge: State.OOMKilled not read: ",
     "dataforge: pids.events of main of task__1__env not read: "
     + "main not inspected: ",
+    "dataforge: SizeRw of main of task__1__env not read: "
+    + "main not inspected: ",
   ]
   assert pids_read(tmp_path) == {"unknown": "main not inspected: "}
+  assert written_read(tmp_path) == {"unknown": "main not inspected: "}
+
+
+@pytest.mark.usefixtures("slow_docker", "host")
+def test_stop_writes_what_main_wrote_and_left_before_harbor_removes_it(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  env = with_tmpfs(tmp_path, 2048)
+  calls = stop_with(env, monkeypatch, Inspect(b"false 4242\n"))
+  assert written_read(tmp_path) == {"bytes": SIZE_RW}
+  # After the process limit's reading, which needs main running.
+  assert calls[-2:] == [["docker", *INSPECT_SIZE], ["harbor stop", "True"]]
+
+
+@pytest.mark.parametrize(
+  ("size", "unknown"),
+  [
+    (Inspect(b"<no value>\n"),
+     "main's SizeRw is not one number: ['<no value>']"),
+    (Inspect(b""), "main's SizeRw is not one number: []"),
+    (Inspect(b"12\n34\n"), "main's SizeRw is not one number: ['12', '34']"),
+    (Inspect(None), "main's size not inspected: "),
+  ],
+)  # fmt: skip
+@pytest.mark.usefixtures("slow_docker", "host")
+def test_a_size_that_cannot_be_read_is_written_as_unknown_and_the_stop_goes_on(
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+  size: Inspect,
+  unknown: str,
+) -> None:
+  monkeypatch.setattr(harbor_env, "_INSPECT_TIMEOUT", 0.01)
+  env = with_tmpfs(tmp_path, 2048)
+  with caplog.at_level(logging.WARNING):
+    calls = stop_with(env, monkeypatch, Inspect(b"false 4242\n"), size)
+  assert calls[-1] == ["harbor stop", "True"]
+  assert written_read(tmp_path) == {"unknown": unknown}
+  assert pids_read(tmp_path) == PIDS_READ
+  assert caplog.records[-1].getMessage() == (
+    f"dataforge: SizeRw of main of task__1__env not read: {unknown}"
+  )
+
+
+@pytest.mark.usefixtures("slow_docker", "host")
+def test_a_stop_with_no_main_writes_the_size_as_unknown(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  async def compose(_command: list[str], **_kwargs: object) -> ExecResult:
+    return ExecResult(stdout="", return_code=0)
+
+  async def stop(_self: object, delete: bool) -> None:
+    _ = delete
+
+  env = with_tmpfs(tmp_path, 2048)
+  monkeypatch.setattr(env, "_run_docker_compose_command", compose)
+  monkeypatch.setattr(HarborDockerEnvironment, "stop", stop)
+  asyncio.run(env.stop(delete=True))
+  assert written_read(tmp_path) == {"unknown": "no main container"}
