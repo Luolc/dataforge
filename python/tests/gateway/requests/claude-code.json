@@ -1,0 +1,810 @@
+{
+ "model": "placeholder",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "placeholder text"
+    },
+    {
+     "type": "text",
+     "text": "placeholder text"
+    }
+   ]
+  },
+  {
+   "role": "system",
+   "content": "placeholder text",
+   "output_config": {
+    "effort": "medium"
+   }
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "placeholder",
+     "name": "WebSearch",
+     "input": {
+      "query": "dataforge proxy test"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "tool_use_id": "placeholder",
+     "type": "tool_result",
+     "content": "placeholder text"
+    }
+   ]
+  },
+  {
+   "role": "system",
+   "content": [
+    {
+     "type": "text",
+     "text": "placeholder text",
+     "cache_control": {
+      "type": "ephemeral",
+      "ttl": "1h"
+     }
+    }
+   ]
+  }
+ ],
+ "system": [
+  {
+   "type": "text",
+   "text": "placeholder text"
+  },
+  {
+   "type": "text",
+   "text": "placeholder text",
+   "cache_control": {
+    "type": "ephemeral",
+    "ttl": "1h"
+   }
+  },
+  {
+   "type": "text",
+   "text": "placeholder text",
+   "cache_control": {
+    "type": "ephemeral",
+    "ttl": "1h"
+   }
+  }
+ ],
+ "tools": [
+  {
+   "name": "Agent",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "description": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "prompt": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "subagent_type": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "model": {
+      "description": "placeholder text",
+      "type": "string",
+      "enum": [
+       "sonnet",
+       "opus",
+       "haiku",
+       "fable"
+      ]
+     },
+     "effort": {
+      "description": "placeholder text",
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "run_in_background": {
+      "description": "placeholder text",
+      "type": "boolean"
+     },
+     "isolation": {
+      "description": "placeholder text",
+      "type": "string",
+      "enum": [
+       "worktree",
+       "remote"
+      ]
+     }
+    },
+    "required": [
+     "description",
+     "prompt"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Bash",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "command": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "timeout": {
+      "description": "placeholder text",
+      "type": "number"
+     },
+     "description": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "run_in_background": {
+      "description": "placeholder text",
+      "type": "boolean"
+     },
+     "dangerouslyDisableSandbox": {
+      "description": "placeholder text",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "command"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "CronCreate",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "cron": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "prompt": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "recurring": {
+      "description": "placeholder text",
+      "type": "boolean"
+     },
+     "durable": {
+      "description": "placeholder text",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "cron",
+     "prompt"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "CronDelete",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "id": {
+      "description": "placeholder text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "CronList",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Edit",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "old_string": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "new_string": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "replace_all": {
+      "description": "placeholder text",
+      "default": false,
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "file_path",
+     "old_string",
+     "new_string"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "EnterWorktree",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "name": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "path": {
+      "description": "placeholder text",
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "ExitWorktree",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "action": {
+      "description": "placeholder text",
+      "type": "string",
+      "enum": [
+       "keep",
+       "remove"
+      ]
+     },
+     "discard_changes": {
+      "description": "placeholder text",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "action"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "ListAgents",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "channel": {
+      "description": "placeholder text",
+      "type": "string",
+      "maxLength": 256
+     },
+     "q": {
+      "description": "placeholder text",
+      "type": "string",
+      "maxLength": 256
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "NotebookEdit",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "notebook_path": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "cell_id": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "new_source": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "cell_type": {
+      "description": "placeholder text",
+      "type": "string",
+      "enum": [
+       "code",
+       "markdown"
+      ]
+     },
+     "edit_mode": {
+      "description": "placeholder text",
+      "type": "string",
+      "enum": [
+       "replace",
+       "insert",
+       "delete"
+      ]
+     }
+    },
+    "required": [
+     "notebook_path",
+     "new_source"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Read",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "offset": {
+      "description": "placeholder text",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+     },
+     "limit": {
+      "description": "placeholder text",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+     },
+     "pages": {
+      "description": "placeholder text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "file_path"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "RemoteTrigger",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "list",
+       "get",
+       "create",
+       "update",
+       "run",
+       "create_webhook_trigger",
+       "list_runs",
+       "get_run_log"
+      ]
+     },
+     "trigger_id": {
+      "description": "placeholder text",
+      "type": "string",
+      "pattern": "^[\\w-]+$"
+     },
+     "session_id": {
+      "description": "placeholder text",
+      "type": "string",
+      "pattern": "^[\\w-]+$"
+     },
+     "cursor": {
+      "description": "placeholder text",
+      "type": "string",
+      "maxLength": 1024
+     },
+     "body": {
+      "description": "placeholder text",
+      "type": "object",
+      "propertyNames": {
+       "type": "string"
+      },
+      "additionalProperties": {}
+     }
+    },
+    "required": [
+     "action"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "ReportFindings",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "level": {
+      "description": "placeholder text",
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "findings": {
+      "description": "placeholder text",
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "file": {
+         "description": "placeholder text",
+         "type": "string"
+        },
+        "line": {
+         "description": "placeholder text",
+         "type": "integer",
+         "minimum": -9007199254740991,
+         "maximum": 9007199254740991
+        },
+        "summary": {
+         "description": "placeholder text",
+         "type": "string"
+        },
+        "short_summary": {
+         "description": "placeholder text",
+         "type": "string",
+         "maxLength": 60
+        },
+        "failure_scenario": {
+         "description": "placeholder text",
+         "type": "string"
+        },
+        "category": {
+         "description": "placeholder text",
+         "type": "string",
+         "maxLength": 40
+        },
+        "verdict": {
+         "description": "placeholder text",
+         "type": "string",
+         "enum": [
+          "CONFIRMED",
+          "PLAUSIBLE"
+         ]
+        },
+        "outcome": {
+         "description": "placeholder text",
+         "type": "string",
+         "enum": [
+          "fixed",
+          "skipped",
+          "no_change_needed"
+         ]
+        }
+       },
+       "required": [
+        "file",
+        "summary",
+        "failure_scenario"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "findings"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "ScheduleWakeup",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "delaySeconds": {
+      "description": "placeholder text",
+      "type": "number"
+     },
+     "reason": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "prompt": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "stop": {
+      "description": "placeholder text",
+      "type": "boolean"
+     },
+     "noop": {
+      "description": "placeholder text",
+      "type": "boolean"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "SendMessage",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "to": {
+      "description": "placeholder text",
+      "type": "string",
+      "allOf": [
+       {
+        "pattern": "^[^\\n\\r]*$"
+       },
+       {
+        "pattern": "^[\\s\\S]{0,300}$"
+       }
+      ]
+     },
+     "summary": {
+      "description": "placeholder text",
+      "type": "string",
+      "maxLength": 200
+     },
+     "message": {
+      "default": "",
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "notify_when_idle": {
+      "description": "placeholder text",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "to",
+     "message"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Skill",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "skill": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "args": {
+      "description": "placeholder text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "skill"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "TaskStop",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "task_id": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "shell_id": {
+      "description": "placeholder text",
+      "type": "string"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "WebFetch",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "url": {
+      "description": "placeholder text",
+      "type": "string",
+      "format": "uri"
+     },
+     "prompt": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "offset": {
+      "description": "placeholder text",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+     }
+    },
+    "required": [
+     "url",
+     "prompt"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "WebSearch",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "query": {
+      "description": "placeholder text",
+      "type": "string",
+      "minLength": 2
+     },
+     "allowed_domains": {
+      "description": "placeholder text",
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "blocked_domains": {
+      "description": "placeholder text",
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Workflow",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "script": {
+      "description": "placeholder text",
+      "type": "string",
+      "maxLength": 524288
+     },
+     "name": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "description": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "title": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "args": {
+      "description": "placeholder text"
+     },
+     "scriptPath": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "resumeFromRunId": {
+      "description": "placeholder text",
+      "type": "string",
+      "pattern": "^wf_[a-z0-9-]{6,}$"
+     }
+    },
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "Write",
+   "description": "placeholder text",
+   "input_schema": {
+    "$schema": "placeholder text",
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "description": "placeholder text",
+      "type": "string"
+     },
+     "content": {
+      "description": "placeholder text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "file_path",
+     "content"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "metadata": {
+  "user_id": "placeholder"
+ },
+ "max_tokens": 128000,
+ "thinking": {
+  "type": "adaptive",
+  "display": "updates"
+ },
+ "context_management": {
+  "edits": [
+   {
+    "type": "clear_thinking_20251015",
+    "keep": "all"
+   }
+  ]
+ },
+ "output_config": {
+  "effort": "medium"
+ },
+ "stream": true
+}

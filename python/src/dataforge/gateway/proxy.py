@@ -8,8 +8,10 @@ processes of the same user, as it does the launcher's. It listens on a Unix
 socket that a container reaches through `forward.py`, forwards only its
 channel's model calls (`ROUTES`), in origin form, to the gateway with the
 session's `Authorization` in place of the request's, and refuses every other
-request with 403, the session unsent. It ends when the process that started it
-ends, killed or not.
+request with 403, the session unsent. It also refuses a model call whose body
+asks the model's side to reach the network or run code for the container
+(`screen`), and forwards the others' bodies as they came. It ends when the
+process that started it ends, killed or not.
 
 With a `Spend`, it prices each reply as it passes it on. Once the session has
 cost `max_usd` or a reply could not be priced, and with a ledger once the
@@ -39,7 +41,7 @@ import threading
 from typing import cast, final, override
 import urllib.parse
 
-from dataforge.gateway import channels
+from dataforge.gateway import channels, screen
 from dataforge.gateway.channels import BILLED, Channel, DRAINED, ROUTES
 from dataforge.gateway.pause import Pause
 from dataforge.gateway.spend import Meter, NO_USAGE, now, price, record, Spend
@@ -108,11 +110,29 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     ):
       self.send_error(403)
       return
+    channel = self.server.channel
+    # All of the header's lines, as the gateway may read them.
+    encoding = ",".join(self.headers.get_all("Content-Encoding", []))
+    if (refused := screen.refusal(channel, encoding, body)) is not None:
+      self._refuse(refused)
+      return
     with self.server.flight() as allowed:
       if not allowed:
         self.send_error(403, "the session's spend is capped")
         return
       self._send(body)
+
+  def _refuse(self, refused: screen.Refusal):
+    # The tool type or field only: the body is the caller's.
+    _ = sys.stderr.write(f"gateway: refused a model call: {refused.why}\n")
+    data = screen.answer(self.server.channel, refused)
+    self.close_connection = True
+    self.send_response(refused.status)
+    self.send_header("Content-Type", "application/json")
+    self.send_header("Content-Length", str(len(data)))
+    self.send_header("Connection", "close")
+    self.end_headers()
+    _ = self.wfile.write(data)
 
   def _body(self) -> bytes:
     # The request's body, read whole, chunked or not.
