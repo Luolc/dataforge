@@ -289,7 +289,9 @@ def start_forwarder(env: Docker) -> None:
   Raises:
     RuntimeError: The container is not created, or the forwarder does not
       listen within `FORWARDER_TIMEOUT`.
-  """
+    stopping.Stopped: The stop of the call this thread runs was set while it
+      waited.
+  """  # noqa: DOC503
   container = env.container
   if container is None:
     raise RuntimeError("the container is not created")
@@ -302,4 +304,5 @@ def start_forwarder(env: Docker) -> None:
       raise RuntimeError(
         f"the forwarder is not listening after {FORWARDER_TIMEOUT}s"
       )
+    stopping.check()
     time.sleep(0.2)

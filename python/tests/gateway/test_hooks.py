@@ -339,6 +339,21 @@ def test_start_forwarder_starts_it_and_waits_until_it_listens():
   assert len(calls) == 4
 
 
+def test_start_forwarder_stops_waiting_once_its_calls_stop_is_set():
+  # A forwarder that never listens: the wait would last FORWARDER_TIMEOUT.
+  def cli(args: Sequence[str]) -> CommandResult:
+    return CommandResult(1 if "-c" in args else 0, "")
+
+  env = Docker("agent:1", cli=cli)
+  env._id = "c1"
+  stop = stopping.Stop()
+  threading.Timer(0.3, stop.set).start()
+  started = time.monotonic()
+  with pytest.raises(stopping.Stopped):
+    stopping.under(stop, lambda: start_forwarder(env))()
+  assert time.monotonic() - started < 2
+
+
 def test_a_serve_that_waits_for_another_ends_once_its_calls_stop_is_set(
   launcher: Launcher, tmp_path: Path
 ):
