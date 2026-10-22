@@ -262,3 +262,89 @@ describe("the queue page", () => {
     expect(calls.filter((c) => c.url === "/api/queue")).toHaveLength(2);
   });
 });
+
+describe("the jobs another tool queues", () => {
+  const withJobs: Project = {
+    ...project,
+    jobs: [
+      { action: "review", label: "Review", queue: "slow", subject: "attempt" },
+      { action: "batch", label: "Batch", queue: "fast", subject: "item" },
+    ],
+  };
+
+  function showWith(shown: Project) {
+    render(
+      <ProjectsContext value={{ state: "ok", data: [shown] }}>
+        <MemoryRouter>
+          <QueuePage />
+        </MemoryRouter>
+      </ProjectsContext>,
+    );
+  }
+
+  it("names their action by the project's label and links an attempt's job to its page", async () => {
+    serve({
+      "/api/queue": [
+        [
+          200,
+          read([
+            job(3, "canceled", {
+              queue: "slow",
+              labels: { action: "review", item: "batch-1/task-3" },
+            }),
+            job(2, "done", {
+              labels: { project: "sample", action: "batch", item: "batch-1" },
+            }),
+            job(1, "done", { labels: { action: "other", item: "x" } }),
+          ]),
+        ],
+      ],
+    });
+    showWith(withJobs);
+
+    const review = await screen.findByRole("link", { name: "batch-1/task-3" });
+    expect(review).toHaveAttribute(
+      "href",
+      "/sample/attempt?id=batch-1%2Ftask-3",
+    );
+    const row = (id: string) =>
+      within(
+        screen.getByRole("cell", { name: id }).closest("tr") ?? document.body,
+      );
+    expect(row("3").getByText("Review")).toBeVisible();
+    expect(row("2").getByText("Batch")).toBeVisible();
+    expect(row("2").getByRole("link", { name: "batch-1" })).toHaveAttribute(
+      "href",
+      "/sample?q=batch-1",
+    );
+    // A job no project names stays as it is, with no link.
+    expect(row("1").getByText("other")).toBeVisible();
+    expect(row("1").queryByRole("link")).toBeNull();
+  });
+
+  it("says beside a queue that it is paused, since when and why", async () => {
+    const paused = {
+      ...read([]),
+      queues: [
+        { name: "fast", limit: 2, running: 0, queued: 0, paused: null },
+        {
+          name: "slow",
+          limit: 1,
+          running: 0,
+          queued: 0,
+          paused: { queue: "slow", paused_at: T, reason: "held until asked" },
+        },
+      ],
+    };
+    serve({ "/api/queue": [[200, paused]] });
+    showWith(withJobs);
+
+    const queues = await screen.findByRole("list", { name: "Queues" });
+    expect(
+      within(queues).getByText(
+        "Paused since 2026-03-02 09:15 UTC: held until asked",
+      ),
+    ).toBeVisible();
+    expect(within(queues).getAllByText(/Paused/)).toHaveLength(1);
+  });
+});

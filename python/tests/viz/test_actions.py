@@ -12,14 +12,15 @@ from fastapi.testclient import TestClient
 import pytest
 
 from dataforge import queue
-from dataforge.viz import app
+from dataforge.viz import actions, app
 from dataforge.viz.app import create_app
-from dataforge.viz.config import load_site
+from dataforge.viz.config import ConfigError, load_site
 from tests.viz.sites import FIXTURES, make_queue_tree, QueueTree, with_params
 
 ORIGIN = "http://127.0.0.1:8800"
 WRITE = {"X-Viz-Write": "1", "Origin": ORIGIN}
 ACTIONS = "/api/projects/example/actions"
+TABS = "/api/projects/example/tabs"
 
 
 @pytest.fixture
@@ -377,8 +378,8 @@ def test_the_queue_lists_its_queues_and_jobs(
   assert cast(dict[str, object], before.json())["jobs"] == []
   body = cast(dict[str, object], after.json())
   assert body["queues"] == [
-    {"name": "fast", "limit": 2, "running": 0, "queued": 1},
-    {"name": "slow", "limit": 1, "running": 0, "queued": 0},
+    {"name": "fast", "limit": 2, "running": 0, "queued": 1, "paused": None},
+    {"name": "slow", "limit": 1, "running": 0, "queued": 0, "paused": None},
   ]
   assert body["max_running"] == 3
   [job] = cast(list[dict[str, object]], body["jobs"])
@@ -412,11 +413,18 @@ def test_a_site_with_no_queue_has_no_queue_routes(
 
 
 def test_the_queue_s_reads_write_nothing(made: QueueTree, static: Path) -> None:
+  with_jobs(made)
   web = client(made, static)
   write(made, "task-2", None, 0)
   _ = web.post(f"{ACTIONS}/again", params={"item": "batch-1"}, headers=WRITE)
+  _ = queue.pause(config(made), "slow")
   before = snapshot(made.queue.parent)
-  urls = ["/api/queue", f"{ACTIONS}?item=batch-1"]
+  urls = [
+    "/api/queue",
+    f"{ACTIONS}?item=batch-1",
+    f"{TABS}?attempt=batch-1/task-1",
+    "/api/projects/example/attempts",
+  ]
 
   for url in urls:
     assert web.get(url).status_code == 200, url
@@ -749,3 +757,209 @@ def test_a_parameter_the_action_does_not_declare_is_refused(
 
   assert response.status_code == 400
   assert jobs(made) == []
+
+
+JOBS = """\
+jobs:
+  - {action: review, label: Review, queue: slow, subject: attempt}
+  - {action: batch, label: Batch, queue: fast}
+tabs:
+  - {name: review, title: Review, versions: ["review*"], file: r.md,
+     job: review}
+columns:
+  - {title: Verdict, tab: review, file: r.json, field: [verdict]}
+"""
+
+
+def with_jobs(made: QueueTree) -> None:
+  text = made.tree.project.read_text()
+  # The project's own columns give way to one of the tab's.
+  head, tail = text.split("columns:\n")
+  rest = tail[tail.index("lock:") :]
+  _ = made.tree.project.write_text(head + rest + JOBS)
+
+
+def other(made: QueueTree, labels: dict[str, str], name: str = "slow") -> int:
+  return queue.submit(
+    config(made),
+    name,
+    ["elsewhere"],
+    cwd=made.work,
+    memory_mib=1,
+    key=None,
+    labels=labels,
+  ).id
+
+
+def test_a_tab_gives_its_job_s_newest_for_the_attempt_and_its_queue_s_pause(
+  made: QueueTree, static: Path
+) -> None:
+  with_jobs(made)
+  attempt = "batch-1/task-1"
+  older = other(made, {"action": "review", "item": attempt})
+  newer = other(made, {"action": "review", "item": attempt})
+  _ = other(made, {"action": "review", "item": "batch-1/task-2"})
+  _ = other(made, {"project": "another", "action": "review", "item": attempt})
+  _ = queue.cancel(config(made), newer)
+  _ = queue.pause(config(made), "slow", "held for now")
+  web = client(made, static)
+
+  [tab] = cast(
+    list[dict[str, object]],
+    web.get("/api/projects/example/tabs", params={"attempt": attempt}).json(),
+  )
+
+  found = cast(dict[str, object], tab["queued"])
+  job = cast(dict[str, object], found["job"])
+  assert (job["id"], job["state"]) == (newer, "canceled")
+  assert older != newer
+  paused = cast(dict[str, object], found["paused"])
+  assert (paused["queue"], paused["reason"]) == ("slow", "held for now")
+  assert found["reason"] is None
+
+
+def test_a_tab_with_no_job_yet_says_whether_its_queue_is_paused(
+  made: QueueTree, static: Path
+) -> None:
+  with_jobs(made)
+  web = client(made, static)
+  params = {"attempt": "batch-1/task-1"}
+
+  before = cast(object, web.get(TABS, params=params).json())
+  _ = queue.pause(config(made), "slow")
+  after = cast(object, web.get(TABS, params=params).json())
+
+  assert before == [
+    {
+      "name": "review",
+      "queued": {"job": None, "paused": None, "reason": None},
+      "versions": [],
+    }
+  ]
+  [tab] = cast(list[dict[str, object]], after)
+  queued = cast(dict[str, dict[str, object]], tab["queued"])
+  assert queued["paused"]["queue"] == "slow"
+
+
+def test_a_column_of_a_tab_with_no_version_gives_the_tab_s_job(
+  made: QueueTree, static: Path
+) -> None:
+  with_jobs(made)
+  write(made, "task-2", "passed", 0)
+  done = made.tree.root / "batch-1" / "task-2" / "review-1"
+  done.mkdir()
+  _ = (done / "r.json").write_text('{"verdict": "fine"}')
+  write(made, "task-3", "passed", 0)
+  # A version with no file yet is not run, but the tab has one: no job.
+  (made.tree.root / "batch-1" / "task-3" / "review-1").mkdir()
+  job = other(made, {"action": "review", "item": "batch-1/task-1"})
+  for attempt in ("batch-1/task-2", "batch-1/task-3"):
+    _ = other(made, {"action": "review", "item": attempt})
+  web = client(made, static)
+
+  rows = cast(
+    list[dict[str, object]], web.get("/api/projects/example/attempts").json()
+  )
+
+  found = {cast(str, r["id"]): r for r in rows}
+  ran, waits = found["batch-1/task-2"], found["batch-1/task-1"]
+  assert (ran["reads"], ran["queued"]) == (["found"], [None])
+  started = found["batch-1/task-3"]
+  assert (started["reads"], started["queued"]) == (["not run"], [None])
+  assert waits["reads"] == ["not run"]
+  [queued] = cast(list[dict[str, dict[str, object]]], waits["queued"])
+  assert (queued["job"]["id"], queued["job"]["state"]) == (job, "queued")
+
+
+def test_the_queue_says_which_queues_are_paused(
+  made: QueueTree, static: Path
+) -> None:
+  _ = queue.pause(config(made), "slow", "held for now")
+
+  body = cast(dict[str, object], client(made, static).get("/api/queue").json())
+
+  queues = cast(list[dict[str, object]], body["queues"])
+  assert [q["paused"] is None for q in queues] == [True, False]
+  paused = cast(dict[str, object], queues[1]["paused"])
+  assert (paused["queue"], paused["reason"]) == ("slow", "held for now")
+
+
+def test_a_job_with_no_project_label_is_the_project_s_that_names_its_action(
+  made: QueueTree,
+) -> None:
+  with_jobs(made)
+  [project] = load_site(made.tree.site).projects
+  ids = [
+    other(made, {"action": "review"}),
+    other(made, {"action": "elsewhere"}),
+    other(made, {"project": "example", "action": "elsewhere"}),
+    other(made, {"project": "another", "action": "review"}),
+  ]
+
+  found = {j.id: actions.of_project(project, j) for j in jobs(made)}
+
+  assert [found[i] for i in ids] == [True, False, True, False]
+
+
+@pytest.mark.parametrize(
+  ("change", "key"),
+  [
+    (("action: batch,", "action: review,"), r"jobs\[1\]\.action: 'review' rep"),
+    (("action: batch,", "action: again,"), r"jobs\[1\]\.action: 'again' rep"),
+    (("queue: fast}", "queue: fast, subject: run}"), r"jobs\[1\]\.subject"),
+    (("queue: fast}", "queue: fast, item: x}"), r"jobs\[1\]\.item: unknown"),
+    (("label: Batch, ", ""), r"jobs\[1\]\.label: missing"),
+    (("queue: fast}", "queue: none}"), r"jobs\[1\]\.queue: 'none' is not in"),
+    (("job: review}", "job: batch}"), r"tabs\[0\]\.job: 'batch' is not a job"),
+  ],
+)
+def test_a_job_that_breaks_a_rule_is_refused(
+  made: QueueTree, change: tuple[str, str], key: str
+) -> None:
+  with_jobs(made)
+  old, new = change
+  text = made.tree.project.read_text()
+  assert old in text
+  _ = made.tree.project.write_text(text.replace(old, new, 1))
+
+  with pytest.raises(ConfigError, match=key):
+    _ = load_site(made.tree.site)
+
+
+def test_a_project_s_jobs_load(made: QueueTree) -> None:
+  with_jobs(made)
+
+  [project] = load_site(made.tree.site).projects
+
+  assert project.public()["jobs"] == [
+    {
+      "action": "review",
+      "label": "Review",
+      "queue": "slow",
+      "subject": "attempt",
+    },
+    {"action": "batch", "label": "Batch", "queue": "fast", "subject": "item"},
+  ]
+  [tab] = cast(list[dict[str, object]], project.public()["tabs"])
+  assert tab["job"] == "review"
+
+
+def test_a_tab_whose_queue_cannot_be_read_says_why(
+  made: QueueTree, static: Path
+) -> None:
+  with_jobs(made)
+  _ = (made.queue / "queue.sqlite").write_bytes(b"not a database, " * 64)
+  web = client(made, static)
+
+  [tab] = cast(
+    list[dict[str, object]],
+    web.get(TABS, params={"attempt": "batch-1/task-1"}).json(),
+  )
+  [row] = cast(
+    list[dict[str, object]], web.get("/api/projects/example/attempts").json()
+  )
+
+  queued = cast(dict[str, object], tab["queued"])
+  assert (queued["job"], queued["paused"]) == (None, None)
+  assert str(queued["reason"]).startswith("the queue cannot be read: ")
+  assert row["queued"] == [queued]

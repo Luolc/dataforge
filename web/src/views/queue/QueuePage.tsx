@@ -1,7 +1,7 @@
 // The Queue page: each queue, and its jobs that run, wait and lately ended,
 // read on load, on each refresh, and every POLL_MS while a job is open
 // (design-viz.md section 5).
-import { RefreshCw, X } from "lucide-react";
+import { CirclePause, RefreshCw, X } from "lucide-react";
 import { use, useCallback, useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 
@@ -24,7 +24,8 @@ import { duration, epoch, time } from "../../ui/format";
 import { Elapsed } from "../../ui/running";
 import { type Said, SaidLine } from "../../ui/said";
 import { ToneLabel } from "../../ui/status-mark";
-import { isOpen, jobLabel } from "./status";
+import { attemptHref } from "../attempt/href";
+import { isOpen, jobLabel, pausedShort } from "./status";
 
 /** What a read gives, kept on the page while the next read loads. */
 interface Read {
@@ -163,6 +164,15 @@ function Queues({
               <span className="text-fg-2 tabular-nums">
                 {`${q.running.toString()} of ${q.limit.toString()} running · ${q.queued.toString()} queued`}
               </span>
+              {q.paused != null && (
+                <span className="ml-1.5 inline-flex items-center gap-1 text-fg-2">
+                  <CirclePause
+                    className="size-icon-sm flex-none text-icon"
+                    aria-hidden
+                  />
+                  {pausedShort(q.paused)}
+                </span>
+              )}
             </li>
           ))}
           <li className="text-fg-2 tabular-nums">
@@ -263,11 +273,14 @@ function JobRow({
   projects: Project[];
   onCancel: (job: Job) => Promise<void>;
 }) {
-  const project = projects.find((p) => p.id === job.labels["project"]);
   const item = job.labels["item"];
   const action = job.labels["action"];
+  const project = projectOf(projects, job);
+  const kind = project?.jobs?.find((j) => j.action === action);
   const label =
-    project?.actions?.find((a) => a.name === action)?.label ?? action;
+    project?.actions?.find((a) => a.name === action)?.label ??
+    kind?.label ??
+    action;
   const others = Object.entries(job.labels).filter(
     ([k]) => !LABELED.includes(k),
   );
@@ -287,7 +300,11 @@ function JobRow({
             "—"
           ) : project !== undefined ? (
             <Link
-              to={`/${encodeURIComponent(project.id)}?${new URLSearchParams({ q: item }).toString()}`}
+              to={
+                kind?.subject === "attempt"
+                  ? attemptHref(project.id, item, {})
+                  : `/${encodeURIComponent(project.id)}?${new URLSearchParams({ q: item }).toString()}`
+              }
               className="link hover:underline"
             >
               {item}
@@ -347,6 +364,19 @@ function JobRow({
       )}
     </>
   );
+}
+
+/**
+ * The project a job is of: the one its project label names, or, with no
+ * such label, the first whose jobs name its action.
+ */
+function projectOf(projects: Project[], job: Job): Project | undefined {
+  const named = job.labels["project"];
+  return named !== undefined
+    ? projects.find((p) => p.id === named)
+    : projects.find((p) =>
+        (p.jobs ?? []).some((j) => j.action === job.labels["action"]),
+      );
 }
 
 /** How long a job ran, going on while it runs; "—" before it starts. */

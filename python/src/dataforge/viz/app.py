@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse, Response
 
 from dataforge import queue
 from dataforge.viz import actions, live, monitor, tabs
-from dataforge.viz.config import Action, Project, Site, split_relative
+from dataforge.viz.config import Action, Project, Site, split_relative, Tab
 from dataforge.viz.paths import (
   attempt_parts,
   FILE_LIMIT,
@@ -117,6 +117,7 @@ class _Api:
     project = self._project(p)
     rows = [_row(project, attempt)[0] for attempt in list_attempts(project)]
     _mark(project, rows)
+    self._mark_queued(project, rows)
     unstarted = [
       row
       for row in rows
@@ -175,14 +176,22 @@ class _Api:
 
   def tabs(self, p: str, attempt: str | None = None) -> Response:
     project = self._project(p)
-    with open_attempt(project, _attempt(attempt)) as root:
+    attempt = _attempt(attempt)
+    find = self._queued(project) if any(t.job for t in project.tabs) else None
+    with open_attempt(project, attempt) as root:
       return JSONResponse(
         [
           {
             "name": tab.name,
+            "queued": None
+            if tab.job is None or find is None
+            else find(tab.job, attempt),
             "versions": [
               {
                 "dir": version,
+                "title": None
+                if tab.version_title is None
+                else tabs.version_title(tab.version_title, root, version),
                 "parts": [
                   {
                     "name": part.name,
@@ -272,6 +281,7 @@ class _Api:
   def queue_jobs(self) -> Response:
     config = self._config()
     try:
+      pauses = {pause.queue: pause.to_json() for pause in queue.pauses(config)}
       open_jobs = queue.jobs(config, states=actions.OPEN)
       # The jobs that ended last, not those queued last: a long job queued
       # early may end after many short ones.
@@ -281,7 +291,7 @@ class _Api:
       ended_count = queue.count(config, states=actions.ENDED)
     except FileNotFoundError:
       # No job was ever submitted: submitting one makes the database.
-      open_jobs, ended, ended_count = [], [], 0
+      open_jobs, ended, ended_count, pauses = [], [], 0, {}
     except (sqlite3.Error, OSError) as error:
       raise RefusedError(503, _queue_failure(error)) from None
     return JSONResponse(
@@ -296,6 +306,7 @@ class _Api:
             "queued": sum(
               j.queue == name and j.state == "queued" for j in open_jobs
             ),
+            "paused": pauses.get(name),
           }
           for name, limit in config.queues.items()
         ],
@@ -389,6 +400,46 @@ class _Api:
       and "item" in job.labels
       and job.started_at is not None
     }
+
+  def _queued(self, project: Project) -> actions.Queued:
+    # Each of the project's jobs of an action and an item, and its queue's
+    # pause, read once for the request.
+    config = self._site.queue
+    if config is None:
+      return actions.unread("the site names no queue")
+    try:
+      return actions.queued(project, queue.jobs(config), queue.pauses(config))
+    except FileNotFoundError:
+      # No job was ever submitted, and no queue was ever paused.
+      return actions.queued(project, [], [])
+    except (sqlite3.Error, OSError) as error:
+      return actions.unread(_queue_failure(error))
+
+  def _mark_queued(
+    self, project: Project, rows: list[dict[str, object]]
+  ) -> None:
+    # Beside each column of a tab that names its job, where the attempt has
+    # no version of the tab, that job; null beside every other column.
+    jobs = [_tab(project, c.tab) for c in project.columns]
+    find: actions.Queued | None = None
+    for row in rows:
+      reads = cast(list[str | None] | None, row["reads"])
+      if reads is None:
+        continue
+      attempt = cast(str, row["id"])
+      found: list[dict[str, object] | None] = []
+      for tab, read in zip(jobs, reads, strict=True):
+        if (
+          tab is None
+          or tab.job is None
+          or read != tabs.NOT_RUN
+          or _has_version(project, tab, attempt)
+        ):
+          found.append(None)
+          continue
+        find = find or self._queued(project)
+        found.append(find(tab.job, attempt))
+      row["queued"] = found
 
   def _open_jobs(self) -> list[queue.Job]:
     try:
@@ -523,6 +574,19 @@ def _item_rows(project: Project, item: str) -> list[dict[str, object]]:
   return rows
 
 
+def _has_version(project: Project, tab: Tab, attempt: str) -> bool:
+  # A column's file not there may be in a version not finished yet.
+  try:
+    with open_attempt(project, attempt) as fd:
+      return bool(tabs.versions(tab, fd))
+  except RefusedError:
+    return False
+
+
+def _tab(project: Project, name: str | None) -> Tab | None:
+  return next((t for t in project.tabs if t.name == name), None)
+
+
 def _item(project: Project, attempt: str) -> str:
   return "/".join(attempt.split("/")[: project.item.depth])
 
@@ -543,6 +607,7 @@ def _row(
     "rounds": None,
     "values": None,
     "reads": None,
+    "queued": None,
     "live": None,
     "held": None,
     "error": None,
