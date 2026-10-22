@@ -3,18 +3,18 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-from typing import cast
+from typing import cast, final, override
 
 import pytest
 
 from dataforge.testrunner import ctrf, files
-from dataforge.testrunner.adapter import PREFIX
+from dataforge.testrunner.adapter import Call, Context, PREFIX, Runner
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.manifest import File, load
 from dataforge.testrunner.manifest import Test as Listed
-from dataforge.testrunner.run import match, place, run
+from dataforge.testrunner.run import match, place, run, run_group
 from dataforge.testrunner.runners import Pytest
-from tests.testrunner.projects import commit, write
+from tests.testrunner.projects import commit, context, write
 
 BASE = {
   "pyproject.toml": (
@@ -276,3 +276,34 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
     ("Example\\ParserTest::testTag", "passed", None),
     ("t.py::test_a", "failed", "error"),
   ]
+
+
+@final
+class Merged(Runner):
+  # An adapter whose one call's output is its report.
+
+  @override
+  def prepare(self, ctx: Context, tests: list[Listed]) -> list[Path]:
+    return []
+
+  @override
+  def commands(self, ctx: Context, tests: list[Listed]) -> list[Call]:
+    script = "echo out; echo err >&2"
+    return [Call(["sh", "-c", script], output=ctx.work / "out.txt")]
+
+  @override
+  def cases(self, ctx: Context) -> list[Case] | None:
+    text = (ctx.work / "out.txt").read_text()
+    return [Case("t", "passed" if text == "out\nerr\n" else "failed")]
+
+  @override
+  def covers(self, outer: str, inner: str) -> bool:
+    return outer == inner
+
+
+def test_a_calls_output_is_its_report_and_is_shown(
+  tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+  found = run_group(Merged(), context(tmp_path), [Listed("p2p", "pytest", "t")])
+  assert [(t["name"], t["status"]) for t in found] == [("t", "passed")]
+  assert "out\nerr\n" in capsys.readouterr().out

@@ -83,10 +83,14 @@ class Call:
   Attributes:
     argv: The command.
     env: What it adds to the environment.
+    output: A file outside the project that its standard output and error
+      go to, together, for the adapter to read as its report; None leaves
+      them as they are.
   """
 
   argv: list[str]
   env: Mapping[str, str] = field(default_factory=dict[str, str])
+  output: Path | None = None
 
 
 class Runner(Protocol):

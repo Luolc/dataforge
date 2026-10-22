@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 from . import ctrf
-from .adapter import Context, Runner
+from .adapter import Call, Context, Runner
 from .ctrf import Case, TestObject
 from .manifest import File, Manifest, Test
 from .runners import ADAPTERS
@@ -92,10 +92,7 @@ def run_group(
     ends: list[str] = []
     for call in calls:
       try:
-        done = subprocess.run(
-          call.argv, cwd=ctx.dir, env={**env, **call.env}, check=False
-        )
-        ends.append(f"exited {done.returncode}")
+        ends.append(f"exited {_call(call, ctx, {**env, **call.env})}")
       except OSError as e:  # the runner is not there
         ends.append(f"did not start: {e.strerror}")
     why = "the runner " + ", ".join(dict.fromkeys(ends))
@@ -106,6 +103,27 @@ def run_group(
   if cases is None:
     return [ctrf.missing(t, f"{why}, with no report") for t in tests]
   return match(runner, tests, cases, why)
+
+
+def _call(call: Call, ctx: Context, env: dict[str, str]) -> int:
+  # Runs a call; one whose output is its report has it shown afterwards
+  # too, for the verifier's log.
+  if call.output is None:
+    return subprocess.run(
+      call.argv, cwd=ctx.dir, env=env, check=False
+    ).returncode
+  with call.output.open("xb") as out:
+    done = subprocess.run(
+      call.argv,
+      cwd=ctx.dir,
+      env=env,
+      stdout=out,
+      stderr=subprocess.STDOUT,
+      check=False,
+    )
+  text = call.output.read_text(encoding="utf-8", errors="replace")
+  print(text, end="", flush=True)
+  return done.returncode
 
 
 def match(
