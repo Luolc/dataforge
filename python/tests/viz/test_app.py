@@ -238,7 +238,7 @@ def test_projects_carry_the_task_s_path(tree: Tree, static: Path) -> None:
     list[dict[str, object]], client(tree, static).get("/api/projects").json()
   )
 
-  assert project["task"] == "task/task.toml"
+  assert project["task"] == {"file": "task/task.toml", "deliverable": None}
 
 
 def test_attempts_are_newest_first_with_their_values(

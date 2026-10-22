@@ -285,6 +285,23 @@ class Deliverable:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskSource:
+  """Where the Summary reads the task.toml of an attempt's task.
+
+  Attributes:
+    file: The task.toml's path: in the directory of deliverable, as the
+      attempt's record resolves it, or in the attempt's directory when
+      deliverable is None.
+    deliverable: The name of a deliverable of kind "files" whose directory
+      holds the task, so that a running attempt shows its latest; None for a
+      path in the attempt's directory.
+  """
+
+  file: tuple[str, ...]
+  deliverable: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Trials:
   """What the trials view reads in a trial's directory besides its record.
 
@@ -329,8 +346,8 @@ class Project:
       the dataset names nothing.
     definition: The path of the definition snapshot in an attempt's
       directory; None when the dataset names none.
-    task: The path of the task.toml of an attempt's task in its directory,
-      whose metadata the Summary shows; None when the dataset names none.
+    task: Where the task.toml of an attempt's task is, whose metadata the
+      Summary shows; None when the dataset names none.
     monitor: The resource monitor's SQLite database; None when the dataset
       names none.
     monitor_shown: The database as a page may show it: monitor.db as the
@@ -357,7 +374,7 @@ class Project:
   deliverables: tuple[Deliverable, ...] = ()
   trials: Trials | None = None
   definition: tuple[str, ...] | None = None
-  task: tuple[str, ...] | None = None
+  task: TaskSource | None = None
   monitor: Path | None = None
   monitor_shown: str | None = None
   actions: tuple[Action, ...] = ()
@@ -411,7 +428,12 @@ class Project:
       "definition": None
       if self.definition is None
       else "/".join(self.definition),
-      "task": None if self.task is None else "/".join(self.task),
+      "task": None
+      if self.task is None
+      else {
+        "file": "/".join(self.task.file),
+        "deliverable": self.task.deliverable,
+      },
       "monitor": self.monitor is not None,
       "actions": [
         {"name": a.name, "label": a.label, "queue": a.queue}
@@ -572,9 +594,7 @@ def load_project(path: Path) -> Project:
     else _relative(
       path, "definition", _str(path, "definition", data["definition"])
     ),
-    task=None
-    if data.get("task") is None
-    else _relative(path, "task", _str(path, "task", data["task"])),
+    task=_task(path, data.get("task"), deliverables),
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
     actions=actions,
@@ -934,6 +954,27 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
       raise ConfigError(f"{path}: {where}.name: {name!r} repeated")
     found.append(Deliverable(name, kind, title))
   return tuple(found)
+
+
+def _task(
+  path: Path, value: object, deliverables: tuple[Deliverable, ...]
+) -> TaskSource | None:
+  if value is None:
+    return None
+  if not isinstance(value, dict):
+    return TaskSource(_relative(path, "task", _str(path, "task", value)))
+  mapping = _mapping(path, "task", cast(object, value))
+  fields = {"deliverable", "file"}
+  _keys(path, "task", mapping, required=fields, optional=set())
+  name = _str(path, "task.deliverable", mapping["deliverable"])
+  file = _str(path, "task.file", mapping["file"])
+  found = next((d for d in deliverables if d.name == name), None)
+  if found is None:
+    raise ConfigError(f"{path}: task.deliverable: {name!r} is not declared")
+  if found.kind != "files":
+    why = f"{name!r} is of kind {found.kind!r}, not files"
+    raise ConfigError(f"{path}: task.deliverable: {why}")
+  return TaskSource(_relative(path, "task.file", file), name)
 
 
 def _trials(path: Path, value: object) -> Trials | None:
