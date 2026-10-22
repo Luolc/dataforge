@@ -63,7 +63,9 @@ describe("the Runs column", () => {
     };
     const runs = show(sampleProject, record);
 
-    expect(runs.getByText("raised · no action recorded · $0.00")).toBeVisible();
+    expect(
+      runs.getByText("Exception · no action recorded · $0.00"),
+    ).toBeVisible();
     expect(runs.getByText(/^done · \d+(m \d+)?s · \$/)).toBeVisible();
   });
 
@@ -79,7 +81,7 @@ describe("the Runs column", () => {
     };
     const runs = show(sampleProject, record);
 
-    expect(runs.getByText(/^raised · — · \$/)).toBeVisible();
+    expect(runs.getByText(/^Exception · — · \$/)).toBeVisible();
     expect(runs.queryByText(/no action recorded/)).toBeNull();
   });
 
