@@ -1,6 +1,6 @@
 from collections.abc import Callable, Generator
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import io
 import json
 import os
@@ -79,6 +79,18 @@ def readings() -> Readings:
 def scheduler(config: Config, readings: Readings) -> Generator[Scheduler]:
   scheduler = Scheduler(config, readings)
   yield scheduler
+  _clean_up(config, scheduler)
+
+
+@pytest.fixture
+def patient(config: Config, readings: Readings) -> Generator[Scheduler]:
+  # Its cancel_grace_s is far longer than any wait of a test.
+  scheduler = Scheduler(replace(config, cancel_grace_s=60.0), readings)
+  yield scheduler
+  _clean_up(scheduler.config, scheduler)
+
+
+def _clean_up(config: Config, scheduler: Scheduler) -> None:
   # Start nothing more, kill what a test left running, and wait for the
   # wrappers.
   if not config.database.exists():
@@ -247,9 +259,11 @@ def test_canceling_a_queued_job_ends_it_at_once(config: Config):
   assert done.ended_at is not None and done.cancel_requested_at is not None
 
 
-def test_canceling_a_running_job_sends_its_group_sigterm(
-  config: Config, scheduler: Scheduler
-):
+def test_canceling_a_running_job_sends_its_group_sigterm(patient: Scheduler):
+  # A SIGKILL after the grace period takes the wrapper too, and the end would
+  # have no exit code: the grace period must not pass on a loaded machine
+  # before the wrapper has written it.
+  config, scheduler = patient.config, patient
   job = put(config, "alpha", "sh", "-c", "echo ready; exec sleep 30")
   until(lambda: "ready" in log(config, job), scheduler)
   asked = cancel(config, job.id)
