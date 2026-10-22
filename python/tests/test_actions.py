@@ -3,7 +3,6 @@
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, nullcontext
-import dataclasses
 import json
 import os
 from pathlib import Path
@@ -42,8 +41,6 @@ from dataforge.curation import (
   summary_path,
   TrialAgent,
   TrialResult,
-  write_device,
-  WriteLimit,
 )
 from dataforge.curation import actions as actions_module
 from dataforge.curation.actions import NOT_A_FILE
@@ -310,10 +307,9 @@ def test_pool_build_slots_cap_the_builds_held() -> None:
   assert pool.reserved_gb == 0.0
 
 
-def test_a_pool_lets_two_builds_run_at_once_by_default() -> None:
+def test_a_pool_lets_one_build_run_at_a_time_by_default() -> None:
   pool = ResourcePool(1.0)
   with ExitStack() as held:
-    held.enter_context(pool.build(0.25))
     held.enter_context(pool.build(0.25))
     blocked(lambda: build(pool), held.close)
 
@@ -511,97 +507,6 @@ def test_docker_create_args_by_default() -> None:
   assert Docker("solver:1").create_args() == [
     "create", "--init", "--network", "none", "solver:1", "sleep", "infinity"
   ]  # fmt: skip
-
-
-def sysfs(tmp_path: Path, root: Path, disk: str, partition: str | None) -> Path:
-  """Make a sysfs in which root's file system is on a disk or a partition.
-
-  Args:
-    tmp_path: Where the sysfs goes.
-    root: The directory.
-    disk: The disk's name.
-    partition: The partition's name, or None for root on the whole disk.
-
-  Returns:
-    The sysfs.
-  """
-  device = tmp_path / "sys" / "devices" / "virtual" / disk
-  if partition is not None:
-    device /= partition
-    device.mkdir(parents=True)
-    _ = (device / "partition").write_text("1\n")
-  else:
-    device.mkdir(parents=True)
-  number = root.stat().st_dev
-  block = tmp_path / "sys" / "dev" / "block"
-  block.mkdir(parents=True)
-  (block / f"{os.major(number)}:{os.minor(number)}").symlink_to(device)
-  return tmp_path / "sys"
-
-
-@pytest.mark.parametrize("partition", ["vdz1", None])
-def test_writes_are_capped_on_the_whole_disk_of_their_root(
-  tmp_path: Path, partition: str | None
-) -> None:
-  root = tmp_path / "storage"
-  root.mkdir()
-  found = write_device(root, sysfs(tmp_path, root, "vdz", partition))
-  assert found == "/dev/vdz"
-
-
-def test_a_missing_root_is_an_error(tmp_path: Path) -> None:
-  with pytest.raises(ValueError, match="does not exist: give the write limit"):
-    _ = write_device(tmp_path / "missing")
-
-
-def test_a_root_on_no_block_device_is_an_error(tmp_path: Path) -> None:
-  (tmp_path / "sys").mkdir()
-  with pytest.raises(ValueError, match="is on no block device"):
-    _ = write_device(tmp_path, tmp_path / "sys")
-
-
-def test_docker_create_args_cap_writes_to_the_disk_of_the_storage(
-  monkeypatch: pytest.MonkeyPatch,
-) -> None:
-  roots: list[Path] = []
-
-  def disk(root: Path) -> str:
-    roots.append(root)
-    return "/dev/vdz"
-
-  monkeypatch.setattr(actions_module, "write_device", disk)
-  env = Docker("solver:1", write_limit=WriteLimit(bps=10 * 2**20, iops=300))
-  assert env.create_args() == [
-    "create", "--init",
-    "--network", "none",
-    "--device-write-bps", "/dev/vdz:10485760",
-    "--device-write-iops", "/dev/vdz:300",
-    "solver:1", "sleep", "infinity",
-  ]  # fmt: skip
-  assert roots == [Path("/var/lib/containerd")]
-  only_iops = Docker("solver:1", write_limit=WriteLimit(iops=300))
-  assert "--device-write-bps" not in only_iops.create_args()
-
-
-@pytest.mark.parametrize("limit", [None, WriteLimit()])
-def test_a_docker_env_caps_no_writes_by_default(
-  monkeypatch: pytest.MonkeyPatch, limit: WriteLimit | None
-) -> None:
-  def unused(root: Path) -> str:
-    raise AssertionError(f"looked up the disk of {root}")
-
-  monkeypatch.setattr(actions_module, "write_device", unused)
-  assert Docker("solver:1", write_limit=limit).create_args() == [
-    "create", "--init", "--network", "none", "solver:1", "sleep", "infinity"
-  ]  # fmt: skip
-  assert Docker("solver:1").write_limit is None
-
-
-def test_a_write_limit_must_be_positive() -> None:
-  with pytest.raises(ValueError, match="write limit bps 0 is not positive"):
-    _ = WriteLimit(bps=0)
-  with pytest.raises(ValueError, match="write limit iops -1 is not positive"):
-    _ = WriteLimit(iops=-1)
 
 
 class DockerAgent:
@@ -1638,52 +1543,6 @@ def test_a_container_is_checked_only_for_what_the_env_sets(
     found["HostConfig"] = {"NetworkMode": mode}
     env = Docker("solver:1", network=True, cli=InspectDocker(tmp_path, found))
     with pytest.raises(ValueError, match=r"c1 differs in network$"):
-      env.adopt("c1")
-
-
-def vdz(root: Path) -> str:
-  return "/dev/vdz"
-
-
-WRITES = {
-  "BlkioDeviceWriteBps": [{"Path": "/dev/vdz", "Rate": 10485760}],
-  "BlkioDeviceWriteIOps": [{"Path": "/dev/vdz", "Rate": 300}],
-}
-
-
-@pytest.mark.parametrize(
-  ("writes", "item"),
-  [
-    (WRITES, None),
-    ({}, "write_limit bps, write_limit iops"),
-    (
-      WRITES | {"BlkioDeviceWriteBps": [{"Path": "/dev/vdz", "Rate": 1}]},
-      "write_limit bps",
-    ),
-    (
-      WRITES | {"BlkioDeviceWriteIOps": [{"Path": "/dev/vdy", "Rate": 300}]},
-      "write_limit iops",
-    ),
-  ],
-)
-def test_a_container_is_adopted_only_with_the_envs_write_limit(
-  tmp_path: Path,
-  monkeypatch: pytest.MonkeyPatch,
-  writes: dict[str, object],
-  item: str | None,
-) -> None:
-  monkeypatch.setattr(actions_module, "write_device", vdz)
-  found = inspected(tmp_path)
-  found["HostConfig"] |= writes
-  env = dataclasses.replace(
-    isolated(tmp_path, InspectDocker(tmp_path, found)),
-    write_limit=WriteLimit(bps=10485760, iops=300),
-  )
-  if item is None:
-    env.adopt("c1")
-    assert env.container == "c1"
-  else:
-    with pytest.raises(ValueError, match=f"c1 differs in {item}$"):
       env.adopt("c1")
 
 

@@ -79,6 +79,29 @@
   --opacity-idle: 0.45;
   --stroke-taken: 1.5px;
   --dash-not-taken: 3 3;
+  /* A lit edge of the Summary's machine, taken and not taken. */
+  --stroke-lit: 2.5px;
+  --stroke-lit-not-taken: 1.5px;
+  /* A lit edge's pulses on the Summary's machine (runs/summary/Graph.tsx):
+     a pulse's length and how much of it, from its tail, fades; its core,
+     as wide as a lit edge taken, and on one not taken; the glow under the
+     core, its width, blur and opacity; how far apart two pulses run and the
+     period one takes to run that far, so that every pulse on every edge
+     runs at the spacing over the period, 80px a second; the multiple of the
+     spacing that the mask letting them out opens to, and how far that mask
+     runs ahead of the first, so that it does not cut the first one's glow. */
+  --pulse-length: 64px;
+  --pulse-tail: 1;
+  --pulse-width: var(--stroke-lit);
+  --pulse-width-not-taken: 3px;
+  --pulse-glow-width: 9px;
+  --pulse-glow-blur: 3px;
+  --opacity-pulse-glow: 0.7;
+  --pulse-spacing: 200px;
+  --duration-pulse: 2.5s;
+  --pulse-open: 100;
+  --pulse-lead: 12px;
+  --ease-pulse: linear;
 
   /* The colour templates (ui/template.ts) give the same tokens other
      values; these are those of contrast, drawn when the root has no
@@ -160,6 +183,9 @@
   --color-series-2: #933300;
   --color-series-3: #6b4f00;
   --color-bar: #4a6478;
+  --color-pulse: #b8541f;
+  --color-pulse-glow: #ec9a68;
+  --color-pulse-not-taken: #5f6b59;
 }
 
 /* The other templates: every colour token again, so that none falls back
@@ -230,6 +256,9 @@ html[data-template="ac"] {
   --color-series-2: #a8323c;
   --color-series-3: #6b4700;
   --color-bar: #4f6a5a;
+  --color-pulse: #b8541f;
+  --color-pulse-glow: #ec9a68;
+  --color-pulse-not-taken: #5f6b59;
 }
 
 html[data-template="neutral"] {
@@ -298,6 +327,9 @@ html[data-template="neutral"] {
   --color-series-2: #bc4c00;
   --color-series-3: #8250df;
   --color-bar: #57606a;
+  --color-pulse: #218bff;
+  --color-pulse-glow: #54aeff;
+  --color-pulse-not-taken: #818b98;
 }
 
 html[data-template="dark"] {
@@ -367,6 +399,9 @@ html[data-template="dark"] {
   --color-series-2: #f0a27a;
   --color-series-3: #e8c784;
   --color-bar: #8fa69a;
+  --color-pulse: #fff3e8;
+  --color-pulse-glow: #f5b48a;
+  --color-pulse-not-taken: #8a9787;
 }
 
 @layer base {
@@ -547,5 +582,61 @@ html[data-template="dark"] {
   }
   .hljs-deletion {
     color: var(--color-bad);
+  }
+}
+
+/* A lit edge's pulses (runs/summary/Graph.tsx): each dash runs one spacing
+   along its path a period, and the mask over them opens from the path's
+   start at that speed, then rests open from the start. Under reduced motion
+   neither moves: the mask stands open and the dashes stand where half a
+   period leaves them, so that an edge shorter than the spacing has one too. */
+@layer components {
+  .pulse {
+    stroke-width: var(--pulse-width);
+    stroke-linecap: round;
+    stroke-dasharray: var(--pulse-dash)
+      calc(var(--pulse-spacing) - var(--pulse-dash));
+    animation: pulse-run var(--duration-pulse) var(--ease-pulse) infinite;
+  }
+  .pulse-glow {
+    --pulse-width: var(--pulse-glow-width);
+    filter: blur(var(--pulse-glow-blur));
+    opacity: var(--opacity-pulse-glow);
+  }
+  .pulse-open {
+    stroke-dasharray: calc(var(--pulse-spacing) * var(--pulse-open))
+      calc(var(--pulse-spacing) * var(--pulse-open));
+    animation: pulse-open calc(var(--duration-pulse) * var(--pulse-open))
+      var(--ease-pulse);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse {
+      animation: none;
+      stroke-dashoffset: calc(var(--pulse-dash) - var(--pulse-spacing) / 2);
+    }
+    .pulse-open {
+      animation: none;
+      stroke-dashoffset: 0;
+    }
+  }
+}
+
+@keyframes pulse-run {
+  from {
+    stroke-dashoffset: var(--pulse-dash);
+  }
+  to {
+    stroke-dashoffset: calc(var(--pulse-dash) - var(--pulse-spacing));
+  }
+}
+
+@keyframes pulse-open {
+  from {
+    stroke-dashoffset: calc(
+      var(--pulse-spacing) * var(--pulse-open) - var(--pulse-lead)
+    );
+  }
+  to {
+    stroke-dashoffset: calc(0px - var(--pulse-lead));
   }
 }

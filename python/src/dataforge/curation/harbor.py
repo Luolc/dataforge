@@ -25,7 +25,9 @@ compose file, which Harbor reads before ours, can take the same limits from
 DATAFORGE_SIDECAR_CPUS and DATAFORGE_SIDECAR_MEMORY_MB in Harbor's environment.
 After the run, whatever happened, the trial's files are given back to this user
 and everything with the label is removed, and so is every container, labelled
-or not, that mounts from under the trial's output directory; when run is
+or not, that mounts from under the trial's output directory, and every
+container, network and volume of the compose projects Harbor named after the
+trial (`remove_projects`), such as a separate verifier's sidecar; when run is
 interrupted, Harbor and its children are stopped first. Then, as the
 containers wrote into the trial's directory, each symlink there that resolves,
 or may, outside it, and each entry that is no regular file, directory or
@@ -136,6 +138,8 @@ HIDE_MIN = 8
 NOT_STARTED = "HarborNotStarted"
 # How the exception of a trial whose Harbor ran past `timeout` starts.
 TIMED_OUT = "TimeoutError"
+# The label compose gives what a project holds, its value the project's name.
+PROJECT = "com.docker.compose.project"
 # How long one docker command of the cleanup may run, in seconds.
 DOCKER_TIMEOUT = 120.0
 
@@ -422,9 +426,11 @@ class HarborRunner:
     try:
       error = self._harbor(args, log, deadline)
     finally:
-      held, left = self._clean_up(outdir, label)
+      held, stray, left = self._clean_up(outdir, label)
     if held:
       raise DockerError(f"containers still mount {outdir}: {held}")
+    if any(stray.values()):
+      raise DockerError(f"left in the compose projects of {outdir}: {stray}")
     if any(left.values()):
       raise DockerError(f"left after the cleanup of {LABEL}={label}: {left}")
     # No container can reach the trial now, so nothing in it changes after it
@@ -555,8 +561,9 @@ class HarborRunner:
 
   def _clean_up(
     self, outdir: Path, label: str
-  ) -> tuple[list[str], dict[str, int]]:
-    # What still mounts the trial, and what has its label, once removed.
+  ) -> tuple[list[str], dict[str, int], dict[str, int]]:
+    # What still mounts the trial, what its compose projects hold and what has
+    # its label, once removed.
     if stopping.stopped():
       self._clean_up_stopped(outdir, label)
       raise stopping.Stopped
@@ -564,10 +571,13 @@ class HarborRunner:
       held = release(outdir, self.docker)
     finally:
       try:
-        self._chown(outdir, label)
+        stray = remove_projects(outdir, self.docker)
       finally:
-        left = cleanup(f"{LABEL}={label}", self.docker)
-    return held, left
+        try:
+          self._chown(outdir, label)
+        finally:
+          left = cleanup(f"{LABEL}={label}", self.docker)
+    return held, stray, left
 
   def _clean_up_stopped(self, outdir: Path, label: str) -> None:
     # For a stopped fan_out, within its budget: what may still run, and cost,
@@ -712,6 +722,78 @@ def release(path: Path, docker: str = "docker") -> list[str]:
   if found := _mounting(path, docker):
     _ = _docker(docker, "container", "rm", "-f", *found)
   return _mounting(path, docker)
+
+
+def remove_projects(outdir: Path, docker: str = "docker") -> dict[str, int]:
+  """Remove what the compose projects of the trials in outdir hold.
+
+  Harbor 0.24.0 runs each environment of a trial as a compose project named
+  after the trial: `<trial>__env` for the agent's, and
+  `<trial>__verifier__<step>`, cut and hashed past 63 characters, for a
+  separate verifier's, which has no trial label (`harbor/trial/trial.py:1034-
+  1043`, `harbor/environments/docker/docker.py:94-107`). Stopped while it stops
+  that one, Harbor leaves its sidecar and network, which mount nothing. A
+  trial's name is the task's name, at most 32 characters, `__` and 7 random
+  letters and digits, so a project of another trial matches only when its
+  task's name holds this trial's random part.
+
+  Args:
+    outdir: The trial's output directory, whose `job/` holds a directory for
+      each trial Harbor started.
+    docker: The docker command.
+
+  Returns:
+    How many containers, networks and volumes of those projects are left.
+
+  Raises:
+    DockerError: When `docker <kind> ls` exits non-zero, or a docker command
+      runs past DOCKER_TIMEOUT.
+  """  # noqa: DOC502
+  trials = [
+    path.name for path in (outdir / "job").glob("*/") if not path.is_symlink()
+  ]
+  exact = {_project(f"{trial}__env") for trial in trials}
+  verifiers = tuple(_project(f"{_safe(trial)}__verifier__") for trial in trials)
+
+  def ids(kind: str) -> list[str]:
+    key = "Name" if kind == "volume" else "ID"
+    out = _docker(
+      docker, kind, "ls", *(["-a"] if kind == "container" else []),
+      "--filter", f"label={PROJECT}",
+      "--format", f'{{{{.{key}}}}}\t{{{{.Label "{PROJECT}"}}}}',
+      check=True,
+    ).stdout  # fmt: skip
+    found: list[str] = []
+    for line in out.splitlines():
+      name, _, project = line.partition("\t")
+      if project in exact or project.startswith(verifiers):
+        found.append(name)
+    return sorted(found)
+
+  if not trials:
+    return {}
+  for kind, remove in (
+    ("container", ["rm", "-f"]),
+    ("network", ["rm"]),
+    ("volume", ["rm", "-f"]),
+  ):
+    if found := ids(kind):
+      _ = _docker(docker, kind, *remove, *found)
+  return {kind: len(ids(kind)) for kind in ("container", "network", "volume")}
+
+
+def _project(name: str) -> str:
+  # Harbor 0.24.0's compose project of a session
+  # (`_sanitize_docker_compose_project_name`).
+  name = name.lower()
+  if not re.match(r"^[a-z0-9]", name):
+    name = f"0{name}"
+  return re.sub(r"[^a-z0-9_-]", "-", name)
+
+
+def _safe(name: str) -> str:
+  # The characters Harbor 0.24.0 keeps of a separate verifier's session.
+  return "".join(c if c.isalnum() or c in "-._" else "_" for c in name)
 
 
 def _mounting(path: Path, docker: str) -> list[str]:
