@@ -98,7 +98,7 @@ describe("a trial that judged another trial's output again", () => {
     expect(field("Source trial")).toHaveTextContent("Pass@k · Trial 2");
     // As large a target as R246 asks, alone in the numbers.
     expect(
-      within(field("Source trial") ?? document.body).getByRole("link"),
+      numbers().getByRole("link", { name: "Pass@k · Trial 2" }),
     ).toHaveClass("target");
   });
 
