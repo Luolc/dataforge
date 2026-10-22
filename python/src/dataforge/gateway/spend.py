@@ -7,7 +7,10 @@ the `response` of `response.completed`, `response.done`,
 `response.incomplete` or `response.failed` (`CODEX`); of a reply without any,
 read as JSON, from its top-level `model` and `usage`. `Spend` prices it, and
 the ledger gets one line per reply (`record`), each written whole and synced
-before the proxy goes on; `read_ledger` reads it back.
+before the proxy goes on; `read_ledger` reads it back, and `total` prices and
+sums it. A reply is priced by the model it names, else by the model its
+request named, else at a fallback price (`choose`): a gateway may answer under
+another name than the one asked for.
 """
 
 from collections.abc import Mapping
@@ -19,6 +22,7 @@ import logging
 import os
 from pathlib import Path
 import re
+from types import MappingProxyType
 from typing import cast, TypedDict
 
 from dataforge.gateway.channels import Channel
@@ -60,6 +64,58 @@ class Price:
   cache_write_1h: float
 
 
+# The Claude API's list prices for global routing at the standard speed, read
+# on 2026-10-20 from https://platform.claude.com/docs/en/about-claude/pricing,
+# and, for Pi and Codex CLI, an estimate, since the gateway's `CODEX` channel
+# bills a ChatGPT subscription, not these prices: litellm's for OpenAI's API,
+# from the entry `gpt-6-astra` of `model_prices_and_context_window.json` at
+# its tag v1.106.0 (commit 955bdaafa8b72b2b6ff728048f272fbc06049f63), read on
+# 2026-10-20, the prices up to 272k input tokens a request, so that a request
+# past that, which that file prices at about twice as much, counts for less
+# than the API would charge; its one price for cache writes is both of them.
+PRICES: Mapping[str, Price] = MappingProxyType({
+  "claude-opus-5-5": Price(
+    input=4.0, output=20.0, cache_read=0.2, cache_write_5m=5.0,
+    cache_write_1h=8.0,
+  ),
+  "claude-opus-4-8": Price(
+    input=5.0, output=25.0, cache_read=0.5, cache_write_5m=6.25,
+    cache_write_1h=10.0,
+  ),
+  "claude-sonnet-5-5": Price(
+    input=2.0, output=10.0, cache_read=0.1, cache_write_5m=2.5,
+    cache_write_1h=4.0,
+  ),
+  "gpt-6-astra": Price(
+    input=10.0, output=50.0, cache_read=1.0, cache_write_5m=12.5,
+    cache_write_1h=12.5,
+  ),
+})  # fmt: skip
+# The default price of a reply that no model's price fits: the highest price
+# of each kind on the Claude API's page on 2026-10-20 (Claude Opus 4 and 4.1:
+# $15, $75, $1.50, $18.75 and $30 per million tokens), times the 1.1 of
+# US-only inference, the page's largest multiplier above them, so that no
+# reply of a model the page lists counts for less than it cost; it is above
+# the `CODEX` price too.
+HIGHEST = Price(
+  input=16.5, output=82.5, cache_read=1.65, cache_write_5m=20.625,
+  cache_write_1h=33.0,
+)  # fmt: skip
+# The `speed` and `inference_geo` of a `CLAUDE` reply that a model's price
+# fits; a reply without them is taken as standard.
+STANDARD: Mapping[str, str] = MappingProxyType(
+  {"speed": "standard", "inference_geo": "global"}
+)
+# Each search of Claude's web search tool, on the same page.
+WEB_SEARCH_USD = 0.01
+# How `choose` chose a price other than that of the model a reply names: a
+# ledger line's `priced_as`. An earlier ledger's lines say "highest" for the
+# fallback.
+REQUESTED = "requested"
+FALLBACK = "fallback"
+_FALLBACKS = frozenset({FALLBACK, "highest"})
+
+
 class _PriceJSON(TypedDict):
   input: float
   output: float
@@ -71,6 +127,17 @@ class _PriceJSON(TypedDict):
 class _SpendJSON(TypedDict):
   prices: dict[str, _PriceJSON]
   max_usd: float
+  fallback: _PriceJSON | None
+
+
+def _price_json(price: Price) -> _PriceJSON:
+  return {
+    "input": price.input,
+    "output": price.output,
+    "cache_read": price.cache_read,
+    "cache_write_5m": price.cache_write_5m,
+    "cache_write_1h": price.cache_write_1h,
+  }
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -78,13 +145,16 @@ class Spend:
   """A cap on what one gateway session's replies cost.
 
   Attributes:
-    prices: Each model's prices, which the caller gives.
+    prices: Each model's prices, which the caller gives, such as `PRICES`.
     max_usd: Once the session's replies cost this much, in US dollars, the
       proxy refuses every later request and ends the session.
+    fallback: The price of a reply that no model's price fits (`choose`),
+      such as `HIGHEST`; None to end the session on such a reply.
   """
 
   prices: Mapping[str, Price]
   max_usd: float
+  fallback: Price | None = None
 
   def to_json(self) -> str:
     """Return the cap as JSON, as the proxy's command line takes it.
@@ -92,17 +162,12 @@ class Spend:
     Returns:
       The JSON.
     """
-    prices = {
-      model: {
-        "input": p.input,
-        "output": p.output,
-        "cache_read": p.cache_read,
-        "cache_write_5m": p.cache_write_5m,
-        "cache_write_1h": p.cache_write_1h,
-      }
-      for model, p in self.prices.items()
+    found: _SpendJSON = {
+      "prices": {m: _price_json(p) for m, p in self.prices.items()},
+      "max_usd": self.max_usd,
+      "fallback": None if self.fallback is None else _price_json(self.fallback),
     }
-    return json.dumps({"prices": prices, "max_usd": self.max_usd})
+    return json.dumps(found)
 
   @classmethod
   def from_json(cls, text: str) -> Spend:
@@ -116,7 +181,12 @@ class Spend:
     """
     found = cast(_SpendJSON, json.loads(text))
     prices = {m: Price(**p) for m, p in found["prices"].items()}
-    return cls(prices=prices, max_usd=found["max_usd"])
+    fallback = found["fallback"]
+    return cls(
+      prices=prices,
+      max_usd=found["max_usd"],
+      fallback=None if fallback is None else Price(**fallback),
+    )
 
 
 def _tokens(found: object, key: str) -> int:
@@ -137,7 +207,8 @@ def cost(channel: Channel, price: Price, usage: Mapping[str, object]) -> float:
     usage: The reply's usage.
 
   Returns:
-    The cost, in US dollars.
+    The cost, in US dollars, with `WEB_SEARCH_USD` for each web search of a
+    `CLAUDE` reply.
   """
   if channel is Channel.CODEX:
     # `input_tokens` holds the cached and the written tokens.
@@ -166,7 +237,43 @@ def cost(channel: Channel, price: Price, usage: Mapping[str, object]) -> float:
     + write_5m * price.cache_write_5m
     + write_1h * price.cache_write_1h
   )
-  return per_million / 1e6
+  searches = _tokens(usage.get("server_tool_use"), "web_search_requests")
+  return per_million / 1e6 + searches * WEB_SEARCH_USD
+
+
+def choose(
+  channel: Channel,
+  usage: Mapping[str, object],
+  model: str | None,
+  requested: str | None,
+  prices: Mapping[str, Price],
+  fallback: Price | None,
+) -> tuple[Price, str | None] | None:
+  """Choose the price of a reply.
+
+  Args:
+    channel: The reply's channel.
+    usage: Its usage.
+    model: The model it names, if any.
+    requested: The model its request named, if known.
+    prices: Each model's prices.
+    fallback: The price of a reply that no model's price fits, or None.
+
+  Returns:
+    The price of the model the reply names, with None; else that of the model
+    its request named, with `REQUESTED`; else the fallback, with `FALLBACK`,
+    as for a `CLAUDE` reply at a `speed` or `inference_geo` other than
+    `STANDARD`'s; None when there is no fallback then.
+  """
+  standard = channel is not Channel.CLAUDE or all(
+    usage.get(k, v) in (v, None) for k, v in STANDARD.items()
+  )
+  if standard:
+    for name, how in ((model, None), (requested, REQUESTED)):
+      found = None if name is None else prices.get(name)
+      if found is not None:
+        return found, how
+  return None if fallback is None else (fallback, FALLBACK)
 
 
 _BOM = b"\xef\xbb\xbf"
@@ -199,6 +306,8 @@ class Meter:
     """
     self.channel: Channel = channel
     self.content_type: str | None = content_type
+    # The model the request named, when the proxy could read it.
+    self.requested: str | None = None
     self._buffer: bytes = b""
     # The whole reply, kept while it may yet be JSON.
     self._body: bytearray | None = bytearray()
@@ -333,7 +442,9 @@ def _json(data: bytes) -> dict[str, object]:
   return cast(dict[str, object], found) if isinstance(found, dict) else {}
 
 
-def price(meter: Meter, spend: Spend | None) -> tuple[float | None, str | None]:
+def price(
+  meter: Meter, spend: Spend | None
+) -> tuple[float | None, str | None, str | None]:
   """Price a reply that has ended.
 
   Args:
@@ -341,18 +452,27 @@ def price(meter: Meter, spend: Spend | None) -> tuple[float | None, str | None]:
     spend: The session's cap, which holds the prices; None for none.
 
   Returns:
-    Its cost in US dollars and None, or None and why it could not be priced.
+    Its cost in US dollars, None and how `choose` chose its price; or None,
+    why it could not be priced and None.
   """
   if meter.unreadable is not None:
-    return None, meter.unreadable
+    return None, meter.unreadable, None
   if not meter.usage:
-    return None, NO_USAGE
+    return None, NO_USAGE, None
   if spend is None:
-    return None, "no prices"
-  found = spend.prices.get(meter.model or "")
-  if found is None:
-    return None, f"no price for the model {meter.model!r}"
-  return cost(meter.channel, found, meter.usage), None
+    return None, "no prices", None
+  chosen = choose(
+    meter.channel,
+    meter.usage,
+    meter.model,
+    meter.requested,
+    spend.prices,
+    spend.fallback,
+  )
+  if chosen is None:
+    why = f"no price for the model {meter.model!r} nor {meter.requested!r}"
+    return None, why, None
+  return cost(meter.channel, chosen[0], meter.usage), None, chosen[1]
 
 
 def now() -> str:
@@ -386,10 +506,13 @@ def record(ledger: Path, line: Mapping[str, object]) -> None:
 def read_ledger(path: Path) -> list[dict[str, object]]:
   """Read a ledger back.
 
-  Each reply's line is `{at, channel, model, usage, cost_usd, reason}`,
-  `cost_usd` null with the `reason` when the proxy could not price the reply;
-  the line of a session the cap ended is `{at, channel, capped}`. A line that
-  is not a JSON object is left out, with a warning that counts them.
+  Each reply's line is `{at, channel, model, requested_model, usage,
+  cost_usd, priced_as, reason}`, `requested_model` the model the request
+  named, null when the proxy could not read it, `cost_usd` null with the
+  `reason` when the proxy could not price the reply, and `priced_as` how
+  `choose` chose the price; the line of a session the cap ended is `{at,
+  channel, capped}`. A line that is not a JSON object is left out, with a
+  warning that counts them.
 
   Args:
     path: The ledger; none reads as empty.
@@ -411,3 +534,106 @@ def read_ledger(path: Path) -> list[dict[str, object]]:
   if skipped:
     _log.warning("%s: %d lines are not JSON objects", path, skipped)
   return found
+
+
+@dataclass(frozen=True, slots=True)
+class Total:
+  """What a ledger's replies cost together.
+
+  Attributes:
+    usd: The sum, in US dollars.
+    fallback_usd: What of it was priced at the fallback price.
+  """
+
+  usd: float
+  fallback_usd: float
+
+
+def total(
+  ledger: Path,
+  *,
+  prices: Mapping[str, Price] = PRICES,
+  fallback: Price | None = HIGHEST,
+) -> Total:
+  """Price a ledger's replies and sum them.
+
+  A line counts the cost it holds, `cost_usd` or an earlier proxy's `usd`;
+  else its reply is priced by `choose` from its model, its `requested_model`
+  (a line written before the proxy read it has none) and its usage, a line
+  without `channel` being `CLAUDE`'s. A line whose `priced_as` is `FALLBACK`
+  or an earlier ledger's "highest" counts in `fallback_usd` too. A line with
+  no cost that cannot be priced, such as one of a reply without usage, is not
+  counted, and the line of a session the cap ended holds no reply; one
+  warning counts the lines not counted, and one those priced at the fallback.
+
+  Args:
+    ledger: The ledger; none counts as empty.
+    prices: Each model's prices.
+    fallback: The price of a reply that no model's price fits; None to leave
+      such a reply out.
+
+  Returns:
+    The sum.
+  """
+  usd = fallback_usd = 0.0
+  skipped = at_fallback = 0
+  for line in read_ledger(ledger):
+    found = _line_usd(line, prices, fallback)
+    if found is None:
+      skipped += "capped" not in line
+      continue
+    usd += found[0]
+    if found[1]:
+      fallback_usd += found[0]
+      at_fallback += 1
+  if skipped:
+    _log.warning("%s: %d lines without a price, not counted", ledger, skipped)
+  if at_fallback:
+    _log.warning(
+      "%s: %d lines priced at the fallback, $%.4f",
+      ledger,
+      at_fallback,
+      fallback_usd,
+    )
+  return Total(usd, fallback_usd)
+
+
+def _number(value: object) -> float | None:
+  if isinstance(value, int | float) and not isinstance(value, bool):
+    return value
+  return None
+
+
+def _text(value: object) -> str | None:
+  return value if isinstance(value, str) else None
+
+
+def _line_usd(
+  line: Mapping[str, object],
+  prices: Mapping[str, Price],
+  fallback: Price | None,
+) -> tuple[float, bool] | None:
+  # A line's cost and whether it is at the fallback price; None for none.
+  for key in ("cost_usd", "usd"):
+    stored = _number(line.get(key))
+    if stored is not None:
+      return stored, line.get("priced_as") in _FALLBACKS
+  usage = line.get("usage")
+  if not isinstance(usage, Mapping) or not usage:
+    return None
+  usage = cast(Mapping[str, object], usage)
+  try:
+    channel = Channel(line.get("channel", Channel.CLAUDE))
+  except ValueError:
+    return None
+  chosen = choose(
+    channel,
+    usage,
+    _text(line.get("model")),
+    _text(line.get("requested_model")),
+    prices,
+    fallback,
+  )
+  if chosen is None:
+    return None
+  return cost(channel, chosen[0], usage), chosen[1] == FALLBACK

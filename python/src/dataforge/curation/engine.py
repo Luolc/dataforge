@@ -354,7 +354,9 @@ class Resumption:
       the record had it, with "path", where the caller keeps their outputs
       relative to the attempt's directory, and "reason", why path is None.
     carried_usd: What the attempt spent that no kept visit's actions record,
-      in US dollars, as the caller gave it.
+      in US dollars, as the caller gave it: what the default measure of
+      spend (recorded_usd) adds to the actions, kept only as a record when
+      the machine has spent_usd.
     reason: Why the attempt had stopped, as the caller gave it.
   """
 
@@ -377,6 +379,8 @@ class Attempt:
       any.
     visits: Its visits, in order.
     max_cost_usd: What the attempt may spend, in US dollars; None for no cap.
+    cost_usd: What the attempt spent, in US dollars, as the machine last
+      measured it (measure): what the cost cap checks and the record holds.
     stopped: The reason, when the cost cap ended the attempt.
     graph: The machine's graph when the attempt began.
     deliverables: The machine's deliverables, one entry each, in their order,
@@ -391,20 +395,13 @@ class Attempt:
   kept_visit: int | None = None
   visits: list[Visit] = field(default_factory=list[Visit])
   max_cost_usd: float | None = None
+  cost_usd: float = 0.0
   stopped: str | None = None
   graph: Graph | None = None
   deliverables: list[dict[str, object]] = field(
     default_factory=list[dict[str, object]]
   )
   resumptions: list[Resumption] = field(default_factory=list[Resumption])
-
-  @property
-  def cost_usd(self) -> float:
-    """What the recorded actions and each resumption's carried_usd cost."""
-    return sum(
-      (action.cost_usd for visit in self.visits for action in visit.actions),
-      sum((r.carried_usd for r in self.resumptions), 0.0),
-    )
 
   @property
   def round(self) -> int:
@@ -480,6 +477,7 @@ class Attempt:
         for i, item in enumerate(_list(data, "visits", "the record"))
       ],
       max_cost_usd=_maybe_number(budget, "max_usd", "budget"),
+      cost_usd=_number(budget, "cost_usd", "budget"),
       stopped=_maybe_text(budget, "stopped", "budget"),
       # Machine.resume compares it with its own graph before it uses it.
       graph=cast(Graph | None, graph),
@@ -535,6 +533,39 @@ class Attempt:
 
 
 type Guard = Callable[[Context, State], str | None]
+
+
+def recorded_usd(attempt: Attempt) -> float:
+  """Return what an attempt's recorded actions and resumptions cost.
+
+  It is the measure of spend of a machine without spent_usd.
+
+  Args:
+    attempt: The attempt.
+
+  Returns:
+    The cost_usd of every action of its visits and the carried_usd of each
+    resumption, together, in US dollars.
+  """
+  return sum(
+    (a.cost_usd for visit in attempt.visits for a in visit.actions),
+    sum((r.carried_usd for r in attempt.resumptions), 0.0),
+  )
+
+
+def measure(
+  attempt: Attempt, spent_usd: Callable[[Attempt], float] | None = None
+) -> None:
+  """Set what an attempt spent, as a machine measures it.
+
+  A caller that closes the record of an attempt whose process stopped
+  measures it again this way, with the machine's spent_usd.
+
+  Args:
+    attempt: The attempt, whose cost_usd it sets.
+    spent_usd: The machine's measure of spend; None for recorded_usd.
+  """
+  attempt.cost_usd = (spent_usd or recorded_usd)(attempt)
 
 
 class Context:
@@ -718,6 +749,7 @@ class Machine:
     on_step: Callable[[Attempt], None] | None = None,
     max_cost_usd: float | None = None,
     deliverables: Mapping[str, Deliverable] | None = None,
+    spent_usd: Callable[[Attempt], float] | None = None,
   ) -> None:
     """Make a machine.
 
@@ -726,11 +758,17 @@ class Machine:
       guard: The guard, if any.
       on_step: Gets the attempt at each step (see Machine), if given.
       max_cost_usd: What one attempt may spend, in US dollars; None for no
-        cap. A state is not entered when what the attempt's actions cost so
-        far and the state's max_cost_usd together would pass it.
+        cap. A state is not entered when what the attempt spent so far
+        (Attempt.cost_usd) and the state's max_cost_usd together would pass
+        it.
       deliverables: What an attempt delivers, by name, in the order its
         record lists them; each step resolves them as the attempt would end
         then, and its end as it ends.
+      spent_usd: What an attempt has spent so far, in US dollars, such as
+        the sum of the ledger its model proxies write; it must count every
+        model call the attempt starts, since nothing else is added to it.
+        Read before each state's cost cap and before each on_step. None
+        for recorded_usd, what the recorded actions report.
 
     Raises:
       ValueError: When a deliverable is not well formed or names an unknown
@@ -743,6 +781,7 @@ class Machine:
     self._guard: Guard | None = guard
     self._on_step: Callable[[Attempt], None] | None = on_step
     self.max_cost_usd: float | None = max_cost_usd
+    self.spent_usd: Callable[[Attempt], float] | None = spent_usd
 
   def guard(self, ctx: Context, state: State) -> str | None:
     """Check a state before it is entered.
@@ -842,7 +881,8 @@ class Machine:
     Args:
       record: The attempt, as Attempt.from_json reads it back.
       carried_usd: What the attempt spent that no kept visit's actions record,
-        in US dollars, such as what the left-out visits spent.
+        in US dollars, such as what the left-out visits spent: added to them
+        by recorded_usd, only recorded when the machine has spent_usd.
       discarded_path: Where the caller keeps the left-out visits' outputs,
         relative to the attempt's directory, if it does.
       reason: Why the attempt stopped, if the caller knows.
@@ -988,6 +1028,7 @@ class Machine:
     def step(*, resolve: bool = True) -> None:
       if resolve:
         self._resolve(attempt)
+      measure(attempt, self.spent_usd)
       self.on_step(attempt)
 
     while True:
@@ -1049,6 +1090,7 @@ class Machine:
       )
       return state.on_exhausted, f"{where}: entered {why}"
     attempt, cap = ctx.attempt, self.max_cost_usd
+    measure(attempt, self.spent_usd)
     if cap is not None and attempt.cost_usd + state.max_cost_usd > cap:
       attempt.stopped = (
         f"{where}: ${attempt.cost_usd:.2f} spent and up to"

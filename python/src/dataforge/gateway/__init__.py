@@ -30,7 +30,15 @@ from dataforge.gateway.pause import (
   sessions,
 )
 from dataforge.gateway.session import serve
-from dataforge.gateway.spend import Price, read_ledger, Spend
+from dataforge.gateway.spend import (
+  HIGHEST,
+  Price,
+  PRICES,
+  read_ledger,
+  Spend,
+  Total,
+  total,
+)
 
 __all__ = [
   "CLAUDE_CODE",
@@ -38,7 +46,9 @@ __all__ = [
   "CODEX",
   "CODEX_ENV",
   "CUT_S",
+  "HIGHEST",
   "PI",
+  "PRICES",
   "REFUSALS",
   "Backoff",
   "Channel",
@@ -47,11 +57,13 @@ __all__ = [
   "Price",
   "QuotaError",
   "Spend",
+  "Total",
   "bindings",
   "pausing",
   "read_ledger",
   "serve",
   "sessions",
   "start_forwarder",
+  "total",
   "trial_setup",
 ]
