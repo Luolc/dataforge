@@ -24,14 +24,15 @@ const LONG =
 const SHORT =
   "A limit the caller can raise is not a check the caller can skip.";
 
-// As the task route serves fixtures/trialdiff's pass-at-k.
+// As the task route serves fixtures/trialdiff's pass-at-k, but for p2p's
+// project, which comes last here.
 const found: TaskMeta = {
   read: "found",
   reason: null,
   legacy: false,
   tests: {
     f2p: { security: 5, behavior: 2, alignment: 2 },
-    p2p: { project: 148, behavior: 3, alignment: 0 },
+    p2p: { behavior: 3, alignment: 0, project: 148 },
   },
   principles: [
     {
