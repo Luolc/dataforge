@@ -13,12 +13,13 @@ gtest_discover_tests adds is GoogleTest's name with its parameter's value
 from the directory, named as its CMake target, and the name GoogleTest's
 full one (`Suite.Test`, `Inst/Suite.Test/0`); a binary covers its tests, a
 suite its tests (`<binary>::Suite`) and a parametrized test its instances.
-An ID names no source file, so restore_paths gives none: a dataset restores
-the files that define its tests itself.
+An ID names no source file, so restore_paths reads the files that declare a
+test from the base's text of its C and C++ files, by GoogleTest's macros.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 import re
 import shlex
@@ -34,6 +35,30 @@ SEP = "::"
 """What joins a GoogleTest test's binary and name in its ID."""
 
 _CONFIGURE = "cmake . && cmake --build ."
+
+SOURCES = (".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl")
+"""The suffixes of the C and C++ files restore_paths reads. Every file that
+declares a test holds the text `TEST`, so a caller may leave out the others."""
+
+# GoogleTest's macros that declare a test, `<macro>(<suite>, <test>)`, taken
+# only where no letter, digit or `_` comes right before the macro's name, so
+# that FRIEND_TEST, which grants a test access to the code it tests, is not;
+# and what blanks the comments and the string and character literals first:
+# raw strings, then the others, a `'` only where no letter, digit or `_`
+# comes before it but for a prefix such as `L`, so that C++14's digit
+# separators (`1'000`) start none.
+_DECLARE = re.compile(
+  r"(?<![\w])(?:TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|GTEST_TEST)"
+  + r"\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)"
+)
+_BLANK = re.compile(
+  r"//[^\n]*"
+  + r"|/\*.*?(?:\*/|\Z)"
+  + r'|(?<![\w])(?:u8|u|U|L)?R"([^()\\\s]{0,16})\(.*?(?:\)\1"|\Z)'
+  + r'|"(?:\\.|[^"\\\n])*"?'
+  + r"|(?<![\w])(?:u8|u|U|L)?'(?:\\.|[^'\\\n])*'?",
+  re.DOTALL,
+)
 
 
 def _cmake_regex(text: str) -> str:
@@ -193,3 +218,55 @@ class GTest(Runner):
   @override
   def covers(self, outer: str, inner: str) -> bool:
     return covers(outer, inner)
+
+
+def declared(text: str) -> set[tuple[str, str]]:
+  """Return the tests a C or C++ file declares with GoogleTest's macros.
+
+  Args:
+    text: The file's text.
+
+  Returns:
+    Each test's suite and name as the macro gives them, `TEST(Suite,
+    Test)` as ("Suite", "Test"), outside comments and literals; a macro of
+    the project's own that wraps one of GoogleTest's declares nothing here,
+    nor does an argument that is not a plain name.
+  """
+  code = _BLANK.sub(" ", text)
+  return {(m[1], m[2]) for m in _DECLARE.finditer(code)}
+
+
+def restore_paths(test: Test, texts: Mapping[str, str]) -> list[str]:
+  """Return the files that declare a ctest or gtest test.
+
+  A test's GoogleTest name is a gtest ID's part after its binary, or a ctest
+  ID, as gtest_discover_tests names a test by default. Its suite is any of
+  the `/`-parts before its `.`, since a parametrized suite's instance
+  (`Inst/Suite`) and a typed suite's type (`Suite/0`, `Suite/int`) are
+  parts of it, and its test the part after, up to a `/` (`Test/0`).
+
+  Args:
+    test: The test, of runner ctest or gtest.
+    texts: The base's texts of its C and C++ files, by path from the
+      project's root; a file left out declares none.
+
+  Returns:
+    Every file of texts that declares the test, or for a gtest ID of a
+    suite (`<binary>::Suite`) any test of the suite, sorted; none for a gtest
+    ID of a binary alone and for a ctest ID with no `.`, which name no
+    test by GoogleTest's name.
+  """
+  if test.runner == "gtest":
+    name = test.id.partition(SEP)[2]
+  else:
+    name = test.id if "." in test.id else ""
+  if not name:
+    return []
+  suite, _, case = name.partition(".")
+  suites = set(suite.split("/"))
+  case = case.split("/", 1)[0]
+  return sorted(
+    path
+    for path, text in texts.items()
+    if any(s in suites and (not case or t == case) for s, t in declared(text))
+  )

@@ -15,7 +15,7 @@ to restore, as it restores conftest.py.
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 import configparser
 import fnmatch
 import json
@@ -27,7 +27,7 @@ import tomllib
 from typing import final, override
 import xml.etree.ElementTree as ET
 
-from . import cargo, gotest, junit
+from . import cargo, cpp, gotest, junit
 from .adapter import Call, Context, PREFIX, rel, Runner, write_new
 from .cargo import Cargo
 from .cpp import CTest, GTest
@@ -564,12 +564,19 @@ ADAPTERS: dict[str, type[Runner]] = {
 """The adapter of each runner."""
 
 
-def restore_paths(test: Test, files: Collection[str]) -> list[str]:
+def restore_paths(
+  test: Test,
+  files: Collection[str],
+  texts: Mapping[str, str] | None = None,
+) -> list[str]:
   """Return the files of the base that define a test.
 
   Args:
     test: The test.
     files: The paths, relative to the project, of the base's files.
+    texts: For ctest and gtest, the base's texts of its C and C++ files
+      (cpp.SOURCES) by path, a file left out declaring no test; None for
+      none.
 
   Returns:
     Those of files that hold the test's code: for pytest and the Node.js
@@ -578,10 +585,12 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
     for its class under its directory, as PHPUnit wants; for go, the test
     files of its package (gotest.restore_paths); for cargo, its ID's file
     when that is a test target of its own (cargo.restore_paths); for ctest
-    and gtest, none, since an ID names no source file.
+    and gtest, the files of texts that declare it by GoogleTest's macros
+    (cpp.restore_paths), since an ID names no source file.
   """
   if test.runner in ("ctest", "gtest"):
-    return []
+    found = {p: t for p, t in (texts or {}).items() if p in files}
+    return cpp.restore_paths(test, found)
   if test.runner == "go":
     return gotest.restore_paths(test, files)
   if test.runner == "cargo":
