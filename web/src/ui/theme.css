@@ -52,6 +52,10 @@
   /* The smallest side of a control, for a fine and a coarse pointer. */
   --spacing-target: 24px;
   --spacing-target-coarse: 44px;
+  /* The home table's status icon column, its left padding and the icon's
+     target, which the item column stays beside as the table scrolls; for a
+     coarse pointer, below. */
+  --spacing-row-icon: calc(var(--spacing) * 3 + var(--spacing-target));
   /* Icons: 1em in a line of text or on a tag, as agent-constitution draws
      them; 16px on controls and in lists, its 1.25rem at a 13px root. */
   --spacing-icon-sm: 1em;
@@ -76,6 +80,8 @@
   --radius-code: 4px;
 
   --shadow-current: inset 2px 0 0 var(--color-accent);
+  /* The right edge of a column that stays as a table scrolls sideways. */
+  --shadow-stuck: inset -1px 0 0 var(--color-line-subtle);
 
   --opacity-idle: 0.45;
   --stroke-taken: 1.5px;
@@ -430,6 +436,12 @@ html[data-template="dark"] {
     outline: 2px solid var(--color-focus);
     outline-offset: -2px;
     border-radius: var(--radius-row);
+  }
+}
+
+@media (pointer: coarse) {
+  :root {
+    --spacing-row-icon: calc(var(--spacing) * 3 + var(--spacing-target-coarse));
   }
 }
 
