@@ -13,7 +13,6 @@ import yaml
 from dataforge.cli import main
 from dataforge.curation import (
   Actions,
-  actions,
   AgentSpec,
   AgentState,
   AgentTask,
@@ -29,7 +28,6 @@ from dataforge.curation import (
   TrialAgent,
   TrialSetup,
   TrialState,
-  WriteLimit,
 )
 from dataforge.curation.harbor import Sidecar
 from dataforge.runtime.claude import numbered, Runner, Session
@@ -106,7 +104,6 @@ environments:
     memory_gb: 4
     memory_swap_gb: 4
     pids: 1024
-    write_limit: {bps: 10485760, iops: 300, root: /srv/containers}
     network: true
     labels: {demo.run: r1}
     security: [no-new-privileges]
@@ -249,10 +246,8 @@ def runner_fields(runner: Runner) -> dict[str, object]:
 
 @pytest.mark.usefixtures("environment")
 def test_environments_and_runners_load_as_they_would_by_hand(
-  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+  tmp_path: Path,
 ) -> None:
-  disks = {Path("/srv/containers"): "/dev/vdz"}
-  monkeypatch.setattr(actions, "write_device", disks.__getitem__)
   cli = Cli()
   with ExitStack() as stack:
     machine = load_doc(DECLARATION, tmp_path, cli, stack)
@@ -275,7 +270,6 @@ def test_environments_and_runners_load_as_they_would_by_hand(
         memory_gb=4,
         memory_swap_gb=4,
         pids=1024,
-        write_limit=WriteLimit(10485760, 300, Path("/srv/containers")),
         network=True,
         labels={"demo.run": "r1"},
         security=("no-new-privileges",),
@@ -330,12 +324,6 @@ def test_environments_and_runners_load_as_they_would_by_hand(
     docker.stop()
   assert cli.calls[-1] == ["rm", "--force", "c1"]
   assert "GATEWAY_TOKEN" in cli.calls[0]
-  create = cli.calls[0]
-  bps = create.index("--device-write-bps")
-  assert create[bps : bps + 4] == [
-    "--device-write-bps", "/dev/vdz:10485760",
-    "--device-write-iops", "/dev/vdz:300",
-  ]  # fmt: skip
   assert not [arg for arg in cli.calls[0] if "from-the-environment" in arg]
 
 
@@ -414,12 +402,8 @@ def edit(path: str, value: object) -> Callable[[Doc], None]:
       "environments.session.cpus: expected a number, got a string",
     ),
     (
-      edit("environments.session.write_limit", {"bps": 0}),
-      "environments.session.write_limit.bps: must be at least 1, not 0",
-    ),
-    (
-      edit("environments.session.write_limit", {"device": "/dev/sda"}),
-      "environments.session.write_limit.device: unknown field",
+      edit("environments.session.write_limit", {"bps": 1}),
+      "environments.session.write_limit: unknown field",
     ),
     (
       edit("environments.session.volumes", []),
