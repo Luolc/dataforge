@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -8,6 +9,7 @@ from dataforge.testrunner.adapter import Call, PREFIX
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.manifest import RUNNERS
 from dataforge.testrunner.manifest import Test as Listed
+from dataforge.testrunner.run import run_group
 from dataforge.testrunner.runners import (
   ADAPTERS,
   loaded_by_runner,
@@ -137,7 +139,7 @@ def test_pytest_takes_its_configuration_from_the_base(tmp_path: Path):
   assert written == [copy]
   assert copy.read_text() == base_toml
   argv = only(runner.commands(ctx, tests))
-  assert argv[3:6] == ["t/test_a.py", f"-c={copy}", f"--rootdir={ctx.dir}"]
+  assert argv[4:7] == ["t/test_a.py", f"-c={copy}", f"--rootdir={ctx.dir}"]
 
 
 def test_pytest_takes_the_nearest_configuration_of_the_first_test(
@@ -201,6 +203,128 @@ def test_pytest_runs_nothing_when_no_file_is_there(tmp_path: Path):
   tests = [Listed("p2p", "pytest", "gone.py::test_a")]
   _ = runner.prepare(ctx, tests)
   assert runner.commands(ctx, tests) == []
+
+
+# Stands in for pytest, or a plugin of it: writes a report where the listed
+# test passed.
+FAKE_PYTEST = """import os, sys
+for arg in sys.argv:
+  if arg.startswith("--junitxml="):
+    with open(arg.split("=", 1)[1], "w") as f:
+      f.write('<testsuites><testsuite><testcase classname="t" name="test_a"/>'
+              '</testsuite></testsuites>')
+os._exit(0)
+"""
+PLUGIN_CONFIG = (
+  '[tool.pytest.ini_options]\npythonpath = ["src"]\naddopts = "-p plugin"\n'
+)
+
+
+# The outcomes of the listed tests, run from the root of a project whose
+# base is files and to which a fix then adds added.
+def outcomes(
+  tmp_path: Path, files: dict[str, str], added: dict[str, str], ids: list[str]
+) -> list[tuple[object, object]]:
+  ctx = context(tmp_path)
+  ctx = context(tmp_path, base=commit(ctx.app, files))
+  write(ctx.app, added)
+  tests = [Listed("f2p", "pytest", i) for i in ids]
+  found = run_group(Pytest(), ctx, tests)
+  return [(t["name"], t["status"]) for t in found]
+
+
+@pytest.mark.parametrize(
+  ("added", "pythonpath", "config"),
+  [
+    ({"pytest.py": FAKE_PYTEST}, None, None),
+    ({"backend/pytest.py": FAKE_PYTEST}, "{app}/backend", None),
+    ({"backend/pytest.py": FAKE_PYTEST}, "backend", None),
+    ({"pytest.py": FAKE_PYTEST}, "{out}:", None),
+    ({"src/plugin.py": FAKE_PYTEST}, "{out}", PLUGIN_CONFIG),
+    (
+      {"broken.py": FAKE_PYTEST},
+      "{out}",
+      '[tool.pytest.ini_options]\naddopts = "-p broken"\n',
+    ),
+  ],
+)
+def test_pytest_and_its_plugins_are_not_loaded_from_the_project(
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  added: dict[str, str],
+  pythonpath: str | None,
+  config: str | None,
+):
+  # A file of the project's that has the name of pytest or of a plugin, in
+  # the directory pytest starts in, in one on PYTHONPATH or in one of the
+  # configuration's pythonpath, is not what runs the tests.
+  out = tmp_path / "out"
+  # A plugin outside the project, and one there that fails to import.
+  write(out, {"plugin.py": "", "broken.py": "import missing_module\n"})
+  if pythonpath is not None:
+    app = str((tmp_path / "app").resolve())
+    value = pythonpath.format(app=app, out=out)
+    monkeypatch.setenv("PYTHONPATH", value)
+  files = {"t.py": "def test_a():\n  assert 1 == 2\n", "src/lib.py": ""}
+  if config is not None:
+    files["pyproject.toml"] = config
+  found = outcomes(tmp_path, files, added, ["t.py::test_a"])
+  assert found == [("t.py::test_a", "failed")]
+
+
+def test_pytest_puts_the_projects_paths_where_python_m_pytest_did(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  # The configuration's pythonpath, then the directory pytest starts in,
+  # then PYTHONPATH's entries in their order, inside the project or not; and
+  # the tests' environment has PYTHONPATH as it was.
+  app = (tmp_path / "app").resolve()
+  out = tmp_path / "out"
+  write(out, {"far.py": "Z = 4\n"})
+  pythonpath = f"{app}/backend{os.pathsep}{out}"
+  monkeypatch.setenv("PYTHONPATH", pythonpath)
+  test = f"""import os, sys
+
+import far, here, lib, near
+
+
+def test_a():
+  order = [sys.path.index(p) for p in ({str(app / "src")!r}, {str(app)!r},
+    {str(app / "backend")!r}, {str(out)!r})]
+  assert order == sorted(order)
+  assert here.X + lib.Y + near.Z + far.Z == 10
+  assert os.environ["PYTHONPATH"] == {pythonpath!r}
+"""
+  files = {
+    "pyproject.toml": '[tool.pytest.ini_options]\npythonpath = ["src"]\n',
+    "src/lib.py": "Y = 2\n",
+    "here.py": "X = 1\n",
+    "backend/near.py": "Z = 3\n",
+    "tests/test_a.py": test,
+  }
+  found = outcomes(tmp_path, files, {}, ["tests/test_a.py::test_a"])
+  assert found == [("tests/test_a.py::test_a", "passed")]
+
+
+@pytest.mark.parametrize(
+  ("config", "plugin"),
+  [
+    (PLUGIN_CONFIG, "src/plugin.py"),
+    ('[tool.pytest.ini_options]\naddopts = "-p plugin"\n', "plugin.py"),
+  ],
+)
+def test_pytest_loads_a_plugin_of_the_project_its_configuration_names(
+  tmp_path: Path, config: str, plugin: str
+):
+  # Found nowhere outside the project, it is loaded once the project's paths
+  # are on sys.path.
+  files = {
+    "pyproject.toml": config,
+    plugin: "import pytest\n\n\n@pytest.fixture\ndef three():\n  return 3\n",
+    "t.py": "def test_a(three):\n  assert three == 3\n",
+  }
+  found = outcomes(tmp_path, files, {}, ["t.py::test_a"])
+  assert found == [("t.py::test_a", "passed")]
 
 
 @pytest.mark.parametrize(
