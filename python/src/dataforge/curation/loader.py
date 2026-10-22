@@ -844,6 +844,9 @@ class _Loader:
         fields.get("optional_inputs", []), f"{at}.optional_inputs"
       ),
       build=self.boolean(fields.get("build", False), f"{at}.build"),
+      optional_outputs=self.strings(
+        fields.get("optional_outputs", []), f"{at}.optional_outputs"
+      ),
     )
 
   def judge(self, value: object, at: str) -> Judge:
@@ -867,7 +870,14 @@ class _Loader:
     return self.string(value, at)
 
 
-_SCRIPT = {"inputs", "outputs", "memory_gb", "optional_inputs", "build"}
+_SCRIPT = {
+  "inputs",
+  "outputs",
+  "memory_gb",
+  "optional_inputs",
+  "build",
+  "optional_outputs",
+}
 
 _PROTOCOLS = {
   "env": ("an Env", ("start", "stop", "stage", "exec", "collect")),

@@ -22,6 +22,7 @@ import string
 import threading
 from typing import cast
 
+from dataforge import stopping
 from dataforge.curation.deliverables import check as check_deliverables
 from dataforge.curation.deliverables import Deliverable, Source, Value
 from dataforge.curation.graph import Graph, GraphEdge, GraphState
@@ -34,6 +35,23 @@ type Input = str | Path
 """An action input: a str names an artifact (its latest version), or else a
 path inside one as "<artifact>/<path>", either one prefixed with "<state>:"
 for the latest version a visit of that state wrote; a Path is used as is."""
+
+
+RAISED = "raised"
+"""The outcome of a visit whose state's run raised an exception."""
+
+INTERRUPTED = "interrupted"
+"""The outcome of a visit whose state's run an interrupt ended: a SystemExit,
+such as a caller makes of SIGTERM, a KeyboardInterrupt or stopping.Stopped."""
+
+ENDING = (RAISED, INTERRUPTED)
+"""The outcomes of a visit that end its attempt without a transition."""
+
+BY_VISIT = ("artifacts", "logs", "records", "summaries", "validators")
+"""The directories under an attempt's root that keep a visit's files, each
+under <state>/<visit>, but records, which keeps <state>/<visit>.json: its
+outputs, the actions' logs (actions.log_path), the record a judge read, the
+summaries (actions.summary_path) and the validators an agent got."""
 
 
 class RecordError(ValueError):
@@ -305,6 +323,11 @@ class ActionRecord:
     cost_known: Whether cost_usd is all it cost: False when a run of an
       agent did not report its cost, so that cost_usd counts only the runs
       that did. A record written before it existed reads as True.
+    logs: What it printed besides its outputs and trace, as files in the
+      attempt's directory, in order: for an agent, each run's log its runner
+      keeps there (AgentRun.log), then the engine's; for a script or a judge,
+      the engine's, its stdout and stderr (actions.log_path). Empty for a
+      trial and in a record written before it existed.
   """
 
   kind: str
@@ -319,6 +342,7 @@ class ActionRecord:
   trace: Path | None = None
   trace_format: str | None = None
   cost_known: bool = True
+  logs: list[Path] = field(default_factory=list[Path])
 
 
 @dataclass
@@ -328,8 +352,8 @@ class Visit:
   Attributes:
     state: The state's name.
     visit: How many times the state has been entered, this time included.
-    outcome: The name of the outcome; "raised" when the state's run raised,
-      None while it runs.
+    outcome: The name of the outcome; RAISED when the state's run raised,
+      INTERRUPTED when an interrupt ended it, None while it runs.
     data: The outcome's data.
     mark: The mark of the transition taken, if any.
     actions: The actions the visit ran.
@@ -538,6 +562,7 @@ class Attempt:
       "cost_usd": action.cost_usd,
       "cost_known": action.cost_known,
       "summary": action.summary,
+      "logs": [str(path.relative_to(self.root)) for path in action.logs],
       "trace": _trace_json(action.trace, action.trace_format, self.root),
       "session": None if action.session is None else dict(action.session),
       "trial": None
@@ -858,7 +883,8 @@ class Machine:
     """Resolve this machine's deliverables in an attempt that has ended.
 
     The result is what the attempt's end would have recorded had the machine
-    declared these deliverables then: [] when its last visit raised. It reads
+    declared these deliverables then: [] when its last visit raised or was
+    interrupted (ENDING). It reads
     the record and the outputs the record names, and runs nothing.
 
     Args:
@@ -875,7 +901,7 @@ class Machine:
       last = attempt.visits[-1].outcome
       if last is None:
         raise ValueError("its last visit has no outcome, so it has not ended")
-      if last == "raised":
+      if last in ENDING:
         return []
     return [
       _entry(name, item, attempt) for name, item in self.deliverables.items()
@@ -884,7 +910,8 @@ class Machine:
   def run(self, root: Path) -> Attempt:
     """Run one attempt until an End, a cap or the guard ends it.
 
-    An exception from a state's run is recorded and raised again unchanged.
+    An exception from a state's run is recorded, as INTERRUPTED for an
+    interrupt and RAISED for any other, and raised again unchanged.
     A ValueError says that a state has no transition for its outcome, or that
     its feedback template needs a variable the outcome does not give.
 
@@ -913,8 +940,8 @@ class Machine:
   ) -> Attempt:
     """Go on with an attempt from its last whole visit, as run would have.
 
-    It leaves out the visits at the record's end whose outcome is None or
-    "raised", rebuilds from the others how often each state was entered,
+    It leaves out the visits at the record's end whose outcome is None or one
+    of ENDING, rebuilds from the others how often each state was entered,
     which states are closed and the artifacts, and takes the last kept
     visit's transition again, without writing its feedback again: the record
     has it. With no visit kept, it starts at the first state. Then it runs on
@@ -924,9 +951,9 @@ class Machine:
     visits included, in order: what a session did is done.
 
     The cap is this machine's max_cost_usd. The attempt's directory is the
-    record's root; the caller moves the left-out visits' outputs, under
-    root/artifacts/<state>/<visit>, out of the way if it keeps them, since the
-    visits run again under the same numbers.
+    record's root; the caller moves the left-out visits' files, under each of
+    BY_VISIT, out of the way if it keeps them, since the visits run again
+    under the same numbers and write there again.
 
     Args:
       record: The attempt, as Attempt.from_json reads it back.
@@ -953,7 +980,7 @@ class Machine:
     if record.graph != self.graph():
       raise ResumeError("the record's graph is not this machine's")
     whole = len(record.visits)
-    while whole and record.visits[whole - 1].outcome in (None, "raised"):
+    while whole and record.visits[whole - 1].outcome in (None, *ENDING):
       whole -= 1
     visits, closed, artifacts = self._rebuild(record.visits, whole)
     why = None if discarded_path is not None else "the caller kept no copy"
@@ -1100,7 +1127,10 @@ class Machine:
       try:
         outcome = state.run(ctx)
       except BaseException as error:
-        record.outcome = "raised"
+        interrupted = isinstance(
+          error, (SystemExit, KeyboardInterrupt, stopping.Stopped)
+        )
+        record.outcome = INTERRUPTED if interrupted else RAISED
         record.data = {"error": f"{type(error).__name__}: {error}"}
         attempt.deliverables = []
         step(resolve=False)
@@ -1608,6 +1638,12 @@ def _read_action(
     trace=None if trace is None else trace[0],
     trace_format=None if trace is None else trace[1],
     cost_known="cost_known" not in data or _flag(data, "cost_known", where),
+    logs=[
+      _inside(root, path, f"{where}.logs[{i}]")
+      for i, path in enumerate(
+        _list(data, "logs", where) if "logs" in data else []
+      )
+    ],
   )
 
 

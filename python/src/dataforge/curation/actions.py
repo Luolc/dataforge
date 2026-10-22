@@ -306,6 +306,19 @@ def summary_path(ctx: Context, index: int) -> Path:
   return root / "summaries" / ctx.state / str(ctx.visit) / str(index) / SUMMARY
 
 
+def log_path(ctx: Context, index: int) -> Path:
+  """Return where the engine keeps what an action printed, on the host.
+
+  Args:
+    ctx: The visit's context.
+    index: The action's number in the visit.
+
+  Returns:
+    <root>/logs/<state>/<visit>/<index>.log.
+  """
+  return ctx.attempt.root / "logs" / ctx.state / str(ctx.visit) / f"{index}.log"
+
+
 class Env(Protocol):
   """Where an action runs. start and stop bracket each action that uses it."""
 
@@ -1286,6 +1299,8 @@ class AgentRun:
       if the runner says.
     error: The error the run ended on, such as an API error's message, cut
       to a length the runner sets, if it ended on one.
+    log: A file of what it printed besides its trace, such as Claude Code's
+      stderr, if the runner keeps one.
   """
 
   session: object
@@ -1300,6 +1315,7 @@ class AgentRun:
   fault: str | None = None
   stop_reason: str | None = None
   error: str | None = None
+  log: Path | None = None
 
 
 class AgentRunner(Protocol):
@@ -1359,6 +1375,9 @@ class ScriptSpec:
     build: Whether it builds an image: it then runs only on the host and
       holds one of the pool's build slots while it runs, taken before its
       memory_gb (`ResourcePool.build`).
+    optional_outputs: More outputs, each recorded when the script writes it
+      and not missed when it does not, such as a file a script writes only on
+      some of its paths.
   """
 
   argv: Sequence[str]
@@ -1367,6 +1386,7 @@ class ScriptSpec:
   memory_gb: float | None = None
   optional_inputs: Sequence[Input] = ()
   build: bool = False
+  optional_outputs: Sequence[str] = ()
 
 
 VERDICT = "verdict.json"
@@ -1593,6 +1613,7 @@ class Actions:
     result = _finish(
       ctx,
       "agent",
+      index,
       started_at,
       spec.outputs,
       passed,
@@ -1603,6 +1624,11 @@ class Actions:
       trace=trace,
       trace_format=None if trace is None else first.trace_format,
       cost_known=cost_known,
+      logs=[
+        r.log
+        for r in runs
+        if r.log is not None and r.log.is_relative_to(ctx.attempt.root)
+      ],
     )
     return dataclasses.replace(result, run=run, validation=check, fixes=fixes)
 
@@ -1623,10 +1649,17 @@ class Actions:
       ValueError: When the script builds an image (spec.build) and env is
         not the host.
     """  # noqa: DOC502
-    started_at, done, summary = self._run(ctx, spec, env, {})
-    passed = done.exit_code == 0
+    ran = self._run(ctx, spec, env, {})
     return _finish(
-      ctx, "script", started_at, spec.outputs, passed, done.log, summary=summary
+      ctx,
+      "script",
+      ran.index,
+      ran.started_at,
+      spec.outputs,
+      ran.done.exit_code == 0,
+      ran.done.log,
+      summary=ran.summary,
+      optional=spec.optional_outputs,
     )
 
   def judge(
@@ -1654,7 +1687,7 @@ class Actions:
     record = ctx.attempt.root / "records" / ctx.state / f"{ctx.visit}.json"
     record.parent.mkdir(parents=True, exist_ok=True)
     _ = record.write_text(json.dumps(ctx.attempt.to_json()))
-    started_at, done, summary = self._run(
+    ran = self._run(
       ctx,
       spec,
       HOST,
@@ -1666,6 +1699,7 @@ class Actions:
         "DATAFORGE_RECORD": str(record),
       },
     )
+    done = ran.done
     verdict, why = None, f"the judge exited {done.exit_code}"
     if done.exit_code == 0:
       try:
@@ -1683,11 +1717,13 @@ class Actions:
     _ = _finish(
       ctx,
       "judge",
-      started_at,
+      ran.index,
+      ran.started_at,
       spec.outputs,
       verdict is not None,
       log,
-      summary=summary,
+      summary=ran.summary,
+      optional=spec.optional_outputs,
     )
     if verdict is None:
       raise JudgeError(f"{ctx.state} visit {ctx.visit}: {why}\n{done.log}")
@@ -1699,13 +1735,14 @@ class Actions:
     spec: ScriptSpec,
     env: Env,
     variables: Mapping[str, str],
-  ) -> tuple[datetime, CommandResult, str | None]:
+  ) -> _Ran:
     # Runs a script, collects its outputs and reads its summary; the caller
     # records it.
     if spec.build and not isinstance(env, Host):
       # A Docker env's container may hold the pool's memory already.
       raise ValueError("a script that builds an image runs on the host")
-    index, started_at = ctx.claim(spec.outputs), datetime.now(UTC)
+    names = [*spec.outputs, *spec.optional_outputs]
+    index, started_at = ctx.claim(names), datetime.now(UTC)
     inputs = ctx.resolve(spec.inputs, spec.optional_inputs)
     memory_gb = spec.memory_gb if isinstance(env, Host) else None
     with _reserve(self.pool, memory_gb, spec.build):
@@ -1726,7 +1763,7 @@ class Actions:
     summary = None
     if staged.summary is not None:
       summary = _summary(summary_path(ctx, index))
-    return started_at, done, summary
+    return _Ran(index, started_at, done, summary)
 
   def trial(
     self,
@@ -2081,9 +2118,18 @@ def _remove(path: Path) -> None:
     path.unlink(missing_ok=True)
 
 
+@dataclass(frozen=True)
+class _Ran:
+  index: int
+  started_at: datetime
+  done: CommandResult
+  summary: str | None
+
+
 def _finish(
   ctx: Context,
   kind: str,
+  index: int,
   started_at: datetime,
   names: Sequence[str],
   passed: bool,
@@ -2092,19 +2138,26 @@ def _finish(
   cost_usd: float = 0.0,
   summary: str | None = None,
   *,
+  optional: Sequence[str] = (),
   session: Data | None = None,
   trace: Path | None = None,
   trace_format: str | None = None,
   cost_known: bool = True,
+  logs: Sequence[Path] = (),
 ) -> ActionResult:
   outputs = {
-    name: ctx.outdir / name for name in names if (ctx.outdir / name).exists()
+    name: ctx.outdir / name
+    for name in [*names, *optional]
+    if (ctx.outdir / name).exists()
   }
   missing = [name for name in names if name not in outputs]
   if missing:
     passed = False
     log += f"\nmissing outputs: {', '.join(missing)}"
   status = "ok" if passed else "failed"
+  path = log_path(ctx, index)
+  path.parent.mkdir(parents=True, exist_ok=True)
+  _ = path.write_text(log)
   ctx.record(
     ActionRecord(
       kind,
@@ -2118,6 +2171,7 @@ def _finish(
       trace=trace,
       trace_format=trace_format,
       cost_known=cost_known,
+      logs=[*logs, path],
     )
   )
   return ActionResult(

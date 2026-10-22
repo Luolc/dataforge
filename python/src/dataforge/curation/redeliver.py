@@ -23,7 +23,7 @@ from pathlib import Path
 import stat
 from typing import cast, Literal
 
-from dataforge.curation.engine import Attempt, Machine, RecordError
+from dataforge.curation.engine import Attempt, ENDING, Machine, RecordError
 
 type Action = Literal["skip", "same", "change", "wrote", "error"]
 
@@ -158,7 +158,7 @@ def _not_ended(
       return f"its status {status!r} is a word of an attempt not ended"
     return None
   if status is None and not (
-    attempt.visits and attempt.visits[-1].outcome == "raised"
+    attempt.visits and attempt.visits[-1].outcome in ENDING
   ):
     return "its status is null and its last visit did not raise"
   return None

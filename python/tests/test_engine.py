@@ -13,6 +13,7 @@ from typing import cast, Literal, override
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation import (
   ActionRecord,
   ActionResult,
@@ -539,6 +540,29 @@ def test_a_raising_state_is_recorded_and_raised(tmp_path: Path) -> None:
   with pytest.raises(OSError, match="disk full"):
     _ = machine.run(tmp_path)
   assert seen == [None, "raised"]
+
+
+@pytest.mark.parametrize(
+  "error",
+  [
+    pytest.param(SystemExit(143), id="sigterm-as-systemexit"),
+    pytest.param(KeyboardInterrupt(), id="keyboardinterrupt"),
+    pytest.param(stopping.Stopped(), id="stopped"),
+  ],
+)
+def test_an_interrupted_state_is_recorded_as_interrupted(
+  tmp_path: Path, error: BaseException
+) -> None:
+  def step(ctx: Context) -> Outcome:
+    raise error
+
+  seen: list[str | None] = []
+  machine = Machine(
+    [Step("a", step, {})], on_step=lambda a: seen.append(a.visits[-1].outcome)
+  )
+  with pytest.raises(type(error)):
+    _ = machine.run(tmp_path)
+  assert seen == [None, "interrupted"]
 
 
 def test_a_raising_guard_or_on_step_adds_nothing_to_the_record(
@@ -1982,6 +2006,25 @@ def test_a_killed_attempt_resumes_where_it_stopped(
   assert feedback == ["report"]
 
 
+def test_an_interrupted_visit_is_left_out_and_run_again(tmp_path: Path) -> None:
+  root = tmp_path / "attempt"
+  fake = Resumable(root)
+  fake.kill.add(("judge", 2))
+  steps: list[dict[str, object]] = []
+  with pytest.raises(Killed):
+    _ = fake.machine(lambda attempt: steps.append(as_json(attempt))).run(root)
+  visits = cast(list[dict[str, object]], steps[-1]["visits"])
+  visits[-1]["outcome"] = "interrupted"
+
+  resumed = fake.machine().resume(Attempt.from_json(root, steps[-1]))
+
+  assert resumed.status == "too_easy"
+  [resumption] = resumed.resumptions
+  assert [(d["state"], d["outcome"]) for d in resumption.discarded] == [
+    ("judge", "interrupted")
+  ]
+
+
 @pytest.mark.parametrize(
   ("step", "discarded"),
   [
@@ -2114,6 +2157,14 @@ def test_a_record_reads_back_whole(tmp_path: Path, validator: Path) -> None:
   assert Attempt.from_json(tmp_path / "attempt", record).to_json() == record
 
 
+def test_a_record_from_before_logs_reads_back_with_none(tmp_path: Path) -> None:
+  record = broken(
+    ended(tmp_path), ["visits", 0, "actions", 0, "logs"], KeyError
+  )
+  attempt = Attempt.from_json(tmp_path, record)
+  assert attempt.visits[0].actions[0].logs == []
+
+
 def broken(
   record: dict[str, object], path: list[str | int], value: object
 ) -> dict[str, object]:
@@ -2148,6 +2199,12 @@ def broken(
     ),
     (["visits", 0, "actions", 0, "session"], [], "session: not an object"),
     (["resumptions"], {}, "resumptions is not a list"),
+    (["visits", 0, "actions", 0, "logs"], {}, "logs is not a list"),
+    (
+      ["visits", 0, "actions", 0, "logs"],
+      ["../log"],
+      r"logs\[0\]: '../log' is not inside the attempt",
+    ),
   ],
 )
 def test_a_malformed_record_is_a_record_error(

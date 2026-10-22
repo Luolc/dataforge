@@ -181,6 +181,7 @@ def _record() -> Fingerprint:
     session={"session": "id"},
     trace=root / "trace",
     trace_format="format",
+    logs=[root / "log"],
   )
   visit = Visit(
     state="state",
