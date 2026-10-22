@@ -9,7 +9,8 @@
 //    crosses, its label's dummy in the layer next to the box it leaves.
 // 4. Sweeps by barycentre order each layer, keeping the order with the
 //    fewest crossings.
-// 5. Heights by Brandes and Köpf: blocks of elements aligned with their
+// 5. Every box is as tall as the ports of the busiest side of any box need.
+//    Heights by Brandes and Köpf: blocks of elements aligned with their
 //    median neighbours, packed, in four directions balanced. Then each port
 //    on a box's side as level with the other end of its edge as the box
 //    allows, and a link's dummies level with a port where there is room.
@@ -82,6 +83,14 @@ const SWEEPS = 24;
 /** How far an arrow's end stops short of the box it reaches. */
 const ARROW = 3;
 
+/** A link as an edge of the acyclic graph, from box u to box v. */
+interface Arc {
+  u: number;
+  v: number;
+  back: boolean;
+  label: { width: number; height: number };
+}
+
 interface Element {
   layer: number;
   /** The box; null for a dummy. */
@@ -105,16 +114,42 @@ interface Segment {
   pb: number;
 }
 
+interface Graph {
+  layers: Element[][];
+  elements: Element[];
+  /** Each box's element, in the boxes' order. */
+  nodes: Element[];
+  /** Each arc's elements, from u to v. */
+  chains: Element[][];
+  segments: Segment[];
+}
+
+/** The segments on one side of a box, in the order of their ports. */
+interface Side {
+  el: Element;
+  list: Segment[];
+  right: boolean;
+}
+
 export function layered(boxes: Box[], links: Link[]): Drawing {
+  const arcs = acyclic(boxes, links);
+  const graph = build(boxes, arcs, rank(boxes.length, arcs));
+  order(graph);
+  const sides = portSides(graph);
+  for (const [el, y] of heights(graph, arcs)) el.y = y;
+  level(graph, sides);
+  return route(links, arcs, graph);
+}
+
+/** 1. Each link as an arc, reversed when it goes against the boxes' order. */
+function acyclic(boxes: Box[], links: Link[]): Arc[] {
   const index = new Map(boxes.map((b, i) => [b.key, i]));
   const at = (key: string) => {
     const i = index.get(key);
     if (i === undefined) throw new Error(`${key} is not a box`);
     return i;
   };
-
-  // 1. Each link as an edge of the acyclic graph, from u to v.
-  const edges = links.map((l) => {
+  return links.map((l) => {
     const f = at(l.from);
     const t = at(l.to);
     if (f === t) throw new Error(`${l.key} loops`);
@@ -122,34 +157,40 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
       ? { u: f, v: t, back: false, label: l.label }
       : { u: t, v: f, back: true, label: l.label };
   });
+}
 
-  // 2. Ranks: the longest path, then each box moved, while that shortens
-  // the edges, as far towards the side with more edges as they allow.
-  const rank = boxes.map(() => 0);
-  for (const e of [...edges].sort((p, q) => p.v - q.v))
+/**
+ * 2. Each box's rank, from 0: the longest path, then each box moved, while
+ * that shortens the arcs, as far towards its side with more arcs as they
+ * allow.
+ */
+function rank(count: number, arcs: Arc[]): number[] {
+  const rank = Array.from({ length: count }, () => 0);
+  for (const e of [...arcs].sort((p, q) => p.v - q.v))
     rank[e.v] = Math.max(rank[e.v] ?? 0, (rank[e.u] ?? 0) + 1);
-  for (let moved = true, n = 0; moved && n < boxes.length * 4; n++) {
+  for (let moved = true, n = 0; moved && n < count * 4; n++) {
     moved = false;
-    boxes.forEach((_, i) => {
-      const ins = edges.filter((e) => e.v === i).map((e) => rank[e.u] ?? 0);
-      const outs = edges.filter((e) => e.u === i).map((e) => rank[e.v] ?? 0);
+    rank.forEach((was, i) => {
+      const ins = arcs.filter((e) => e.v === i).map((e) => rank[e.u] ?? 0);
+      const outs = arcs.filter((e) => e.u === i).map((e) => rank[e.v] ?? 0);
       const r =
         ins.length > outs.length
           ? Math.max(...ins) + 1
           : outs.length > ins.length
             ? Math.min(...outs) - 1
-            : (rank[i] ?? 0);
-      if (r !== rank[i]) {
+            : was;
+      if (r !== was) {
         rank[i] = r;
         moved = true;
       }
     });
   }
   const low = Math.min(0, ...rank);
-  const ranks = rank.map((r) => r - low);
-  const layerCount = 2 * Math.max(0, ...ranks) + 1;
+  return rank.map((r) => r - low);
+}
 
-  // 3. The elements of each layer, and the segments between them.
+/** 3. The elements of each layer, and the segments between them. */
+function build(boxes: Box[], arcs: Arc[], ranks: number[]): Graph {
   const elements: Element[] = [];
   const make = (
     layer: number,
@@ -170,7 +211,7 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
     return el;
   };
   const nodes = boxes.map((b, i) => make(2 * (ranks[i] ?? 0), b, null));
-  const chains = edges.map((e) => {
+  const chains = arcs.map((e) => {
     const from = must(nodes[e.u]);
     const to = must(nodes[e.v]);
     // The label sits next to the box the link leaves.
@@ -181,24 +222,25 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
     chain.push(to);
     return chain;
   });
-  const segments: Segment[] = chains.flatMap((chain, li) =>
-    chain.slice(1).map((b, i) => ({
-      link: li,
-      a: must(chain[i]),
-      b,
-      pa: 0,
-      pb: 0,
-    })),
+  const segments = chains.flatMap((chain, link) =>
+    chain
+      .slice(1)
+      .map((b, i): Segment => ({ link, a: must(chain[i]), b, pa: 0, pb: 0 })),
   );
-  const layers: Element[][] = Array.from({ length: layerCount }, () => []);
+  const layers: Element[][] = Array.from(
+    { length: 2 * Math.max(0, ...ranks) + 1 },
+    () => [],
+  );
   for (const el of elements) layers[el.layer]?.push(el);
+  return { layers, elements, nodes, chains, segments };
+}
 
-  // 4. The order in each layer.
-  const left = (el: Element) => segments.filter((s) => s.b === el);
-  const right = (el: Element) => segments.filter((s) => s.a === el);
+/** 4. The order in each layer, by barycentre sweeps. */
+function order({ layers, segments }: Graph) {
+  const count = layers.length;
   const crossings = () => {
     let n = 0;
-    for (let l = 0; l + 1 < layerCount; l++) {
+    for (let l = 0; l + 1 < count; l++) {
       const between = segments.filter((s) => s.a.layer === l);
       between.forEach((s, i) => {
         for (const t of between.slice(i + 1))
@@ -213,9 +255,9 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
   const sortBy = (layer: Element[], down: boolean) => {
     const centre = new Map(
       layer.map((el) => {
-        const near = (down ? left(el) : right(el)).map((s) =>
-          down ? s.a.pos : s.b.pos,
-        );
+        const near = segments
+          .filter((s) => (down ? s.b === el : s.a === el))
+          .map((s) => (down ? s.a.pos : s.b.pos));
         const mean =
           near.length > 0
             ? near.reduce((x, y) => x + y, 0) / near.length
@@ -228,7 +270,7 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
     );
   };
   number();
-  for (let l = 1; l < layerCount; l++) {
+  for (let l = 1; l < count; l++) {
     sortBy(must(layers[l]), true);
     number();
   }
@@ -236,9 +278,8 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
   let fewest = crossings();
   for (let sweep = 0; sweep < SWEEPS && fewest > 0; sweep++) {
     const down = sweep % 2 === 0;
-    for (let k = 1; k < layerCount; k++) {
-      const l = down ? k : layerCount - 1 - k;
-      sortBy(must(layers[l]), down);
+    for (let k = 1; k < count; k++) {
+      sortBy(must(layers[down ? k : count - 1 - k]), down);
       number();
     }
     const n = crossings();
@@ -249,50 +290,66 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
   }
   best.forEach((layer, l) => (layers[l] = layer));
   number();
+}
 
-  // Ports: those on one side of a box in the order of the elements at their
-  // other ends, the links between the same two boxes by their order. A box
-  // is tall enough for the ports of its busier side.
+/**
+ * 5. Each box's sides, the segments on each in the order of the elements at
+ * their other ends, the links between the same two boxes by their order;
+ * and every box as tall as the busiest side of any box needs.
+ */
+function portSides({ nodes, segments }: Graph): Side[] {
   const sorted = (list: Segment[], other: (s: Segment) => Element) =>
     [...list].sort((p, q) =>
       then(other(p).pos - other(q).pos, p.link - q.link),
     );
-  const sides = nodes.flatMap((el) => {
-    const box = must(el.box);
-    const ins = sorted(left(el), (s) => s.a);
-    const outs = sorted(right(el), (s) => s.b);
-    const most = Math.max(ins.length, outs.length);
-    const height = Math.max(box.height, (most - 1) * PORT + 2 * PORT_END);
-    el.up = height / 2 + box.above;
-    el.down = height / 2;
-    return [
-      { el, list: ins, right: false },
-      { el, list: outs, right: true },
-    ];
-  });
-
-  // 5. Heights: Brandes and Köpf's four alignments, balanced.
-  const gap = (a: Element, b: Element) =>
-    a.box && b.box ? GAP_BOXES : a.box || b.box ? GAP_BOX : GAP_EDGES;
-  const runs = [true, false].flatMap((ahead) =>
-    [true, false].map((downward) =>
-      align(
-        layers,
-        segments,
-        edges.map((e) => e.back),
-        ahead,
-        downward,
-        gap,
+  const sides = nodes.flatMap((el): Side[] => [
+    {
+      el,
+      list: sorted(
+        segments.filter((s) => s.b === el),
+        (s) => s.a,
       ),
-    ),
+      right: false,
+    },
+    {
+      el,
+      list: sorted(
+        segments.filter((s) => s.a === el),
+        (s) => s.b,
+      ),
+      right: true,
+    },
+  ]);
+  const height = Math.max(
+    ...nodes.map((el) => must(el.box).height),
+    ...sides.map((s) => (s.list.length - 1) * PORT + 2 * PORT_END),
   );
-  // Each run shifted to the narrowest one's top or bottom, by its side.
-  const extent = (ys: Map<Element, number>) => {
-    const tops = elements.map((el) => must(ys.get(el)) - el.up);
-    const bottoms = elements.map((el) => must(ys.get(el)) + el.down);
-    return { top: Math.min(...tops), bottom: Math.max(...bottoms) };
-  };
-  const extents = runs.map(extent);
+  for (const el of nodes) {
+    el.up = height / 2 + must(el.box).above;
+    el.down = height / 2;
+  }
+  return sides;
+}
+
+/** The gap kept between two elements next to each other in a layer. */
+const gap = (a: Element, b: Element) =>
+  a.box && b.box ? GAP_BOXES : a.box || b.box ? GAP_BOX : GAP_EDGES;
+
+/**
+ * 5. Each element's height, at its middle: Brandes and Köpf's four
+ * alignments, each shifted to the narrowest one's top or bottom by its
+ * side, and the mean of the middle two; the top of all at MARGIN.
+ */
+function heights(graph: Graph, arcs: Arc[]): Map<Element, number> {
+  const { elements } = graph;
+  const reversed = arcs.map((e) => e.back);
+  const runs = [true, false].flatMap((ahead) =>
+    [true, false].map((downward) => align(graph, reversed, ahead, downward)),
+  );
+  const extents = runs.map((ys) => ({
+    top: Math.min(...elements.map((el) => must(ys.get(el)) - el.up)),
+    bottom: Math.max(...elements.map((el) => must(ys.get(el)) + el.down)),
+  }));
   const narrowest = must(
     extents.reduce((m, e) => (e.bottom - e.top < m.bottom - m.top ? e : m)),
   );
@@ -302,194 +359,16 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
       i % 2 === 0 ? narrowest.top - e.top : narrowest.bottom - e.bottom;
     for (const el of elements) ys.set(el, must(ys.get(el)) + by);
   });
-  for (const el of elements) {
-    const [, b, c] = runs.map((ys) => must(ys.get(el))).sort((p, q) => p - q);
-    el.y = (must(b) + must(c)) / 2;
-  }
-  const top = Math.min(...elements.map((el) => el.y - el.up));
-  for (const el of elements) el.y = Math.round(el.y - top + MARGIN);
-
-  // Each port as level with the other end of its edge as the box and the
-  // ports' order and gaps allow; twice, for the edges between two boxes.
-  const ports = () => {
-    for (let n = 0; n < 2; n++)
-      for (const { el, list, right } of sides) {
-        const wants = list.map((s) =>
-          right ? s.b.y + s.pb - el.y : s.a.y + s.pa - el.y,
-        );
-        const room = el.down - PORT_END;
-        const at = spread(wants, PORT, -room, room);
-        list.forEach((s, i) => {
-          if (right) s.pa = must(at[i]);
-          else s.pb = must(at[i]);
-        });
-      }
-  };
-  ports();
-
-  // Then a link's dummies level with one of its ports, where that keeps
-  // the gaps in their layers and turns the link fewer times.
-  const turns = (link: number) =>
-    segments.filter((s) => s.link === link && s.a.y + s.pa !== s.b.y + s.pb)
-      .length;
-  const fits = (el: Element, y: number) => {
-    const layer = must(layers[el.layer]);
-    const above = layer[el.pos - 1];
-    const under = layer[el.pos + 1];
-    return (
-      (!above || above.y + above.down + gap(above, el) + el.up <= y) &&
-      (!under || y + el.down + gap(el, under) + under.up <= under.y)
-    );
-  };
-  for (let n = 0; n < 3; n++) {
-    chains.forEach((chain, li) => {
-      const dummies = chain.slice(1, -1);
-      const mine = segments.filter((s) => s.link === li);
-      const first = must(mine[0]);
-      const last = must(mine.at(-1));
-      for (const y of [first.a.y + first.pa, last.b.y + last.pb]) {
-        if (dummies.length === 0 || !dummies.every((d) => fits(d, y))) continue;
-        const before = dummies.map((d) => d.y);
-        const was = turns(li);
-        for (const d of dummies) d.y = y;
-        if (turns(li) < was) break;
-        dummies.forEach((d, i) => (d.y = must(before[i])));
-      }
-    });
-    ports();
-  }
-
-  // 6. Widths, and the tracks between each two layers.
-  const widths = layers.map((layer) =>
-    Math.max(MIN_LAYER, ...layer.map((el) => el.width)),
+  const balanced = new Map(
+    elements.map((el) => {
+      const [, b, c] = runs.map((ys) => must(ys.get(el))).sort((p, q) => p - q);
+      return [el, (must(b) + must(c)) / 2];
+    }),
   );
-  const yOf = (el: Element, port: number) => el.y + port;
-  const tracks = new Map<Segment, number>();
-  const channels = widths.slice(1).map((_, l) => {
-    const between = segments.filter(
-      (s) => s.a.layer === l && yOf(s.a, s.pa) !== yOf(s.b, s.pb),
-    );
-    const span = (s: Segment) => {
-      const ya = yOf(s.a, s.pa);
-      const yb = yOf(s.b, s.pb);
-      return [Math.min(ya, yb), Math.max(ya, yb)] as const;
-    };
-    // Going up, the upper turns first; going down, the lower. And where
-    // one starts level with where another ends, it turns first, so that
-    // the two do not run along each other.
-    const ups = between
-      .filter((s) => yOf(s.b, s.pb) < yOf(s.a, s.pa))
-      .sort((p, q) => yOf(p.a, p.pa) - yOf(q.a, q.pa));
-    const downs = between
-      .filter((s) => yOf(s.b, s.pb) > yOf(s.a, s.pa))
-      .sort((p, q) => yOf(q.a, q.pa) - yOf(p.a, p.pa));
-    const overlap = (
-      p: readonly [number, number],
-      q: readonly [number, number],
-    ) => p[0] <= q[1] + GAP_EDGES && q[0] <= p[1] + GAP_EDGES;
-    const before = (o: Segment, s: Segment) => {
-      const group = ups.includes(o) ? ups : downs;
-      return (
-        (group.includes(s) &&
-          group.indexOf(o) < group.indexOf(s) &&
-          overlap(span(o), span(s))) ||
-        yOf(o.a, o.pa) === yOf(s.b, s.pb)
-      );
-    };
-    const used: (readonly [number, number])[][] = [];
-    const waiting = [...ups, ...downs];
-    while (waiting.length > 0) {
-      const i = waiting.findIndex((s) => !waiting.some((o) => before(o, s)));
-      const [s] = waiting.splice(Math.max(0, i), 1);
-      if (!s) break;
-      const mine = span(s);
-      let t =
-        Math.max(
-          -1,
-          ...between
-            .filter((o) => tracks.has(o) && before(o, s))
-            .map((o) => tracks.get(o) ?? 0),
-        ) + 1;
-      while (used[t]?.some((o) => overlap(o, mine)) === true) t++;
-      (used[t] ??= []).push(mine);
-      tracks.set(s, t);
-    }
-    return used.length === 0
-      ? MIN_CHANNEL
-      : Math.max(MIN_CHANNEL, 2 * TRACK_END + (used.length - 1) * TRACK);
-  });
-  const xs: number[] = [];
-  let x = MARGIN;
-  widths.forEach((w, l) => {
-    xs.push(x);
-    x += w + (channels[l] ?? 0);
-  });
-  const width = x + MARGIN;
-  const height = Math.max(...elements.map((el) => el.y + el.down)) + MARGIN;
-
-  const placed = new Map<string, Placed>();
-  for (const el of nodes) {
-    const box = must(el.box);
-    placed.set(box.key, {
-      x: Math.round(
-        must(xs[el.layer]) + (must(widths[el.layer]) - box.width) / 2,
-      ),
-      y: el.y - el.down,
-      height: el.up - box.above + el.down,
-    });
-  }
-  const sideOf = (el: Element, right: boolean) => {
-    if (!el.box)
-      return must(xs[el.layer]) + (right ? must(widths[el.layer]) : 0);
-    const p = must(placed.get(el.box.key));
-    return right ? p.x + el.box.width : p.x;
-  };
-
-  const routed = new Map<string, Routed>();
-  links.forEach((link, li) => {
-    const edge = must(edges[li]);
-    const chain = must(chains[li]);
-    const mine = segments.filter((s) => s.link === li);
-    const first = must(mine[0]);
-    const points: [number, number][] = [
-      [sideOf(first.a, true), yOf(first.a, first.pa)],
-    ];
-    for (const s of mine) {
-      const ya = yOf(s.a, s.pa);
-      const yb = yOf(s.b, s.pb);
-      const t = tracks.get(s);
-      if (t === undefined) continue;
-      const l = s.a.layer;
-      const tx = must(xs[l]) + must(widths[l]) + TRACK_END + t * TRACK;
-      points.push([tx, ya], [tx, yb]);
-    }
-    const last = must(mine.at(-1));
-    points.push([sideOf(last.b, false), yOf(last.b, last.pb)]);
-    if (edge.back) points.reverse();
-    const start = must(points[0]);
-    const end = must(points.at(-1));
-    const ports: Routed["ports"] = [[...start], [...end]];
-    // Room for the arrow at the end.
-    end[0] += edge.back ? ARROW : -ARROW;
-
-    const dummy = must(chain.find((el) => el.label !== null));
-    const labelBox = must(dummy.label);
-    const lx = must(xs[dummy.layer]);
-    const lw = must(widths[dummy.layer]);
-    routed.set(link.key, {
-      points,
-      ports,
-      back: edge.back,
-      label: {
-        x: edge.back ? lx + lw - labelBox.width : lx,
-        y: dummy.y - LIFT - labelBox.height,
-        width: labelBox.width,
-        height: labelBox.height,
-      },
-    });
-  });
-
-  return { width, height, boxes: placed, links: routed };
+  const top = Math.min(...elements.map((el) => must(balanced.get(el)) - el.up));
+  for (const [el, y] of balanced)
+    balanced.set(el, Math.round(y - top + MARGIN));
+  return balanced;
 }
 
 /**
@@ -502,12 +381,10 @@ export function layered(boxes: Box[], links: Link[]): Drawing {
  * height, at its middle.
  */
 function align(
-  layers: Element[][],
-  segments: Segment[],
+  { layers, segments }: Graph,
   reversed: boolean[],
   ahead: boolean,
   downward: boolean,
-  gap: (a: Element, b: Element) => number,
 ): Map<Element, number> {
   const order = (ahead ? layers : [...layers].reverse()).map((layer) =>
     downward ? layer : [...layer].reverse(),
@@ -595,6 +472,204 @@ function align(
   const ys = new Map<Element, number>();
   for (const [el, b] of root) ys.set(el, sign * must(y.get(b)));
   return ys;
+}
+
+/**
+ * 5. Each port as level with the other end of its edge as the box and the
+ * ports' order and gaps allow, twice for the edges between two boxes; then
+ * a link's dummies level with one of its ports, where that keeps the gaps
+ * in their layers and turns the link fewer times.
+ */
+function level({ layers, chains, segments }: Graph, sides: Side[]) {
+  const ports = () => {
+    for (let n = 0; n < 2; n++)
+      for (const { el, list, right } of sides) {
+        const wants = list.map((s) =>
+          right ? s.b.y + s.pb - el.y : s.a.y + s.pa - el.y,
+        );
+        const room = el.down - PORT_END;
+        const at = spread(wants, PORT, -room, room);
+        list.forEach((s, i) => {
+          if (right) s.pa = must(at[i]);
+          else s.pb = must(at[i]);
+        });
+      }
+  };
+  ports();
+
+  const turns = (link: number) =>
+    segments.filter((s) => s.link === link && s.a.y + s.pa !== s.b.y + s.pb)
+      .length;
+  const fits = (el: Element, y: number) => {
+    const layer = must(layers[el.layer]);
+    const above = layer[el.pos - 1];
+    const under = layer[el.pos + 1];
+    return (
+      (!above || above.y + above.down + gap(above, el) + el.up <= y) &&
+      (!under || y + el.down + gap(el, under) + under.up <= under.y)
+    );
+  };
+  for (let n = 0; n < 3; n++) {
+    chains.forEach((chain, li) => {
+      const dummies = chain.slice(1, -1);
+      const mine = segments.filter((s) => s.link === li);
+      const first = must(mine[0]);
+      const last = must(mine.at(-1));
+      for (const y of [first.a.y + first.pa, last.b.y + last.pb]) {
+        if (dummies.length === 0 || !dummies.every((d) => fits(d, y))) continue;
+        const before = dummies.map((d) => d.y);
+        const was = turns(li);
+        for (const d of dummies) d.y = y;
+        if (turns(li) < was) break;
+        dummies.forEach((d, i) => (d.y = must(before[i])));
+      }
+    });
+    ports();
+  }
+}
+
+/**
+ * 6. Each layer's width, the tracks between each two layers, and each
+ * box's place and link's corners, ports and label.
+ */
+function route(links: Link[], arcs: Arc[], graph: Graph): Drawing {
+  const { layers, elements, nodes, chains, segments } = graph;
+  const widths = layers.map((layer) =>
+    Math.max(MIN_LAYER, ...layer.map((el) => el.width)),
+  );
+  const tracks = new Map<Segment, number>();
+  const channels = widths.slice(1).map((_, l) =>
+    channel(
+      segments.filter((s) => s.a.layer === l),
+      tracks,
+    ),
+  );
+  const xs: number[] = [];
+  let x = MARGIN;
+  widths.forEach((w, l) => {
+    xs.push(x);
+    x += w + (channels[l] ?? 0);
+  });
+
+  const boxes = new Map<string, Placed>();
+  for (const el of nodes) {
+    const box = must(el.box);
+    boxes.set(box.key, {
+      x: Math.round(
+        must(xs[el.layer]) + (must(widths[el.layer]) - box.width) / 2,
+      ),
+      y: el.y - el.down,
+      height: el.up - box.above + el.down,
+    });
+  }
+  const sideOf = (el: Element, right: boolean) => {
+    if (!el.box)
+      return must(xs[el.layer]) + (right ? must(widths[el.layer]) : 0);
+    const p = must(boxes.get(el.box.key));
+    return right ? p.x + el.box.width : p.x;
+  };
+
+  const routed = new Map<string, Routed>();
+  links.forEach((link, li) => {
+    const arc = must(arcs[li]);
+    const mine = segments.filter((s) => s.link === li);
+    const first = must(mine[0]);
+    const points: [number, number][] = [
+      [sideOf(first.a, true), first.a.y + first.pa],
+    ];
+    for (const s of mine) {
+      const t = tracks.get(s);
+      if (t === undefined) continue;
+      const l = s.a.layer;
+      const tx = must(xs[l]) + must(widths[l]) + TRACK_END + t * TRACK;
+      points.push([tx, s.a.y + s.pa], [tx, s.b.y + s.pb]);
+    }
+    const last = must(mine.at(-1));
+    points.push([sideOf(last.b, false), last.b.y + last.pb]);
+    if (arc.back) points.reverse();
+    const start = must(points[0]);
+    const end = must(points.at(-1));
+    const ports: Routed["ports"] = [[...start], [...end]];
+    // Room for the arrow at the end.
+    end[0] += arc.back ? ARROW : -ARROW;
+
+    const dummy = must(must(chains[li]).find((el) => el.label !== null));
+    const label = must(dummy.label);
+    const lx = must(xs[dummy.layer]);
+    const lw = must(widths[dummy.layer]);
+    routed.set(link.key, {
+      points,
+      ports,
+      back: arc.back,
+      label: {
+        x: arc.back ? lx + lw - label.width : lx,
+        y: dummy.y - LIFT - label.height,
+        width: label.width,
+        height: label.height,
+      },
+    });
+  });
+
+  return {
+    width: x + MARGIN,
+    height: Math.max(...elements.map((el) => el.y + el.down)) + MARGIN,
+    boxes,
+    links: routed,
+  };
+}
+
+/**
+ * Puts each segment between two layers that changes height in a track, and
+ * returns the width the tracks need. Going up, the upper turns first; going
+ * down, the lower. And where one starts level with where another ends, it
+ * turns first, so that the two do not run along each other.
+ */
+function channel(all: Segment[], tracks: Map<Segment, number>): number {
+  const ya = (s: Segment) => s.a.y + s.pa;
+  const yb = (s: Segment) => s.b.y + s.pb;
+  const between = all.filter((s) => ya(s) !== yb(s));
+  const span = (s: Segment) =>
+    [Math.min(ya(s), yb(s)), Math.max(ya(s), yb(s))] as const;
+  const ups = between
+    .filter((s) => yb(s) < ya(s))
+    .sort((p, q) => ya(p) - ya(q));
+  const downs = between
+    .filter((s) => yb(s) > ya(s))
+    .sort((p, q) => ya(q) - ya(p));
+  const overlap = (
+    p: readonly [number, number],
+    q: readonly [number, number],
+  ) => p[0] <= q[1] + GAP_EDGES && q[0] <= p[1] + GAP_EDGES;
+  const before = (o: Segment, s: Segment) => {
+    const group = ups.includes(o) ? ups : downs;
+    return (
+      (group.includes(s) &&
+        group.indexOf(o) < group.indexOf(s) &&
+        overlap(span(o), span(s))) ||
+      ya(o) === yb(s)
+    );
+  };
+  const used: (readonly [number, number])[][] = [];
+  const waiting = [...ups, ...downs];
+  while (waiting.length > 0) {
+    const i = waiting.findIndex((s) => !waiting.some((o) => before(o, s)));
+    const [s] = waiting.splice(Math.max(0, i), 1);
+    if (!s) break;
+    const mine = span(s);
+    let t =
+      Math.max(
+        -1,
+        ...between
+          .filter((o) => tracks.has(o) && before(o, s))
+          .map((o) => tracks.get(o) ?? 0),
+      ) + 1;
+    while (used[t]?.some((o) => overlap(o, mine)) === true) t++;
+    (used[t] ??= []).push(mine);
+    tracks.set(s, t);
+  }
+  return used.length === 0
+    ? MIN_CHANNEL
+    : Math.max(MIN_CHANNEL, 2 * TRACK_END + (used.length - 1) * TRACK);
 }
 
 /**

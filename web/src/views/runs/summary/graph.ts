@@ -82,12 +82,11 @@ export interface Edge {
   to: string;
   path: string;
   taken: boolean;
+  /** The parts one a line, the last line's baseline at y. */
   label: {
     x: number;
     y: number;
-    anchor: "start" | "middle" | "end";
-    /** Stack the parts one a line, else run them on one. */
-    stack: boolean;
+    anchor: "start" | "end";
     parts: LabelPart[];
   };
 }
@@ -307,7 +306,6 @@ export function layout(
           x: a - LOOP_GAP,
           y: y - 6,
           anchor: "end",
-          stack: true,
           parts: g.parts,
         },
       };
@@ -325,7 +323,6 @@ export function layout(
         // The baseline of the label's last line.
         y: r.label.y + r.label.height - DESCENT,
         anchor: r.back ? "end" : "start",
-        stack: true,
         parts: g.parts,
       },
     };

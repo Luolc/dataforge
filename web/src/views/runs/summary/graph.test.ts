@@ -156,17 +156,11 @@ function shapesOf(path: string) {
 /** A label's box: 7 a character, 14 a line, its last line's baseline at y. */
 function labelBox(edge: Edge): Rect {
   const { label } = edge;
-  const text = label.parts.map(
+  const lines = label.parts.map(
     (p) => `${p.outcome}${p.taken > 0 ? ` ×${String(p.taken)}` : ""}`,
   );
-  const lines = label.stack ? text : [text.join(", ")];
   const w = Math.max(...lines.map((l) => l.length)) * 7;
-  const x0 =
-    label.anchor === "start"
-      ? label.x
-      : label.anchor === "end"
-        ? label.x - w
-        : label.x - w / 2;
+  const x0 = label.anchor === "start" ? label.x : label.x - w;
   return {
     x0,
     y0: label.y - 10 - (lines.length - 1) * 14,
@@ -250,52 +244,104 @@ function clashes(drawn: Layout): string[] {
   return found;
 }
 
-// Synthetic machines from a seeded generator: states with loops, edges
-// ahead and back, and ends, as many of each as a machine may have.
-function machines(count: number): AttemptRecord[] {
-  let seed = 7;
+// A synthetic machine from a seeded generator (an LCG, its high bits): 1 to
+// most states, 1 to outs outcomes each, of words from 1 to 19 characters;
+// a fifth of the edges to one busy state, a tenth to the state itself, a
+// fifth to the end and the rest to any state; with walk, visits along the
+// edges, so that labels carry counts.
+const WORDS = [
+  "ok",
+  "no",
+  "x",
+  "done",
+  "pass",
+  "fail",
+  "error",
+  "held",
+  "in_range",
+  "retry_later",
+  "needs_more_work",
+  "a_very_long_outcome",
+];
+
+function machine(
+  seed: number,
+  most: number,
+  outs: number,
+  walk: boolean,
+): AttemptRecord {
+  let s = seed;
   const rand = (n: number) => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return Math.floor(seed / 65536) % n;
+    s = (s * 1103515245 + 12345) % 2147483648;
+    return Math.floor(s / 65536) % n;
   };
-  return Array.from({ length: count }, (_, m) => {
-    const names = Array.from(
-      { length: 2 + rand(10) },
-      (_, i) => `s${String(i)}`,
-    );
-    const edges = names.flatMap((from) =>
-      Array.from({ length: 1 + rand(4) }, (_, k) => {
-        const pick = rand(names.length + 2);
-        const to = pick >= names.length ? null : (names[pick] ?? null);
-        return {
-          from,
-          outcome: `o${String(k)}`,
-          to,
-          end: to === null ? "passed" : null,
-          report: false,
-          mark: null,
-          end_on_last_visit: false,
-        };
-      }),
-    );
-    return {
-      ...records.passed,
-      visits: [],
-      graph: {
-        start: must(names[0]),
-        states: names.map((name) => ({
-          name,
-          kind: "AgentState",
-          max_visits: 3,
-          on_exhausted: "exhausted",
-          max_cost_usd: null,
-        })),
-        edges,
-      },
-      round: m,
-    };
+  const names = Array.from(
+    { length: 1 + rand(most) },
+    (_, i) => `q${String(i)}`,
+  );
+  const busy = must(names[rand(names.length)]);
+  const edges = names.flatMap((from) => {
+    const used = new Set<string>();
+    return Array.from({ length: 1 + rand(outs) }, (_, k) => {
+      const word = must(WORDS[rand(WORDS.length)]);
+      const outcome = used.has(word) ? `${word}${String(k)}` : word;
+      used.add(outcome);
+      const r = rand(10);
+      const to =
+        r < 2
+          ? null
+          : r < 4
+            ? busy
+            : r < 5
+              ? from
+              : must(names[rand(names.length)]);
+      return {
+        from,
+        outcome,
+        to,
+        end: to === null ? "passed" : null,
+        report: false,
+        mark: null,
+        end_on_last_visit: false,
+      };
+    });
   });
+  const visits: AttemptRecord["visits"] = [];
+  for (let state = walk ? names[0] : undefined; state !== undefined;) {
+    const here = edges.filter((e) => e.from === state);
+    const e = must(here[rand(here.length)]);
+    visits.push({
+      ...must(records.passed.visits[0]),
+      state,
+      visit: visits.length + 1,
+      outcome: e.outcome,
+    });
+    state = visits.length < 25 ? (e.to ?? undefined) : undefined;
+  }
+  return {
+    ...records.passed,
+    visits,
+    graph: {
+      start: must(names[0]),
+      states: names.map((name) => ({
+        name,
+        kind: "AgentState",
+        max_visits: 3,
+        on_exhausted: "exhausted",
+        max_cost_usd: null,
+      })),
+      edges,
+    },
+  };
 }
+
+/** How many machines of each size the test lays out, with walks and not. */
+const SIZES = [
+  { most: 6, outs: 3, count: 800 },
+  { most: 12, outs: 5, count: 600 },
+  { most: 20, outs: 6, count: 150 },
+  { most: 30, outs: 4, count: 30 },
+];
 
 describe("the layout's shapes", () => {
   it("keep loops, labels and edges out of each other's way", () => {
@@ -309,11 +355,33 @@ describe("the layout's shapes", () => {
     expect(found).toEqual({ busy: [], early: [], tangle: [] });
   });
 
+  it("make every card as tall as the busiest side of any card needs", () => {
+    const drawn = must(layout(record.parse(tangle), sampleProject));
+    const heights = new Set(drawn.nodes.map((n) => n.height));
+
+    expect(heights.size).toBe(1);
+    expect(must([...heights][0])).toBeGreaterThan(56);
+  });
+
   it("keep out of each other's way on any machine", () => {
-    for (const rec of [...Object.values(records), ...machines(60)]) {
-      const drawn = must(layout(rec, sampleProject));
-      expect(clashes(drawn)).toEqual([]);
-    }
+    for (const rec of Object.values(records))
+      expect(clashes(must(layout(rec, sampleProject)))).toEqual([]);
+    const found = SIZES.flatMap(({ most, outs, count }) =>
+      Array.from({ length: count }, (_, i) => 100000 * most + i).flatMap(
+        (seed) =>
+          [false, true].flatMap((walk) => {
+            const drawn = must(
+              layout(machine(seed, most, outs, walk), sampleProject),
+            );
+            const c = clashes(drawn);
+            return c.length > 0
+              ? [{ seed, most, outs, walk, clashes: c.slice(0, 3) }]
+              : [];
+          }),
+      ),
+    );
+
+    expect(found).toEqual([]);
   });
 });
 

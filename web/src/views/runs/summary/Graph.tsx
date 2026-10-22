@@ -439,9 +439,8 @@ function EdgeView({
         {label.parts.map((part, i, all) => (
           <tspan
             key={part.outcome}
-            {...(label.stack
-              ? { x: label.x, y: label.y - (all.length - 1 - i) * LINE }
-              : {})}
+            x={label.x}
+            y={label.y - (all.length - 1 - i) * LINE}
             className={
               part.taken > 0
                 ? "fill-fg font-semibold"
@@ -450,7 +449,6 @@ function EdgeView({
                   : "fill-fg-3"
             }
           >
-            {!label.stack && i > 0 && ", "}
             {part.outcome}
             {part.taken > 0 && ` ×${part.taken}`}
           </tspan>
