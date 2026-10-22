@@ -219,6 +219,12 @@ export const taskMeta = z.looseObject({
 export type TaskMeta = z.infer<typeof taskMeta>;
 export type TaskPrinciple = NonNullable<TaskMeta["principles"]>[number];
 
+/** The job that ran an attempt that may have stopped, once it has ended. */
+const STOPPED = z
+  .looseObject({ job: z.number(), state: z.string() })
+  .nullable()
+  .optional();
+
 /** How an attempt that has not ended stands; null once it has ended. */
 const LIVE = ["running", "may have stopped", "not ended"] as const;
 export type Live = (typeof LIVE)[number];
@@ -251,6 +257,10 @@ export const attemptRow = z.looseObject({
   live: z.enum(LIVE).nullable().optional(),
   // Whether the item's lock is held now; null when the project names none.
   held: z.boolean().nullable().optional(),
+  // Whether the item's held lock is taken to be this attempt's.
+  holder: z.boolean().nullable().optional(),
+  // For an attempt that may have stopped, the job that ran it, once ended.
+  stopped: STOPPED,
   error: z.string().nullable(),
 });
 export type AttemptRow = z.infer<typeof attemptRow>;
@@ -261,6 +271,8 @@ export const attemptRows = z.array(attemptRow);
 export const liveInfo = z.looseObject({
   live: z.enum(LIVE).nullable(),
   held: z.boolean().nullable(),
+  holder: z.boolean().nullable().optional(),
+  stopped: STOPPED,
   current: z
     .looseObject({
       state: z.string(),

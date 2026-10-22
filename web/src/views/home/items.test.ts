@@ -46,9 +46,16 @@ describe("isEmptyAttempt", () => {
     expect(isEmptyAttempt(row("t/1", { ...empty, held: false }))).toBe(true);
   });
 
-  it("is never an attempt whose item's lock is held", () => {
-    expect(isEmptyAttempt({ ...unreadable("t/1"), held: true })).toBe(false);
-    expect(isEmptyAttempt(row("t/1", { ...empty, held: true }))).toBe(false);
+  it("is never the attempt its item's held lock is for", () => {
+    const holds = { held: true, holder: true };
+    expect(isEmptyAttempt({ ...unreadable("t/1"), ...holds })).toBe(false);
+    expect(isEmptyAttempt(row("t/1", { ...empty, ...holds }))).toBe(false);
+  });
+
+  it("is an attempt of an item whose lock is held for another", () => {
+    const another = { held: true, holder: false };
+    expect(isEmptyAttempt({ ...unreadable("t/1"), ...another })).toBe(true);
+    expect(isEmptyAttempt(row("t/1", { ...empty, ...another }))).toBe(true);
   });
 
   it("is never an attempt that is live, has a status or has a visit", () => {

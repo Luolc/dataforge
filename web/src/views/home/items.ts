@@ -25,6 +25,8 @@ export const NOT_ENDED_KEY = "~not-ended";
 export const UNREADABLE_KEY = "~unreadable";
 /** A status word for an attempt that has ended with no status word. */
 export const NO_STATUS_KEY = "~no-status";
+/** A status word for an attempt that may have stopped and has. */
+export const STOPPED_KEY = "~stopped";
 
 export type Group = "open" | "ended" | "unreadable";
 
@@ -58,6 +60,8 @@ export const notEnded = (row: AttemptRow): boolean =>
  */
 export function rowStatus(row: AttemptRow): string | null {
   if (row.error !== null) return UNREADABLE_KEY;
+  if (row.live === "may have stopped" && row.stopped != null)
+    return STOPPED_KEY;
   if (row.live !== null && row.live !== undefined) return LIVE_WORD[row.live];
   if (row.status !== null) return row.status;
   const last = row.rounds?.at(-1)?.outcome;
@@ -66,13 +70,13 @@ export function rowStatus(row: AttemptRow): string | null {
 
 /**
  * Whether an attempt is empty, which the page hides unless asked and labels
- * an older record: its record cannot be read, or it has no status and no
- * visit, and it is not live and its item's lock is not held, so where the
- * project has a lock, an attempt that has just started and has not written
- * its record yet stays shown.
+ * an older attempt: its record cannot be read, or it has no status and no
+ * visit, and it is not live and not the one its item's held lock is for, so
+ * where the project has a lock, an attempt that has just started and has not
+ * written its record yet stays shown, and its item's older ones do not.
  */
 export const isEmptyAttempt = (row: AttemptRow): boolean =>
-  row.held !== true &&
+  row.holder !== true &&
   (row.live ?? null) === null &&
   (row.error !== null ||
     (row.status === null && (row.rounds ?? []).length === 0));
@@ -165,6 +169,7 @@ export function withHomeStatuses(project: Project): Project {
       ...project.statuses,
       "~running": liveStatus.running,
       "~may-have-stopped": liveStatus["may have stopped"],
+      [STOPPED_KEY]: viewerStatus.stopped,
       [NO_STATUS_KEY]: viewerStatus.noStatus,
       [UNREADABLE_KEY]: viewerStatus.unreadable,
     },
@@ -192,7 +197,7 @@ export interface Filtered {
 }
 
 // The chips of the live words come first, unreadable last.
-const FIRST = ["~running", "~may-have-stopped", NOT_ENDED_KEY];
+const FIRST = ["~running", "~may-have-stopped", STOPPED_KEY, NOT_ENDED_KEY];
 
 /**
  * What a search and a chosen chip keep; no chip chosen (All) keeps every

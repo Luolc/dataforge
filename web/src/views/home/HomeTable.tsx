@@ -38,7 +38,7 @@ import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
-import { queuedShort } from "../queue/status";
+import { queuedShort, stateLabel } from "../queue/status";
 import {
   filterItems,
   flagged,
@@ -236,7 +236,11 @@ function parseSort(param: string | null, ids: string[]): SortingState {
 /** A status label, with the record's reason, or why it cannot be read, on hover. */
 function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   const label = <StatusLabel project={project} word={rowStatus(row)} />;
-  const why = row.error ?? row.reason;
+  const why =
+    row.error ??
+    (row.live === "may have stopped" && row.stopped != null
+      ? stoppedWhy(row.stopped)
+      : row.reason);
   if (why === null) return label;
   return (
     <Tooltip.Root>
@@ -259,6 +263,10 @@ function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
     </Tooltip.Root>
   );
 }
+
+/** Why an attempt that may have stopped has: its job has ended. */
+const stoppedWhy = (stopped: { job: number; state: string }) =>
+  `Job ${stopped.job.toString()}, which ran this attempt, ended ${stateLabel(stopped.state).label}; nothing runs it now.`;
 
 /** The row's status as an icon: a spinner while it runs. */
 function RowIcon({ project, row }: { project: Project; row: AttemptRow }) {

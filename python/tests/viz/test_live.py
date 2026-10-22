@@ -96,6 +96,9 @@ def test_an_unreadable_record_is_no_items_newest(
 
   assert found["batch-1/task-3"] is None
   assert found["batch-1/task-2"] == "running"
+  with holding(tree.root / "batch-1" / ".lock"):
+    held_for = holders(tree, static)
+  assert held_for["batch-1/task-3"] == (None, False)
 
 
 def held(tree: Tree, static: Path) -> dict[str, object]:
@@ -266,6 +269,8 @@ def test_a_running_attempt_is_in_the_state_its_last_visit_goes_to(
   assert found == {
     "live": "running",
     "held": True,
+    "holder": True,
+    "stopped": None,
     "current": {
       "state": "check",
       "visit": 1,
@@ -335,9 +340,27 @@ def test_only_a_running_attempt_has_a_current_visit(
     ended = state_of(tree, static, "task-1")
   free = state_of(tree, static, "task-2")
 
-  assert older == {"live": "may have stopped", "held": True, "current": None}
-  assert ended == {"live": None, "held": True, "current": None}
-  assert free == {"live": "may have stopped", "held": False, "current": None}
+  assert older == {
+    "live": "may have stopped",
+    "held": True,
+    "holder": False,
+    "stopped": None,
+    "current": None,
+  }
+  assert ended == {
+    "live": None,
+    "held": True,
+    "holder": False,
+    "stopped": None,
+    "current": None,
+  }
+  assert free == {
+    "live": "may have stopped",
+    "held": False,
+    "holder": False,
+    "stopped": None,
+    "current": None,
+  }
 
 
 def test_a_transition_to_the_end_has_no_current_visit(
@@ -347,7 +370,13 @@ def test_a_transition_to_the_end_has_no_current_visit(
   with holding(tree.root / "batch-1" / ".lock"):
     found = state_of(tree, static, "task-2")
 
-  assert found == {"live": "running", "held": True, "current": None}
+  assert found == {
+    "live": "running",
+    "held": True,
+    "holder": True,
+    "stopped": None,
+    "current": None,
+  }
 
 
 def test_live_refuses_an_attempt_that_is_not_there(
@@ -381,3 +410,65 @@ def test_a_visit_with_no_outcome_nor_action_began_as_the_last_ended(
     "recorded": True,
     "since": "2026-01-02T03:14:05+00:00",
   }
+
+
+def holders(tree: Tree, static: Path) -> dict[str, tuple[object, object]]:
+  web = TestClient(create_app(load_site(tree.site), static))
+  rows = cast(list[dict[str, object]], web.get(ATTEMPTS).json())
+  return {str(r["id"]): (r["live"], r["holder"]) for r in rows}
+
+
+def test_a_held_lock_is_held_for_its_items_attempt_that_wrote_last(
+  tree: Tree, static: Path
+) -> None:
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = holders(tree, static)
+  free = holders(tree, static)
+
+  assert found == {
+    "batch-1/task-2": ("running", True),
+    "batch-1/task-0": ("may have stopped", False),
+    "batch-1/task-1": (None, False),
+  }
+  assert {holder for _, holder in free.values()} == {False}
+
+
+def test_an_attempt_that_ended_since_does_not_take_the_lock_from_one_that_runs(
+  tree: Tree, static: Path
+) -> None:
+  # An older attempt ended, its record written after the one that runs, as
+  # a dataset that closes a killed attempt before going on with another.
+  write(tree, "task-0", fixture() | {"status": "error"}, 1)
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = holders(tree, static)
+
+  assert found["batch-1/task-2"] == ("running", True)
+  assert found["batch-1/task-0"] == (None, False)
+
+
+def test_an_attempt_with_no_record_yet_holds_the_lock_once_it_is_the_newest(
+  tree: Tree, static: Path
+) -> None:
+  # An attempt that has just started, its directory made after every other
+  # attempt wrote, and an old one that never wrote a record.
+  old = tree.root / "batch-1" / "task-old"
+  old.mkdir()
+  then = time.time() - 100
+  os.utime(old, (then, then))
+  (tree.root / "batch-1" / "task-3").mkdir()
+
+  with holding(tree.root / "batch-1" / ".lock"):
+    found = holders(tree, static)
+
+  assert found["batch-1/task-3"] == (None, True)
+  assert found["batch-1/task-old"] == (None, False)
+  assert found["batch-1/task-2"] == ("may have stopped", False)
+
+
+def test_without_a_lock_holder_is_null(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(PROJECT)
+
+  found = holders(tree, static)
+
+  assert {holder for _, holder in found.values()} == {None}

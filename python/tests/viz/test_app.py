@@ -288,6 +288,8 @@ def test_attempts_are_newest_first_with_their_values(
     "queued": [None, None, None],
     "live": "not ended",
     "held": None,
+    "holder": None,
+    "stopped": None,
     "error": None,
   }
   assert rows[1]["error"] == "the record is not JSON"
@@ -306,6 +308,8 @@ def test_attempts_are_newest_first_with_their_values(
     "queued": [None, None, None],
     "live": None,
     "held": None,
+    "holder": None,
+    "stopped": None,
     "error": None,
   }
   assert rows[3]["modified"] is None

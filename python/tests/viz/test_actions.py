@@ -963,3 +963,74 @@ def test_a_tab_whose_queue_cannot_be_read_says_why(
   assert (queued["job"], queued["paused"]) == (None, None)
   assert str(queued["reason"]).startswith("the queue cannot be read: ")
   assert row["queued"] == [queued]
+
+
+def ran(made: QueueTree, state: str, start: float, end: float) -> int:
+  # A job of batch-1's, queued as the page queues one, that ran from start
+  # to end and ended in state.
+  web = TestClient(
+    create_app(load_site(made.tree.site), made.work), base_url=ORIGIN
+  )
+  _ = web.post(f"{ACTIONS}/again", params={"item": "batch-1"}, headers=WRITE)
+  job = jobs(made)[0]
+  with closing(
+    sqlite3.connect(made.queue / "queue.sqlite", autocommit=True)
+  ) as conn:
+    _ = conn.execute(
+      "UPDATE jobs SET state = ?, started_at = ?, ended_at = ? WHERE id = ?",
+      (state, start, end, job.id),
+    )
+  return job.id
+
+
+def stopped_of(made: QueueTree, static: Path, name: str) -> tuple[object, ...]:
+  web = client(made, static)
+  rows = cast(
+    list[dict[str, object]], web.get("/api/projects/example/attempts").json()
+  )
+  [row] = [r for r in rows if r["id"] == f"batch-1/{name}"]
+  one = cast(
+    dict[str, object],
+    web.get(
+      "/api/projects/example/live", params={"attempt": f"batch-1/{name}"}
+    ).json(),
+  )
+  return row["live"], row["stopped"], one["stopped"]
+
+
+def test_an_attempt_whose_job_has_ended_has_stopped(
+  made: QueueTree, static: Path
+) -> None:
+  write(made, "task-2", None, 50)
+  wrote = (made.tree.root / "batch-1" / "task-2" / "record.json").stat()
+  job = ran(made, "failed", wrote.st_mtime - 100, wrote.st_mtime + 10)
+
+  found = stopped_of(made, static, "task-2")
+
+  stopped = {"job": job, "state": "failed"}
+  assert found == ("may have stopped", stopped, stopped)
+
+
+def test_an_attempt_no_ended_job_ran_may_have_stopped(
+  made: QueueTree, static: Path
+) -> None:
+  write(made, "task-2", None, 50)
+  wrote = (made.tree.root / "batch-1" / "task-2" / "record.json").stat()
+  # The job ended before the record was last written: it did not run it.
+  _ = ran(made, "canceled", wrote.st_mtime - 100, wrote.st_mtime - 10)
+
+  assert stopped_of(made, static, "task-2") == ("may have stopped", None, None)
+
+
+def test_an_attempt_whose_items_lock_is_held_has_not_stopped_for_sure(
+  made: QueueTree, static: Path
+) -> None:
+  write(made, "task-2", None, 50)
+  write(made, "task-3", None, 10)
+  wrote = (made.tree.root / "batch-1" / "task-2" / "record.json").stat()
+  _ = ran(made, "done", wrote.st_mtime - 100, wrote.st_mtime + 10)
+
+  with holding(made.tree.root / "batch-1" / ".lock"):
+    found = stopped_of(made, static, "task-2")
+
+  assert found == ("may have stopped", None, None)
