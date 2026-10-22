@@ -37,6 +37,7 @@ from dataforge.curation import (
   AgentRun,
   AgentSpec,
   AgentTask,
+  Attempt,
   CommandResult,
   Context,
   Docker,
@@ -46,6 +47,8 @@ from dataforge.curation import (
   Machine,
   Outcome,
   ResourcePool,
+  Review,
+  RubricState,
   State,
 )
 from dataforge.runtime import claude
@@ -464,9 +467,7 @@ def test_a_session_that_cannot_go_on_runs_no_fix(tmp_path: Path) -> None:
     [
       {
         "write": {"task": "draft"},
-        "lines": [
-          {**result(session_id="s1"), "subtype": "error_max_budget_usd"}
-        ],
+        "lines": [result()],
       }
     ],
   )
@@ -482,7 +483,7 @@ def test_a_session_that_cannot_go_on_runs_no_fix(tmp_path: Path) -> None:
   assert len(fake.calls()) == 1
   assert found.run is not None
   assert (found.run.ending, found.run.resumable) == (
-    "error_max_budget_usd",
+    "success",
     False,
   )
 
@@ -643,25 +644,108 @@ def test_serve_spans_each_run(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-  ("subtype", "status"),
+  ("subtype", "fault"),
   [
-    ("error_during_execution", "failed"),
-    (None, "failed"),
-    ("error_max_turns", "ok"),
-    ("error_max_budget_usd", "ok"),
+    ("error_during_execution", "infra"),
+    (None, "infra"),
+    ("error_max_turns", "budget"),
+    ("error_max_budget_usd", "budget"),
+    ("error_max_structured_output_retries", "model"),
   ],
 )
-def test_a_run_fails_only_when_it_did_no_work_to_judge(
-  tmp_path: Path, subtype: str | None, status: str
+def test_a_run_fails_on_an_ending_with_a_fault(
+  tmp_path: Path, subtype: str | None, fault: str
 ) -> None:
-  lines = [] if subtype is None else [{**result(), "subtype": subtype}]
-  fake = Fake(tmp_path, [{"lines": lines}])
+  ended = {**result(session_id="s1", is_error=True), "subtype": subtype}
+  fake = Fake(tmp_path, [{"lines": [] if subtype is None else [ended]}])
   runner = claude.Runner(fake.session, claude.numbered(tmp_path / "runs"))
   task = AgentTask("Go.", {}, str(tmp_path), None)
   found = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
-  assert found.status == status
+  assert (found.status, found.fault) == ("failed", fault)
   assert found.ending == (subtype or "no result")
   assert found.resumable is False
+
+
+def test_an_api_error_that_ends_in_success_fails_and_is_not_resumed(
+  tmp_path: Path,
+) -> None:
+  # How Claude Code 2.1.296 ends a turn the model's safeguards refused.
+  refused = result(
+    session_id="s1",
+    is_error=True,
+    stop_reason="refusal",
+    total_cost_usd=0.5,
+    result="API Error: the safeguards flagged this message. " + "x" * 600,
+  )
+  fake = Fake(
+    tmp_path,
+    [
+      {"write": {"task": "draft"}, "lines": [refused]},
+      {"lines": [result(session_id="s2")]},
+    ],
+  )
+  runner = claude.Runner(
+    fake.session, claude.numbered(tmp_path / "runs"), continue_session=True
+  )
+  spec = AgentSpec(
+    "Write.", tmp_path, outputs=["task"], validator=validator(tmp_path)
+  )
+  found = act(
+    tmp_path / "attempt", lambda ctx: Actions(runner).agent(ctx, spec, HOST)
+  )
+  assert found.status == "failed"
+  assert found.validation is None
+  assert found.run is not None
+  assert (found.run.status, found.run.fault, found.run.stop_reason) == (
+    "failed",
+    "model",
+    "refusal",
+  )
+  assert found.run.error is not None
+  assert found.run.error.startswith("API Error: the safeguards flagged")
+  assert len(found.run.error) == claude.ERROR_LIMIT
+  assert found.run.resumable is False
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  _ = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert len(fake.calls()) == 2
+  assert option(fake.argv(2), "--resume") == []
+
+
+def test_a_run_killed_on_its_timeout_fails_and_keeps_what_it_printed(
+  tmp_path: Path,
+) -> None:
+  fake = Fake(tmp_path, [{"lines": ["not json"], "hang": True}])
+  quick = replace(fake.session, timeout=1.0)
+  runner = claude.Runner(quick, claude.numbered(tmp_path / "runs"))
+  spec = AgentSpec("Go.", tmp_path)
+  state = Once(lambda ctx: Actions(runner).agent(ctx, spec, HOST))
+  root = tmp_path / "attempt"
+  attempt = Machine([state]).run(root)
+  found = state.results[0].run
+  assert found is not None
+  assert (found.status, found.ending, found.fault) == (
+    "failed",
+    "timeout",
+    "timeout",
+  )
+  assert found.cost_usd is None
+  assert found.resumable is False
+  usage = json.loads((tmp_path / "runs/agent-1.usage.json").read_text())
+  assert usage == {"subtype": "timeout", "unparsed_lines": 1}
+  read = Attempt.from_json(root, attempt.to_json())
+  assert [a.cost_known for a in read.visits[0].actions] == [False]
+
+
+def test_a_run_that_printed_its_result_before_the_kill_ends_as_it_says(
+  tmp_path: Path,
+) -> None:
+  ended = result(session_id="s1", total_cost_usd=0.5)
+  fake = Fake(tmp_path, [{"lines": [ended], "hang": True}])
+  quick = replace(fake.session, timeout=1.0)
+  runner = claude.Runner(quick, claude.numbered(tmp_path / "runs"))
+  task = AgentTask("Go.", {}, str(tmp_path), None)
+  found = runner.start(AgentSpec("Go.", tmp_path), task, HOST)
+  assert (found.status, found.ending, found.cost_usd) == ("ok", "success", 0.5)
 
 
 def test_a_run_tells_its_ending_and_a_named_spec_names_its_files(
@@ -1050,13 +1134,34 @@ def test_a_keyed_session_that_cannot_go_on_is_replaced_and_removed(
   spec = AgentSpec("Go.", tmp_path, session="k")
   task = AgentTask("Go.", {}, str(tmp_path), None, "Go on.")
   first = runner.start(spec, task, HOST)
-  assert first.status == "ok" and first.resumable is False
+  assert first.status == "failed" and first.resumable is False
   assert len(fake.projects()) == 1
   _ = runner.start(spec, task, HOST)
   assert option(fake.argv(2), "--resume") == []
   assert fake.calls()[1]["prompt"] == "Go."
   assert fake.calls()[1]["cwd"] == str(runs / "agent-2")
   assert fake.projects() == []
+
+
+def test_a_restored_keyed_session_that_ended_on_a_fault_starts_anew(
+  tmp_path: Path,
+) -> None:
+  refused = result(session_id="s1", is_error=True, stop_reason="refusal")
+  fake = Fake(
+    tmp_path, [{"lines": [refused]}, {"lines": [result(session_id="s2")]}]
+  )
+  files = claude.numbered(tmp_path / "runs")
+  spec = AgentSpec("Go.", tmp_path, session="k")
+  task = AgentTask("Go.", {}, str(tmp_path), None, "Go on.")
+  first = claude.Runner(fake.session, files)
+  point = first.checkpoint(first.start(spec, task, HOST).session)
+  second = claude.Runner(fake.session, files)
+  second.restore([json.loads(json.dumps(point))])
+
+  _ = second.start(spec, task, HOST)
+
+  assert option(fake.argv(2), "--resume") == []
+  assert fake.calls()[1]["prompt"] == "Go."
 
 
 def test_a_keyed_session_claude_no_longer_has_starts_anew(
@@ -1150,6 +1255,43 @@ def test_a_restored_runner_goes_on_with_each_keys_session(
     "number": 3,
     "on_host": True,
     "cwd": str(runs / "a-1"),
+    "fault": None,
     "session": "a",
     "subtype": "success",
   }
+
+
+def test_a_review_retried_after_a_refusal_starts_a_new_session(
+  tmp_path: Path,
+) -> None:
+  rubric = tmp_path / "rubric.toml"
+  _ = rubric.write_text(
+    'system = "Judge."\n[[criteria]]\nid = "a"\nquestion = "A?"\n'
+  )
+  item = tmp_path / "item.md"
+  _ = item.write_text("An item.\n")
+  answer = {
+    "criteria": [{"id": "a", "verdict": "pass", "evidence": "e", "fix": ""}]
+  }
+  refused = result(session_id="s1", is_error=True, stop_reason="refusal")
+  fake = Fake(
+    tmp_path,
+    [
+      {"lines": [refused]},
+      {"lines": [result(session_id="s2", structured_output=answer)]},
+    ],
+  )
+  runs = tmp_path / "runs"
+  runner = claude.Runner(fake.session, claude.numbered(runs))
+  state = RubricState(
+    "rubric",
+    {"pass": End("passed"), "fail": End("failed"), "error": End("errored")},
+    actions=Actions(agent_runner=runner),
+    reviews=[Review("r", rubric, {"item": item})],
+    resume=True,
+  )
+  attempt = Machine([state]).run(tmp_path / "attempt")
+  assert attempt.status == "passed"
+  assert option(fake.argv(2), "--resume") == []
+  assert (runs / "r-1.trace.jsonl").exists()
+  assert (runs / "r-2.trace.jsonl").exists()

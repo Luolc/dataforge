@@ -24,6 +24,7 @@ import pytest
 from dataforge import stopping
 from dataforge.curation import harbor
 from dataforge.curation.actions import fan_out, Limits, Mount, TrialAgent
+from dataforge.curation.faults import trial_fault, trial_judged
 from dataforge.curation.harbor import (
   DockerError,
   HarborRunner,
@@ -850,6 +851,8 @@ def test_a_trial_past_the_timeout_says_so_before_what_harbor_recorded(
     assert result.exception == (
       "TimeoutError: Harbor ran past 1 s; Harbor recorded CancelledError: "
     )
+    assert trial_fault(result.exception) == "timeout"
+    assert trial_judged(result.exception) is False
     assert result.rewards == {}
   finally:
     for pid in alive(out):

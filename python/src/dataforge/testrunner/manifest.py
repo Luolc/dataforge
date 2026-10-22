@@ -27,7 +27,7 @@ from typing import cast
 NAME = "manifest.toml"
 """The manifest's name in a task's tests/."""
 
-RUNNERS = ("pytest", "maven", "phpunit")
+RUNNERS = ("pytest", "jest", "vitest", "jasmine", "node", "maven", "phpunit")
 """The runners a test may name."""
 
 SUITE = re.compile(r"[a-z][a-z0-9_]*")

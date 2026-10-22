@@ -27,6 +27,24 @@ class Outcome:
   duration: int
 
 
+def root(path: Path) -> ET.Element | None:
+  """Return a report's root element.
+
+  Args:
+    path: The report.
+
+  Returns:
+    Its root; None when there is no regular file there or it does not
+    parse.
+  """
+  if path.is_symlink() or not path.is_file():
+    return None
+  try:
+    return ET.parse(path).getroot()
+  except ET.ParseError:
+    return None
+
+
 def testcases(path: Path) -> list[ET.Element] | None:
   """Return the testcase elements of a report.
 
@@ -37,13 +55,8 @@ def testcases(path: Path) -> list[ET.Element] | None:
     Its testcase elements, in its order; None when there is no regular file
     there or it does not parse.
   """
-  if path.is_symlink() or not path.is_file():
-    return None
-  try:
-    root = ET.parse(path).getroot()
-  except ET.ParseError:
-    return None
-  return list(root.iter("testcase"))
+  found = root(path)
+  return None if found is None else list(found.iter("testcase"))
 
 
 def outcome(case: ET.Element) -> Outcome:
