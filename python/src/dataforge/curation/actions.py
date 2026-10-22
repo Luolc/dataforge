@@ -1447,6 +1447,8 @@ class TrialResult:
       runner gives one.
     trace: The agent's trace inside the output directory, if there is one.
     trace_format: The trace's format, such as "claude-code-stream-json".
+    written_bytes: What the trial's containers wrote and left on the disk,
+      if the runner measures it.
   """
 
   rewards: Mapping[str, float]
@@ -1458,6 +1460,7 @@ class TrialResult:
   path: Path | None = None
   trace: Path | None = None
   trace_format: str | None = None
+  written_bytes: int | None = None
 
 
 class TrialRunner(Protocol):

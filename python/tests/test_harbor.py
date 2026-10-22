@@ -491,6 +491,70 @@ def test_only_an_agents_abort_says_its_container_hit_the_limit(
   assert trial_judged(result.exception) is judged
 
 
+WRITTEN_FILE = "task__abc__env.written.json"
+VERIFIER_WRITTEN = "task__abc__verifier__0.written.json"
+
+
+@pytest.mark.parametrize(
+  ("files", "links", "written"),
+  [
+    ({WRITTEN_FILE: '{"bytes": 167079936}'}, {}, 167079936),
+    ({WRITTEN_FILE: '{"bytes": 100}', VERIFIER_WRITTEN: '{"bytes": 50}'},
+     {}, 150),
+    ({WRITTEN_FILE: '{"bytes": 0}'}, {}, 0),
+    # A trial run without DOCKER_ENVIRONMENT.
+    ({}, {}, None),
+    ({VERIFIER_WRITTEN: '{"bytes": 50}'}, {}, None),
+    ({WRITTEN_FILE: '{"unknown": "no main container"}'}, {}, None),
+    ({WRITTEN_FILE: '{"bytes": 100}', VERIFIER_WRITTEN: '{"unknown": "x"}'},
+     {}, None),
+    ({WRITTEN_FILE: "not json"}, {}, None),
+    ({WRITTEN_FILE: "[100]"}, {}, None),
+    ({WRITTEN_FILE: '{"bytes": true}'}, {}, None),
+    ({WRITTEN_FILE: '{"bytes": -1}'}, {}, None),
+    ({WRITTEN_FILE: '{"bytes": 1, "pad": "' + "x" * 5000 + '"}'}, {}, None),
+    ({"agent/written.json": '{"bytes": 1}'},
+     {WRITTEN_FILE: "agent/written.json"}, None),
+  ],
+)  # fmt: skip
+def test_a_trial_gives_what_its_containers_wrote_and_left(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  files: dict[str, str],
+  links: dict[str, str],
+  written: int | None,
+) -> None:
+  env = {"FAKE_FILES": json.dumps(files), "FAKE_LINKS": json.dumps(links)}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.rewards == {"reward": 1.0}
+  assert result.written_bytes == written
+
+
+@pytest.mark.parametrize(
+  ("files", "unknown"),
+  [
+    ({}, "no task__abc__env.written.json"),
+    ({WRITTEN_FILE: '{"unknown": "main not inspected: timed out"}'},
+     "task__abc__env.written.json: main not inspected: timed out"),
+    ({WRITTEN_FILE: '{"bytes": 1}', VERIFIER_WRITTEN: "{}"},
+     "task__abc__verifier__0.written.json: not a reading"),
+    ({VERIFIER_WRITTEN: '{"unknown": "no main container"}'},
+     "no task__abc__env.written.json; "
+     + "task__abc__verifier__0.written.json: no main container"),
+  ],
+)  # fmt: skip
+def test_a_trial_whose_writes_are_not_known_says_why(
+  tmp_path: Path, files: dict[str, str], unknown: str
+) -> None:
+  trial = tmp_path / "task__abc"
+  trial.mkdir()
+  for name, text in files.items():
+    _ = (trial / name).write_text(text)
+  assert harbor.written(trial) == harbor.Written(None, unknown)
+
+
 def test_harbor_gets_only_the_passed_variables_and_env(
   tmp_path: Path, fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

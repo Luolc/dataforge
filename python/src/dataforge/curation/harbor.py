@@ -72,6 +72,16 @@ SIGKILL, is left as it is, as the hit need not have caused it. A file that
 is missing, too big, a link, or not such a reading adds nothing; the file of a
 separate verifier's environment is a record only and is not read.
 
+DOCKER_ENVIRONMENT's also has Harbor's process write into the trial's
+directory what each of the trial's `main` containers, its own environment's
+and each separate verifier's, wrote and left outside /tmp, the size of its
+writable layer, `SizeRw`, read before the container is removed
+(WRITTEN_FILE, `harbor_env`). `written` adds them up, or says why it cannot,
+and the trial's result gives the total as `written_bytes`, None for a trial
+run without that environment. `SizeRw` counts less than was written for a file
+written over or written and then deleted, and nothing written to a tmpfs or a
+bind mount; a dataset caps what a run writes with it, at a value of its own.
+
 A trial reserves from the pool the task's memory plus the sidecar's limit
 (`memory_gb`), whether or not the task has a sidecar; image builds and the
 cleanup's container use memory besides, so a dataset leaves the pool some
@@ -180,6 +190,11 @@ DOCKER_TIMEOUT = 120.0
 # environment `<trial>__env`.
 PIDS_FILE = "{}.pids.json"
 TRIAL_ENV = "{}__env"
+# The file in a trial's directory, by the environment's session ID, that says
+# what its `main` wrote and left: `{"bytes": <SizeRw>}` or `{"unknown": ...}`.
+WRITTEN_FILE = "{}.written.json"
+# The most bytes of WRITTEN_FILE read.
+WRITTEN_FILE_LIMIT = 4096
 # What follows the type of the exception of an agent that aborted after its
 # container had been at its process limit.
 PIDS_HIT = "the agent's container hit its process limit"
@@ -1164,6 +1179,69 @@ def _with_pids_hits(exception: str | None, trial: Path) -> str | None:
   return f"{_AGENT_EXIT}: {PIDS_HIT} ({hits[1]}) {hits[0]} times;{rest}"
 
 
+@dataclass(frozen=True)
+class Written:
+  """What a trial's containers wrote and left, by `written`.
+
+  Attributes:
+    total: The bytes, over the trial's environment and each separate
+      verifier's; None when it is not known.
+    unknown: Why it is not known, when it is not; None when it is.
+  """
+
+  total: int | None
+  unknown: str | None = None
+
+
+def written(trial: Path) -> Written:
+  """Add up what a trial's `main` containers wrote and left (WRITTEN_FILE).
+
+  Args:
+    trial: The trial's directory, Harbor's `job/<trial>/`.
+
+  Returns:
+    The sum of every WRITTEN_FILE in the directory, the trial's own
+    environment's among them; not known, and why, when that one is missing
+    or any of them is not a regular file of at most WRITTEN_FILE_LIMIT bytes
+    that gives the bytes.
+  """
+  own = WRITTEN_FILE.format(TRIAL_ENV.format(trial.name))
+  paths = sorted(trial.glob(WRITTEN_FILE.format("*")))
+  reasons = [] if trial / own in paths else [f"no {own}"]
+  total = 0
+  for path in paths:
+    reading = _written_reading(path)
+    if isinstance(reading, int):
+      total += reading
+    else:
+      reasons.append(f"{path.name}: {reading}")
+  if reasons:
+    return Written(None, "; ".join(reasons))
+  return Written(total)
+
+
+def _written_reading(path: Path) -> int | str:
+  # The bytes WRITTEN_FILE gives, or why it gives none.
+  try:
+    if (
+      not path.is_file(follow_symlinks=False)
+      or path.stat(follow_symlinks=False).st_size > WRITTEN_FILE_LIMIT
+    ):
+      return f"not a regular file of at most {WRITTEN_FILE_LIMIT} bytes"
+    reading = cast(object, json.loads(path.read_bytes()))
+  except (OSError, ValueError) as error:
+    return f"{type(error).__name__}: {error}"
+  if not isinstance(reading, dict):
+    return "not a reading"
+  reading = cast(dict[str, object], reading)
+  count, unknown = reading.get("bytes"), reading.get("unknown")
+  if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+    return count
+  if isinstance(unknown, str):
+    return unknown
+  return "not a reading"
+
+
 def _read(
   outdir: Path, log: Path, error: str | None, elapsed: float
 ) -> TrialResult:
@@ -1228,4 +1306,5 @@ def _read(
     path=trial,
     trace=None if traced is None else traced[1],
     trace_format=None if traced is None else traced[0].format,
+    written_bytes=written(trial).total,
   )

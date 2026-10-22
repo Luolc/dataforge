@@ -54,6 +54,15 @@ says so too; a failed read never fails the stop. The trial's environment
 writes its file, and so does a separate verifier's, whose reading is a record
 only: `HarborRunner` reads the trial environment's (`harbor`'s `_read`).
 
+Then, before Harbor's stop removes it, this environment reads what `main`
+wrote and left, as the size of its writable layer, `docker inspect --size`'s
+`SizeRw`, which a stopped container gives as well as a running one; /tmp,
+a tmpfs, is not in it. Harbor's process writes it into the trial's directory
+as `<session_id>.written.json` (`harbor.WRITTEN_FILE`): `{"bytes": <SizeRw>}`,
+or `{"unknown": "<why>"}` when it could not be read, which the trial's log
+says too; a failed read never fails the stop. The trial's environment and a
+separate verifier's each write theirs, and `harbor.written` adds them up.
+
 A task whose own compose file mounts something at /tmp of `main` keeps it and
 gets no tmpfs, since compose refuses two mounts at one target. The egress
 sidecar gets none: it writes only a file that says it is ready, and a tmpfs
@@ -78,7 +87,7 @@ from harbor.environments.docker.docker import (
 )
 import yaml
 
-from dataforge.curation.harbor import PIDS_FILE
+from dataforge.curation.harbor import PIDS_FILE, WRITTEN_FILE
 
 _MAIN = "main"
 _TMP = "/tmp"
@@ -151,7 +160,8 @@ class DockerEnvironment(HarborDockerEnvironment):
     """Read main's end before Harbor's stop removes it, then stop.
 
     The log says whether main was killed for memory, and the trial's
-    directory gets main's process limit hits (PIDS_FILE).
+    directory gets main's process limit hits (PIDS_FILE) and what main
+    wrote and left (WRITTEN_FILE).
 
     Args:
       delete: As Harbor's.
@@ -167,25 +177,16 @@ class DockerEnvironment(HarborDockerEnvironment):
       ids = (listed.stdout or "").split()
       if not ids:
         self._write_pids({"unknown": "no main container"})
+        self._write_written({"unknown": "no main container"})
         return
-      process = await asyncio.create_subprocess_exec(
-        *type(self)._engine_cmd(
-          "inspect", "--format", "{{.State.OOMKilled}} {{.State.Pid}}", *ids
-        ),
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+      out = await self._inspect(
+        "--format", "{{.State.OOMKilled}} {{.State.Pid}}", *ids
       )
-      try:
-        out, _ = await asyncio.wait_for(process.communicate(), _INSPECT_TIMEOUT)
-      finally:
-        if process.returncode is None:
-          process.kill()
-          _ = await process.wait()
     except (OSError, RuntimeError, TimeoutError) as error:
       # The trial goes on without the answers; the log says they are missing.
       self.logger.warning("dataforge: State.OOMKilled not read: %s", error)
       self._write_pids({"unknown": f"main not inspected: {error}"})
+      self._write_written({"unknown": f"main not inspected: {error}"})
       return
     states = [
       line.split() for line in out.decode(errors="replace").splitlines()
@@ -200,6 +201,38 @@ class DockerEnvironment(HarborDockerEnvironment):
       if len(pids) == 1 and pids[0].isdigit()
       else {"unknown": f"main's State.Pid is not one number: {pids}"}
     )
+    # After pids.events, which goes with the cgroup once main stops.
+    await self._read_written(ids)
+
+  async def _read_written(self, ids: list[str]) -> None:
+    try:
+      out = await self._inspect("--size", "--format", "{{.SizeRw}}", *ids)
+    except (OSError, RuntimeError, TimeoutError) as error:
+      self._write_written({"unknown": f"main's size not inspected: {error}"})
+      return
+    lines = out.decode(errors="replace").splitlines()
+    sizes = [line.strip() for line in lines if line.strip()]
+    self._write_written(
+      {"bytes": int(sizes[0])}
+      if len(sizes) == 1 and sizes[0].isdigit()
+      else {"unknown": f"main's SizeRw is not one number: {sizes}"}
+    )
+
+  async def _inspect(self, *args: str) -> bytes:
+    # What the engine's inspect writes to stdout; killed past its timeout.
+    process = await asyncio.create_subprocess_exec(
+      *type(self)._engine_cmd("inspect", *args),
+      stdin=asyncio.subprocess.DEVNULL,
+      stdout=asyncio.subprocess.PIPE,
+      stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+      out, _ = await asyncio.wait_for(process.communicate(), _INSPECT_TIMEOUT)
+    finally:
+      if process.returncode is None:
+        process.kill()
+        _ = await process.wait()
+    return out
 
   def _write_pids(self, reading: dict[str, object]) -> None:
     if "unknown" in reading:
@@ -215,7 +248,19 @@ class DockerEnvironment(HarborDockerEnvironment):
         reading["limit"],
         reading["max"],
       )
-    path = self.trial_paths.trial_dir / PIDS_FILE.format(self.session_id)
+    self._write(PIDS_FILE, reading)
+
+  def _write_written(self, reading: dict[str, object]) -> None:
+    if "unknown" in reading:
+      self.logger.warning(
+        "dataforge: SizeRw of main of %s not read: %s",
+        self.session_id,
+        reading["unknown"],
+      )
+    self._write(WRITTEN_FILE, reading)
+
+  def _write(self, name: str, reading: dict[str, object]) -> None:
+    path = self.trial_paths.trial_dir / name.format(self.session_id)
     try:
       _ = path.write_text(json.dumps(reading) + "\n")
     except OSError as error:
