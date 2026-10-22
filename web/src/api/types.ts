@@ -44,6 +44,8 @@ export const project = z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
   }),
   not_ended: z.array(z.string()).nullable().optional(),
+  // Each deliverable a dataset's declaration names; the one marked default
+  // names its kind's tab while the attempt has reached none of the kind.
   // no_trace: for a deliverable of trials, why a trial of it with no trace
   // has none, in the project's words.
   deliverables: z
@@ -53,9 +55,12 @@ export const project = z.looseObject({
         kind: z.string(),
         title: z.string(),
         no_trace: z.string().nullable().optional(),
+        default: z.boolean().optional(),
       }),
     )
     .optional(),
+  // The title of a deliverable kind's tab, by kind.
+  kinds: z.record(z.string(), z.looseObject({ title: z.string() })).optional(),
   // A trial's diff and its CTRF test results, each relative to its
   // directory, and each test kind's label.
   trials: z
@@ -355,6 +360,9 @@ const action = z.looseObject({
     .nullable()
     .optional(),
   session: z.unknown().optional(),
+  // What the action printed, as files of the attempt; a record from before
+  // logs has none.
+  logs: z.array(z.string()).optional(),
 });
 export type Action = z.infer<typeof action>;
 

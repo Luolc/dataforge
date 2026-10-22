@@ -250,7 +250,7 @@ describe("the session view", () => {
     const { container } = show(solved);
 
     const header = container.querySelector("header");
-    expect(header).toHaveTextContent("duration 9m 3s");
+    expect(header).toHaveTextContent("session 9m 3s");
     expect(header).toHaveTextContent("cost $0.31");
     expect(header).toHaveTextContent("turns 9");
     expect(header).toHaveTextContent("tokens 195K in · 14K out");

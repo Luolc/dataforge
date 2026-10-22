@@ -69,7 +69,7 @@ export function Summary({
         flush
       >
         {machine ? (
-          <Graph project={project} layout={machine} runHref={runHref} />
+          <Graph layout={machine} runHref={runHref} />
         ) : (
           <p className="p-4 text-fg-3">This record has no graph.</p>
         )}

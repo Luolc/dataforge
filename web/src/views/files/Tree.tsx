@@ -141,7 +141,8 @@ function DirRow({
 }: TreeProps & { name: string; path: string; depth: number }) {
   const id = useId();
   const [open, setOpen] = useState(
-    props.selected?.startsWith(`${path}/`) ?? false,
+    props.selected === path ||
+      (props.selected?.startsWith(`${path}/`) ?? false),
   );
   return (
     <>

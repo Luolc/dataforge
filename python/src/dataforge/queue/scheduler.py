@@ -5,9 +5,10 @@ Each look at the table (a tick) does four things:
 - A running job whose wrapper is gone without writing its end (killed, or the
   machine restarted) is recorded canceled when its cancellation was asked
   for and failed otherwise, with no exit code.
-- A running job whose cancellation is older than cancel_grace_s gets SIGKILL
-  sent to its process group, as its wrapper sends it too, so that it ends
-  also while no scheduler runs.
+- A running job whose cancellation is older than cancel_grace_s gets SIGKILL,
+  as from its wrapper too, so that it ends also while no scheduler runs: its
+  wrapper is stopped, every process below it gets SIGKILL, and then its
+  process group.
 - In one BEGIN IMMEDIATE transaction, queued jobs of the queues not paused
   start while their queue and the machine are under their caps, the 1-minute
   load is at most max_load1, and the job's memory fits. A job fits when
@@ -31,7 +32,8 @@ writes its end, so that a job outlives the scheduler, and a scheduler started
 again takes the running jobs as they are, knowing each by its wrapper's pid,
 starttime and boot, and kills none. A wrapper that is gone while processes of
 its group run still (it alone was killed) has its group killed, and its end is
-recorded once nothing of the group runs.
+recorded once nothing of the group runs; a process of the job outside that
+group is no longer below the wrapper then, and the scheduler does not find it.
 """
 
 from collections.abc import Callable
@@ -47,6 +49,7 @@ import time
 from dataforge.queue.config import Config
 from dataforge.queue.proc import (
   alive,
+  kill_job,
   leader,
   ProcReadings,
   Readings,
@@ -156,7 +159,7 @@ class Scheduler:
     if (
       asked is not None
       and self.clock() - asked >= self.config.cancel_grace_s
-      and signal_group(started, signal.SIGKILL)
+      and kill_job(started)
     ):
       _log.warning("job %d: SIGKILL after the grace period", job.id)
 
