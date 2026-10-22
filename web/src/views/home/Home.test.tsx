@@ -379,6 +379,7 @@ describe("the home page", () => {
         { title: "A", field: ["a"], format: "text" },
         { title: "B", field: ["b"], format: "text" },
         { title: "C", field: ["c"], format: "text" },
+        { title: "D", field: ["d"], format: "text" },
       ],
     };
     const job = {
@@ -394,12 +395,14 @@ describe("the home page", () => {
       cancel_requested_at: 1772443200,
     };
     const pause = { queue: "slow", paused_at: 1772442000, reason: null };
+    const failed = { ...job, id: 99, state: "failed", exit_code: 1 };
     ROWS[3] = {
       ...must(ROWS[3]),
-      values: [null, null, null],
-      reads: ["not run", "not run", "not run"],
+      values: [null, null, null, null],
+      reads: ["not run", "not run", "not run", "not run"],
       queued: [
         { job, paused: pause, reason: null },
+        { job: failed, paused: null, reason: null },
         { job: null, paused: pause, reason: null },
         { job: null, paused: null, reason: null },
       ],
@@ -407,10 +410,12 @@ describe("the home page", () => {
     try {
       show("/sample", withColumns);
       const item = (await screen.findByText("t-new")).closest("tr");
-      const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-3);
+      const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-4);
+      // A tab its job never made is not run, whatever the job's state (L40).
       expect(cells.map((c) => c.textContent)).toEqual([
-        "Canceled (job 98) · Queue paused",
-        "Not run · Queue paused",
+        "Not run · job 98 canceled · queue paused",
+        "Not run · job 99 failed",
+        "Not run · queue paused",
         "Not run",
       ]);
     } finally {

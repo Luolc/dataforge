@@ -525,6 +525,31 @@ describe("a project's tab with no version, that names its job", () => {
     ).toBeVisible();
   });
 
+  it("says why how its job stands is not known when the queue cannot be read", async () => {
+    serve(
+      [
+        {
+          name: "notes",
+          queued: {
+            job: null,
+            paused: null,
+            reason: "the queue cannot be read: file is not a database",
+          },
+          versions: [],
+        },
+      ],
+      {},
+    );
+    show("&tab=notes", withJob);
+
+    expect(
+      await screen.findByText(
+        "How its job stands is not known: the queue cannot be read: file is not a database.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("No job for it has been queued.")).toBeNull();
+  });
+
   it("says when no job for it has been queued, and nothing of a queue not paused", async () => {
     serve(
       [

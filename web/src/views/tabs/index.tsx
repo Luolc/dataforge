@@ -148,7 +148,10 @@ function NoVersion({
           <p className="text-fg-3">No job for it has been queued.</p>
         ) : (
           <p className="flex flex-wrap items-center gap-2">
-            <Link to="/queue" className="link hover:underline">
+            <Link
+              to="/queue"
+              className="inline-flex target items-center link hover:underline"
+            >
               {`Job ${job.id.toString()}`}
             </Link>
             <ToneLabel {...jobLabel(job)} />

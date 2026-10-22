@@ -942,3 +942,24 @@ def test_a_project_s_jobs_load(made: QueueTree) -> None:
   ]
   [tab] = cast(list[dict[str, object]], project.public()["tabs"])
   assert tab["job"] == "review"
+
+
+def test_a_tab_whose_queue_cannot_be_read_says_why(
+  made: QueueTree, static: Path
+) -> None:
+  with_jobs(made)
+  _ = (made.queue / "queue.sqlite").write_bytes(b"not a database, " * 64)
+  web = client(made, static)
+
+  [tab] = cast(
+    list[dict[str, object]],
+    web.get(TABS, params={"attempt": "batch-1/task-1"}).json(),
+  )
+  [row] = cast(
+    list[dict[str, object]], web.get("/api/projects/example/attempts").json()
+  )
+
+  queued = cast(dict[str, object], tab["queued"])
+  assert (queued["job"], queued["paused"]) == (None, None)
+  assert str(queued["reason"]).startswith("the queue cannot be read: ")
+  assert row["queued"] == [queued]

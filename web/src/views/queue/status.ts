@@ -34,10 +34,6 @@ export function jobLabel(job: Job): { label: string; tone: Tone } {
 export const isOpen = (job: Job) =>
   job.state === "queued" || job.state === "running";
 
-/** A job as one short line, as "Canceled (job 98)". */
-const jobShort = (job: Job) =>
-  `${jobLabel(job).label} (job ${job.id.toString()})`;
-
 const why = (pause: Pause) =>
   pause.reason === null ? "" : `: ${pause.reason}`;
 
@@ -50,14 +46,18 @@ export const pausedLine = (pause: Pause) =>
   `The ${pause.queue} queue has been paused since ${epoch(pause.paused_at)}${why(pause)}.`;
 
 /**
- * What a column of a tab with no version shows of the tab's job: the job as
- * jobShort gives it, else Not run, and, while its queue is paused, that it
- * is; null when there is neither a job nor a pause.
+ * What a column of a tab with no version shows of the tab's job: Not run,
+ * then the job's state, as "job 98 canceled", and, while its queue is
+ * paused, that it is; null when there is neither a job nor a pause.
  */
 export function queuedShort(queued: Queued): string | null {
   if (queued.job === null && queued.paused === null) return null;
-  const parts = [queued.job === null ? NOT_RUN : jobShort(queued.job)];
-  if (queued.paused !== null) parts.push("Queue paused");
+  const parts = [NOT_RUN];
+  if (queued.job !== null)
+    parts.push(
+      `job ${queued.job.id.toString()} ${jobLabel(queued.job).label.toLowerCase()}`,
+    );
+  if (queued.paused !== null) parts.push("queue paused");
   return parts.join(" · ");
 }
 

@@ -191,7 +191,7 @@ class _Api:
                 "dir": version,
                 "title": None
                 if tab.version_title is None
-                else tabs.version_title(tab, root, version),
+                else tabs.version_title(tab.version_title, root, version),
                 "parts": [
                   {
                     "name": part.name,
@@ -418,21 +418,27 @@ class _Api:
   def _mark_queued(
     self, project: Project, rows: list[dict[str, object]]
   ) -> None:
-    # Beside each column that _row found waiting on its tab's job, that job;
-    # null beside every other.
+    # Beside each column of a tab that names its job, where the attempt has
+    # no version of the tab, that job; null beside every other column.
     jobs = [_tab(project, c.tab) for c in project.columns]
     find: actions.Queued | None = None
     for row in rows:
-      waits = cast(list[bool] | None, row["queued"])
-      if waits is None:
+      reads = cast(list[str | None] | None, row["reads"])
+      if reads is None:
         continue
+      attempt = cast(str, row["id"])
       found: list[dict[str, object] | None] = []
-      for tab, wait in zip(jobs, waits, strict=True):
-        if not wait or tab is None or tab.job is None:
+      for tab, read in zip(jobs, reads, strict=True):
+        if (
+          tab is None
+          or tab.job is None
+          or read != tabs.NOT_RUN
+          or _has_version(project, tab, attempt)
+        ):
           found.append(None)
           continue
         find = find or self._queued(project)
-        found.append(find(tab.job, cast(str, row["id"])))
+        found.append(find(tab.job, attempt))
       row["queued"] = found
 
   def _open_jobs(self) -> list[queue.Job]:
@@ -568,6 +574,15 @@ def _item_rows(project: Project, item: str) -> list[dict[str, object]]:
   return rows
 
 
+def _has_version(project: Project, tab: Tab, attempt: str) -> bool:
+  # A column's file not there may be in a version not finished yet.
+  try:
+    with open_attempt(project, attempt) as fd:
+      return bool(tabs.versions(tab, fd))
+  except RefusedError:
+    return False
+
+
 def _tab(project: Project, name: str | None) -> Tab | None:
   return next((t for t in project.tabs if t.name == name), None)
 
@@ -603,20 +618,6 @@ def _row(
       from_files = [
         None if c.file is None else tabs.column_value(project, c, fd)
         for c in project.columns
-      ]
-      # The columns of a tab that names its job and has no version yet,
-      # beside which _mark_queued puts that job.
-      waits = [
-        tab is not None
-        and tab.job is not None
-        and found is not None
-        and found["read"] == tabs.NOT_RUN
-        and not tabs.versions(tab, fd)
-        for tab, found in zip(
-          (_tab(project, c.tab) for c in project.columns),
-          from_files,
-          strict=True,
-        )
       ]
   except RefusedError as error:
     return row | {"error": f"the record: {error.reason}"}, None
@@ -656,7 +657,6 @@ def _row(
       for c, found in zip(project.columns, from_files, strict=True)
     ],
     "reads": [None if found is None else found["read"] for found in from_files],
-    "queued": waits,
     "live": None if ended else live.NOT_ENDED,
   }, data
 
