@@ -189,7 +189,7 @@ def parse_metadata(table: Mapping[str, object]) -> Metadata:
 
 def parse_legacy(
   table: Mapping[str, object],
-  groups: Mapping[str, str],
+  groups: Mapping[str, str] | None,
   principle_tests: Sequence[str] = (),
 ) -> Metadata:
   """Read a task's `[metadata]` of the format before `tests`.
@@ -201,7 +201,9 @@ def parse_legacy(
   Args:
     table: The `[metadata]`, as `tomllib` reads it.
     groups: For each key of the dataset's at its top level, the dotted path
-      it goes to, a key of a group, as `{"tone": "instruction.tone"}`.
+      it goes to, a key of a group, as `{"tone": "instruction.tone"}`; None
+      to leave out every key of the dataset's, for a reader of the shared
+      part alone.
     principle_tests: The tests that check the principle.
 
   Returns:
@@ -228,17 +230,15 @@ def parse_legacy(
         _put(new, (_INSTRUCTION, _SETTINGS), value, key)
       case "alignment" | "difference" | "tags":
         pass
+      case _ if groups is None:
+        pass
       case _ if key in groups:
         _put(new, _group_path(groups[key], key), value, key)
       case _:
         raise MetadataError(f"metadata.{key}", "has no group to go to")
   alignment = table.get("alignment")
   if alignment is not None:
-    principle: dict[str, object] = {"id": "p1", "text": alignment}
-    if table.get("difference") in TYPES:
-      principle["type"] = table["difference"]
-    principle["tests"] = list(principle_tests)
-    new["principles"] = [principle]
+    new["principles"] = [_legacy_principle(table, alignment, principle_tests)]
   elif principle_tests:
     raise MetadataError("metadata.alignment", "is missing, but tests check it")
   return parse_metadata(new)
@@ -476,6 +476,16 @@ def _settings(value: object) -> tuple[str, ...]:
       f"is not a list of {', '.join(SETTINGS)} without repeats",
     )
   return tuple(s for s in SETTINGS if s in value)
+
+
+def _legacy_principle(
+  table: Mapping[str, object], alignment: object, tests: Sequence[str]
+) -> dict[str, object]:
+  principle: dict[str, object] = {"id": "p1", "text": alignment}
+  if table.get("difference") in TYPES:
+    principle["type"] = table["difference"]
+  principle["tests"] = list(tests)
+  return principle
 
 
 def _principle_table(p: Principle) -> dict[str, object]:
