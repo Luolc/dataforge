@@ -7,7 +7,7 @@ import { type CSSProperties, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { useFileSource, useLoaded, useRefresh } from "../../api/client";
-import { type Entry, inTreeOrder } from "./entries";
+import { type Entry, inTreeOrder, knownFile } from "./entries";
 import { size } from "./file";
 import { FileIcon, FolderIcon, OtherIcon } from "./FileIcon";
 
@@ -104,6 +104,7 @@ function EntryRow({
     return (
       <Link
         to={{ search: next.toString() }}
+        state={knownFile(path)}
         aria-current={path === props.selected ? "page" : undefined}
         style={indent(depth)}
         className={`${row} text-fg-2 hover:bg-hover hover:text-fg aria-[current=page]:bg-active aria-[current=page]:text-fg aria-[current=page]:shadow-current`}
@@ -141,7 +142,8 @@ function DirRow({
 }: TreeProps & { name: string; path: string; depth: number }) {
   const id = useId();
   const [open, setOpen] = useState(
-    props.selected?.startsWith(`${path}/`) ?? false,
+    props.selected === path ||
+      (props.selected?.startsWith(`${path}/`) ?? false),
   );
   return (
     <>

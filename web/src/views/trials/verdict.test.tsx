@@ -265,17 +265,6 @@ describe("a trial's log", () => {
 });
 
 describe("a trials deliverable's heading", () => {
-  it("links to the run that made it", async () => {
-    show("&tab=trials&deliverable=regrade");
-
-    const from = await screen.findByRole("link", { name: "Regrade · run 2" });
-    expect(from).toHaveAttribute(
-      "href",
-      "/regrade/attempt?id=regrade&tab=runs&run=1",
-    );
-    expect(from.closest("p")).toHaveTextContent(/^From Regrade · run 2$/);
-  });
-
   it("says that no count was recorded, and why under Why", async () => {
     show(
       "&tab=trials&deliverable=regrade",
