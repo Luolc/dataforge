@@ -30,6 +30,11 @@ _log = logging.getLogger(__name__)
 _FILE = re.compile(r"([0-9a-f]+):([0-9a-f]+):([0-9]+)")
 
 
+ENDING = ("raised", "interrupted")
+"""The engine's outcomes of a visit that ended its attempt without a
+transition (dataforge.curation.engine.ENDING), which viz does not import."""
+
+
 def has_ended(
   project: Project, status: str | None, outcome: str | None
 ) -> bool:
@@ -43,11 +48,12 @@ def has_ended(
 
   Returns:
     False when the status is one of the project's not_ended; without
-    not_ended, when the status is None and the last visit was not raised.
+    not_ended, when the status is None and the last visit's outcome is not
+    one of ENDING.
   """
   if project.not_ended is not None:
     return status not in project.not_ended
-  return status is not None or outcome == "raised"
+  return status is not None or outcome in ENDING
 
 
 def held_locks(text: str) -> set[tuple[int, int, int]]:

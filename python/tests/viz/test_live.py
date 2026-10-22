@@ -179,10 +179,13 @@ def test_not_ended_names_the_words_of_an_attempt_that_runs(
   assert found["batch-1/task-2"] is None
 
 
-def test_a_raised_attempt_has_ended(tree: Tree, static: Path) -> None:
+@pytest.mark.parametrize("outcome", ["raised", "interrupted"])
+def test_a_raised_attempt_has_ended(
+  tree: Tree, static: Path, outcome: str
+) -> None:
   record = fixture()
   visits = cast(list[dict[str, object]], record["visits"])
-  visits[-1]["outcome"] = "raised"
+  visits[-1]["outcome"] = outcome
   write(tree, "task-2", record | {"status": None}, 10)
 
   found = live(tree, static)

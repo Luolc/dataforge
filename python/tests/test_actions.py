@@ -112,6 +112,55 @@ def test_a_missing_output_fails_the_action(tmp_path: Path) -> None:
   once(tmp_path, body)
 
 
+def test_an_optional_output_is_recorded_when_written_and_not_missed(
+  tmp_path: Path,
+) -> None:
+  def body(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", 'touch "$DATAFORGE_OUTPUTS/a"']
+    spec = ScriptSpec(argv, outputs=["a"], optional_outputs=["b", "c"])
+    result = Actions().script(ctx, spec)
+    assert (result.status, sorted(result.outputs)) == ("ok", ["a"])
+    argv = ["sh", "-c", 'touch "$DATAFORGE_OUTPUTS/e"']
+    spec = ScriptSpec(argv, outputs=["d"], optional_outputs=["e"])
+    result = Actions().script(ctx, spec)
+    assert (result.status, sorted(result.outputs)) == ("failed", ["e"])
+    assert "missing outputs: d" in result.log
+    return Outcome("ok")
+
+  once(tmp_path, body)
+
+
+def test_an_optional_output_is_claimed_as_an_output(tmp_path: Path) -> None:
+  def body(ctx: Context) -> Outcome:
+    _ = Actions().script(ctx, ScriptSpec(["true"], optional_outputs=["n"]))
+    with pytest.raises(ValueError, match="named twice"):
+      _ = Actions().script(ctx, ScriptSpec(["true"], outputs=["n"]))
+    return Outcome("ok")
+
+  once(tmp_path, body)
+
+
+def test_a_script_s_stdout_and_stderr_are_its_log_in_the_record(
+  tmp_path: Path,
+) -> None:
+  root = tmp_path / "attempt"
+
+  def body(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", "echo out; echo err >&2; exit 3"]
+    _ = Actions().script(ctx, ScriptSpec(argv))
+    _ = Actions().script(ctx, ScriptSpec(["true"]))
+    return Outcome("ok")
+
+  attempt = Machine([Once(body)]).run(root)
+  first, second = attempt.visits[0].actions
+  assert first.logs == [root / "logs/a/1/1.log"]
+  assert second.logs == [root / "logs/a/1/2.log"]
+  assert first.logs[0].read_text() == "out\nerr\n"
+  visits = cast(list[dict[str, object]], attempt.to_json()["visits"])
+  actions = cast(list[dict[str, object]], visits[0]["actions"])
+  assert actions[0]["logs"] == ["logs/a/1/1.log"]
+
+
 def test_an_output_named_twice_in_a_visit_is_an_error(tmp_path: Path) -> None:
   def body(ctx: Context) -> Outcome:
     _ = Actions().script(ctx, ScriptSpec(["true"], outputs=["n"]))
@@ -1909,7 +1958,7 @@ def test_replace_waits_until_no_action_runs(tmp_path: Path) -> None:
 
 
 class CheckpointAgent:
-  """Writes "out", gives a trace and checkpoints its session.
+  """Writes "out", gives a trace and a log and checkpoints its session.
 
   Args:
     trace: The trace its run gives.
@@ -1920,7 +1969,10 @@ class CheckpointAgent:
 
   def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
     _ = (Path(task.outdir) / "out").write_text("done")
-    return AgentRun("s1", "ok", 0.0, self.trace, "done", trace_format="fmt")
+    log = self.trace.with_name("agent-1.stderr.log")
+    return AgentRun(
+      "s1", "ok", 0.0, self.trace, "done", trace_format="fmt", log=log
+    )
 
   def resume(self, session: object, prompt: str) -> AgentRun:
     raise AssertionError("no fixes here")
@@ -1950,6 +2002,9 @@ def test_an_agent_records_its_checkpoint_and_the_trace_in_the_attempt(
   assert action["session"] == {"id": "s1"}
   expected = {"path": "runs/agent-1.trace.jsonl", "format": "fmt"}
   assert action["trace"] == (expected if inside else None)
+  runs = ["runs/agent-1.stderr.log"] if inside else []
+  assert action["logs"] == [*runs, "logs/a/1/1.log"]
+  assert (root / "logs/a/1/1.log").read_text() == "done"
 
 
 class FailingTrials(Trials):

@@ -1,6 +1,6 @@
 {
   "format": "dataforge.curation.record",
-  "version": 1,
+  "version": 2,
   "facts": {
     "budget": "object",
     "budget/cost_usd": "float",
@@ -15,6 +15,8 @@
     "final/*/actions/[]/cost_usd": "float",
     "final/*/actions/[]/ended_at": "str",
     "final/*/actions/[]/kind": "str",
+    "final/*/actions/[]/logs": "list",
+    "final/*/actions/[]/logs/[]": "str",
     "final/*/actions/[]/outputs": "object",
     "final/*/actions/[]/session": "object",
     "final/*/actions/[]/started_at": "str",
@@ -58,6 +60,8 @@
     "visits/[]/actions/[]/cost_usd": "float",
     "visits/[]/actions/[]/ended_at": "str",
     "visits/[]/actions/[]/kind": "str",
+    "visits/[]/actions/[]/logs": "list",
+    "visits/[]/actions/[]/logs/[]": "str",
     "visits/[]/actions/[]/outputs": "object",
     "visits/[]/actions/[]/session": "object",
     "visits/[]/actions/[]/started_at": "str",
