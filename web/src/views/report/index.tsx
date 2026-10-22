@@ -1,20 +1,36 @@
 // The report view: a report's Markdown under its title, where a table cell
 // whose whole text is a key of the project's statuses shows as its label.
+import type { ReactNode } from "react";
+
 import type { Deliverable, Project } from "../../api/types";
 import { Card } from "../../ui/card";
 import { NOT_RUN } from "../../ui/status";
-import { size, useFile } from "../files/file";
+import { size, tooLarge, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
+import { FromRun } from "../FromRun";
 import { ReportMarkdown } from "./markdown";
 
 /** The report view, for a deliverable of kind report. */
 export default function ReportView({
   project,
   attempt,
+  record,
   deliverable,
 }: DeliverableProps) {
   return (
-    <ReportCard project={project} attempt={attempt} deliverable={deliverable} />
+    <ReportCard
+      project={project}
+      attempt={attempt}
+      deliverable={deliverable}
+      byline={
+        <FromRun
+          project={project}
+          attempt={attempt}
+          record={record}
+          deliverable={deliverable}
+        />
+      }
+    />
   );
 }
 
@@ -23,10 +39,13 @@ export function ReportCard({
   project,
   attempt,
   deliverable,
+  byline,
 }: {
   project: Pick<Project, "id" | "statuses">;
   attempt: string;
   deliverable: Pick<Deliverable, "title" | "path" | "reason">;
+  /** Where it came from, under the title. */
+  byline?: ReactNode;
 }) {
   const path = deliverable.path;
   const loaded = useFile(project.id, attempt, path);
@@ -44,14 +63,14 @@ export function ReportCard({
   } else if (loaded.state === "loading") body = "Loading…";
   else if (loaded.state === "error") body = loaded.message;
   else if (loaded.data.kind === "too-large") {
-    body = `Not shown: ${loaded.data.reason}`;
+    body = tooLarge(loaded.data.reason, path);
   } else if (loaded.data.kind === "missing") {
     body = loaded.data.reason;
   } else if (loaded.data.kind === "binary") {
     body = `Not shown: not UTF-8 text, ${size(loaded.data.size)}.`;
   }
   return (
-    <Card title={deliverable.title} aside={aside}>
+    <Card title={deliverable.title} aside={aside} byline={byline}>
       {content?.kind === "text" ? (
         <ReportMarkdown project={project} text={content.text} />
       ) : (

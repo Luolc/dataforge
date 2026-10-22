@@ -64,3 +64,15 @@ export function size(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 }
+
+/**
+ * Why a file over the source's limit is not served, its sizes in words when
+ * the reason gives them in bytes, as the files route does.
+ */
+export function tooLarge(reason: string, path: string): string {
+  const found = /^([0-9]+) bytes, over ([0-9]+)$/.exec(reason);
+  const why = found
+    ? `${size(Number(found[1]))}, over the ${size(Number(found[2]))} the viewer serves`
+    : reason;
+  return `Too large to show or download here: ${why}. It is at ${path} in the attempt's directory.`;
+}

@@ -19,7 +19,7 @@ const task: Record<string, FakeEntry> = {
   [`${root}/data.bin`]: new Uint8Array([0xff, 0xfe, 0x00]),
   [`${root}/huge.log`]: {
     type: "too-large",
-    reason: "20.0 MiB, over the 16 MiB limit",
+    reason: "20971520 bytes, over 16777216",
   },
   [`${root}/latest`]: { type: "symlink" },
 };
@@ -84,7 +84,7 @@ describe("the files view", () => {
       (li) => li.firstElementChild?.textContent,
     );
     expect(names.slice(0, 2)).toEqual(["a", "b"]);
-    expect(names.at(-1)).toBe("z.txt");
+    expect(names.at(-1)).toBe("z.txt1 B");
     expect(within(tree).getByRole("button", { name: "a" })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -252,20 +252,64 @@ describe("the files view", () => {
     ]);
   });
 
-  it("shows only the size of a file that is not UTF-8", async () => {
+  it("shows only the size of a file that is not UTF-8, and a link that downloads it", async () => {
     show(task, `${root}/data.bin`);
 
     expect(
-      await screen.findByText("Not shown: not UTF-8 text, 3 B."),
+      await screen.findByText(
+        "Not shown: not UTF-8 text, 3 B. Download it with the link above.",
+      ),
     ).toBeVisible();
+    const link = screen.getByRole("link", { name: "Download" });
+    expect(link).toHaveAttribute(
+      "href",
+      `/api/projects/sample/files?${new URLSearchParams({ attempt: "a/b", path: `${root}/data.bin` }).toString()}`,
+    );
+    expect(link).toHaveAttribute("download", "data.bin");
   });
 
-  it("shows only the reason, with the size, of a file over the limit", async () => {
+  it("gives a text file a link that downloads it too", async () => {
+    show(task, `${root}/src/tinyparse/header.py`);
+
+    await screen.findByText("1 lines · 10 B");
+    expect(screen.getByRole("link", { name: "Download" })).toHaveAttribute(
+      "download",
+      "header.py",
+    );
+  });
+
+  it("says why a file over the limit is neither shown nor downloaded, and where it is", async () => {
     show(task, `${root}/huge.log`);
 
     expect(
-      await screen.findByText("Not shown: 20.0 MiB, over the 16 MiB limit"),
+      await screen.findByText(
+        `Too large to show or download here: 20.0 MiB, over the 16.0 MiB the viewer serves. It is at ${root}/huge.log in the attempt's directory.`,
+      ),
     ).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
+  });
+
+  it("shows each file's size in the tree", async () => {
+    show(task);
+
+    const tree = await screen.findByRole("navigation", { name: "Files" });
+    expect(
+      await within(tree).findByRole("link", { name: /^data\.bin/ }),
+    ).toHaveTextContent("data.bin3 B");
+    expect(
+      within(tree).getByRole("link", { name: /^instruction\.md/ }),
+    ).toHaveTextContent(/instruction\.md[0-9.]+ B$/);
+  });
+
+  it("says which run made it, a link to that run", async () => {
+    show(task);
+
+    const from = await screen.findByRole("link", { name: /· run 3$/ });
+    expect(from).toHaveAttribute(
+      "href",
+      "/sample/attempt?id=a%2Fb&tab=runs&run=2",
+    );
+    expect(from.closest("p")).toHaveTextContent(/^From .* · run 3$/);
   });
 
   it("lists a symlink without opening it", async () => {
