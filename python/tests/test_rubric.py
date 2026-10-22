@@ -35,11 +35,14 @@ from dataforge.curation.engine import Attempt
 from dataforge.curation.rubric import (
   block_text,
   CROSS_CRITERIA,
+  Judgment,
   MAX_FILE_CHARS,
   NOTES,
   REREVIEW,
   Rubric,
   RUBRIC_REPORT,
+  rubric_report,
+  Score,
   VERDICTS_SCHEMA,
 )
 
@@ -573,7 +576,12 @@ def test_a_visit_writes_its_scores_and_a_report(
   assert outputs["report.md"].read_text() == REPORT
 
 
-REPORT = """\
+BROKEN = (
+  "| Is it sound? (sound) | fail"
+  + " | it \\| breaks &lt;b&gt;here&lt;/b&gt; &amp; now |"
+)
+
+REPORT = f"""\
 # Rubric report
 
 Failed: tests, docs.
@@ -582,8 +590,8 @@ Failed: tests, docs.
 
 | Criterion | Result | Note |
 | --- | --- | --- |
-| sound | pass | fine |
-| tidy | fail | no verdict |
+| Is it sound? (sound) | pass | fine |
+| Is it tidy? (tidy) | fail | no verdict |
 
 1 of 2 criteria fail: tidy.
 
@@ -591,11 +599,45 @@ Failed: tests, docs.
 
 | Criterion | Result | Note |
 | --- | --- | --- |
-| sound | fail | it \\| breaks &lt;b&gt;here&lt;/b&gt; &amp; now |
-| tidy | pass | fine |
+{BROKEN}
+| Is it tidy? (tidy) | pass | fine |
 
 1 of 2 criteria fail: sound.
 """
+
+
+def test_a_report_names_a_review_by_its_rubric_s_title(
+  tmp_path: Path,
+) -> None:
+  titled = tmp_path / "titled.toml"
+  _ = titled.write_text('title = "Checks <all> | ok"\n' + RUBRIC)
+  rubric = Rubric.load(titled)
+  scores = (Score("sound", True, "fine", ""), Score("tidy", False, "no", "x"))
+  judgments = [
+    Judgment("checks", False, False, "tidy: no", {}, scores),
+    Judgment("docs", False, True, "", {}, scores[:1]),
+  ]
+
+  report = rubric_report(judgments, {"checks": rubric})
+
+  assert rubric.title == "Checks <all> | ok"
+  assert "Failed: Checks &lt;all&gt; \\| ok." in report
+  assert "## Checks &lt;all&gt; \\| ok fails" in report
+  assert "| Is it tidy? (tidy) | fail | no |" in report
+  # A review with no rubric given keeps its name and its criteria's IDs.
+  assert "## docs passes" in report
+  assert "| sound | pass | fine |" in report
+
+
+@pytest.mark.parametrize("title", ['title = ""\n', "title = 1\n"])
+def test_a_rubric_s_title_is_a_non_empty_string(
+  tmp_path: Path, title: str
+) -> None:
+  bad = tmp_path / "bad.toml"
+  _ = bad.write_text(title + RUBRIC)
+
+  with pytest.raises(ValueError, match="title: not a non-empty string"):
+    _ = Rubric.load(bad)
 
 
 def test_a_review_without_verdicts_is_reported_as_such(

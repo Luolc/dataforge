@@ -167,10 +167,13 @@ class Rubric:
   Attributes:
     system: What the reviewer reviews and how to judge.
     criteria: The criteria.
+    title: Its review's name for people, in the report; None to name the
+      review by its own name.
   """
 
   system: str
   criteria: tuple[Criterion, ...]
+  title: str | None = None
 
   @classmethod
   def load(cls, path: Path) -> Rubric:
@@ -195,11 +198,14 @@ class Rubric:
       raise ValueError(f"{path}: not a rubric: {error!r}") from error
     if not isinstance(system, str) or not criteria:
       raise ValueError(f"{path}: not a rubric: no system text or criteria")
+    title = cast(object, raw.get("title"))
+    if title is not None and (not isinstance(title, str) or not title.strip()):
+      raise ValueError(f"{path}: title: not a non-empty string")
     for criterion in criteria:
       fields = cast(tuple[object, ...], dataclasses.astuple(criterion))
       if not all(isinstance(field, str) for field in fields):
         raise ValueError(f"{path}: {criterion.id}: a field is not a string")
-    return cls(system, criteria)
+    return cls(system, criteria, title)
 
 
 @dataclass(frozen=True)
@@ -694,34 +700,51 @@ def rubric_table(judgments: Sequence[Judgment]) -> Data:
   }
 
 
-def rubric_report(judgments: Sequence[Judgment]) -> str:
+def rubric_report(
+  judgments: Sequence[Judgment], rubrics: Mapping[str, Rubric]
+) -> str:
   """Return what reviews judged as a Markdown report for people.
 
-  A line on the whole, then for each review a heading, a table of its
-  criteria and a paragraph on what failed. A cell is one line, with "&", "<",
-  ">" and "|" escaped, so that a reviewer's words neither end the table nor
-  become HTML.
+  A line on the whole, then for each review a heading, its rubric's title or
+  else its name, a table of its criteria, each by its question and then its
+  ID, and a paragraph on what failed. A cell is one line, with "&", "<", ">"
+  and "|" escaped, so that neither a reviewer's words nor a rubric's end the
+  table or become HTML; so is a heading.
 
   Args:
     judgments: The reviews' judgments, in order.
+    rubrics: Each review's rubric, by the review's name.
 
   Returns:
     The report.
   """
-  failed = [judgment.name for judgment in judgments if not judgment.passed]
+
+  def title(judgment: Judgment) -> str:
+    rubric = rubrics.get(judgment.name)
+    return _cell(
+      judgment.name if rubric is None or rubric.title is None else rubric.title
+    )
+
+  failed = [title(judgment) for judgment in judgments if not judgment.passed]
   whole = (
     "Every review passes." if not failed else f"Failed: {', '.join(failed)}."
   )
   parts = ["# Rubric report", whole]
   for judgment in judgments:
     result = "passes" if judgment.passed else "fails"
+    rubric = rubrics.get(judgment.name)
+    questions = (
+      {} if rubric is None else {c.id: c.question for c in rubric.criteria}
+    )
     rows = [
       "| Criterion | Result | Note |",
       "| --- | --- | --- |",
-      *(_row(score) for score in judgment.scores),
+      *(
+        _row(score, questions.get(score.criterion)) for score in judgment.scores
+      ),
     ]
     parts += [
-      f"## {judgment.name} {result}{_reused(judgment)}",
+      f"## {title(judgment)} {result}{_reused(judgment)}",
       "\n".join(rows),
       _summary(judgment),
     ]
@@ -734,9 +757,14 @@ def _reused(judgment: Judgment) -> str:
   )
 
 
-def _row(score: Score) -> str:
+def _row(score: Score, question: str | None) -> str:
   result = "pass" if score.passed else "fail"
-  cells = (_cell(score.criterion), result, _cell(score.note))
+  criterion = (
+    _cell(score.criterion)
+    if question is None
+    else f"{_cell(question)} ({_cell(score.criterion)})"
+  )
+  cells = (criterion, result, _cell(score.note))
   return f"| {' | '.join(cells)} |"
 
 
