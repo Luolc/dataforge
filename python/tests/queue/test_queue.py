@@ -557,7 +557,7 @@ def test_a_restarted_scheduler_takes_the_running_jobs_as_they_are(
   )
   try:
     deadline = time.monotonic() + 20
-    while "ready" not in log(config, job):
+    while not ready(config, job):
       assert time.monotonic() < deadline, "timed out"
       time.sleep(0.05)
   finally:
