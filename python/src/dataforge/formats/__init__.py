@@ -8,15 +8,14 @@ dataforge.formats (GROUP). Two installs may run side by side only when they
 have the same formats at the same versions: `dataforge formats list --json`
 prints an install's, `dataforge formats compare` tells (command). Each
 format's fingerprint, the facts its code gives (fingerprint), is kept as a
-snapshot that tests check (snapshot), so that a change that is not additive
-raises its version.
+snapshot that tests check (snapshot), so that any change of it raises its
+version.
 """
 
 from dataforge.formats.core import (
   Change,
   changes,
   differences,
-  Fact,
   Fingerprint,
   Format,
   GROUP,
@@ -29,7 +28,6 @@ from dataforge.formats.snapshot import against_base, check, SnapshotError, write
 __all__ = [
   "GROUP",
   "Change",
-  "Fact",
   "Fingerprint",
   "Format",
   "RegistryError",

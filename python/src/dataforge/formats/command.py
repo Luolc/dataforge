@@ -51,8 +51,8 @@ def add_arguments(formats: argparse.ArgumentParser) -> None:
     description=(
       "Write <dir>/<name>.json for each format whose name starts with"
       " --prefix: its version and the facts its code gives. A snapshot"
-      " that changed in a way that is not additive at the version it had"
-      " is not written; raise the version first."
+      " whose facts changed at the version it had is not written; raise the"
+      " version first."
     ),
   )
   _ = snapshot.add_argument(

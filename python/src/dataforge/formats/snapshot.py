@@ -2,10 +2,10 @@
 
 A snapshot is `<directory>/<name>.json`, the format's version and its facts
 as its code gave them. A repository's tests check that each format's code
-gives its snapshot (`check`), and that at one version the snapshot changed
-only additively since the base branch (`against_base`), so that a change
-that is not additive raises the version. `write` updates a snapshot, and
-refuses a change that is not additive at the version it had.
+gives its snapshot (`check`), and that at one version the snapshot is the
+same as on the base branch (`against_base`), so that any change of a format
+raises its version. `write` updates a snapshot, and refuses a change at the
+version it had.
 """
 
 import json
@@ -13,7 +13,7 @@ from pathlib import Path
 import subprocess
 from typing import cast
 
-from dataforge.formats.core import Change, changes, Fact, Fingerprint, Format
+from dataforge.formats.core import Change, changes, Fingerprint, Format
 
 
 class SnapshotError(Exception):
@@ -44,9 +44,8 @@ def dumps(fmt: Format, facts: Fingerprint) -> str:
     The JSON, a fact a line, keys sorted, with a newline at the end.
   """
   lines = [
-    f"    {json.dumps(key)}: "
-    + json.dumps({"value": fact.value, "additive": fact.additive})
-    for key, fact in sorted(facts.items())
+    f"    {json.dumps(key)}: {json.dumps(value)}"
+    for key, value in sorted(facts.items())
   ]
   head = f'{{\n  "format": {json.dumps(fmt.name)},\n'
   head += f'  "version": {fmt.version},\n  "facts": {{\n'
@@ -68,33 +67,26 @@ def loads(text: str) -> tuple[int, Fingerprint]:
   try:
     data = cast(dict[str, object], json.loads(text))
     version = data["version"]
-    facts = cast(dict[str, dict[str, object]], data["facts"])
-    read = {
-      key: Fact(cast(str, fact["value"]), cast(bool, fact["additive"]))
-      for key, fact in facts.items()
-    }
-  except (ValueError, TypeError, KeyError, AttributeError) as error:
+    facts = data["facts"]
+  except (ValueError, TypeError, KeyError) as error:
     raise SnapshotError(f"not a snapshot: {error}") from error
   if isinstance(version, bool) or not isinstance(version, int):
     raise SnapshotError(f"not a snapshot: version {version!r}")
-  return version, read
+  if not isinstance(facts, dict) or not all(
+    isinstance(value, str)
+    for value in cast(dict[object, object], facts).values()
+  ):
+    raise SnapshotError("not a snapshot: facts not an object of strings")
+  return version, cast(Fingerprint, facts)
 
 
 def _update(fmt: Format, directory: Path) -> str:
   return f"run `dataforge formats snapshot --prefix {fmt.name} {directory}`"
 
 
-def _listed(found: list[Change]) -> str:
-  return "; ".join(str(change) for change in found)
-
-
-def _needs(fmt: Format, version: int, found: list[Change]) -> str:
-  why = (
-    "a change that is not additive"
-    if fmt.additive
-    else "a change of a format whose readers fail on what they do not know"
-  )
-  return f"{fmt.name}: {why} at version {version} ({_listed(found)})"
+def _changed(fmt: Format, version: int, found: list[Change]) -> str:
+  listed = "; ".join(str(change) for change in found)
+  return f"{fmt.name}: changed at version {version} ({listed})"
 
 
 def check(fmt: Format, directory: Path) -> list[str]:
@@ -124,18 +116,9 @@ def check(fmt: Format, directory: Path) -> list[str]:
         f" {version}; {_update(fmt, directory)} and commit the snapshot"
       )
     ]
-  if fmt.keeps_version(found):
-    return [
-      (
-        f"{fmt.name}: the format grew additively ({_listed(found)}), which"
-        f" the code of version {version} reads and writes beside as before,"
-        f" so the version may stay: {_update(fmt, directory)} and commit the"
-        " snapshot"
-      )
-    ]
   return [
     (
-      f"{_needs(fmt, version, found)}: raise its version where it is"
+      f"{_changed(fmt, version, found)}: raise its version where it is"
       f" declared, then {_update(fmt, directory)} and commit the snapshot; an"
       " install of the new version then runs beside one of the old only after"
       " the queue drains"
@@ -144,7 +127,7 @@ def check(fmt: Format, directory: Path) -> list[str]:
 
 
 def write(fmt: Format, directory: Path) -> list[str]:
-  """Write a format's snapshot, unless it changed and not additively.
+  """Write a format's snapshot, unless it changed at the version it had.
 
   Args:
     fmt: The format.
@@ -169,10 +152,10 @@ def write(fmt: Format, directory: Path) -> list[str]:
         )
       ]
     found = changes(before, facts)
-    if version == fmt.version and not fmt.keeps_version(found):
+    if version == fmt.version and found:
       return [
         (
-          f"{_needs(fmt, version, found)}: raise its version where it is"
+          f"{_changed(fmt, version, found)}: raise its version where it is"
           " declared, then write it again"
         )
       ]
@@ -184,10 +167,10 @@ def write(fmt: Format, directory: Path) -> list[str]:
 def against_base(
   fmt: Format, directory: Path, base: str = "origin/main"
 ) -> list[str] | None:
-  """Check that a snapshot changed only additively since a branch at a version.
+  """Check that a snapshot did not change at its version since a branch.
 
   The snapshot is compared with itself at the commit where HEAD left base
-  (`git merge-base`): at the same version, each change must be additive; the
+  (`git merge-base`): at the same version it must be the same, and the
   version must not go down. A format with no snapshot there is new.
 
   Args:
@@ -216,10 +199,10 @@ def against_base(
   if version < old_version:
     return [f"{fmt.name}: version {version}, below the {old_version} of {base}"]
   found = changes(old, facts)
-  if version == old_version and not fmt.keeps_version(found):
+  if version == old_version and found:
     return [
       (
-        f"{_needs(fmt, version, found)}, since {base}: raise its version"
+        f"{_changed(fmt, version, found)} since {base}: raise its version"
         f" where it is declared, then {_update(fmt, directory)}"
       )
     ]

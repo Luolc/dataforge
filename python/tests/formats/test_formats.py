@@ -11,12 +11,10 @@ from typing import cast, NotRequired, TypedDict
 import pytest
 
 from dataforge import cli
-from dataforge.curation.actions import ResourcePool
 from dataforge.formats import (
   against_base,
   changes,
   check,
-  Fact,
   Fingerprint,
   Format,
   installed,
@@ -27,42 +25,49 @@ from dataforge.formats import (
 )
 from dataforge.formats.builtin import FORMATS
 from dataforge.formats.snapshot import dumps
-from dataforge.queue import cancel, Config, count, jobs, submit
 from dataforge.queue import store as queue_store
-from dataforge.queue.proc import leader
-from dataforge.queue.scheduler import Scheduler
-from dataforge.runs import Store
-from dataforge.statedir import ENV
+from dataforge.runs import SCHEMA_MAJOR, SCHEMA_MINOR
 
 SNAPSHOTS = Path(__file__).parent
+NAMES = [one.name for one in FORMATS]
 
 
-@pytest.mark.parametrize("fmt", FORMATS, ids=[one.name for one in FORMATS])
+@pytest.mark.parametrize("fmt", FORMATS, ids=NAMES)
 def test_each_format_gives_its_snapshot(fmt: Format):
   assert check(fmt, SNAPSHOTS) == []
 
 
-@pytest.mark.parametrize("fmt", FORMATS, ids=[one.name for one in FORMATS])
-def test_each_snapshot_changed_only_additively_since_main(fmt: Format):
+@pytest.mark.parametrize("fmt", FORMATS, ids=NAMES)
+def test_each_snapshot_is_mains_at_its_version(fmt: Format):
   found = against_base(fmt, SNAPSHOTS)
   if found is None:
+    # In CI the history is there; a check that skips there checks nothing.
+    assert not os.environ.get("CI"), "git finds no origin/main in CI"
     pytest.skip("git finds no origin/main to compare the snapshot with")
   assert found == []
 
 
-def test_a_column_no_insert_writes_fails_the_queue_tables_snapshot(
-  monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+  "column", ["owner TEXT NOT NULL", "owner TEXT", "owner TEXT DEFAULT ''"]
+)
+def test_any_column_added_to_the_queues_table_fails_its_snapshot(
+  monkeypatch: pytest.MonkeyPatch, column: str
 ):
-  # The snapshot check catches a real change to the queue's schema.
+  # Even one that may be NULL: the scheduler of the version before made the
+  # table without it, and nothing adds it there.
   schema = queue_store._SCHEMA.replace(  # pyright: ignore[reportPrivateUsage]
-    "  log TEXT NOT NULL\n", "  log TEXT NOT NULL,\n  owner TEXT NOT NULL\n"
+    "  log TEXT NOT NULL\n", f"  log TEXT NOT NULL,\n  {column}\n"
   )
   monkeypatch.setattr(queue_store, "_SCHEMA", schema)
   [fmt] = [one for one in FORMATS if one.name == "dataforge.queue.table"]
   [problem] = check(fmt, SNAPSHOTS)
-  assert "a change that is not additive" in problem
-  assert "added table:jobs/column:owner: owner TEXT NOT NULL" in problem
+  assert f"added table:jobs/column:owner: {column}" in problem
   assert "raise its version" in problem
+
+
+def test_the_runs_stores_version_follows_its_schema_major_and_minor():
+  [fmt] = [one for one in FORMATS if one.name == "dataforge.runs.store"]
+  assert fmt.version == 1000 * SCHEMA_MAJOR + SCHEMA_MINOR
 
 
 def _schema(tmp_path: Path, sql: str) -> Fingerprint:
@@ -81,41 +86,31 @@ CREATE TABLE jobs (
 
 
 @pytest.mark.parametrize(
-  ("more", "additive"),
+  ("other", "key"),
   [
-    ("ALTER TABLE jobs ADD COLUMN note TEXT", True),
-    ("ALTER TABLE jobs ADD COLUMN n INTEGER NOT NULL DEFAULT 0", True),
-    ("ALTER TABLE jobs ADD COLUMN n INTEGER NOT NULL", False),
-    ("CREATE TABLE pauses (queue TEXT PRIMARY KEY, at REAL NOT NULL)", True),
-    ("CREATE INDEX jobs_state ON jobs (state)", True),
-    ("CREATE UNIQUE INDEX jobs_state ON jobs (state)", False),
+    (f"{BASE}ALTER TABLE jobs ADD COLUMN note TEXT;", "table:jobs/column:note"),
+    (f"{BASE}CREATE TABLE notes (id TEXT PRIMARY KEY);", "table:notes"),
     (
-      "CREATE TRIGGER t AFTER INSERT ON jobs BEGIN SELECT 1; END",
-      False,
+      f"{BASE}CREATE INDEX jobs_state ON jobs (state);",
+      "table:jobs/index:jobs_state",
+    ),
+    (
+      f"{BASE}CREATE TRIGGER t AFTER INSERT ON jobs BEGIN SELECT 1; END;",
+      "table:jobs/trigger:t",
+    ),
+    (BASE.replace("'done'", "'done', 'paused'"), "table:jobs/column:state"),
+    (BASE.replace(") STRICT", ")"), "table:jobs"),
+    (
+      BASE.replace("state TEXT NOT NULL", "state TEXT"),
+      "table:jobs/column:state",
     ),
   ],
 )
-def test_what_a_schema_adds_is_additive_when_old_writers_go_on(
-  tmp_path: Path, more: str, additive: bool
+def test_each_change_of_a_schema_is_a_change_of_its_fingerprint(
+  tmp_path: Path, other: str, key: str
 ):
-  found = changes(_schema(tmp_path, BASE), _schema(tmp_path, f"{BASE}{more};"))
-  assert found
-  assert all(change.kind == "added" for change in found)
-  assert all(change.additive for change in found) is additive
-
-
-@pytest.mark.parametrize(
-  "other",
-  [
-    BASE.replace("'done'", "'done', 'paused'"),
-    BASE.replace(") STRICT", ")"),
-    BASE.replace("state TEXT NOT NULL", "state TEXT"),
-  ],
-)
-def test_a_changed_definition_is_not_additive(tmp_path: Path, other: str):
   found = changes(_schema(tmp_path, BASE), _schema(tmp_path, other))
-  assert [change.kind for change in found] == ["changed"]
-  assert not found[0].additive
+  assert key in [change.key for change in found]
 
 
 def test_comments_and_spacing_are_no_change(tmp_path: Path):
@@ -132,21 +127,15 @@ class _Before(TypedDict):
   until: float
 
 
-class _Optional(_Before):
+class _After(_Before):
   cause: NotRequired[str | None]
 
 
-class _Required(_Before):
-  cause: str | None
-
-
-def test_a_typed_dicts_key_is_additive_only_when_not_required():
+def test_a_typed_dicts_keys_and_types_are_its_fingerprint():
   before = typed_dict(_Before)
-  assert before["field:inner/field:start"] == Fact("float")
-  [optional] = changes(before, typed_dict(_Optional))
-  [required] = changes(before, typed_dict(_Required))
-  assert optional.additive and optional.after == Fact("str | None", True)
-  assert not required.additive
+  assert before["field:inner/field:start"] == "float"
+  [added] = changes(before, typed_dict(_After))
+  assert (added.key, added.after) == ("field:cause", "str | None, optional")
 
 
 def _format(
@@ -154,7 +143,7 @@ def _format(
   version: int = 1,
   facts: Fingerprint | None = None,
 ) -> Format:
-  given = {"a": Fact("1")} if facts is None else facts
+  given = {"a": "1"} if facts is None else facts
   return Format(name, version, lambda: dict(given), "a test's")
 
 
@@ -274,21 +263,17 @@ def test_compare_of_a_missing_list_refuses(
   assert "old install" in capsys.readouterr().err
 
 
-def test_write_takes_an_additive_change_and_refuses_another_until_raised(
-  tmp_path: Path,
-):
-  base = {"t": Fact("STRICT", additive=True), "t/c": Fact("c TEXT")}
+def test_write_refuses_a_change_until_the_version_is_raised(tmp_path: Path):
+  base = {"t": "STRICT", "t/c": "c TEXT"}
   assert write(_format(facts=base), tmp_path) == []
-  grown = {**base, "t/d": Fact("d TEXT", additive=True)}
-  assert write(_format(facts=grown), tmp_path) == []
-  assert check(_format(facts=grown), tmp_path) == []
-  changed = {**grown, "t/c": Fact("c INTEGER")}
-  [refused] = write(_format(facts=changed), tmp_path)
+  assert check(_format(facts=base), tmp_path) == []
+  grown = {**base, "t/d": "d TEXT"}
+  [refused] = write(_format(facts=grown), tmp_path)
   assert "raise its version" in refused
-  [stale] = check(_format(facts=changed), tmp_path)
-  assert "a change that is not additive" in stale
-  assert write(_format(version=2, facts=changed), tmp_path) == []
-  assert check(_format(version=2, facts=changed), tmp_path) == []
+  [stale] = check(_format(facts=grown), tmp_path)
+  assert "changed at version 1 (added t/d: d TEXT)" in stale
+  assert write(_format(version=2, facts=grown), tmp_path) == []
+  assert check(_format(version=2, facts=grown), tmp_path) == []
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -302,7 +287,7 @@ def repo(tmp_path: Path) -> Path:
   _git(tmp_path, "init", "-q", "-b", "main")
   _git(tmp_path, "config", "user.email", "test@example.com")
   _git(tmp_path, "config", "user.name", "test")
-  assert write(_format(facts={"t/c": Fact("c TEXT")}), tmp_path) == []
+  assert write(_format(facts={"t/c": "c TEXT"}), tmp_path) == []
   _git(tmp_path, "add", ".")
   _git(tmp_path, "commit", "-q", "-m", "base")
   _git(tmp_path, "switch", "-q", "-c", "change")
@@ -312,18 +297,17 @@ def repo(tmp_path: Path) -> Path:
 @pytest.mark.parametrize(
   ("version", "facts", "problem"),
   [
-    (1, {"t/c": Fact("c TEXT"), "t/d": Fact("d", additive=True)}, None),
-    (1, {"t/c": Fact("c INTEGER")}, "not additive"),
-    (2, {"t/c": Fact("c INTEGER")}, None),
+    (1, {"t/c": "c TEXT"}, None),
+    (1, {"t/c": "c TEXT", "t/d": "d TEXT"}, "changed at version 1"),
+    (2, {"t/c": "c INTEGER"}, None),
   ],
 )
-def test_against_base_takes_only_an_additive_change_at_one_version(
+def test_against_base_takes_a_change_only_with_a_new_version(
   repo: Path, version: int, facts: Fingerprint, problem: str | None
 ):
   # The snapshot is written by hand, as write would refuse to.
   fmt = _format(version=version, facts=facts)
-  file = repo / "project.table.json"
-  _ = file.write_text(dumps(fmt, facts))
+  _ = (repo / "project.table.json").write_text(dumps(fmt, facts))
   found = against_base(fmt, repo, base="main")
   if problem is None:
     assert found == []
@@ -345,98 +329,3 @@ def test_against_base_refuses_a_version_that_goes_down(repo: Path):
 
 def test_against_base_is_none_without_the_branch(repo: Path):
   assert against_base(_format(), repo, base="origin/main") is None
-
-
-def test_a_format_whose_readers_fail_on_new_keys_takes_no_change_at_one_version(
-  tmp_path: Path,
-):
-  base = {"field:a": Fact("float")}
-  strict = Format("project.file", 1, lambda: dict(base), "a test's", False)
-  assert write(strict, tmp_path) == []
-  grown = {**base, "field:b": Fact("str", additive=True)}
-  strict = Format("project.file", 1, lambda: dict(grown), "a test's", False)
-  [refused] = write(strict, tmp_path)
-  assert "readers fail on what they do not know" in refused
-  [stale] = check(strict, tmp_path)
-  assert "raise its version" in stale
-
-
-class _Readings:
-  def mem_available_mib(self) -> int:
-    return 1 << 20
-
-  def load1(self) -> float:
-    return 0.0
-
-  def rss_mib(self, session: int) -> int:
-    _ = session
-    return 0
-
-
-def _grow(path: Path, sql: str) -> None:
-  with closing(sqlite3.connect(path)) as conn:
-    _ = conn.executescript(sql)
-
-
-def test_the_queue_reads_and_writes_a_table_grown_additively(tmp_path: Path):
-  # What an install of a later version adds at the same version: a column
-  # that may be NULL, a table, an index.
-  config = Config(
-    queues={"q": 1},
-    max_running=1,
-    min_mem_available_mib=0,
-    max_load1=1.0,
-    database=tmp_path / "queue.sqlite",
-    logs=tmp_path / "logs",
-  )
-  with queue_store.connect(config.database):
-    pass
-  _grow(
-    config.database,
-    """
-    ALTER TABLE jobs ADD COLUMN note TEXT;
-    CREATE TABLE pauses (queue TEXT PRIMARY KEY, at REAL NOT NULL) STRICT;
-    CREATE INDEX jobs_note ON jobs (note);
-    """,
-  )
-  job = submit(config, "q", ["true"], cwd=tmp_path, memory_mib=0)
-  assert [one.id for one in jobs(config)] == [job.id]
-  assert count(config, states=["queued"]) == 1
-  assert cancel(config, job.id).state == "canceled"
-  Scheduler(config, _Readings()).tick()
-  assert [one.state for one in jobs(config)] == ["canceled"]
-
-
-def test_the_store_of_attempts_reads_and_writes_a_schema_grown_additively(
-  tmp_path: Path,
-):
-  store = Store(tmp_path / "runs.sqlite")
-  store.create()
-  _grow(
-    store.path,
-    """
-    ALTER TABLE attempt ADD COLUMN note TEXT;
-    ALTER TABLE event ADD COLUMN note TEXT;
-    CREATE TABLE other (id TEXT PRIMARY KEY) STRICT;
-    """,
-  )
-  holder = leader(os.getpid())
-  assert holder is not None
-  assert store.insert("item/1", "item", tmp_path, holder, None)
-  [row] = store.rows()
-  assert (row.id, row.state) == ("item/1", "running")
-  assert [event.to_state for event in store.events("item/1")] == ["running"]
-
-
-def test_the_state_directory_grown_by_new_directories_counts_as_before(
-  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-  # A new directory, at the top or in one of the leases', is not a lease.
-  state = tmp_path / "state"
-  for path in ("other", "memory/other", "builds/other"):
-    (state / path).mkdir(parents=True)
-  monkeypatch.setenv(ENV, str(state))
-  pool = ResourcePool(0.5)
-  with pool.build(0.25):
-    assert pool.reserved_gb == 0.25
-  assert pool.reserved_gb == 0

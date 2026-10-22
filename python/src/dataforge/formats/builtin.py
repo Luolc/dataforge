@@ -5,16 +5,20 @@ of another on one machine, on one queue database and one state directory:
 the queue's table, how the scheduler starts and watches a job's wrapper, the
 state directory's layout with its leases, the gateway's pause files, the
 store of attempts and the attempt's record in it. A version is raised for any
-change of a format that is not additive (`dataforge.formats.core`), whether
-its fingerprint shows the change or only what the code means by it.
+change of a format, whether its fingerprint shows the change or only what the
+code means by it.
 """
 
 from collections.abc import Generator
 import contextlib
+from contextlib import closing
 from datetime import datetime, UTC
+import json
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
+from typing import cast
 
 from dataforge.curation.actions import ResourcePool
 from dataforge.curation.engine import (
@@ -24,7 +28,7 @@ from dataforge.curation.engine import (
   TrialRecord,
   Visit,
 )
-from dataforge.formats.core import Fact, Fingerprint, Format
+from dataforge.formats.core import Fingerprint, Format
 from dataforge.formats.fingerprint import json_shape, sqlite, tree, typed_dict
 from dataforge.queue import store as queue_store
 from dataforge.queue.config import Config, load_config
@@ -53,16 +57,27 @@ def _queue_wrapper() -> Fingerprint:
       database=root / "queue.sqlite",
       logs=root / "logs",
     )
-    job = queue_store.submit(config, "q", ["true"], cwd=root, memory_mib=0)
+    job = queue_store.submit(
+      config, "q", ["true"], cwd=root, memory_mib=0, labels={"k": "v"}
+    )
     log = Path(job.log).relative_to(config.logs.resolve()).as_posix()
+    with closing(sqlite3.connect(config.database)) as conn:
+      argv, labels = cast(
+        tuple[str, str],
+        conn.execute("SELECT argv, labels FROM jobs").fetchone(),
+      )
+  # What the row's argv and labels hold, which one install writes and the
+  # other's scheduler and wrapper read.
+  row = json_shape({"argv": json.loads(argv), "labels": json.loads(labels)})
   wrapper = command(Path("/queue.sqlite"), 7, 30.0)
   wrapper[0] = "<python>"
   return {
-    "command": Fact(" ".join(wrapper)),
-    "leader": Fact(", ".join(Leader._fields)),
-    "log": Fact(log.replace(str(job.id), "<id>")),
-    f"env:{JOB_ID_ENV}": Fact("the job's ID", additive=True),
-    f"env:{QUEUE_DB_ENV}": Fact("the database", additive=True),
+    "command": " ".join(wrapper),
+    "leader": ", ".join(Leader._fields),
+    "log": log.replace(str(job.id), "<id>"),
+    f"env:{JOB_ID_ENV}": "the job's ID",
+    f"env:{QUEUE_DB_ENV}": "the database",
+    **{f"row:{key}": value for key, value in row.items()},
   }
 
 
@@ -92,12 +107,12 @@ def _statedir() -> Fingerprint:
 
   with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
-    facts = {"variable": Fact(ENV)}
+    facts = {"variable": ENV}
     with _environ(**{ENV: None, "XDG_STATE_HOME": None, "HOME": tmp}):
-      facts["default"] = Fact(f"~/{state_dir().relative_to(root).as_posix()}")
+      facts["default"] = f"~/{state_dir().relative_to(root).as_posix()}"
     with _environ(**{ENV: None, "XDG_STATE_HOME": tmp}):
       under = state_dir().relative_to(root).as_posix()
-      facts["xdg"] = Fact(f"$XDG_STATE_HOME/{under}")
+      facts["xdg"] = f"$XDG_STATE_HOME/{under}"
     state = root / "state"
     queue_file = root / "queue.yaml"
     _ = queue_file.write_text(
@@ -105,8 +120,8 @@ def _statedir() -> Fingerprint:
     )
     with _environ(**{ENV: str(state)}):
       config = load_config(queue_file)
-      facts["queue database"] = Fact(_under(config.database, state))
-      facts["queue logs"] = Fact(_under(config.logs, state))
+      facts["queue database"] = _under(config.database, state)
+      facts["queue logs"] = _under(config.logs, state)
       pool = ResourcePool(0.5)
       with pool.build(0.5), pause.pausing(pause.Backoff()) as pauses:
         for one in pauses.values():
@@ -131,7 +146,7 @@ def _pause() -> Fingerprint:
   # The pause file's keys, of each channel (`pause/<channel>.json`).
   # The TypedDict stays private to the module that writes the file.
   facts = typed_dict(pause._State)  # pyright: ignore[reportPrivateUsage]
-  facts["channels"] = Fact(", ".join(c.value for c in Channel))
+  facts["channels"] = ", ".join(c.value for c in Channel)
   return facts
 
 
@@ -239,17 +254,16 @@ FORMATS: tuple[Format, ...] = (
     1,
     _pause,
     "a channel's pause file, pause/<channel>.json (dataforge.gateway.pause)",
-    # A process of the version before rewrites the whole file and reads
-    # backoff as Backoff(**...), which a key it does not know fails.
-    additive=False,
   ),
   Format(
     "dataforge.runs.store",
-    runs_store.SCHEMA_MAJOR,
+    # Raised with SCHEMA_MAJOR and with SCHEMA_MINOR, each a change of the
+    # schema.
+    1000 * runs_store.SCHEMA_MAJOR + runs_store.SCHEMA_MINOR,
     _runs_store,
     (
-      "a store of attempts, its SQLite tables; its version is SCHEMA_MAJOR"
-      " (dataforge.runs.store)"
+      "a store of attempts, its SQLite tables; its version is 1000 *"
+      " SCHEMA_MAJOR + SCHEMA_MINOR (dataforge.runs.store)"
     ),
   ),
   Format(
@@ -260,9 +274,6 @@ FORMATS: tuple[Format, ...] = (
       "an attempt's record, Attempt.to_json, in the store's rows and the"
       " record file (dataforge.curation.engine)"
     ),
-    # Attempt.from_json of a later version may need a key that a writer of
-    # the version before leaves out.
-    additive=False,
   ),
 )
 """dataforge's formats."""

@@ -1,7 +1,7 @@
 """Fingerprints from code: a SQLite schema, a TypedDict, JSON, a directory.
 
-Each gives the facts (`core.Fact`) of one kind of format, read from what the
-code makes, so that a change to the code shows in them.
+Each gives the facts (`core.Fingerprint`) of one kind of format, read from
+what the code makes, so that a change to the code shows in them.
 """
 
 from collections.abc import Collection, Mapping
@@ -14,7 +14,7 @@ import types
 import typing
 from typing import cast
 
-from dataforge.formats.core import Fact, Fingerprint
+from dataforge.formats.core import Fingerprint
 
 _CONSTRAINT = {"constraint", "primary", "unique", "check", "foreign"}
 _LEASE = re.compile(r"lease-.*")
@@ -29,12 +29,9 @@ def sqlite(path: Path) -> Fingerprint:
 
   A table is `table:<name>`, its value what follows its definition, such as
   STRICT; each of its columns `table:<name>/column:<column>`, its value the
-  column's definition, additive when an INSERT that leaves it out writes it:
-  it may be NULL or has a default, and is not part of the primary key. Each
-  table constraint, index and trigger is under its table too; an index is
-  additive unless it is UNIQUE, a constraint or a trigger never. A view is
-  `view:<name>` and additive. The comments of a definition and its spacing
-  are left out.
+  column's definition. Each table constraint, index and trigger is under its
+  table too, and a view is `view:<name>`. The comments of a definition and
+  its spacing are left out.
 
   Args:
     path: The database.
@@ -49,55 +46,29 @@ def sqlite(path: Path) -> Fingerprint:
       list[tuple[str, str, str, str | None]],
       conn.execute(_OBJECTS).fetchall(),
     )
-    for kind, name, table, sql in rows:
-      if sql is None:
-        continue
-      text = _strip_comments(sql)
-      if kind == "table":
-        facts.update(_table(conn, name, text))
-      elif kind == "index":
-        facts[f"table:{table}/index:{name}"] = Fact(
-          _spaced(text), additive=not _unique(conn, table, name)
-        )
-      elif kind == "trigger":
-        facts[f"table:{table}/trigger:{name}"] = Fact(_spaced(text))
-      else:
-        facts[f"{kind}:{name}"] = Fact(_spaced(text), additive=True)
+  for kind, name, table, sql in rows:
+    if sql is None:
+      continue
+    text = _strip_comments(sql)
+    if kind == "table":
+      facts.update(_table(name, text))
+    elif kind in ("index", "trigger"):
+      facts[f"table:{table}/{kind}:{name}"] = _spaced(text)
+    else:
+      facts[f"{kind}:{name}"] = _spaced(text)
   return facts
 
 
-def _table(conn: sqlite3.Connection, name: str, sql: str) -> Fingerprint:
+def _table(name: str, sql: str) -> Fingerprint:
   body, options = _parenthesized(sql)
-  columns = {
-    cast(str, row[1]): row
-    for row in cast(
-      list[tuple[object, ...]],
-      conn.execute("SELECT * FROM pragma_table_xinfo(?)", (name,)).fetchall(),
-    )
-  }
-  facts = {f"table:{name}": Fact(_spaced(options), additive=True)}
+  facts = {f"table:{name}": _spaced(options)}
   for part in _split(body):
     words = part.split(maxsplit=1)
     if words[0].lower() in _CONSTRAINT:
-      facts[f"table:{name}/constraint:{part}"] = Fact("")
-      continue
-    column = _unquoted(words[0])
-    # pragma_table_xinfo: cid, name, type, notnull, dflt_value, pk, hidden.
-    info = columns[column]
-    additive = info[5] == 0 and (info[3] == 0 or info[4] is not None)
-    facts[f"table:{name}/column:{column}"] = Fact(part, additive=additive)
+      facts[f"table:{name}/constraint:{part}"] = ""
+    else:
+      facts[f"table:{name}/column:{_unquoted(words[0])}"] = part
   return facts
-
-
-def _unique(conn: sqlite3.Connection, table: str, index: str) -> bool:
-  for row in cast(
-    list[tuple[object, ...]],
-    conn.execute("SELECT * FROM pragma_index_list(?)", (table,)).fetchall(),
-  ):
-    # pragma_index_list: seq, name, unique, origin, partial.
-    if row[1] == index:
-      return bool(row[2])
-  return True
 
 
 def _strip_comments(sql: str) -> str:
@@ -175,8 +146,9 @@ def _unquoted(name: str) -> str:
 def typed_dict(cls: type, prefix: str = "") -> Fingerprint:
   """Give the facts of a TypedDict, the keys of a JSON object.
 
-  Each key is `field:<name>`, its value the key's type; a key that is not
-  required is additive. A TypedDict inside it gives its keys under its own.
+  Each key is `field:<name>`, its value the key's type, with `, optional`
+  for a key that is not required. A TypedDict inside it gives its keys under
+  its own.
 
   Args:
     cls: The TypedDict.
@@ -192,11 +164,11 @@ def typed_dict(cls: type, prefix: str = "") -> Fingerprint:
   hints = cast(dict[str, object], typing.get_type_hints(cls))
   for name, hint in hints.items():
     key = f"{prefix}field:{name}"
-    if typing.is_typeddict(hint):
-      facts[key] = Fact("object", additive=name in optional)
+    nested = typing.is_typeddict(hint)
+    value = "object" if nested else _type(hint)
+    facts[key] = f"{value}, optional" if name in optional else value
+    if nested:
       facts.update(typed_dict(cast(type, hint), f"{key}/"))
-    else:
-      facts[key] = Fact(_type(hint), additive=name in optional)
   return facts
 
 
@@ -215,8 +187,7 @@ def json_shape(
   """Give the facts of a JSON value as code writes it: each key and its type.
 
   A key of an object is its path, such as `budget/cost_usd`; the items of a
-  list are `[]`, of which the first gives the shape. None of them is additive:
-  a reader may need a key that a writer of the version before leaves out.
+  list are `[]`, of which the first gives the shape.
 
   Args:
     value: A value the code wrote, with every key it writes; one that is
@@ -243,7 +214,7 @@ def _shape(
   facts: Fingerprint,
 ) -> None:
   if path:
-    facts[path] = Fact(_json_type(value))
+    facts[path] = _json_type(value)
   if path in opaque:
     return
   below = f"{path}/" if path else ""
@@ -278,9 +249,9 @@ def _json_type(value: object) -> str:
 def tree(root: Path) -> Fingerprint:
   """Give the facts of a directory's layout, as code left it.
 
-  Each directory is its path, additive; each file its path. A lease
-  (`dataforge.leases`), whose name is random, is `lease-*`, its value the
-  amount it holds; another file's value is `file`.
+  Each directory is its path, its value `directory`; each file its path. A
+  lease (`dataforge.leases`), whose name is random, is `lease-*`, its value
+  the amount it holds; another file's value is `file`.
 
   Args:
     root: The directory.
@@ -292,11 +263,11 @@ def tree(root: Path) -> Fingerprint:
   for top, dirs, files in os.walk(root):
     here = Path(top).relative_to(root)
     for name in dirs:
-      facts[(here / name).as_posix()] = Fact("directory", additive=True)
+      facts[(here / name).as_posix()] = "directory"
     for name in files:
       if _LEASE.fullmatch(name):
         amount = (Path(top) / name).read_text()
-        facts[(here / "lease-*").as_posix()] = Fact(f"holds {amount}")
+        facts[(here / "lease-*").as_posix()] = f"holds {amount}"
       else:
-        facts[(here / name).as_posix()] = Fact("file")
+        facts[(here / name).as_posix()] = "file"
   return facts

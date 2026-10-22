@@ -3,21 +3,11 @@
 A format is something processes of two installs share while both run: a
 table, a file, a directory's layout, the way one process starts another. Each
 has a name, an integer version and a fingerprint, the facts about it that its
-code gives. Two installs whose formats have the same names and versions may
-run side by side; any other difference, one format missing or one version
-not the same, may not.
-
-A fingerprint maps a key to a fact. Keys are paths whose parts `/` divides,
-such as `table:jobs/column:pid`, and a key's ancestors are its leading parts.
-A fact that is new, with no fact of its key before, is additive when the code
-of the version before reads and writes beside it as it did, such as a column
-that may be NULL: its fact says so, or one of its ancestors is new as well and
-additive, such as each column of a new table. Every other change, a fact
-removed or changed or a new one that is not additive, needs a new version.
-An additive change keeps the version only of a format whose readers of the
-version before read what it adds without failing, such as a query that
-names its columns; a format whose readers fail on a key they do not know
-says so (`Format.additive`), and every change of it needs a new version.
+code gives, each a key and a value. Two installs whose formats have the same
+names and versions may run side by side; any other difference, one format
+missing or one version not the same, may not. Any change of a fingerprint
+raises the version, and so does a change of what the code means by a format
+that its fingerprint does not show.
 """
 
 from collections.abc import Callable, Iterable, Mapping
@@ -32,22 +22,7 @@ entry point names a callable that returns an iterable of Format."""
 
 _NAME = re.compile(r"[a-z0-9_]+(\.[a-z0-9_]+)+")
 
-
-@dataclass(frozen=True, slots=True)
-class Fact:
-  """One fact of a fingerprint.
-
-  Attributes:
-    value: What the code gives for it.
-    additive: Whether the code of the version before reads and writes
-      beside it as it did, when the fact is new.
-  """
-
-  value: str
-  additive: bool = False
-
-
-type Fingerprint = dict[str, Fact]
+type Fingerprint = dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,32 +32,17 @@ class Format:
   Attributes:
     name: Its name, dotted, the first part its owner's, such as
       `dataforge.queue.table`.
-    version: Its version, at least 1; raised for each change that is not
-      additive, of its fingerprint or of what its code means by it.
+    version: Its version, at least 1; raised for each change of its
+      fingerprint or of what its code means by it.
     fingerprint: Gives its facts from the code; it may write temporary
       files, and touches nothing else.
     about: What it is and where its code is, in a line.
-    additive: Whether an additive change keeps the version: its readers of
-      the version before read what the change adds without failing.
   """
 
   name: str
   version: int
   fingerprint: Callable[[], Fingerprint]
   about: str
-  additive: bool = True
-
-  def keeps_version(self, found: Iterable[Change]) -> bool:
-    """Tell whether changes of the fingerprint leave the version as it is.
-
-    Args:
-      found: The changes.
-
-    Returns:
-      True when there is none, or each is additive and so is the format.
-    """
-    found = list(found)
-    return not found or (self.additive and all(c.additive for c in found))
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,17 +51,13 @@ class Change:
 
   Attributes:
     key: The fact's key.
-    kind: "added", "removed" or "changed".
-    before: The fact before, None when added.
-    after: The fact after, None when removed.
-    additive: Whether it leaves the version as it is.
+    before: Its value before, None when added.
+    after: Its value after, None when removed.
   """
 
   key: str
-  kind: str
-  before: Fact | None
-  after: Fact | None
-  additive: bool
+  before: str | None
+  after: str | None
 
   @override
   def __str__(self) -> str:
@@ -111,10 +67,10 @@ class Change:
       The line.
     """
     if self.before is None:
-      return f"added {self.key}: {self.after.value if self.after else ''}"
+      return f"added {self.key}: {self.after}"
     if self.after is None:
-      return f"removed {self.key}: {self.before.value}"
-    return f"changed {self.key}: {self.before.value} -> {self.after.value}"
+      return f"removed {self.key}: {self.before}"
+    return f"changed {self.key}: {self.before} -> {self.after}"
 
 
 class RegistryError(Exception):
@@ -122,7 +78,7 @@ class RegistryError(Exception):
 
 
 def changes(
-  before: Mapping[str, Fact], after: Mapping[str, Fact]
+  before: Mapping[str, str], after: Mapping[str, str]
 ) -> list[Change]:
   """Compare two fingerprints of a format.
 
@@ -133,34 +89,11 @@ def changes(
   Returns:
     Each difference, by key.
   """
-  found: list[Change] = []
-  for key in sorted(before.keys() | after.keys()):
-    old, new = before.get(key), after.get(key)
-    if old == new:
-      continue
-    if new is None:
-      found.append(Change(key, "removed", old, None, additive=False))
-    elif old is None:
-      found.append(
-        Change(key, "added", None, new, additive=_additive(key, before, after))
-      )
-    else:
-      found.append(Change(key, "changed", old, new, additive=False))
-  return found
-
-
-def _additive(
-  key: str, before: Mapping[str, Fact], after: Mapping[str, Fact]
-) -> bool:
-  parts = key.split("/")
-  for n in range(len(parts), 0, -1):
-    at = "/".join(parts[:n])
-    if at in before:
-      return False
-    fact = after.get(at)
-    if fact is not None and fact.additive:
-      return True
-  return False
+  return [
+    Change(key, before.get(key), after.get(key))
+    for key in sorted(before.keys() | after.keys())
+    if before.get(key) != after.get(key)
+  ]
 
 
 def installed(
@@ -210,8 +143,8 @@ def installed(
     version = cast(object, one.version)
     if isinstance(version, bool) or not isinstance(version, int):
       raise RegistryError(f"{one.name}: version {version!r} not an int")
-    if one.version < 1:
-      raise RegistryError(f"{one.name}: version {one.version} below 1")
+    if version < 1:
+      raise RegistryError(f"{one.name}: version {version} below 1")
     if one.name in names:
       raise RegistryError(f"{one.name}: registered twice")
     names.add(one.name)
