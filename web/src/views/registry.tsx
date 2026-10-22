@@ -19,6 +19,7 @@ import FilesView from "./files";
 import { type DeliverableProps, leading, reachedFirst } from "./kind";
 import ReportView from "./report";
 import TrialsView from "./trials";
+import { COUNTED } from "./trials/status";
 
 interface TabProps {
   project: Project;
@@ -32,6 +33,8 @@ interface ItemProps {
   project: string;
   attempt: string;
   item: Deliverable;
+  /** The word after a count, as the project file names it for the item. */
+  counted?: string | null | undefined;
 }
 
 interface Kind {
@@ -86,7 +89,7 @@ const kinds: Partial<Record<string, Kind>> = {
     View: TrialsView,
     stack: false,
     Count: ({ item }) => solved(item),
-    Line: ({ item }) => `${solved(item)} solved`,
+    Line: ({ item, counted }) => `${solved(item)} ${counted ?? COUNTED}`,
   },
   report: {
     View: ReportView,
@@ -133,7 +136,7 @@ export function KindLine({ item, ...props }: ItemProps) {
  * from a menu, the one the page's `deliverable` names, else the leading one.
  */
 export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
-  const { View, stack } = kindOf(kind);
+  const { View, stack, Count } = kindOf(kind);
   const [query, setQuery] = useSearchParams();
   const asked = props.items.find((d) => d.name === query.get("deliverable"));
   const chosen = (asked ?? leading(props.items))?.name;
@@ -154,7 +157,17 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
     <div className="flex flex-col gap-3 px-7 pt-5 pb-12">
       {!stack && props.items.length > 1 && (
         <ChoiceMenu
-          items={props.items.map(choice)}
+          items={props.items.map((item) => ({
+            ...choice(item),
+            aside: (
+              <Count
+                project={props.project.id}
+                attempt={props.attempt}
+                item={item}
+                items={[item]}
+              />
+            ),
+          }))}
           chosen={shown[0] && choice(shown[0])}
           onChoose={setChosen}
         />

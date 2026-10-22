@@ -4,6 +4,31 @@ import type {
   LiveInfo,
   Project,
 } from "../api/types";
+import { NOT_RUN, stateTitle } from "../ui/status";
+
+/** The project file's entry for a deliverable, by its name, if it has one. */
+export function declared(
+  project: Pick<Project, "deliverables">,
+  name: string,
+): NonNullable<Project["deliverables"]>[number] | undefined {
+  return project.deliverables?.find((d) => d.name === name);
+}
+
+/**
+ * Not run, with the engine's reason for a deliverable not reached, the state
+ * the reason starts with named by its title.
+ */
+export function notRun(
+  project: Project,
+  deliverable: Pick<Deliverable, "state" | "reason">,
+): string {
+  const { state, reason } = deliverable;
+  if (reason === null || reason === "") return NOT_RUN;
+  const titled = reason.startsWith(`${state} `)
+    ? `${stateTitle(project, state)}${reason.slice(state.length)}`
+    : reason;
+  return `${NOT_RUN}: ${titled}`;
+}
 
 /** What a deliverable kind's view gets: one deliverable and its record. */
 export interface DeliverableProps {

@@ -203,7 +203,9 @@ describe("a tab of several deliverables of one kind", () => {
   it("opens on the first declared when none was reached", async () => {
     show(withRegrade(false, false), "&tab=trials", twice);
 
-    expect(await screen.findByText("regrade was never visited")).toBeVisible();
+    expect(
+      await screen.findByText("Not run: regrade was never visited"),
+    ).toBeVisible();
   });
 
   // Two reports, the first declared reached only by some attempts: the rule

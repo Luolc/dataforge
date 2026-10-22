@@ -1,24 +1,33 @@
 // The trials view: a deliverable's trials on the left, headed by its value and
 // its visit's outcome; on the right the chosen trial's numbers, then its trace
-// in the session view, its diff and its tests, each in a tab. The chosen trial
-// is the page's `trial`, by its output, else the first.
+// in the session view, its diff, its tests and its log, each in a tab. The
+// chosen trial is the page's `trial`, by its output, else the first.
+import { CircleDashed } from "lucide-react";
 import { Tabs } from "radix-ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import type { Action, LiveInfo, Trial } from "../../api/types";
+import type {
+  Action,
+  Deliverable,
+  LiveInfo,
+  Project,
+  Trial,
+} from "../../api/types";
 import { SessionView } from "../../session";
 import { Note } from "../../ui/card";
+import { control } from "../../ui/chip";
+import { CodeView } from "../../ui/code";
 import { DiffView } from "../../ui/diff";
 import { duration, span, usd } from "../../ui/format";
 import { RunningIcon } from "../../ui/running";
-import { attemptStatus, toneGlyph, toneText } from "../../ui/status";
+import { attemptStatus, statusOf, toneGlyph, toneText } from "../../ui/status";
 import { StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
-import { DeliverableCard } from "../DeliverableCard";
 import { size, useFile } from "../files/file";
-import type { DeliverableProps } from "../kind";
-import { RUNNING, trialStatus } from "./status";
+import { FromRun } from "../FromRun";
+import { declared, type DeliverableProps, notRun } from "../kind";
+import { COUNTED, RUNNING, trialStatus, WITH_EXCEPTION } from "./status";
 import { inTrial } from "./path";
 import { type Listed, sourceOf, trialName } from "./source";
 import { TrialTests } from "./tests";
@@ -28,27 +37,42 @@ function isRunning(live: LiveInfo | null | undefined): boolean {
 }
 
 function TrialStatus({
+  project,
   trial,
   live,
   reward = false,
 }: {
+  project: Project;
   trial: Trial;
   live: LiveInfo | null | undefined;
   reward?: boolean;
 }) {
-  const { word, tone } = trialStatus(trial.result, isRunning(live));
+  const verdict =
+    trial.verdict == null ? null : statusOf(project, trial.verdict);
+  const { word, tone, exception } = trialStatus(
+    trial.result,
+    isRunning(live),
+    verdict,
+  );
   const Glyph = toneGlyph[tone];
+  const Warn = toneGlyph.warn;
   const value = trial.result?.reward ?? null;
   return (
-    <span
-      className={`inline-flex flex-none items-center gap-1 text-xs ${toneText[tone]}`}
-    >
-      {word === RUNNING ? (
-        <Spinner small />
-      ) : (
-        <Glyph className="size-3" aria-hidden />
+    <span className="inline-flex flex-none items-center gap-1 text-xs">
+      <span className={`inline-flex items-center gap-1 ${toneText[tone]}`}>
+        {word === RUNNING ? (
+          <Spinner small />
+        ) : (
+          <Glyph className="size-3" aria-hidden />
+        )}
+        {word}
+      </span>
+      {exception && (
+        <span className={`inline-flex items-center gap-1 ${toneText.warn}`}>
+          ·<Warn className="size-3" aria-hidden />
+          {WITH_EXCEPTION}
+        </span>
       )}
-      {word}
       {reward && value !== null && ` · reward ${String(value)}`}
     </span>
   );
@@ -81,7 +105,8 @@ export default function TrialsView({
     });
   };
   const [pane, setPane] = useState<Pane>("trace");
-  if (deliverable.path === null) return <DeliverableCard item={deliverable} />;
+  if (deliverable.path === null)
+    return <NotRun project={project} deliverable={deliverable} />;
   if (trials.length === 0)
     return <Note>This deliverable lists no trials.</Note>;
   const visit =
@@ -96,6 +121,7 @@ export default function TrialsView({
     typeof value?.value === "number" || typeof value?.value === "string"
       ? String(value.value)
       : "—";
+  const entry = declared(project, deliverable.name);
   return (
     // The list goes above the trial where the two do not fit side by side.
     <div className="@container">
@@ -103,12 +129,21 @@ export default function TrialsView({
         <nav aria-label="Trials" className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <p className="text-xl font-semibold tabular-nums">
-              {shown} / {deliverable.k ?? trials.length} solved
+              {shown} / {deliverable.k ?? trials.length}{" "}
+              {entry?.count ?? COUNTED}
             </p>
             {/* A visit that has not ended has no value to read yet. */}
             {value?.reason != null && visit?.outcome !== null && (
-              <p className="text-xs text-fg-3">{value.reason}</p>
+              <Unread reason={value.reason} />
             )}
+            <p className="text-xs text-fg-3">
+              <FromRun
+                project={project}
+                attempt={attempt}
+                record={record}
+                deliverable={deliverable}
+              />
+            </p>
             {visit !== undefined && (
               <p className="flex items-center gap-2 text-xs text-fg-3">
                 Outcome{" "}
@@ -132,7 +167,7 @@ export default function TrialsView({
                   className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
                 >
                   <span className="min-w-0">{trialName(i)}</span>
-                  <TrialStatus trial={t} live={live} />
+                  <TrialStatus project={project} trial={t} live={live} />
                 </button>
               </li>
             ))}
@@ -154,10 +189,8 @@ export default function TrialsView({
                 ? undefined
                 : { path: trial.source, listed: sourceOf(record, trial.source) }
             }
-            noTrace={
-              project.deliverables?.find((d) => d.name === deliverable.name)
-                ?.no_trace ?? null
-            }
+            noTrace={entry?.no_trace ?? null}
+            logs={trials.some((t) => t.log != null)}
             pane={pane}
             onPane={setPane}
           />
@@ -167,11 +200,12 @@ export default function TrialsView({
   );
 }
 
-type Pane = "trace" | "diff" | "tests";
+type Pane = "trace" | "diff" | "tests" | "log";
 const PANES: { key: Pane; title: string }[] = [
   { key: "trace", title: "Trace" },
   { key: "diff", title: "Diff" },
   { key: "tests", title: "Tests" },
+  { key: "log", title: "Log" },
 ];
 
 /** A trial's source: its path, and the trial there as the record lists it. */
@@ -189,6 +223,7 @@ function TrialPane({
   attempt,
   source,
   noTrace,
+  logs,
   pane,
   onPane,
 }: {
@@ -203,6 +238,8 @@ function TrialPane({
   source: Source | undefined;
   /** The project's words for why a trial of the deliverable has no trace. */
   noTrace: string | null;
+  /** Whether a trial of the deliverable has a log, and so the Log tab. */
+  logs: boolean;
   pane: Pane;
   onPane: (pane: Pane) => void;
 }) {
@@ -210,7 +247,9 @@ function TrialPane({
     action === undefined ? null : span(action.started_at, action.ended_at);
   const tests = project.trials?.tests ?? null;
   // Only a project that names its trials' tests has the Tests tab.
-  const panes = PANES.filter((p) => p.key !== "tests" || tests !== null);
+  const panes = PANES.filter(
+    (p) => (p.key !== "tests" || tests !== null) && (p.key !== "log" || logs),
+  );
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <dl className="flex flex-wrap gap-x-6 gap-y-2 rounded-panel border border-line bg-panel px-5 py-3">
@@ -223,8 +262,10 @@ function TrialPane({
         <Field label="Reward">
           {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
-        <Field label="Exception">{trial.result?.exception ?? "—"}</Field>
-        <Field label="Duration">
+        <Field
+          label="Trial time"
+          hint="The whole trial: its environment, its agent and its verifier."
+        >
           {seconds === null ? "—" : duration(seconds)}
         </Field>
         <Field label="Cost">
@@ -242,11 +283,6 @@ function TrialPane({
             </>
           )}
         </Field>
-        <Field label="Trace format">
-          <span className="font-mono text-xs">
-            {trial.trace?.format ?? "—"}
-          </span>
-        </Field>
         {source !== undefined && (
           <Field label="Source trial">
             <SourceName
@@ -256,6 +292,9 @@ function TrialPane({
             />
           </Field>
         )}
+        <Field label="Exception" wide>
+          <Exception text={trial.result?.exception ?? null} />
+        </Field>
       </dl>
       <Tabs.Root
         value={pane}
@@ -298,7 +337,12 @@ function TrialPane({
               badge={
                 <span className="flex items-center gap-2">
                   <span className="text-sm font-medium text-fg">{name}</span>
-                  <TrialStatus trial={trial} live={live} reward />
+                  <TrialStatus
+                    project={project}
+                    trial={trial}
+                    live={live}
+                    reward
+                  />
                 </span>
               }
             />
@@ -311,6 +355,25 @@ function TrialPane({
             <TrialDiff project={project} attempt={attempt} trial={trial} />
           )}
         </Tabs.Content>
+        {logs && (
+          <Tabs.Content value="log">
+            {trial.result === null ? (
+              <Unfinished live={live} />
+            ) : (
+              <TrialFile
+                project={project.id}
+                attempt={attempt}
+                path={trial.log ?? null}
+                none="This trial recorded no log."
+                missing="This trial's log is not there."
+                empty="The log is empty."
+                view={(text, path) => (
+                  <CodeView name={path.split("/").at(-1) ?? path} text={text} />
+                )}
+              />
+            )}
+          </Tabs.Content>
+        )}
         {tests !== null && (
           <Tabs.Content value="tests">
             {trial.result === null ? (
@@ -440,17 +503,50 @@ function TrialDiff({
   trial: Trial;
 }) {
   const relative = project.trials?.diff ?? null;
-  const path = relative === null ? null : inTrial(trial, relative);
-  const loaded = useFile(project.id, attempt, path);
-  if (path === null)
-    return <Note>The project names no diff for its trials.</Note>;
+  return (
+    <TrialFile
+      project={project.id}
+      attempt={attempt}
+      path={relative === null ? null : inTrial(trial, relative)}
+      none="The project names no diff for its trials."
+      missing="This trial recorded no diff."
+      empty="The diff is empty: the trial changed nothing."
+      view={(text) => <DiffView text={text} />}
+    />
+  );
+}
+
+/**
+ * A file of a trial under its path and size, through the files route, or
+ * why it is not shown: none when there is no path, missing with the route's
+ * reason when the file is not there, empty for an empty file.
+ */
+function TrialFile({
+  project,
+  attempt,
+  path,
+  none,
+  missing,
+  empty,
+  view,
+}: {
+  project: string;
+  attempt: string;
+  path: string | null;
+  none: string;
+  missing: string;
+  empty: string;
+  view: (text: string, path: string) => ReactNode;
+}) {
+  const loaded = useFile(project, attempt, path);
+  if (path === null) return <Note>{none}</Note>;
   if (loaded.state === "loading") return <Note>Loading…</Note>;
   if (loaded.state === "error") return <Note>{loaded.message}</Note>;
   const content = loaded.data;
   if (content.kind === "missing") {
     return (
       <Note>
-        This trial recorded no diff.
+        {missing}
         <span className="mt-1 block font-mono text-xs break-all">
           {content.reason}
         </span>
@@ -469,19 +565,114 @@ function TrialDiff({
           {size(content.size)}
         </span>
       </header>
-      {content.text === "" ? (
-        <Note>The diff is empty: the trial changed nothing.</Note>
-      ) : (
-        <DiffView text={content.text} />
-      )}
+      {content.text === "" ? <Note>{empty}</Note> : view(content.text, path)}
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * An exception's first line, the rest folded under Show all; a dash for
+ * none. A long line wraps rather than being cut.
+ */
+function Exception({ text }: { text: string | null }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  if (text === null) return <>—</>;
+  const [first = "", ...rest] = text.split("\n");
   return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-xs text-fg-3">{label}</dt>
+    <span className="flex flex-col items-start gap-1">
+      <span
+        id={id}
+        className="font-mono text-xs wrap-anywhere whitespace-pre-wrap"
+      >
+        {open ? text : first}
+      </span>
+      {rest.length > 0 && (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => {
+            setOpen((o) => !o);
+          }}
+          className={control}
+        >
+          {open ? "Show less" : "Show all"}
+        </button>
+      )}
+    </span>
+  );
+}
+
+/**
+ * That the deliverable's value could not be read, with the engine's reason
+ * folded under Why.
+ */
+function Unread({ reason }: { reason: string }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col items-start gap-1 text-xs text-fg-3">
+      <p className="flex items-center gap-2">
+        No count was recorded.
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => {
+            setOpen((o) => !o);
+          }}
+          className={control}
+        >
+          Why
+        </button>
+      </p>
+      <p id={id} hidden={!open} className="font-mono break-words">
+        {reason}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A deliverable the attempt did not reach: Not run, with the engine's
+ * reason, its state named by its title.
+ */
+function NotRun({
+  project,
+  deliverable,
+}: {
+  project: Project;
+  deliverable: Pick<Deliverable, "state" | "reason">;
+}) {
+  return (
+    <p className="flex items-center gap-2 p-6 text-fg-3">
+      <CircleDashed className="size-4 flex-none text-icon" aria-hidden />
+      {notRun(project, deliverable)}
+    </p>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  wide = false,
+  children,
+}: {
+  label: string;
+  /** What the field measures, shown when the pointer rests on its label. */
+  hint?: string;
+  /** Whether it takes a line of its own. */
+  wide?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`flex min-w-0 flex-col gap-0.5 ${wide ? "basis-full" : ""}`}
+    >
+      <dt className="text-xs text-fg-3" title={hint}>
+        {label}
+      </dt>
       <dd className="tabular-nums">{children}</dd>
     </div>
   );

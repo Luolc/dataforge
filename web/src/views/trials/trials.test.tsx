@@ -159,7 +159,7 @@ describe("the trials view", () => {
       />,
     );
 
-    expect(field("Duration")).toHaveTextContent(/^—$/);
+    expect(field("Trial time")).toHaveTextContent(/^—$/);
     expect(field("Cost")).toHaveTextContent(/^—$/);
   });
 
@@ -171,7 +171,7 @@ describe("the trials view", () => {
       await screen.findByText("All tests pass, the task is done."),
     ).toBeVisible();
     const header = must(screen.getByText("Expand all").closest("header"));
-    expect(within(header).getByText(/not solved · reward 0/)).toBeVisible();
+    expect(header).toHaveTextContent(/not solved · reward 0/);
   });
 
   it("says when a trial recorded no trace, and shows its exception", () => {
@@ -415,14 +415,7 @@ describe("the trials of a visit that has not ended", () => {
 
     expect(trial("Trial 4")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("This trial is still running.")).toBeVisible();
-    for (const label of [
-      "ID",
-      "Reward",
-      "Exception",
-      "Duration",
-      "Cost",
-      "Trace format",
-    ])
+    for (const label of ["ID", "Reward", "Exception", "Trial time", "Cost"])
       expect(field(label)).toHaveTextContent(/^—$/);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Diff" }));
     expect(screen.getAllByText("This trial is still running.")).toHaveLength(2);
