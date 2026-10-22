@@ -17,6 +17,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import cast
 
@@ -379,6 +380,27 @@ def test_a_failed_trial_returns_its_exception(
   assert result.exception is not None
   assert result.exception.startswith(exception)
   assert result.rewards == {}
+
+
+@pytest.mark.parametrize(
+  ("subtype", "judged"),
+  [
+    ("success", False),
+    ("error_during_execution", False),
+    ("error_max_budget_usd", True),
+    ("error_max_turns", True),
+  ],
+)
+def test_a_session_that_ended_on_an_error_without_an_exception_is_not_judged(
+  tmp_path: Path, fakes: tuple[Path, Path], subtype: str, judged: bool
+) -> None:
+  trace = {"type": "result", "subtype": subtype, "is_error": True}
+  env = {"FAKE_FILES": json.dumps({"agent/claude-code.txt": json.dumps(trace)})}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.rewards == {"reward": 1.0}
+  assert trial_judged(result.exception) is judged
 
 
 def test_harbor_gets_only_the_passed_variables_and_env(
@@ -990,6 +1012,85 @@ def test_an_interrupted_harbor_is_stopped_before_the_chown(
     _ = signal.signal(signal.SIGUSR1, previous)
     for pid in alive(out):
       os.kill(pid, signal.SIGKILL)
+
+
+def test_an_interrupt_just_after_the_sigterm_still_stops_harbor_first(
+  tmp_path: Path, fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # The interrupt is raised as killpg returns, where the handler of a signal
+  # that comes while the SIGTERM goes out runs, before any wait. A deaf
+  # Harbor outlives the SIGTERM.
+  out = outdir(tmp_path)
+  killpg = os.killpg
+
+  def interrupted(pgid: int, sig: int) -> None:
+    killpg(pgid, sig)
+    if sig == signal.SIGTERM:
+      raise KeyboardInterrupt
+
+  monkeypatch.setattr(os, "killpg", interrupted)
+  started = time.monotonic()
+  try:
+    with pytest.raises(KeyboardInterrupt):
+      _ = replace(runner(fakes, "deaf"), timeout=1.0).run(
+        task(tmp_path), "nop", Limits(2), out
+      )
+    assert time.monotonic() - started < 20
+    assert json.loads((fakes[1].parent / "alive.json").read_text()) == []
+  finally:
+    for pid in alive(out):
+      os.kill(pid, signal.SIGKILL)
+
+
+def test_an_interrupt_that_leaves_the_popens_lock_held_still_stops_harbor(
+  tmp_path: Path, fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # An interrupt that comes just after a timed Popen.wait takes the Popen's
+  # lock leaves the lock held. A timer gives it back 40 s later, so that a
+  # stop that waits for the lock fails the time bound instead of hanging.
+  out = outdir(tmp_path)
+  timers: list[threading.Timer] = []
+
+  def wait(process: subprocess.Popen[bytes], *_args: object) -> int:
+    deadline = time.monotonic() + 10
+    while not (out / "pids").exists():
+      if time.monotonic() > deadline:
+        pytest.fail("the fake harbor wrote no pids")
+      time.sleep(0.05)
+    lock = cast(threading.Lock, process._waitpid_lock)  # pyright: ignore[reportAttributeAccessIssue]
+    _ = lock.acquire()
+    timers.append(threading.Timer(40, lock.release))
+    timers[0].start()
+    raise KeyboardInterrupt
+
+  monkeypatch.setattr(stopping, "wait", wait)
+  started = time.monotonic()
+  try:
+    with pytest.raises(KeyboardInterrupt):
+      _ = runner(fakes, "hang").run(task(tmp_path), "nop", Limits(2), out)
+    assert time.monotonic() - started < 20
+    assert json.loads((fakes[1].parent / "alive.json").read_text()) == []
+  finally:
+    for timer in timers:
+      timer.cancel()
+    for pid in alive(out):
+      os.kill(pid, signal.SIGKILL)
+
+
+def test_an_interrupt_after_harbor_was_reaped_still_escapes(
+  tmp_path: Path, fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # The interrupt comes after a Popen.wait reaped Harbor and before it set
+  # returncode.
+  def wait(process: subprocess.Popen[bytes], *_args: object) -> int:
+    _ = os.waitpid(process.pid, 0)
+    raise KeyboardInterrupt
+
+  monkeypatch.setattr(stopping, "wait", wait)
+  with pytest.raises(KeyboardInterrupt):
+    _ = runner(fakes, "exit").run(
+      task(tmp_path), "nop", Limits(2), outdir(tmp_path)
+    )
 
 
 @pytest.mark.parametrize("mode", ["hang", "interrupt"])

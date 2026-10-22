@@ -308,6 +308,44 @@ def test_agent_state_gives_an_error_with_how_its_run_ended(
   }
 
 
+class Capped:
+  """A runner whose one run ends on its own spend cap."""
+
+  def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+    return AgentRun(
+      None,
+      "failed",
+      1.5,
+      None,
+      "error_max_budget_usd",
+      "error_max_budget_usd",
+      False,
+      fault="budget",
+      error="Reached maximum budget ($1.5)",
+    )
+
+  def resume(self, session: object, prompt: str) -> AgentRun:
+    raise AssertionError("no fixes here")
+
+
+def test_agent_state_whose_run_hit_its_own_cap_ends_the_attempt_with_budget(
+  tmp_path: Path,
+) -> None:
+  spec = AgentSpec("Write.", tmp_path, validator=checker(tmp_path))
+  state = AgentState(
+    "author",
+    {"ok": End("passed"), "failed": End("failed"), "error": End("errored")},
+    actions=Actions(agent_runner=Capped()),
+    spec=spec,
+  )
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert (attempt.status, attempt.visits[0].outcome) == ("budget", "error")
+  assert attempt.reason == (
+    "author visit 1: the agent's run ended error_max_budget_usd, budget:"
+    " Reached maximum budget ($1.5)"
+  )
+
+
 def agent_outcome(
   tmp_path: Path,
   result: ActionResult,

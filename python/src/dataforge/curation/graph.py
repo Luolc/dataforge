@@ -1,11 +1,9 @@
 """A machine's states and transitions as data, and as a Mermaid flowchart.
 
-Machine.graph returns a Graph; mermaid renders one, and least_cap_usd reads
-from one the least cost cap that lets an attempt reach an end. A Graph is
-plain data that json.dumps takes as is.
+Machine.graph returns a Graph, and mermaid renders one. A Graph is plain data
+that json.dumps takes as is.
 """
 
-import heapq
 from typing import TypedDict
 
 
@@ -135,40 +133,3 @@ def _escape(text: str) -> str:
   for char, entity in _ENTITIES:
     text = text.replace(char, entity)
   return text
-
-
-def least_cap_usd(graph: Graph, status: str) -> float | None:
-  """Return the least cost cap that lets an attempt reach an end.
-
-  It is the least sum of the max_cost_usd of the states on a chain of
-  transitions from the start to an End with the status, each state counted
-  once: with a cap at least this, the cost cap blocks no state on that chain
-  even when each spends all of its max_cost_usd, since a state is let in up
-  to the cap. It is that bound, not what an attempt usually spends, which is
-  often less; the outcomes each state gives and its max_visits are not read.
-
-  Args:
-    graph: The graph, as Machine.graph returns it.
-    status: The status of the End.
-
-  Returns:
-    The sum, in US dollars, or None when no End with the status is reached.
-  """
-  cost = {state["name"]: state["max_cost_usd"] for state in graph["states"]}
-  start = graph["start"]
-  best = {start: cost[start]}
-  todo = [(cost[start], start)]
-  # A state's cost is its own, so the first chain that reaches it, from the
-  # cheapest state yet, is the cheapest.
-  while todo:
-    spent, name = heapq.heappop(todo)
-    for edge in graph["edges"]:
-      if edge["from"] != name:
-        continue
-      if edge["end"] == status:
-        return spent
-      to = edge["to"]
-      if to is not None and to not in best:
-        best[to] = spent + cost[to]
-        heapq.heappush(todo, (best[to], to))
-  return None
