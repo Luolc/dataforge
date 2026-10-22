@@ -133,6 +133,9 @@ def test_take_makes_an_interrupted_row_running_under_its_new_holder(
   store: Store, me: Leader, gone: Leader
 ) -> None:
   attempt_id = _in(store, "interrupted", gone)
+  assert store.check(attempt_id, None, 1.0)
+  before = store.get(attempt_id)
+  assert before is not None
   assert store.take(attempt_id, me, QueueJob(3, "/q"), by="runner")
   row = store.get(attempt_id)
   assert row is not None
@@ -142,6 +145,14 @@ def test_take_makes_an_interrupted_row_running_under_its_new_holder(
     None,
     3,
   )
+  assert (row.resumable, row.resume_problem, row.resume_checked_at) == (
+    None,
+    None,
+    None,
+  )
+  assert row.progress_at is not None
+  assert before.progress_at is not None
+  assert row.progress_at > before.progress_at
   assert _states(store)[-1] == ("interrupted", "running", "runner")
 
 
@@ -156,6 +167,16 @@ def test_abandon_ends_an_interrupted_row(store: Store, me: Leader) -> None:
     "b took its place",
   )
   assert _states(store)[-1] == ("interrupted", "ended", "runner")
+
+
+def test_abandon_leaves_a_row_whose_machine_ended(
+  store: Store, me: Leader
+) -> None:
+  attempt_id = _in(store, "interrupted", me)
+  assert store.newer_record(attempt_id, ENDED)
+  before = store.get(attempt_id)
+  assert not store.abandon(attempt_id, "given_up", "b took its place")
+  assert store.get(attempt_id) == before
 
 
 def test_check_writes_resumable_and_cost_of_an_interrupted_row(

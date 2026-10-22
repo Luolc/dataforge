@@ -1,11 +1,13 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import json
 import logging
+import os
 from pathlib import Path
 import signal
 import sqlite3
 import subprocess
-from typing import cast
+import time
+from typing import cast, override
 
 import pytest
 
@@ -365,6 +367,9 @@ def test_an_end_not_written_exits_75_and_reconcile_ends_it_from_the_file(
     "passed",
   )
   assert len(visits(row.record)) == 1
+  # The record, without what the rendering of the record file added.
+  assert row.record is not None
+  assert "machine_status" not in row.record
   assert f"{row.id}: interrupted -> ended, passed" in done
 
 
@@ -412,3 +417,91 @@ def test_the_row_takes_the_machines_reason_over_the_datasets(
   monkeypatch.setattr(FakeHooks, "outcome", outcome)
   ended = run_attempt(store, ITEM, hooks)
   assert (ended.outcome, ended.reason) == ("passed", reason)
+
+
+def test_a_sigterm_as_a_steps_commit_returns_stops_the_attempt(
+  store: Store, hooks: FakeHooks, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # The signal arrives while a step's COMMIT runs: its handler raises once
+  # the call returns, with no transaction left to roll back.
+  connect = sqlite3.connect
+  armed: list[bool] = []
+
+  class Signalled(sqlite3.Connection):
+    # typeshed types the parameters with an alias of its own, private.
+    @override
+    def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
+      self, sql: str, parameters: Sequence[object] = (), /
+    ) -> sqlite3.Cursor:
+      cursor = super().execute(sql, parameters)
+      if sql == "COMMIT" and armed == [True]:
+        armed.append(True)
+        os.kill(os.getpid(), signal.SIGTERM)
+      return cursor
+
+  def connecting(
+    database: str | Path,
+    *,
+    timeout: float = 5.0,
+    uri: bool = False,
+    autocommit: bool = False,
+  ) -> sqlite3.Connection:
+    return connect(
+      database, timeout=timeout, uri=uri, autocommit=autocommit,
+      factory=Signalled,
+    )  # fmt: skip
+
+  def arming(
+    self: Store, attempt_id: str, holder: Leader, *more: object
+  ) -> bool:
+    if not armed:
+      armed.append(True)
+    return step(self, attempt_id, holder, *more)  # pyright: ignore[reportArgumentType]
+
+  step = Store.step
+  monkeypatch.setattr(sqlite3, "connect", connecting)
+  monkeypatch.setattr(Store, "step", arming)
+  with pytest.raises(SystemExit):
+    _ = run_attempt(store, ITEM, hooks)
+  monkeypatch.undo()
+  row = _only(store)
+  assert (row.state, row.stopped_by) == ("interrupted", "lost")
+  [on_stop] = hooks.hook_calls("on_stop")
+  assert on_stop.split()[-1] == "interrupted"
+  assert not hooks.hook_calls("finalize")
+
+
+def test_a_row_whose_machine_ended_is_never_given_up(
+  store: Store, hooks: FakeHooks
+) -> None:
+  # Its finalize was cut, and fails once more when the next attempt starts.
+  hooks.stop_in = "finalize"
+  with pytest.raises(SystemExit):
+    _ = run_attempt(store, ITEM, hooks)
+  [stopped] = store.rows()
+  hooks.fail_in = "finalize"
+  ended = run_attempt(store, ITEM, hooks, go_on="never")
+  old = store.get(stopped.id)
+  assert old is not None
+  assert (old.state, old.outcome, old.machine_status) == (
+    "ended",
+    "passed",
+    "passed",
+  )
+  assert ended.id != stopped.id
+  assert (Path(old.root) / KEPT).read_text() == WHOLE
+
+
+def test_an_end_its_row_refuses_exits_75_at_once(
+  store: Store, hooks: FakeHooks, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  waits: list[float] = []
+
+  def refused(*_args: object, **_kwargs: object) -> bool:
+    return False
+
+  monkeypatch.setattr(time, "sleep", waits.append)
+  monkeypatch.setattr(Store, "end", refused)
+  with pytest.raises(SystemExit) as stop:
+    _ = run_attempt(store, ITEM, hooks)
+  assert (stop.value.code, waits) == (EXIT_UNWRITTEN, [])

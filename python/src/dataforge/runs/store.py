@@ -115,14 +115,16 @@ WHERE id = ? AND state = 'running' AND {_HOLDER}
 """
 
 _TAKE = """
-UPDATE attempt SET state = 'running', stopped_by = NULL, holder_pid = ?,
-  holder_starttime = ?, holder_boot_id = ?, job_id = ?, job_db = ?
+UPDATE attempt SET state = 'running', stopped_by = NULL, resumable = NULL,
+  resume_problem = NULL, resume_checked_at = NULL, holder_pid = ?,
+  holder_starttime = ?, holder_boot_id = ?, job_id = ?, job_db = ?,
+  progress_at = ?
 WHERE id = ? AND state = 'interrupted'
 """
 
 _ABANDON = """
 UPDATE attempt SET state = 'ended', outcome = ?, reason = ?, ended_at = ?
-WHERE id = ? AND state = 'interrupted'
+WHERE id = ? AND state = 'interrupted' AND machine_status IS NULL
 """
 
 _CHECK = """
@@ -611,6 +613,8 @@ class Store:
   ) -> bool:
     """Make an interrupted row running again, under a new holder.
 
+    Its progress_at is set, and resumable is not checked any more.
+
     Args:
       attempt_id: The attempt.
       holder: The new holder.
@@ -632,6 +636,7 @@ class Store:
             *holder,
             None if job is None else job.id,
             None if job is None else job.db,
+            now(),
             attempt_id,
           ),
         ).rowcount
@@ -644,13 +649,16 @@ class Store:
   def abandon(self, attempt_id: str, outcome: str, reason: str) -> bool:
     """End an interrupted row that no one goes on with.
 
+    A row whose machine_status is set is not given up: its machine ended, and
+    reconcile ends it with the machine's outcome.
+
     Args:
       attempt_id: The attempt.
       outcome: The dataset's word for an attempt given up.
       reason: Why, naming the attempt that takes its place.
 
     Returns:
-      Whether it changed the row.
+      Whether it changed the row: False also when its machine_status is set.
 
     Raises:
       NewerSchemaError: When the store's schema_major is newer.
@@ -792,7 +800,9 @@ class Store:
         _ = conn.execute("COMMIT")
         committed = True
       finally:
-        if not committed:
+        # An exception raised once COMMIT has returned, such as a signal's,
+        # finds no transaction to roll back, and must go on as it is.
+        if not committed and conn.in_transaction:
           _ = conn.execute("ROLLBACK")
 
   @contextmanager

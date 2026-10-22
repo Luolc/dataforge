@@ -144,7 +144,12 @@ class _Runner:
     rows = self.store.rows(item=item)
     if running := [row for row in rows if row.state == "running"]:
       raise StartError(f"{item}: {running[0].id} runs")
-    waiting = [row for row in rows if row.state == "interrupted"]
+    # A row whose machine ended is reconcile's to end with its outcome.
+    waiting = [
+      row
+      for row in rows
+      if row.state == "interrupted" and row.machine_status is None
+    ]
     target = waiting[-1] if waiting and go_on != "never" else None
     if go_on == "only":
       if target is None:
@@ -274,7 +279,8 @@ class _Runner:
           cost_usd=ended.cost_usd,
         ):
           return
-        _log.warning("%s: the row is not running here", ended.id)
+        # Not running under this process: asking again changes nothing.
+        raise _UnwrittenError(f"{ended.id}: the row is not running here")
       except _STORE_ERRORS as error:
         _log.warning("%s: the end was not written: %s", ended.id, error)
       if wait is None:

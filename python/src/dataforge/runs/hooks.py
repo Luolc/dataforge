@@ -169,8 +169,9 @@ class Hooks(ABC):
       events: Its events, such as its cleanup's.
 
     Returns:
-      What the record file holds. It must keep the record's visits, and its
-      status as machine_status, for reconcile to read it back.
+      What the record file holds. It must keep the record's keys, and the
+      record's status as machine_status, for reconcile to read the record
+      back from them.
     """
     _ = events
     return render(row)

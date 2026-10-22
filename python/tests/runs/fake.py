@@ -76,6 +76,7 @@ class FakeHooks(Hooks):
     store: The store, which on_stop reads.
     sigterm: Whether the state sends SIGTERM on its first run.
     stop_in: A hook that raises SystemExit on its first call, in any process.
+    fail_in: A hook that raises OSError on its first call, in any process.
     problem: What resumable says.
     take_over_problem: What take_over says.
     left: What cleanup says is left.
@@ -86,6 +87,7 @@ class FakeHooks(Hooks):
   store: Store
   sigterm: bool = False
   stop_in: str | None = None
+  fail_in: str | None = None
   problem: str | None = None
   take_over_problem: str | None = None
   left: Mapping[str, object] = field(default_factory=dict[str, object])
@@ -197,6 +199,8 @@ class FakeHooks(Hooks):
   def _stop(self, hook: str) -> None:
     if self.stop_in == hook and once(self.base, f"stop-{hook}"):
       raise SystemExit(f"stopped in {hook}")
+    if self.fail_in == hook and once(self.base, f"fail-{hook}"):
+      raise OSError(f"failed in {hook}")
 
   def _log(self, hook: str, row: AttemptRow, *more: str) -> None:
     line = " ".join((hook, row.id, *more))

@@ -36,14 +36,16 @@ WHERE id = ? AND state = 'running' AND {_HOLDER}
 """
 
 TAKE = """
-UPDATE attempt SET state = 'running', stopped_by = NULL, holder_pid = ?,
-  holder_starttime = ?, holder_boot_id = ?, job_id = ?, job_db = ?
+UPDATE attempt SET state = 'running', stopped_by = NULL, resumable = NULL,
+  resume_problem = NULL, resume_checked_at = NULL, holder_pid = ?,
+  holder_starttime = ?, holder_boot_id = ?, job_id = ?, job_db = ?,
+  progress_at = ?
 WHERE id = ? AND state = 'interrupted'
 """
 
 ABANDON = """
 UPDATE attempt SET state = 'ended', outcome = ?, reason = ?, ended_at = ?
-WHERE id = ? AND state = 'interrupted'
+WHERE id = ? AND state = 'interrupted' AND machine_status IS NULL
 """
 
 CHECK = """
@@ -92,7 +94,7 @@ def transitions(conn: sqlite3.Connection, me: Leader, gone: Leader) -> None:
   one(INTERRUPT, "lost", None, None, None, "a/1", *gone)
   one(EVENT, "a/1", AT, "running", "interrupted", "reconcile", "{}")
   one(NEWER_RECORD, record, "passed", "a/1")
-  one(TAKE, *me, None, None, "a/1")
+  one(TAKE, *me, None, None, AT, "a/1")
   one(EVENT, "a/1", AT, "interrupted", "running", "reconcile", "{}")
   one(END, "passed", None, "passed", record, 0.5, AT, "a/1", *me)
   one(EVENT, "a/1", AT, "running", "ended", "reconcile", "{}")

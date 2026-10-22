@@ -13,7 +13,10 @@ import os
 from pathlib import Path
 from typing import cast
 
+from dataforge.curation.engine import Attempt
 from dataforge.runs.store import AttemptRow
+
+_RECORD_KEYS = tuple(Attempt(Path()).to_json())
 
 
 def render(row: AttemptRow) -> dict[str, object]:
@@ -58,9 +61,9 @@ def newer(row: AttemptRow, path: Path) -> dict[str, object] | None:
   """Read from a row's record file a record newer than the row's.
 
   The file is newer when its record has more visits than the row's, or a
-  machine_status where the row has none. Only its record and its
+  machine_status where the row has none. Only the record's keys and its
   machine_status are read, never its status; the record's status is taken
-  from machine_status.
+  from machine_status, and what a rendering adds besides is left out.
 
   Args:
     row: The row.
@@ -85,7 +88,8 @@ def newer(row: AttemptRow, path: Path) -> dict[str, object] | None:
     status is None or isinstance(status, str)
   ):
     return None
-  record = {**record, "status": status}
+  record = {key: record[key] for key in _RECORD_KEYS if key in record}
+  record["status"] = status
   mine = row.record or {}
   more = len(cast(list[object], visits)) > len(
     cast(list[object], mine.get("visits") or [])
