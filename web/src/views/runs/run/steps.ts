@@ -8,7 +8,8 @@ import {
   type Tone,
   type Visit,
 } from "../../../api/types";
-import { statusOf } from "../../../ui/status";
+import { outcomeOf } from "../../../ui/status";
+import type { Listed } from "../../trials/source";
 
 /** The statuses the engine gives an action, and how each reads. */
 const ACTION_STATUSES: Partial<Record<string, { label: string; tone: Tone }>> =
@@ -68,6 +69,28 @@ export function traceOf(
   return null;
 }
 
+/**
+ * The trials of a trial action as the record's deliverables of trials list
+ * them for its visit, each with its deliverable and place there.
+ */
+export function listedTrials(
+  record: AttemptRecord,
+  index: number,
+  action: Action,
+): Listed[] {
+  const names = Object.keys(action.outputs);
+  const found: Listed[] = [];
+  for (const deliverable of deliverablesOf(record)) {
+    if (deliverable.kind !== "trials" || deliverable.visit_index !== index)
+      continue;
+    (deliverable.trials ?? []).forEach((trial, i) => {
+      if (names.includes(trial.output))
+        found.push({ deliverable, trial, index: i });
+    });
+  }
+  return found;
+}
+
 /** Whether an action ran an agent: an agent action, or one with a trace. */
 export function isSession(
   record: AttemptRecord,
@@ -93,6 +116,6 @@ export function startsOpen(
     actions: visit.actions.map(
       (a, i) => i === first || actionStatus(a.status).tone === "bad",
     ),
-    output: statusOf(project, visit.outcome).tone === "bad",
+    output: outcomeOf(project, visit.outcome, false).tone === "bad",
   };
 }

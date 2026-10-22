@@ -89,6 +89,23 @@ describe("the graph", () => {
     );
   });
 
+  it("shows a state whose last run raised as Exception whatever the project file says", () => {
+    const project = {
+      ...sampleProject,
+      statuses: {
+        ...sampleProject.statuses,
+        raised: { label: "Crashed", tone: "warn" as const },
+      },
+    };
+    const check = must(
+      must(layout(records.raised, project)).nodes.find(
+        (n) => n.key === "check",
+      ),
+    );
+
+    expect(check.status).toEqual({ label: "Exception", tone: "bad" });
+  });
+
   it("names each outcome on an edge by the project's label, else by itself", () => {
     const project = {
       ...sampleProject,
