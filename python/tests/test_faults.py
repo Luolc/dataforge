@@ -23,6 +23,18 @@ EXIT = "NonZeroAgentExitCodeError: Command failed (exit 1): claude -p\nstdout: "
     (EXIT + '{"type":"result","subtype":"error_max_budget_usd"}', None, True),
     (EXIT + '{"type": "result", "subtype": "error_max_turns"}', None, True),
     (EXIT + "\nstderr: Killed", None, False),
+    (
+      "NonZeroAgentExitCodeError: the agent's container hit its process limit"
+      " (512) 530 times; Command failed (exit 134): claude -p\nstdout: ",
+      None,
+      True,
+    ),
+    # Only dataforge's words right after the type count, not the agent's.
+    (
+      EXIT + "the agent's container hit its process limit (512) 1 times;",
+      None,
+      False,
+    ),
   ],
 )
 def test_a_trial_exception_reads_as_its_fault(

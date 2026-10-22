@@ -6,7 +6,13 @@ FAULTS words of dataforge.curation.actions; `trial_judged` says whether the
 trial's rewards can be judged as they are. A trial is judged when nothing
 ended it early, or when the agent ended it itself: on its own time limit
 (Harbor's `AgentTimeoutError`) or its own spend or turn cap, as a pass@k
-measures whether the solver solves the task within them. Every other
+measures whether the solver solves the task within them, or by exiting
+non-zero after the processes in its container had hit the container's process
+limit (dataforge.curation.harbor's PIDS_HIT): those processes are the agent's
+own and the ones it started (and the verifier's, for a verifier that runs in
+the trial's container rather than its own), and Harbor still collects what the
+agent changed and runs the verifier, so a trial whose change was already right
+reads as solved and one whose change was not as unsolved. Every other
 exception keeps the trial from being judged: those of TYPES with a fault,
 those of UNCLEAR, whose cause may lie in the machine or in the task, and any
 the table does not know, so that a new kind of failure never reads as a hard
@@ -20,7 +26,7 @@ Read on 2026-10-22.
 import re
 
 from dataforge.curation.actions import INFRA, MODEL, TIMEOUT
-from dataforge.curation.harbor import NOT_STARTED, TIMED_OUT
+from dataforge.curation.harbor import NOT_STARTED, PIDS_HIT, TIMED_OUT
 
 TYPES: dict[str, str] = {
   # agents/installed/base.py: ApiError and each of its subclasses, which
@@ -105,6 +111,9 @@ UNCLEAR = frozenset(
 # says the session hit its own cap.
 _EXIT = "NonZeroAgentExitCodeError"
 _OWN_CAP = re.compile(r'"subtype"\s*:\s*"error_max_(budget_usd|turns)"')
+# How dataforge.curation.harbor starts that exception when the agent's
+# container had hit its process limit; nothing the agent prints comes before.
+_PIDS = f"{_EXIT}: {PIDS_HIT} ("
 # How dataforge.curation.harbor starts the exception of a trial it stopped
 # on its timeout, before what Harbor recorded.
 _OUR_TIMEOUT = f"{TIMED_OUT}: Harbor ran past"
@@ -137,13 +146,14 @@ def trial_judged(exception: str | None) -> bool:
   Returns:
     True when there is none, its type is in JUDGED, or it is a
     NonZeroAgentExitCodeError of a session that hit its own spend or turn
-    cap; False for every other exception.
+    cap or of an agent whose container had hit its process limit; False for
+    every other exception.
   """
   if exception is None:
     return True
   kind = _type(exception)
   if kind == _EXIT:
-    return _OWN_CAP.search(exception) is not None
+    return _OWN_CAP.search(exception) is not None or exception.startswith(_PIDS)
   return kind in JUDGED
 
 

@@ -38,6 +38,20 @@ together past the limit get the container's processes killed for memory: as
 it stops, this environment reads `State.OOMKilled` of `main` and says in the
 trial's log (`trial.log`) when it was killed so.
 
+As it stops, while `main` still runs, this environment also reads from the
+host how often a process in `main` could not start because the container was
+at its process limit: the `max` count of `pids.events` in the cgroup that
+`/proc/<State.Pid>/cgroup` names under /sys/fs/cgroup (cgroup v2, whatever
+Docker's cgroup driver), with `pids.max` beside it; both files are readable by
+any user, and the cgroup is gone once the container stops. Harbor's process
+writes what it read into the trial's directory, which no container mounts, as
+`<session_id>.pids.json` (`harbor.PIDS_FILE`): `{"max": <count>, "limit":
+"<pids.max>"}`, or `{"unknown": "<why>"}` when it could not be read (cgroup
+v1, a `main` that no longer runs, a cgroup already gone), and the trial's log
+says so too; a failed read never fails the stop. The trial's environment
+writes its file, and so does a separate verifier's, whose reading is a record
+only: `HarborRunner` reads the trial environment's (`harbor`'s `_read`).
+
 A task whose own compose file mounts something at /tmp of `main` keeps it and
 gets no tmpfs, since compose refuses two mounts at one target. The egress
 sidecar gets none: it writes only a file that says it is ready, and a tmpfs
@@ -62,8 +76,13 @@ from harbor.environments.docker.docker import (
 )
 import yaml
 
+from dataforge.curation.harbor import PIDS_FILE
+
 _MAIN = "main"
 _TMP = "/tmp"
+# Where the host sees each process's cgroups, and the cgroup v2 hierarchy.
+_PROC = Path("/proc")
+_CGROUP = Path("/sys/fs/cgroup")
 # What the trial's log says of a `main` killed for memory, after its
 # environment's session ID.
 OOM_KILLED = "was killed for memory (State.OOMKilled)"
@@ -127,26 +146,29 @@ class DockerEnvironment(HarborDockerEnvironment):
 
   @override
   async def stop(self, delete: bool) -> None:
-    """Say in the trial's log whether main was killed for memory, then stop.
+    """Read main's end before Harbor's stop removes it, then stop.
+
+    The log says whether main was killed for memory, and the trial's
+    directory gets main's process limit hits (PIDS_FILE).
 
     Args:
       delete: As Harbor's.
     """
-    if self._compose_path is not None:
-      await self._log_oom_killed()
+    await self._read_main()
     await super().stop(delete)
 
-  async def _log_oom_killed(self) -> None:
+  async def _read_main(self) -> None:
     try:
       listed = await self._run_docker_compose_command(
         ["ps", "--all", "--quiet", _MAIN], timeout_sec=_INSPECT_TIMEOUT
       )
       ids = (listed.stdout or "").split()
       if not ids:
+        self._write_pids({"unknown": "no main container"})
         return
       process = await asyncio.create_subprocess_exec(
         *type(self)._engine_cmd(
-          "inspect", "--format", "{{.State.OOMKilled}}", *ids
+          "inspect", "--format", "{{.State.OOMKilled}} {{.State.Pid}}", *ids
         ),
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
@@ -159,13 +181,43 @@ class DockerEnvironment(HarborDockerEnvironment):
           process.kill()
           _ = await process.wait()
     except (OSError, RuntimeError, TimeoutError) as error:
-      # The trial goes on without the answer; the log says it is missing.
+      # The trial goes on without the answers; the log says they are missing.
       self.logger.warning("dataforge: State.OOMKilled not read: %s", error)
+      self._write_pids({"unknown": f"main not inspected: {error}"})
       return
-    if "true" in out.decode(errors="replace").split():
+    states = [
+      line.split() for line in out.decode(errors="replace").splitlines()
+    ]
+    if any(state[:1] == ["true"] for state in states):
       self.logger.warning(
         "dataforge: main of %s %s", self.session_id, OOM_KILLED
       )
+    pids = [state[1] for state in states if len(state) == 2]
+    self._write_pids(
+      _pids_hits(int(pids[0]), _PROC, _CGROUP)
+      if len(pids) == 1 and pids[0].isdigit()
+      else {"unknown": f"main's State.Pid is not one number: {pids}"}
+    )
+
+  def _write_pids(self, reading: dict[str, object]) -> None:
+    if "unknown" in reading:
+      self.logger.warning(
+        "dataforge: pids.events of main of %s not read: %s",
+        self.session_id,
+        reading["unknown"],
+      )
+    elif reading["max"]:
+      self.logger.warning(
+        "dataforge: main of %s hit its process limit (%s) %s times",
+        self.session_id,
+        reading["limit"],
+        reading["max"],
+      )
+    path = self.trial_paths.trial_dir / PIDS_FILE.format(self.session_id)
+    try:
+      _ = path.write_text(json.dumps(reading) + "\n")
+    except OSError as error:
+      self.logger.warning("dataforge: %s not written: %s", path, error)
 
   # Harbor's caches its probe's answer (`functools.cache`); this has none to
   # cache.
@@ -205,3 +257,34 @@ def _target(entry: object, index: int) -> object:
     parts = entry.split(":")
     return parts[index] if len(parts) > index else parts[0]
   return None
+
+
+def _pids_hits(pid: int, proc: Path, cgroup: Path) -> dict[str, object]:
+  """Read how often the cgroup of a host process was at its process limit.
+
+  Args:
+    pid: The process, as the host numbers it; 0 for a container that is not
+      running.
+    proc: Where the host's /proc is.
+    cgroup: Where the host's cgroup v2 hierarchy is.
+
+  Returns:
+    `{"max": <the max count of pids.events>, "limit": <pids.max>}`, or
+    `{"unknown": <why>}` when they cannot be read.
+  """
+  if pid <= 0:
+    return {"unknown": "main is not running"}
+  try:
+    lines = (proc / str(pid) / "cgroup").read_text().splitlines()
+    path = next((line[3:] for line in lines if line.startswith("0::")), None)
+    if path is None:
+      return {"unknown": f"process {pid} is in no cgroup v2"}
+    directory = cgroup / path.lstrip("/")
+    events: dict[str, str] = {}
+    for line in (directory / "pids.events").read_text().splitlines():
+      key, _, value = line.partition(" ")
+      events[key] = value
+    limit = (directory / "pids.max").read_text().strip()
+    return {"max": int(events["max"]), "limit": limit}
+  except (OSError, KeyError, ValueError) as error:
+    return {"unknown": f"{type(error).__name__}: {error}"}

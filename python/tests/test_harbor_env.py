@@ -21,7 +21,9 @@ import inspect
 import json
 import logging
 from pathlib import Path
+import shutil
 import subprocess
+from typing import cast
 
 from harbor.cli.utils import parse_kwargs
 from harbor.environments.base import ExecResult
@@ -353,14 +355,50 @@ def stop_with(
   return calls
 
 
+INSPECT = ["inspect", "--format", "{{.State.OOMKilled}} {{.State.Pid}}", "c1"]
+# What the host shows of main's process 4242 and its cgroup.
+CGROUP = "/system.slice/docker-c1.scope"
+PIDS_READ = {"max": 530, "limit": "512"}
+
+
+@pytest.fixture
+def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+  # The host's /proc and cgroup hierarchy, under tmp_path/host.
+  root = tmp_path / "host"
+  proc, cgroup = root / "proc", root / "sys" / "fs" / "cgroup"
+  (proc / "4242").mkdir(parents=True)
+  _ = (proc / "4242" / "cgroup").write_text(f"0::{CGROUP}\n")
+  directory = cgroup / CGROUP.lstrip("/")
+  directory.mkdir(parents=True)
+  _ = (directory / "pids.events").write_text("max 530\n")
+  _ = (directory / "pids.max").write_text("512\n")
+  monkeypatch.setattr(harbor_env, "_PROC", proc)
+  monkeypatch.setattr(harbor_env, "_CGROUP", cgroup)
+  return root
+
+
+def pids_read(tmp_path: Path, session: str = "task__1__env") -> object:
+  path = tmp_path / "trial" / harbor.PIDS_FILE.format(session)
+  return json.loads(path.read_text())
+
+
 @pytest.mark.parametrize(
   ("inspected", "logged"),
   [
-    ("true\n", [f"dataforge: main of task__1__env {OOM_KILLED}"]),
-    ("false\n", []),
+    (
+      "true 4242\n",
+      [
+        f"dataforge: main of task__1__env {OOM_KILLED}",
+        "dataforge: main of task__1__env hit its process limit (512) 530 times",
+      ],
+    ),
+    (
+      "false 4242\n",
+      ["dataforge: main of task__1__env hit its process limit (512) 530 times"],
+    ),
   ],
 )
-@pytest.mark.usefixtures("slow_docker")
+@pytest.mark.usefixtures("slow_docker", "host")
 def test_stop_says_in_the_log_when_main_was_killed_for_memory(
   tmp_path: Path,
   monkeypatch: pytest.MonkeyPatch,
@@ -373,10 +411,93 @@ def test_stop_says_in_the_log_when_main_was_killed_for_memory(
     calls = stop_with(env, monkeypatch, Inspect(inspected.encode()))
   assert calls == [
     ["ps", "--all", "--quiet", "main"],
-    ["docker", "inspect", "--format", "{{.State.OOMKilled}}", "c1"],
+    ["docker", *INSPECT],
     ["harbor stop", "True"],
   ]
   assert [r.getMessage() for r in caplog.records] == logged
+
+
+@pytest.mark.parametrize("tmpfs_mb", [2048, None])
+@pytest.mark.usefixtures("slow_docker", "host")
+def test_stop_writes_how_often_main_hit_its_process_limit(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tmpfs_mb: int | None
+) -> None:
+  env = with_tmpfs(tmp_path, tmpfs_mb)
+  calls = stop_with(env, monkeypatch, Inspect(b"false 4242\n"))
+  assert pids_read(tmp_path) == PIDS_READ
+  # Read while main still ran, before Harbor's stop removed it.
+  assert calls[-1] == ["harbor stop", "True"]
+
+
+@pytest.mark.parametrize(
+  ("inspected", "change", "unknown"),
+  [
+    (b"false 0\n", None, "main is not running"),
+    (b"false\n", None, "main's State.Pid is not one number: []"),
+    (b"false 4242\nfalse 4343\n", None,
+     "main's State.Pid is not one number: ['4242', '4343']"),
+    (b"false 4343\n", None,
+     "FileNotFoundError: [Errno 2] No such file or directory: "),
+    (b"false 4242\n", ("proc/4242/cgroup", "12:pids:/docker/c1\n"),
+     "process 4242 is in no cgroup v2"),
+    (b"false 4242\n", (".", None),
+     "FileNotFoundError: [Errno 2] No such file or directory: "),
+    (b"false 4242\n", ("pids.events", "max.imposed 1\n"),
+     "KeyError: 'max'"),
+    (b"false 4242\n", ("pids.events", "max lots\n"),
+     "ValueError: invalid literal for int() with base 10: 'lots'"),
+  ],
+)  # fmt: skip
+@pytest.mark.usefixtures("slow_docker")
+def test_a_reading_that_fails_is_written_as_unknown_and_the_stop_goes_on(
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+  host: Path,
+  inspected: bytes,
+  change: tuple[str, str | None] | None,
+  unknown: str,
+) -> None:
+  # A file of /proc, or of main's cgroup, or the cgroup itself, changed.
+  directory = host / "sys" / "fs" / "cgroup" / CGROUP.lstrip("/")
+  if change is not None:
+    name, text = change
+    target = host / name if name.startswith("proc/") else directory / name
+    if text is None:
+      shutil.rmtree(target)
+    else:
+      _ = target.write_text(text)
+  env = with_tmpfs(tmp_path, 2048)
+  with caplog.at_level(logging.WARNING):
+    calls = stop_with(env, monkeypatch, Inspect(inspected))
+  assert calls[-1] == ["harbor stop", "True"]
+  read = cast(dict[str, str], pids_read(tmp_path))
+  assert list(read) == ["unknown"]
+  assert read["unknown"].startswith(unknown)
+  assert (
+    caplog.records[-1]
+    .getMessage()
+    .startswith(
+      f"dataforge: pids.events of main of task__1__env not read: {unknown}"
+    )
+  )
+
+
+@pytest.mark.usefixtures("slow_docker", "host")
+def test_a_separate_verifier_writes_its_own_reading(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  env = DockerEnvironment(
+    environment_dir=environment_dir(tmp_path),
+    environment_name="task",
+    session_id="task__1__verifier__0",
+    trial_paths=trial_paths(tmp_path),
+    task_env_config=EnvironmentConfig(),
+    network_policy=NO_NETWORK,
+  )
+  _ = stop_with(env, monkeypatch, Inspect(b"false 4242\n"))
+  assert pids_read(tmp_path, "task__1__verifier__0") == PIDS_READ
+  assert not (tmp_path / "trial" / "task__1__env.pids.json").exists()
 
 
 @pytest.mark.usefixtures("slow_docker")
@@ -388,14 +509,8 @@ def test_stop_inspects_main_with_the_environments_engine(
 
   monkeypatch.setattr(DockerEnvironment, "_engine_cmd", classmethod(podman))
   env = with_tmpfs(tmp_path, 2048)
-  calls = stop_with(env, monkeypatch, Inspect(b"false\n"))
-  assert [
-    "podman",
-    "inspect",
-    "--format",
-    "{{.State.OOMKilled}}",
-    "c1",
-  ] in calls
+  calls = stop_with(env, monkeypatch, Inspect(b"false 4242\n"))
+  assert ["podman", *INSPECT] in calls
 
 
 @pytest.mark.usefixtures("slow_docker")
@@ -412,5 +527,8 @@ def test_an_inspect_past_its_timeout_is_killed_and_the_stop_goes_on(
   assert (hung.killed, hung.returncode) == (True, -9)
   assert calls[-1] == ["harbor stop", "True"]
   assert [r.getMessage() for r in caplog.records] == [
-    "dataforge: State.OOMKilled not read: "
+    "dataforge: State.OOMKilled not read: ",
+    "dataforge: pids.events of main of task__1__env not read: "
+    + "main not inspected: ",
   ]
+  assert pids_read(tmp_path) == {"unknown": "main not inspected: "}

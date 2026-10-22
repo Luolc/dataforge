@@ -53,7 +53,8 @@ from tests.sigterm import sigterm_once
 # directory gets a Claude Code trace whose last result event costs that much.
 # FAKE_LINKS, a JSON object, gives symlinks to make in the trial's directory, by
 # path inside it, FAKE_FILES files to write there and FAKE_FIFO a FIFO to make
-# there.
+# there. FAKE_EXCEPTION, a JSON [type, message], is the exception Harbor
+# records, the verifier's reward kept.
 FAKE_HARBOR = """\
 import json, os, pathlib, signal, subprocess, sys, time
 argv = sys.argv[1:]
@@ -117,6 +118,10 @@ if mode == "exception":
                                 "exception_message": "agent ran past 600 s"}
 if mode == "no-reward":
     result["verifier_result"] = None
+if "FAKE_EXCEPTION" in os.environ:
+    kind, message = json.loads(os.environ["FAKE_EXCEPTION"])
+    result["exception_info"] = {"exception_type": kind,
+                                "exception_message": message}
 cost = os.environ.get("FAKE_COST", "0.25")
 result["agent_result"] = {"cost_usd": None if cost == "none" else float(cost)}
 if "FAKE_TRACE_LINK" in os.environ:
@@ -400,6 +405,66 @@ def test_a_session_that_ended_on_an_error_without_an_exception_is_not_judged(
   )
   assert result.rewards == {"reward": 1.0}
   assert trial_judged(result.exception) is judged
+
+
+# Harbor's exception for an agent that exited non-zero, as
+# agents/installed/base.py words it.
+AGENT_EXIT = ("NonZeroAgentExitCodeError", "Command failed (exit 134): claude")
+PIDS_HIT = (
+  "NonZeroAgentExitCodeError: the agent's container hit its process limit"
+  " (512) 530 times; Command failed (exit 134): claude"
+)
+PIDS_FILE = "task__abc__env.pids.json"
+
+
+@pytest.mark.parametrize(
+  ("files", "links", "exception"),
+  [
+    ({PIDS_FILE: '{"max": 530, "limit": "512"}'}, {}, PIDS_HIT),
+    ({PIDS_FILE: '{"max": 0, "limit": "512"}'}, {}, None),
+    ({PIDS_FILE: '{"unknown": "main is not running"}'}, {}, None),
+    ({}, {}, None),
+    ({PIDS_FILE: "not json"}, {}, None),
+    ({PIDS_FILE: "[530]"}, {}, None),
+    ({PIDS_FILE: '{"max": true, "limit": "512"}'}, {}, None),
+    ({PIDS_FILE: '{"max": 530, "limit": "512; solved"}'}, {}, None),
+    ({PIDS_FILE: '{"max": 530, "limit": "512", "pad": "' + "x" * 5000 + '"}'},
+     {}, None),
+    # A separate verifier's reading is a record only.
+    ({"task__abc__verifier__0.pids.json": '{"max": 5, "limit": "64"}'}, {},
+     None),
+    ({"agent/pids.json": '{"max": 530, "limit": "512"}'},
+     {PIDS_FILE: "agent/pids.json"}, None),
+  ],
+)  # fmt: skip
+def test_an_agent_that_exited_after_its_container_hit_the_limit_is_judged(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  files: dict[str, str],
+  links: dict[str, str],
+  exception: str | None,
+) -> None:
+  env = {
+    "FAKE_EXCEPTION": json.dumps(AGENT_EXIT),
+    "FAKE_FILES": json.dumps(files),
+    "FAKE_LINKS": json.dumps(links),
+  }
+  result = runner(fakes, env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.rewards == {"reward": 1.0}
+  assert result.exception == (exception or ": ".join(AGENT_EXIT))
+  assert trial_judged(result.exception) is (exception is not None)
+
+
+def test_only_an_agents_non_zero_exit_says_its_container_hit_the_limit(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  env = {"FAKE_FILES": json.dumps({PIDS_FILE: '{"max": 530, "limit": "512"}'})}
+  result = runner(fakes, "exception", env=env).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.exception == "AgentTimeoutError: agent ran past 600 s"
 
 
 def test_harbor_gets_only_the_passed_variables_and_env(

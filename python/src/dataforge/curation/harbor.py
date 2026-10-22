@@ -60,6 +60,16 @@ processes' memory past the limit get the container's processes killed for
 memory, which the trial's `trial.log` then says (`harbor_env.OOM_KILLED`).
 None or 0, or an environment of Harbor's own, gives no tmpfs.
 
+DOCKER_ENVIRONMENT's also has Harbor's process write into the trial's
+directory how often a process in the trial's `main` could not start because
+the container was at its process limit (PIDS_FILE, `harbor_env`). When it was
+at least once and the agent exited non-zero (Harbor's
+NonZeroAgentExitCodeError), the exception gives it right after its type:
+`NonZeroAgentExitCodeError: the agent's container hit its process limit (512)
+530 times; Command failed ...` (PIDS_HIT), which `faults` reads. A file that
+is missing, too big, a link, or not such a reading adds nothing; the file of a
+separate verifier's environment is a record only and is not read.
+
 A trial reserves from the pool the task's memory plus the sidecar's limit
 (`memory_gb`), whether or not the task has a sidecar; image builds and the
 cleanup's container use memory besides, so a dataset leaves the pool some
@@ -151,10 +161,23 @@ HIDE_MIN = 8
 NOT_STARTED = "HarborNotStarted"
 # How the exception of a trial whose Harbor ran past `timeout` starts.
 TIMED_OUT = "TimeoutError"
+# The type of the exception of an agent that exited non-zero
+# (harbor/agents/installed/base.py).
+_AGENT_EXIT = "NonZeroAgentExitCodeError"
 # The label compose gives what a project holds, its value the project's name.
 PROJECT = "com.docker.compose.project"
 # How long one docker command of the cleanup may run, in seconds.
 DOCKER_TIMEOUT = 120.0
+# The file in a trial's directory, by the environment's session ID, that says
+# how often its `main` was at its process limit; Harbor names the trial's own
+# environment `<trial>__env`.
+PIDS_FILE = "{}.pids.json"
+TRIAL_ENV = "{}__env"
+# What follows the type of the exception of an agent that exited non-zero
+# while its container had been at its process limit.
+PIDS_HIT = "the agent's container hit its process limit"
+# The most bytes of PIDS_FILE read.
+PIDS_FILE_LIMIT = 4096
 
 
 class DockerError(subprocess.SubprocessError, RuntimeError):
@@ -1076,6 +1099,50 @@ def _session_error(kind: TraceFile, trace: Path) -> str | None:
   return None
 
 
+def _pids_hits(trial: Path) -> tuple[int, str] | None:
+  """Read how often the trial's `main` was at its process limit.
+
+  Args:
+    trial: The trial's directory.
+
+  Returns:
+    The count and the limit, when PIDS_FILE of the trial's own environment
+    is a regular file of at most PIDS_FILE_LIMIT bytes that gives a count of
+    1 or more; None otherwise.
+  """
+  path = trial / PIDS_FILE.format(TRIAL_ENV.format(trial.name))
+  try:
+    if (
+      not path.is_file(follow_symlinks=False)
+      or path.stat(follow_symlinks=False).st_size > PIDS_FILE_LIMIT
+    ):
+      return None
+    reading = cast(object, json.loads(path.read_bytes()))
+  except OSError, ValueError:
+    return None
+  if not isinstance(reading, dict):
+    return None
+  reading = cast(dict[str, object], reading)
+  count, limit = reading.get("max"), reading.get("limit")
+  if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+    return None
+  if not isinstance(limit, str) or not (limit.isdigit() or limit == "max"):
+    return None
+  return count, limit
+
+
+def _with_pids_hits(exception: str | None, trial: Path) -> str | None:
+  # An agent's non-zero exit says first that its container hit its process
+  # limit, when it did.
+  if exception is None or not exception.startswith(f"{_AGENT_EXIT}:"):
+    return exception
+  hits = _pids_hits(trial)
+  if hits is None:
+    return exception
+  rest = exception.removeprefix(f"{_AGENT_EXIT}:")
+  return f"{_AGENT_EXIT}: {PIDS_HIT} ({hits[1]}) {hits[0]} times;{rest}"
+
+
 def _read(
   outdir: Path, log: Path, error: str | None, elapsed: float
 ) -> TrialResult:
@@ -1124,6 +1191,7 @@ def _read(
   )
   if exception is None and traced is not None and readable:
     exception = _session_error(*traced)
+  exception = _with_pids_hits(exception, trial)
   cost = agent.get("cost_usd")
   if isinstance(cost, bool) or not isinstance(cost, int | float):
     cost = None
