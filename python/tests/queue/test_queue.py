@@ -24,9 +24,13 @@ from dataforge.queue import (
   Job,
   jobs,
   load_config,
+  pause,
+  pauses,
+  resume,
   submit,
 )
 from dataforge.queue import scheduler as scheduler_module
+from dataforge.queue import store as queue_store
 from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
 from dataforge.queue.store import row as read_row
@@ -646,6 +650,111 @@ def test_count_reads_without_making_the_database(config: Config):
   with pytest.raises(FileNotFoundError):
     _ = count(config)
   assert not config.database.exists()
+
+
+def test_a_paused_queue_starts_none_and_its_running_jobs_run_on(
+  config: Config, scheduler: Scheduler
+):
+  b1 = put(config, "beta", "sleep", "30")
+  scheduler.tick()
+  _ = pause(config, "beta", "hold")
+  b2, a1 = put(config, "beta", "sleep", "30"), put(config, "alpha", "true")
+  scheduler.tick()
+  # b2 is older than a1, and beta is under its cap of 2: only the pause
+  # keeps it from starting, and it holds no room from a1.
+  assert ids(config, "running") == [b1.id, a1.id]
+  assert ids(config, "queued") == [b2.id]
+  until(ended(config, a1), scheduler)
+  for _ in range(5):
+    scheduler.tick()
+  assert ids(config, "queued") == [b2.id]
+  started = state(config, b1).leader()
+  assert started is not None and alive(started)
+  _ = resume(config, "beta")
+  scheduler.tick()
+  assert ids(config, "running") == [b1.id, b2.id]
+
+
+def test_a_pause_outlives_its_scheduler_and_is_listed_until_resumed(
+  config: Config,
+  readings: Readings,
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+):
+  path = str(tmp_path / "queue.yaml")
+
+  def queue(*argv: str) -> object:
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    assert cli.main(["queue", *argv, "--config", path]) == 0
+    return cast(object, json.loads(out.getvalue()))
+
+  before = time.time()
+  paused = queue("pause", "alpha", "--reason", "no reports")
+  assert queue("pause", "alpha", "--reason", "again") == paused
+  assert paused == {
+    "queue": "alpha",
+    "paused_at": cast(dict[str, float], paused)["paused_at"],
+    "reason": "no reports",
+  }
+  assert before <= cast(dict[str, float], paused)["paused_at"] <= time.time()
+  assert queue("paused", "--json") == [paused]
+  job = put(config, "alpha", "true")
+  # Another scheduler, as after a restart or a switch of release, reads the
+  # pause from the database.
+  again = Scheduler(load_config(Path(path)), readings)
+  try:
+    for _ in range(5):
+      again.tick()
+    assert state(config, job).state == "queued"
+    assert queue("resume", "alpha") == paused
+    assert queue("paused", "--json") == []
+    assert queue("resume", "alpha") is None
+    until(ended(config, job), again)
+  finally:
+    _clean_up(config, again)
+
+
+def test_a_pause_of_a_queue_the_file_does_not_name_is_refused(config: Config):
+  with pytest.raises(ValueError, match="no queue gamma"):
+    _ = pause(config, "gamma")
+  with pytest.raises(ValueError, match="no queue gamma"):
+    _ = resume(config, "gamma")
+  _ = pause(config, "beta")
+  # The file no longer names beta: its pause may still be ended.
+  narrower = replace(config, queues={"alpha": 1})
+  assert [p.queue for p in pauses(narrower)] == ["beta"]
+  ended_pause = resume(narrower, "beta")
+  assert ended_pause is not None and ended_pause.queue == "beta"
+  assert pauses(config) == []
+
+
+def test_pauses_reads_without_making_the_database_or_its_table(
+  config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  with pytest.raises(FileNotFoundError):
+    _ = pauses(config)
+  out = io.StringIO()
+  monkeypatch.setattr(sys, "stdout", out)
+  path = str(tmp_path / "queue.yaml")
+  assert cli.main(["queue", "paused", "--config", path, "--json"]) == 0
+  assert json.loads(out.getvalue()) == []
+  assert not config.database.exists()
+
+
+def test_a_database_made_before_pauses_gets_their_table_once_opened(
+  config: Config,
+):
+  schema = queue_store._SCHEMA  # pyright: ignore[reportPrivateUsage]
+  before, _, _ = schema.partition("CREATE TABLE IF NOT EXISTS pauses")
+  with closing(sqlite3.connect(config.database)) as conn:
+    _ = conn.executescript(before)
+  assert pauses(config) == []
+  with closing(sqlite3.connect(config.database)) as conn:
+    tables = conn.execute("SELECT name FROM sqlite_master").fetchall()
+  assert ("pauses",) not in tables
+  assert pause(config, "alpha").queue == "alpha"
+  assert [found.queue for found in pauses(config)] == ["alpha"]
 
 
 # An attempt's process: it takes the item's row in the store given, ignores

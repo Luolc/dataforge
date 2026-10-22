@@ -1,6 +1,8 @@
 """The job table, in one SQLite file in WAL mode, and its reads and writes.
 
 A job goes queued -> running -> done, failed or canceled; an ended row stays.
+A queue may be paused: a row of the table pauses, kept until it is resumed,
+from which the scheduler starts no job.
 Every write runs in a BEGIN IMMEDIATE transaction, so that a claim, a
 submission and a cancellation see the table as no other write leaves it
 half-done. Each call opens its own connection and closes it.
@@ -49,6 +51,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_live_key ON jobs (dedup_key)
   WHERE state IN ('queued', 'running');
 CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state, queue, id);
+CREATE TABLE IF NOT EXISTS pauses (
+  queue TEXT PRIMARY KEY,
+  paused_at REAL NOT NULL,
+  reason TEXT
+) STRICT;
 """
 
 _INSERT = """
@@ -65,6 +72,11 @@ WHERE id = ? AND state = 'queued'
 _CANCEL_RUNNING = """
 UPDATE jobs SET cancel_requested_at = ?
 WHERE id = ? AND state = 'running' AND cancel_requested_at IS NULL
+"""
+
+_PAUSE = """
+INSERT INTO pauses (queue, paused_at, reason) VALUES (?, ?, ?)
+ON CONFLICT (queue) DO NOTHING
 """
 
 _BUSY_MS = 30_000
@@ -157,6 +169,29 @@ class Job:
     if self.pid is None or self.starttime is None or self.boot_id is None:
       return None
     return Leader(self.pid, self.starttime, self.boot_id)
+
+
+@dataclass(frozen=True, slots=True)
+class Pause:
+  """A row of the table pauses: a queue from which no job starts.
+
+  Attributes:
+    queue: The queue.
+    paused_at: When it was paused, in seconds since the epoch.
+    reason: Why, as whoever paused it said; None when they said nothing.
+  """
+
+  queue: str
+  paused_at: float
+  reason: str | None
+
+  def to_json(self) -> dict[str, object]:
+    """Give the row as JSON, its columns.
+
+    Returns:
+      The mapping.
+    """
+    return asdict(self)
 
 
 @contextmanager
@@ -427,6 +462,110 @@ def cancel(config: Config, job_id: int) -> Job:
     if job.state == "running" and (started := job.leader()) is not None:
       _ = signal_group(started, signal.SIGTERM)
   return job
+
+
+def pause(config: Config, queue: str, reason: str | None = None) -> Pause:
+  """Pause a queue: the scheduler starts none of its jobs until it resumes.
+
+  Its queued jobs stay queued and its running ones run on. Once this
+  returns, no tick starts a job of the queue. Pausing a paused queue
+  changes nothing: its pause keeps when it began and why.
+
+  Args:
+    config: The queue file.
+    queue: The queue, one the file names.
+    reason: Why, for whoever lists the pauses.
+
+  Returns:
+    The queue's pause.
+
+  Raises:
+    ValueError: When the file names no such queue.
+  """
+  if queue not in config.queues:
+    raise ValueError(f"no queue {queue} in the queue file")
+  with connect(config.database) as conn, write(conn):
+    _ = conn.execute(_PAUSE, (queue, time.time(), reason))
+    return _paused(conn, "queue = ?", (queue,))[0]
+
+
+def resume(config: Config, queue: str) -> Pause | None:
+  """Resume a queue, so that its jobs start again as caps allow.
+
+  A queue the file no longer names may be resumed while it is paused.
+
+  Args:
+    config: The queue file.
+    queue: The queue.
+
+  Returns:
+    The pause it ended; None when the queue was not paused.
+
+  Raises:
+    ValueError: When the queue is neither paused nor named in the file.
+  """
+  with connect(config.database) as conn, write(conn):
+    found = _paused(conn, "queue = ?", (queue,))
+    if not found and queue not in config.queues:
+      raise ValueError(f"no queue {queue} in the queue file")
+    _ = conn.execute("DELETE FROM pauses WHERE queue = ?", (queue,))
+  return found[0] if found else None
+
+
+def paused_queues(conn: sqlite3.Connection) -> set[str]:
+  """Give the queues that are paused.
+
+  Args:
+    conn: The connection.
+
+  Returns:
+    Their names.
+  """
+  return {pause.queue for pause in _paused(conn, "1", ())}
+
+
+def pauses(config: Config) -> list[Pause]:
+  """List the pauses, by queue.
+
+  It opens the database read-only and writes nothing; a database made
+  before queues could be paused has none.
+
+  Args:
+    config: The queue file.
+
+  Returns:
+    The pauses.
+
+  Raises:
+    FileNotFoundError: When the database does not exist yet.
+  """  # noqa: DOC502
+  tables = _read(
+    config, "SELECT 1 FROM sqlite_master WHERE name = 'pauses'", ()
+  )
+  if not tables:
+    return []
+  sql = "SELECT * FROM pauses ORDER BY queue"
+  return [_pause(found) for found in _read(config, sql, ())]
+
+
+def _paused(
+  conn: sqlite3.Connection, where: str, params: Sequence[object]
+) -> list[Pause]:
+  rows = cast(
+    list[sqlite3.Row],
+    conn.execute(
+      f"SELECT * FROM pauses WHERE {where} ORDER BY queue", params
+    ).fetchall(),
+  )
+  return [_pause(found) for found in rows]
+
+
+def _pause(found: sqlite3.Row) -> Pause:
+  return Pause(
+    queue=cast(str, found["queue"]),
+    paused_at=cast(float, found["paused_at"]),
+    reason=cast(str | None, found["reason"]),
+  )
 
 
 def _check(

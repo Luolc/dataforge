@@ -227,7 +227,7 @@ def _record() -> Fingerprint:
 FORMATS: tuple[Format, ...] = (
   Format(
     "dataforge.queue.table",
-    1,
+    2,
     _queue_table,
     "the queue's SQLite tables (dataforge.queue.store)",
   ),
