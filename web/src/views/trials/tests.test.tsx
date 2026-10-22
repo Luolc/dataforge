@@ -207,6 +207,10 @@ describe("the trials view's Tests tab", () => {
       document.getElementById(must(must(first).getAttribute("aria-controls"))),
     );
 
+    // Each row's button is told apart by its test's name.
+    expect(first).toHaveAccessibleDescription(
+      "tests/test_fold_deep.py::test_fold_rejects_a_nesting_past_the_limit",
+    );
     expect(first).toHaveAttribute("aria-expanded", "false");
     expect(within(detail).getByText(message)).not.toBeVisible();
     fireEvent.click(must(first));
@@ -343,6 +347,25 @@ describe("the Tests tab of a trial that has not finished", () => {
 });
 
 describe("reading a CTRF report", () => {
+  it("groups a test by the top level of its suite", () => {
+    const read = readCtrf(
+      JSON.stringify({
+        results: {
+          tests: [
+            {
+              name: "t",
+              status: "passed",
+              duration: 1,
+              suite: ["p2p", "tests/test_x.py"],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect("tests" in read && read.tests.map(suiteOf)).toEqual(["p2p"]);
+  });
+
   it("takes a suite written as one string as a suite of one level", () => {
     const read = readCtrf(
       JSON.stringify({

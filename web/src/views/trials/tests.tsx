@@ -308,12 +308,15 @@ function TestRow({
         </td>
         {/* Wide enough to read; a narrower tab scrolls the table sideways. */}
         <td className={`${cell} min-w-72`}>
-          <span className="font-mono text-xs break-all">{test.name}</span>
+          <span id={`${id}-name`} className="font-mono text-xs break-all">
+            {test.name}
+          </span>
           {detail.length > 0 && (
             <button
               type="button"
               aria-expanded={open}
               aria-controls={id}
+              aria-describedby={`${id}-name`}
               onClick={() => {
                 setOpen((o) => !o);
               }}
