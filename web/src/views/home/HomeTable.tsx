@@ -39,6 +39,7 @@ import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
+import { queuedShort } from "../queue/status";
 import {
   filterItems,
   flagged,
@@ -211,7 +212,11 @@ function specs(project: Project): Spec[] {
       cell: (l) => {
         const read = l.row.reads?.[index] ?? null;
         if (read === null) return formatValue(raw(l), column);
-        const shown = readValue(read, raw(l), column);
+        const queued = l.row.queued?.[index] ?? null;
+        // A tab not run yet says how its job stands, when it names one.
+        const shown =
+          (queued === null ? null : queuedShort(queued)) ??
+          readValue(read, raw(l), column);
         if (read === "found" && raw(l) !== null) return shown;
         // A value it has not read, or null, is a word of the viewer's, kept
         // whole; null says on hover what it stands for.

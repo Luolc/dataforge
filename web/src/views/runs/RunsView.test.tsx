@@ -55,6 +55,36 @@ describe("the Runs column", () => {
     expect(runs.queryByText(/Not ended/)).toBeNull();
   });
 
+  it("says a run with no action has no time recorded, its cost still shown", () => {
+    const [author, check] = records.raised.visits;
+    const record = {
+      ...records.raised,
+      visits: [must(author), { ...must(check), actions: [] }],
+    };
+    const runs = show(sampleProject, record);
+
+    expect(
+      runs.getByText("Exception · no action recorded · $0.00"),
+    ).toBeVisible();
+    expect(runs.getByText(/^done · \d+(m \d+)?s · \$/)).toBeVisible();
+  });
+
+  it("says a run whose action's times do not read has no time, not no action", () => {
+    const [author, check] = records.raised.visits;
+    const action = must(must(check).actions[0]);
+    const record = {
+      ...records.raised,
+      visits: [
+        must(author),
+        { ...must(check), actions: [{ ...action, started_at: "not a time" }] },
+      ],
+    };
+    const runs = show(sampleProject, record);
+
+    expect(runs.getByText(/^Exception · — · \$/)).toBeVisible();
+    expect(runs.queryByText(/no action recorded/)).toBeNull();
+  });
+
   it("shows a run with no outcome as Not ended while its attempt runs", () => {
     const runs = show(sampleProject);
 
@@ -96,7 +126,7 @@ describe("a resumed attempt in the Runs column", () => {
       "href",
       "/sample/attempt?id=batch-2%2Ftask-0005&tab=runs&discarded=0",
     );
-    expect(within(list).getByRole("img", { name: "raised" })).toBeVisible();
+    expect(within(list).getByRole("img", { name: "Exception" })).toBeVisible();
   });
 
   it("a discarded run with no copy is no link and says why", () => {
@@ -121,7 +151,7 @@ describe("a resumed attempt in the Runs column", () => {
     fireEvent.click(runs.getByRole("button", { name: /Discarded/ }));
 
     expect(runs.getByText("the caller kept no copy")).toBeVisible();
-    expect(runs.queryByRole("link", { name: /raised/ })).toBeNull();
+    expect(runs.queryByRole("link", { name: /Exception/ })).toBeNull();
     expect(runs.getByText("Resumed 2026-03-02 09:52 UTC")).toBeVisible();
     expect(runs.queryByText(/carried/)).toBeNull();
   });
@@ -137,7 +167,7 @@ describe("a resumed attempt in the Runs column", () => {
       "aria-expanded",
       "true",
     );
-    expect(runs.getByRole("link", { name: /raised/ })).toHaveAttribute(
+    expect(runs.getByRole("link", { name: /Exception/ })).toHaveAttribute(
       "aria-current",
       "page",
     );

@@ -861,6 +861,7 @@ states:
       inputs: [nop-0, nop-1, oracle-0, oracle-1]
       optional_inputs: [out/ranking.json]
       outputs: [runs.json, regrade-tasks]
+      optional_outputs: [notes.md]
       outcomes: [pass, regrade, fail]
     feedback: ${check_feedback}
     transitions:
@@ -1051,6 +1052,7 @@ def by_hand(
             inputs=("nop-0", "nop-1", "oracle-0", "oracle-1"),
             outputs=("runs.json", "regrade-tasks"),
             optional_inputs=("out/ranking.json",),
+            optional_outputs=("notes.md",),
           ),
           ("pass", "regrade", "fail"),
         ),

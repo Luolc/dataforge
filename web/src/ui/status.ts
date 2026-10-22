@@ -27,21 +27,38 @@ const UNREADABLE = "Unreadable";
 /** A visit a resumption left out, to be run again (design.md). */
 const DISCARDED = "Discarded";
 /** The engine's outcome of a visit whose state raised (design.md). */
-export const RAISED = "raised";
+const RAISED = "raised";
+/** The engine's outcome of a visit an interrupt ended, such as SIGTERM. */
+const INTERRUPTED = "interrupted";
+
+/**
+ * The engine's own outcomes that end an attempt with no transition, and how
+ * each reads when the project file has no entry for it.
+ */
+const ENGINE_WORDS: Partial<Record<string, { label: string; tone: Tone }>> = {
+  [RAISED]: { label: "Exception", tone: "bad" },
+  [INTERRUPTED]: { label: "Interrupted", tone: "warn" },
+};
+
+/** Whether a visit's outcome is one the engine ends an attempt with. */
+export const isEnding = (outcome: string | null | undefined): boolean =>
+  outcome === RAISED || outcome === INTERRUPTED;
 
 /**
  * A word's label and tone. A word the project file has no entry for is
- * itself, neutral; but raised, the engine's own word for an exception, is
- * bad, and no status (null) is Not ended, neutral.
+ * itself, neutral; but the engine's own words, raised and interrupted, read
+ * as Exception, bad, and Interrupted, warn; and no status (null) is Not
+ * ended, neutral.
  */
 export function statusOf(
   project: Pick<Project, "statuses">,
   word: string | null,
 ): { label: string; tone: Tone } {
   if (word === null) return { label: NOT_ENDED, tone: "neutral" };
-  const entry = project.statuses[word];
-  if (entry) return entry;
-  return { label: word, tone: word === RAISED ? "bad" : "neutral" };
+  return (
+    project.statuses[word] ??
+    ENGINE_WORDS[word] ?? { label: word, tone: "neutral" }
+  );
 }
 
 // The record's status, but null while it is one of the project's not_ended
@@ -54,7 +71,8 @@ function endStatus(project: Project, record: AttemptRecord): string | null {
 }
 
 /**
- * An attempt's status word: null until it ends, raised when a state did.
+ * An attempt's status word: null until it ends, the last visit's outcome
+ * when a state raised or was interrupted.
  * With the project's not_ended, as the listing's live says, a status among
  * them is null and a null status No status.
  */
@@ -66,19 +84,20 @@ export function attemptStatus(
   if (ended !== null) return ended;
   if (project.not_ended != null)
     return record.status === null ? NO_STATUS : null;
-  return record.visits.at(-1)?.outcome === RAISED ? RAISED : null;
+  const last = record.visits.at(-1)?.outcome;
+  return last !== undefined && isEnding(last) ? last : null;
 }
 
 /**
  * The word at the machine's end: the attempt's status word, null while it has
- * not ended or when a state raised, which reaches no end.
+ * not ended or when a state raised or was interrupted, which reaches no end.
  */
 export function endWord(
   project: Project,
   record: AttemptRecord,
 ): string | null {
   const word = attemptStatus(project, record);
-  return word === RAISED ? null : word;
+  return isEnding(word) ? null : word;
 }
 
 /** The label and tone of the viewer's other words for an attempt. */

@@ -1,6 +1,6 @@
-// What the Runs column shows of a visit: its outcome, state and cost.
+// What the Runs column shows of a visit: its outcome, state, time and cost.
 import type { Project, Visit } from "../../api/types";
-import { duration, usd, visitCost, visitSeconds } from "../../ui/format";
+import { usd, visitCost, visitTime } from "../../ui/format";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { liveStatus, outcomeOf, stateTitle } from "../../ui/status";
 import { StatusIcon } from "../../ui/status-mark";
@@ -29,7 +29,6 @@ export function VisitLine({
         cost={visitCost(visit)}
       />
     );
-  const seconds = visitSeconds(visit);
   return (
     <Line
       icon={<StatusIcon project={project} word={visit.outcome} ended={ended} />}
@@ -37,7 +36,7 @@ export function VisitLine({
       sub={
         <>
           {outcomeOf(project, visit.outcome, ended).label}
-          {seconds !== null && ` · ${duration(seconds)}`}
+          {` · ${visitTime(visit)}`}
           {` · ${usd(visitCost(visit))}`}
         </>
       }

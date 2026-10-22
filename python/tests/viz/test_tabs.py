@@ -124,6 +124,8 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
           ],
         }
       ],
+      "version_title": None,
+      "job": None,
     },
     {
       "name": "other",
@@ -132,6 +134,8 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
       "parts": [
         {"name": "other", "title": "Other", "file": "other.md", "fields": []}
       ],
+      "version_title": None,
+      "job": None,
     },
     {
       "name": "post",
@@ -151,6 +155,8 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
           "fields": [],
         },
       ],
+      "version_title": None,
+      "job": None,
     },
   ]
 
@@ -171,6 +177,10 @@ def test_a_field_s_labels_reach_the_page(tree: Tree) -> None:
 
 
 PARTS = r"tabs\[2\]\.parts: not a list of two or more"
+_TITLED = "    version_title: {file: ../status.json, field: [ended_at]}\n"
+_UNKNOWN = (
+  "    version_title: {file: status.json, field: [ended_at], format: date}\n"
+)
 
 
 @pytest.mark.parametrize(
@@ -219,6 +229,18 @@ PARTS = r"tabs\[2\]\.parts: not a list of two or more"
     (("tab: notes, file: tags.json", "tab: notes"), r"columns\[3\]\.file"),
     (("file: own.json", "file: ../own.json"), r"columns\[4\]\.file"),
     (("file: own.json", "file: /own.json"), r"columns\[4\]\.file"),
+    (
+      ("    file: out/notes.md\n", "    file: out/notes.md\n" + _TITLED),
+      r"tabs\[0\]\.version_title\.file",
+    ),
+    (
+      ("    file: out/notes.md\n", "    file: out/notes.md\n" + _UNKNOWN),
+      r"tabs\[0\]\.version_title\.format",
+    ),
+    (
+      ("    file: out/notes.md\n", "    file: out/notes.md\n    job: post\n"),
+      r"tabs\[0\]\.job: 'post' is not a job of subject attempt",
+    ),
   ],
 )
 def test_a_tab_that_breaks_a_rule_is_refused(
@@ -350,6 +372,7 @@ def test_each_part_of_a_tab_reads_its_own_fields(tree: Tree) -> None:
   assert shown(tree, 2)["versions"] == [
     {
       "dir": "post-2",
+      "title": None,
       "parts": [
         {"name": "report", "fields": [found_("kept")]},
         {"name": "prompt", "fields": []},
@@ -357,6 +380,7 @@ def test_each_part_of_a_tab_reads_its_own_fields(tree: Tree) -> None:
     },
     {
       "dir": "post-1",
+      "title": None,
       "parts": [
         {
           "name": "report",
@@ -437,3 +461,27 @@ def test_a_column_with_no_file_or_version_is_not_run(tree: Tree) -> None:
   )
 
   assert row["reads"] == [None, None, None, "not run", "not run"]
+
+
+def test_a_version_is_titled_by_a_value_of_its_own(tree: Tree) -> None:
+  old = "    file: out/notes.md\n"
+  text = tree.project.read_text()
+  title = (
+    "    version_title: {file: status.json, field: [ended_at], format: time}\n"
+  )
+  _ = tree.project.write_text(text.replace(old, old + title, 1))
+  _ = version(tree, "notes", status={"ended_at": "2026-01-02T03:04:05Z"})
+  _ = version(tree, "notes-1", status={})
+  _ = version(tree, "notes-2")
+  [project] = load_site(tree.site).projects
+
+  versions = cast(list[dict[str, object]], shown(tree)["versions"])
+
+  assert cast(list[dict[str, object]], project.public()["tabs"])[0][
+    "version_title"
+  ] == {"format": "time"}
+  assert {cast(str, v["dir"]): v["title"] for v in versions} == {
+    "notes": found_("2026-01-02T03:04:05Z"),
+    "notes-2": not_run("notes-2/status.json: No such file or directory"),
+    "notes-1": missing("notes-1/status.json has no ended_at"),
+  }

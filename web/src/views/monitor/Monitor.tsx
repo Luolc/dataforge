@@ -11,7 +11,15 @@ import type { Project } from "../../api/types";
 import { Frame } from "../../shell/Shell";
 import { ProjectsContext } from "../../shell/projects";
 import { Card, Note } from "../../ui/card";
-import { bytes, cores, duration, epoch, time } from "../../ui/format";
+import {
+  bytes,
+  cores,
+  duration,
+  epoch,
+  load,
+  moment,
+  time,
+} from "../../ui/format";
 import { Bars } from "./Bars";
 import { barLabel } from "./containers";
 import { Chart, type Series, Swatch } from "./Chart";
@@ -138,7 +146,7 @@ function MonitorOf({
   const listed = useRead(monitorUrls.runs(project.id), runs, generation);
   const all = listed.kept?.data ?? [];
   const asked = number(params.get("run"));
-  const run = all.find((r) => r.run_id === asked) ?? all.at(-1);
+  const run = all.find((r) => r.run_id === asked) ?? latest(all);
   const from = number(params.get("from"));
   const to = number(params.get("to"));
   const shown = useRead(
@@ -218,7 +226,7 @@ function MonitorOf({
             >
               {[...all].reverse().map((r) => (
                 <option key={r.run_id} value={r.run_id}>
-                  {runLabel(r)}
+                  {runLabel(r, listed.kept?.at ?? null)}
                 </option>
               ))}
             </select>
@@ -308,10 +316,40 @@ function NoDatabase({ db }: { db: string }) {
   );
 }
 
-/** A run in the run menu: when it started, how long, and what it was. */
-function runLabel(r: Run): string {
-  const length =
-    r.ended_at === null ? "no end" : duration(r.ended_at - r.started_at);
+/**
+ * The run shown by default: the one whose last sample is the latest, so a
+ * sampler still writing wins over a run that started after it and ended;
+ * a run with no sample counts from its start.
+ */
+function latest(all: Run[]): Run | undefined {
+  const last = (r: Run) => r.last_t ?? r.started_at;
+  return all.reduce<Run | undefined>(
+    (best, r) => (best === undefined || last(r) >= last(best) ? r : best),
+    undefined,
+  );
+}
+
+/**
+ * How many of its intervals a run with no end may go without a sample, as
+ * the runs were read, and still count as sampling.
+ */
+const FRESH_INTERVALS = 3;
+
+/**
+ * A run in the run menu: when it started, how long it ran, or, with no end,
+ * whether its sampler still writes, as the runs read at read show it, and
+ * when its last sample was taken; then what it was.
+ */
+function runLabel(r: Run, read: string | null): string {
+  let length;
+  if (r.ended_at !== null) length = duration(r.ended_at - r.started_at);
+  else if (r.last_t === null) length = "no sample yet";
+  else {
+    const now = read === null ? null : Date.parse(read) / 1000;
+    const fresh =
+      now !== null && now - r.last_t <= FRESH_INTERVALS * r.interval_s;
+    length = `${fresh ? "sampling" : "stopped with no end"}, last sample ${moment(r.last_t)}`;
+  }
   return `${epoch(r.started_at)} · ${length} · ${r.source}`;
 }
 
@@ -341,17 +379,21 @@ function Panels({
       label: "Mean",
       values: values(m, (r) => r.cpu_cores_avg),
       color: "series-1",
+      whole: "mean",
     },
     {
       label: "Peak",
       values: values(m, (r) => r.cpu_cores_max),
       color: "series-1",
+      whole: "peak",
       dashed: true,
     },
     {
       label: "Load (1 min)",
       values: values(m, (r) => r.load1_max),
       color: "series-2",
+      whole: "peak",
+      format: load,
     },
   ];
   const mem: Series[] = [
@@ -359,17 +401,20 @@ function Panels({
       label: "Mean",
       values: values(m, (r) => r.mem_used_bytes_avg),
       color: "series-1",
+      whole: "mean",
     },
     {
       label: "Peak",
       values: values(m, (r) => r.mem_used_bytes_max),
       color: "series-1",
+      whole: "peak",
       dashed: true,
     },
     {
       label: "Swap",
       values: values(m, (r) => r.swap_used_bytes_max),
       color: "series-2",
+      whole: "peak",
     },
   ];
   const counts: Series[] = [
@@ -377,16 +422,19 @@ function Panels({
       label: "Attempts",
       values: values(b, (r) => r.attempts_max),
       color: "series-1",
+      whole: "peak",
     },
     {
       label: "Sessions",
       values: values(b, (r) => r.sessions_max),
       color: "series-2",
+      whole: "peak",
     },
     {
       label: "Waiting for memory",
       values: values(b, (r) => r.pool_waiting_max),
       color: "series-3",
+      whole: "peak",
     },
   ];
   const pool: Series[] = [
@@ -394,17 +442,20 @@ function Panels({
       label: "Reserved, mean",
       values: values(b, (r) => r.pool_reserved_bytes_avg),
       color: "series-1",
+      whole: "mean",
     },
     {
       label: "Reserved, peak",
       values: values(b, (r) => r.pool_reserved_bytes_max),
       color: "series-1",
+      whole: "peak",
       dashed: true,
     },
     {
       label: "Pool",
       values: values(b, (r) => r.pool_bytes),
       color: "series-3",
+      whole: "peak",
     },
   ];
   const window = `${epoch(w.t0)} – ${epoch(w.t1)} (${duration(w.t1 - w.t0)})`;
@@ -416,7 +467,7 @@ function Panels({
           className="inline-block size-3 rounded-row border border-warn bg-warn-bg"
           aria-hidden
         />
-        Paused after a 429 ({w.pauses.length})
+        {`Pauses: ${w.pauses.length.toString()}`}
       </span>
       <span>Drag across a chart to zoom</span>
     </span>
@@ -503,11 +554,13 @@ function Panels({
                     label: "Mean",
                     values: values(picked, (r) => r.cpu_cores_avg),
                     color: "series-1",
+                    whole: "mean",
                   },
                   {
                     label: "Peak",
                     values: values(picked, (r) => r.cpu_cores_max),
                     color: "series-1",
+                    whole: "peak",
                     dashed: true,
                   },
                 ]}
@@ -522,11 +575,13 @@ function Panels({
                     label: "Mean",
                     values: values(picked, (r) => r.mem_bytes_avg),
                     color: "series-1",
+                    whole: "mean",
                   },
                   {
                     label: "Peak",
                     values: values(picked, (r) => r.mem_bytes_max),
                     color: "series-1",
+                    whole: "peak",
                     dashed: true,
                   },
                 ]}
