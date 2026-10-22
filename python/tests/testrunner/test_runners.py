@@ -301,6 +301,27 @@ def test_a():
 
 
 @pytest.mark.parametrize(
+  ("config", "plugin"),
+  [
+    (PLUGIN_CONFIG, "src/plugin.py"),
+    ('[tool.pytest.ini_options]\naddopts = "-p plugin"\n', "plugin.py"),
+  ],
+)
+def test_pytest_loads_a_plugin_of_the_project_its_configuration_names(
+  tmp_path: Path, config: str, plugin: str
+):
+  # Found nowhere outside the project, it is loaded once the project's paths
+  # are on sys.path.
+  files = {
+    "pyproject.toml": config,
+    plugin: "import pytest\n\n\n@pytest.fixture\ndef three():\n  return 3\n",
+    "t.py": "def test_a(three):\n  assert three == 3\n",
+  }
+  found = outcomes(tmp_path, files, {}, ["t.py::test_a"])
+  assert found == [("t.py::test_a", "passed")]
+
+
+@pytest.mark.parametrize(
   ("outer", "inner", "covered"),
   [
     ("t.py::test_a", "t.py::test_a", True),
