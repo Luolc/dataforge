@@ -206,8 +206,9 @@ class Pytest(Runner):
   """pytest, run with the interpreter that runs this, as `python -m pytest`.
 
   An ID is a node ID relative to the project; a parameter's case, `[...]`,
-  and the tests of a file or class belong to the ID that names them. The
-  configuration is the first file pytest itself would pick at the base,
+  and the tests of a directory, file or class belong to the ID that names
+  them. The configuration is the first file pytest itself would pick at the
+  base, from the common ancestor of the tests' paths up,
   given with `-c`: a copy of its base beside it, but for a pytest.toml,
   which pytest knows only by its name and which is given as it is, being
   one of RUNNER_FILES; and with none, an empty one. So a section a fix adds
@@ -249,26 +250,28 @@ class Pytest(Runner):
     return [self._config]
 
   def _find(self, ctx: Context, tests: list[Test]) -> tuple[Path, str] | None:
-    seen: set[Path] = set()
-    for test in tests:
-      path = ctx.app / test.id.split("::", 1)[0]
-      start = path if path.is_dir() else path.parent
-      for here in (start, *start.parents):
-        if here in seen or not (here == ctx.app or ctx.app in here.parents):
-          break
-        seen.add(here)
-        for name in self._CONFIGS:
-          text = ctx.base_text(here / name)
-          if text is not None and _has_pytest(name, text):
-            return here / name, text
+    # From the common ancestor of the tests' paths up, as pytest's
+    # determine_setup looks.
+    paths = [p for p in _paths(ctx, tests) if os.path.lexists(p)]
+    if not paths:
+      return None
+    start = Path(os.path.commonpath(paths))
+    if start.is_file():
+      start = start.parent
+    for here in (start, *start.parents):
+      if not (here == ctx.app or ctx.app in here.parents):
+        break
+      for name in self._CONFIGS:
+        text = ctx.base_text(here / name)
+        if text is not None and _has_pytest(name, text):
+          return here / name, text
     return None
 
   @override
   def command(self, ctx: Context, tests: list[Test]) -> list[str] | None:
     # Files, not node IDs: pytest runs nothing when one ID is not found.
     paths: list[str] = []
-    for test in tests:
-      path = ctx.app / test.id.split("::", 1)[0]
+    for path in _paths(ctx, tests):
       arg = os.path.relpath(path, ctx.dir)
       if os.path.lexists(path) and arg not in paths:
         paths.append(arg)
@@ -304,8 +307,7 @@ class Pytest(Runner):
     else:  # an error of a file's collection, named as its module
       node = _node_id(self._rootdir, name, "")
     if node is None:
-      file = tc.get("file") or ""
-      node = f"{file}::{name}" if classname else file or name
+      node = _from_file(tc.get("file") or "", classname, name)
     path, sep, rest = node.partition("::")
     node = _rel(ctx, self._rootdir / path) + sep + rest
     end = junit.outcome(tc)
@@ -321,7 +323,9 @@ class Pytest(Runner):
 
   @override
   def covers(self, outer: str, inner: str) -> bool:
-    return inner == outer or inner.startswith((outer + "::", outer + "["))
+    return inner == outer or inner.startswith(
+      (outer + "::", outer + "[", outer + "/")
+    )
 
 
 def _node_id(rootdir: Path, dotted: str, name: str) -> str | None:
@@ -333,6 +337,24 @@ def _node_id(rootdir: Path, dotted: str, name: str) -> str | None:
     if (rootdir / file).is_file():
       return "::".join([file, *parts[n:], *([name] if name else [])])
   return None
+
+
+def _paths(ctx: Context, tests: list[Test]) -> list[Path]:
+  # The path each test's ID names, a file or a directory.
+  return [ctx.app / t.id.split("::", 1)[0] for t in tests]
+
+
+def _from_file(file: str, classname: str, name: str) -> str:
+  # The node ID from xunit1's file attribute, when the classname's file is
+  # not found by its dotted name, as in a directory with a `.` in its name:
+  # the classes are what the classname has beyond the file's module.
+  if not classname:
+    return file or name
+  module = file.removesuffix(".py").replace("/", ".")
+  classes = (
+    classname[len(module) + 1 :] if classname.startswith(module + ".") else ""
+  )
+  return "::".join([file, *filter(None, classes.split(".")), name])
 
 
 def _has_pytest(name: str, text: str) -> bool:
@@ -360,8 +382,16 @@ class Maven(Runner):
   its full name; a parameter's case belongs to its method. The reports are
   every TEST-*.xml of a target/surefire-reports under the directory, those
   of an earlier run removed first, since Surefire takes no other directory
-  from the command line. pom.xml, which holds Surefire's configuration, is
-  not taken from the base: the command line sets what it could turn off.
+  from the command line.
+
+  Maven cannot take its test configuration from the base: it is in pom.xml,
+  which a fix may change and which Maven reads only from where it is. The
+  command line turns back on what a changed pom.xml could turn off, and a
+  listed test it keeps from running is an error; but a changed pom.xml can
+  also replace what runs under a listed name (another testSourceDirectory)
+  or what is reported (a plugin bound to the test phase after Surefire),
+  and nothing here sees that. A dataset that runs Maven tests checks
+  pom.xml itself, for example against the base's.
   """
 
   _PRUNE = frozenset({".git", "node_modules"})
@@ -391,11 +421,13 @@ class Maven(Runner):
 
   @override
   def command(self, ctx: Context, tests: list[Test]) -> list[str] | None:
+    # A class listed whole runs whole, whatever methods of it are listed.
+    whole = {t.id for t in tests if "#" not in t.id}
     methods: dict[str, list[str]] = {}
     for test in tests:
       cls, _, method = test.id.partition("#")
       _ = methods.setdefault(cls, [])
-      if method:
+      if method and cls not in whole:
         methods[cls].append(method)
     filters = [f"{c}#{'+'.join(m)}" if m else c for c, m in methods.items()]
     return [
@@ -446,7 +478,9 @@ class PHPUnit(Runner):
   An ID is `<class>::<method>`, or a class for all its methods, the class by
   its full name with `\`; a data set's case belongs to its method. The
   configuration is the directory's phpunit.xml as PHPUnit would find it, a
-  file of RUNNER_FILES, given with --configuration; without one, none.
+  file of RUNNER_FILES, given with --configuration; without one, none, and
+  PHPUnit is given the directory of the files named for the listed
+  classes, the --filter choosing the tests in them.
   """
 
   _REPORT = "phpunit.xml"
@@ -464,7 +498,15 @@ class PHPUnit(Runner):
         argv.append(f"--configuration={ctx.dir / name}")
         break
     else:
-      argv.append("--no-configuration")
+      # With no configuration and no path PHPUnit runs nothing: it is given
+      # the directory that holds every listed test's file.
+      found = _php_files(ctx, tests)
+      if not found:
+        return None
+      argv += [
+        "--no-configuration",
+        os.path.relpath(os.path.commonpath(found), ctx.dir),
+      ]
     names = "|".join(_pcre(t.id) for t in tests)
     return [
       *argv,
@@ -506,6 +548,21 @@ class PHPUnit(Runner):
     if "::" not in outer:
       return inner.startswith(outer + "::")
     return inner.startswith(outer + " ")
+
+
+def _php_files(ctx: Context, tests: list[Test]) -> list[str]:
+  # The directories that hold a file named for a listed test's class, as
+  # PHPUnit wants a test class's file named.
+  names = {t.id.split("::", 1)[0].rsplit("\\", 1)[-1] + ".php" for t in tests}
+  found: list[str] = []
+  for root, dirs, files in os.walk(ctx.dir):
+    dirs[:] = sorted(d for d in dirs if d not in _PHP_PRUNE)
+    if any(f in names for f in files):
+      found.append(root)
+  return found
+
+
+_PHP_PRUNE = frozenset({".git", "node_modules", "vendor"})
 
 
 def _pcre(text: str) -> str:

@@ -47,8 +47,14 @@ lists the tests (`[[test]]`: `suite`, `runner`, `id`, and optionally `dir`, `kin
 `principle`), the files to copy into the project before they run (`[[file]]`: `source`, `dest`)
 and why a suite has none (`[no_tests]`); `testrunner.run` runs them, a listed test the runner
 did not report counting as an error, and `testrunner.ctrf.suite_counts` gives each suite's
-passed and total counts, from which the dataset writes its `reward.json`. A dataset with no
-harness of its own runs `python -m testrunner` in `/tests`.
+passed and total counts, from which the dataset writes its `reward.json`. `testrunner` restores
+nothing: the harness checks back to the base the files only a runner loads
+(`testrunner.runners.RUNNER_FILES`) and those that define the listed tests
+(`testrunner.runners.restore_paths`) before it runs them. A dataset with no harness of its own
+runs `python -m testrunner` in `/tests`, and its result holds only once those files are the
+base's. Maven cannot take its test configuration from the base: a changed `pom.xml` can replace
+what runs under a listed name and what is reported, so a dataset that runs Maven tests checks
+`pom.xml` itself.
 
 A dataset repository depends on it at a commit of main:
 

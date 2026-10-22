@@ -208,9 +208,34 @@ def test_place_refuses_a_link_on_the_way(tmp_path: Path):
   assert not (tmp_path / "outside" / "t.py").exists()
 
 
+# A stand-in for PHPUnit that reports one passed test at --log-junit.
+FAKE_PHPUNIT = """#!/bin/sh
+for arg in "$@"; do
+  case "$arg" in --log-junit=*) report="${arg#--log-junit=}" ;; esac
+done
+cat > "$report" <<'XML'
+<testsuites><testsuite name="Example\\ParserTest">
+<testcase name="testTag" class="Example\\ParserTest" time="0.002"/>
+</testsuite></testsuites>
+XML
+"""
+PY312_MANIFEST = """
+[[test]]
+suite = "p2p"
+runner = "phpunit"
+id = "Example\\\\ParserTest::testTag"
+
+[[test]]
+suite = "p2p"
+runner = "pytest"
+id = "t.py::test_a"
+"""
+
+
 def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
-  # A task's Python may be 3.12; this one has no pytest, so the test is an
-  # error, but the manifest is read and the report written all the same.
+  # A task's Python may be 3.12. With -S nothing but its standard library can
+  # be imported: a stand-in PHPUnit's report is read all the same, while
+  # pytest cannot be imported, so its test is an error.
   python = shutil.which("python3.12")
   assert python is not None, "the tests need python3.12 on the PATH"
   tests, app, out = tmp_path / "tests", tmp_path / "app", tmp_path / "out"
@@ -220,24 +245,32 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
     _ = path.write_bytes(data)
   assert "testrunner/__main__.py" in files()
   assert not [n for n in files() if not n.startswith("testrunner/")]
-  write(app, {"t.py": "def test_a():\n  pass\n"})
-  manifest = '[[test]]\nsuite = "p2p"\nrunner = "pytest"\nid = "t.py::test_a"\n'
-  write(tests, {"manifest.toml": manifest})
+  write(
+    app,
+    {
+      "t.py": "def test_a():\n  pass\n",
+      "tests/ParserTest.php": "",
+      "vendor/bin/phpunit": FAKE_PHPUNIT,
+    },
+  )
+  (app / "vendor/bin/phpunit").chmod(0o755)
+  write(tests, {"manifest.toml": PY312_MANIFEST})
   args = ["--tests", str(tests), "--app", str(app), "--out", str(out)]
   done = subprocess.run(
-    [python, "-m", "testrunner", *args],
+    [python, "-S", "-m", "testrunner", *args],
     cwd=tests,
     capture_output=True,
     text=True,
     check=True,
     env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
   )
-  assert json.loads(done.stdout.splitlines()[-1]) == {"p2p": [0, 1]}
+  assert json.loads(done.stdout.splitlines()[-1]) == {"p2p": [1, 2]}
   report = cast("dict[str, object]", json.loads((out / ctrf.FILE).read_text()))
-  assert ctrf.suite_counts(report) == {"p2p": (0, 1)}
-  test = cast(
+  found = cast(
     "list[dict[str, object]]",
     cast("dict[str, object]", report["results"])["tests"],
-  )[0]
-  assert test["name"] == "t.py::test_a"
-  assert test["rawStatus"] == "error"
+  )
+  assert [(t["name"], t["status"], t.get("rawStatus")) for t in found] == [
+    ("Example\\ParserTest::testTag", "passed", None),
+    ("t.py::test_a", "failed", "error"),
+  ]
