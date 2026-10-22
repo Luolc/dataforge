@@ -14,3 +14,11 @@ export interface DeliverableProps {
   /** Whether the attempt runs now; null or absent while it is not known. */
   live?: LiveInfo | null;
 }
+
+/**
+ * The deliverable of a kind that its tab is titled and counted by and opens
+ * on: the first the attempt reached, else the first.
+ */
+export function leading(items: Deliverable[]): Deliverable | undefined {
+  return items.find((item) => item.path !== null) ?? items[0];
+}

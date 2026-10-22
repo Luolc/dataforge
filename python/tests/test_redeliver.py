@@ -175,12 +175,21 @@ def test_dataforge_redeliver_previews_then_writes(
   assert out[2] == (
     f"skip {running}: its status 'running' is a word of an attempt not ended"
   )
+  assert out[3] == "2 records: change 1, same 0, skip 1, error 0"
   assert done.read_bytes() == before
 
   assert main([*args, "--write"]) == 0
-  assert capsys.readouterr().out.splitlines()[0].startswith(f"wrote {done}")
+  out = capsys.readouterr().out.splitlines()
+  assert out[0].startswith(f"wrote {done}")
+  assert out[-1] == "2 records: wrote 1, same 0, skip 1, error 0"
   assert entries(read(done))[0]["k"] == 3
 
+  # A record that cannot be read fails the command, not the others.
   missing = tmp_path / "missing" / "record.json"
-  assert main(["redeliver", str(declaration), str(missing)]) == 1
-  assert capsys.readouterr().out.startswith(f"error {missing}: cannot read")
+  assert main(["redeliver", str(declaration), str(missing), str(done)]) == 1
+  out = capsys.readouterr().out.splitlines()
+  assert out[0].startswith(f"error {missing}: cannot read")
+  assert out[1:] == [
+    f"same {done}",
+    "2 records: change 0, same 1, skip 0, error 1",
+  ]

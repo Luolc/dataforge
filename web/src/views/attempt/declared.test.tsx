@@ -191,8 +191,17 @@ describe("a tab of several deliverables of one kind", () => {
     expect(await tabs()).toContain("RegradeNot run");
   });
 
-  it("opens on the first declared, from its menu as before", async () => {
+  it("opens on the deliverable it is titled by, the others in its menu", async () => {
     show(withRegrade(false), "&tab=trials", twice);
+
+    const menu = await screen.findByRole("button", { name: /Pass@k/ });
+    expect(menu).toHaveTextContent(/^Pass@k$/);
+    expect(await screen.findByText(/2 \/ 4 solved/)).toBeVisible();
+    expect(screen.queryByText("regrade was never visited")).toBeNull();
+  });
+
+  it("opens on the first declared when none was reached", async () => {
+    show(withRegrade(false, false), "&tab=trials", twice);
 
     expect(await screen.findByText("regrade was never visited")).toBeVisible();
   });

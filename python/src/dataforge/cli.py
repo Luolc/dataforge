@@ -1,6 +1,7 @@
 """The dataforge command."""
 
 import argparse
+from collections import Counter
 from collections.abc import Sequence
 from contextlib import ExitStack
 import importlib
@@ -63,6 +64,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     help=(
       "resolve the deliverables of ended attempts again from the"
       " declaration as it is now"
+    ),
+    description=(
+      "Resolve the deliverables of each record's attempt again from the"
+      " declaration as it is now, and print a line for each record (change,"
+      " same, skip or error; wrote with --write) and the deliverables that"
+      " change, then a line of how many records had each. Without --write it"
+      " writes nothing. With --write it replaces only the deliverables key"
+      " of each record that changes, after copying the record to"
+      " <record>.<UTC time>.bak beside it; moving that file back restores it."
+      " An attempt that has not ended is skipped: its status is one of"
+      " --not-ended, or without --not-ended its status is null and its last"
+      " visit did not raise, or its last visit has no outcome."
+    ),
+    epilog=(
+      "Exit status: 0 when every record was read and, with --write, every"
+      " change written; 1 when the declaration does not load, or when a"
+      " record could not be read or written, the other records being handled"
+      " all the same; 2 for bad arguments."
     ),
   )
   for sub in (check, graph, again):
@@ -156,17 +175,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _redeliver(machine: Machine, args: argparse.Namespace) -> int:
-  failed = False
-  for record in cast(list[Path], args.records):
+  write = cast(bool, args.write)
+  records = cast(list[Path], args.records)
+  counts = Counter[str]()
+  for record in records:
     result = redeliver(
       machine,
       record,
       not_ended=cast(list[str] | None, args.not_ended),
-      write=cast(bool, args.write),
+      write=write,
     )
-    failed |= result.action == "error"
+    counts[result.action] += 1
     print("\n".join(describe(result)))
-  return 1 if failed else 0
+  actions = ("wrote" if write else "change", "same", "skip", "error")
+  each = ", ".join(f"{action} {counts[action]}" for action in actions)
+  print(f"{len(records)} records: {each}")
+  return 1 if counts["error"] else 0
 
 
 def _viz(config: Path, static: Path) -> int:

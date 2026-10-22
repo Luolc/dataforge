@@ -21,7 +21,6 @@ import { z } from "zod";
 import {
   type AttemptRecord,
   currentOf,
-  type Deliverable,
   deliverablesOf,
   type LiveInfo,
   liveInfo,
@@ -43,6 +42,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
+import { leading } from "../kind";
 import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
@@ -244,13 +244,9 @@ function Attempt({
   const tabs = [
     { key: "runs", title: "Runs", count: <>{runs}</> },
     ...kinds.map((kind) => {
-      // Titled and counted by the first of the kind that the attempt
-      // reached, else by the first.
-      const reached = (d: Deliverable) => d.path !== null;
-      const items = itemsOf(kind);
-      const first = items.find(reached) ?? items[0];
+      const first = leading(itemsOf(kind));
       const counted = recorded.filter((d) => d.kind === kind);
-      const one = counted.find(reached) ?? counted[0];
+      const one = leading(counted);
       return {
         key: kind,
         title: first?.title ?? kind,

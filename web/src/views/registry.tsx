@@ -15,7 +15,7 @@ import { ChoiceMenu } from "../ui/menu";
 import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
 import FilesView from "./files";
-import type { DeliverableProps } from "./kind";
+import { type DeliverableProps, leading } from "./kind";
 import ReportView from "./report";
 import TrialsView from "./trials";
 
@@ -130,7 +130,7 @@ export function KindLine({ item, ...props }: ItemProps) {
 /** A kind's tab: its deliverables stacked, or one chosen from a menu. */
 export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
   const { View, stack } = kindOf(kind);
-  const [chosen, setChosen] = useState(props.items[0]?.name);
+  const [chosen, setChosen] = useState(() => leading(props.items)?.name);
   const shown = stack
     ? props.items
     : props.items.filter((d) => d.name === chosen).slice(0, 1);
