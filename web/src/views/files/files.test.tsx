@@ -183,7 +183,7 @@ describe("the files view", () => {
         `${root}/${name}`,
       );
 
-      await screen.findByText(/^[12] lines/);
+      await screen.findByText(/^[12] lines?/);
       expect(
         screen
           .getByRole("link", { name })
@@ -210,7 +210,7 @@ describe("the files view", () => {
   it("highlights source by its extension", async () => {
     const { container } = show(task, `${root}/src/tinyparse/header.py`);
 
-    await screen.findByText("1 lines · 10 B");
+    await screen.findByText("1 line · 10 B");
     expect(container.querySelector(".hljs-keyword")).toHaveTextContent(
       "import",
     );
@@ -271,7 +271,7 @@ describe("the files view", () => {
   it("gives a text file a link that downloads it too", async () => {
     show(task, `${root}/src/tinyparse/header.py`);
 
-    await screen.findByText("1 lines · 10 B");
+    await screen.findByText("1 line · 10 B");
     expect(screen.getByRole("link", { name: "Download" })).toHaveAttribute(
       "download",
       "header.py",

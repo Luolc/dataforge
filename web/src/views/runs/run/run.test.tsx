@@ -373,6 +373,19 @@ describe("a run's files, logs and words", () => {
     ).toBeVisible();
   });
 
+  it("links a trial to where its deliverable shows it", () => {
+    show(records.passed, 5);
+
+    const trial = step(/^trial · trial-1/);
+    expect(
+      within(trial).getByRole("link", { name: "Pass@k · Trial 1" }),
+    ).toHaveAttribute(
+      "href",
+      "/sample/attempt?id=p4%2Ftask-0101&tab=trials&deliverable=pass_at_k&trial=trial-1",
+    );
+    expect(within(trial).queryByText("Logs")).toBeNull();
+  });
+
   it("says a record from before logs names none", () => {
     show(records.passed, 1);
     fireEvent.click(toggleOf(step(/^script/)));

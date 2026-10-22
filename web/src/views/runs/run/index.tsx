@@ -27,9 +27,17 @@ import { size, useFile } from "../../files/file";
 import { Files } from "../../files/index";
 import { Preview } from "../../files/Preview";
 import { ReportMarkdown } from "../../report/markdown";
+import { type Listed, trialName } from "../../trials/source";
 import { markdownOf, type Output, reportsOf } from "./reports";
 import { Step } from "./Step";
-import { actionStatus, inputOf, isSession, startsOpen, traceOf } from "./steps";
+import {
+  actionStatus,
+  inputOf,
+  isSession,
+  listedTrials,
+  startsOpen,
+  traceOf,
+} from "./steps";
 
 export interface RunProps {
   project: Project;
@@ -332,6 +340,37 @@ function LogFile({
   );
 }
 
+/** Where a trial action's trial shows: a link to it in each such tab. */
+function ShownIn({
+  project,
+  attempt,
+  listed,
+}: {
+  project: Project;
+  attempt: string;
+  listed: Listed[];
+}) {
+  if (listed.length === 0) return <>No deliverable lists it.</>;
+  return (
+    <ul className="flex flex-col gap-1">
+      {listed.map(({ deliverable, trial, index }) => (
+        <li key={deliverable.name}>
+          <Link
+            to={attemptHref(project.id, attempt, {
+              tab: deliverable.kind,
+              deliverable: deliverable.name,
+              trial: trial.output,
+            })}
+            className="inline-flex target items-center link hover:underline"
+          >
+            {deliverable.title} · {trialName(index)}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** What an action printed: its logs, or why there are none. */
 function Logs({
   project,
@@ -530,6 +569,15 @@ function ActionStep({
             outputs={action.outputs}
           />
         </Field>
+        {action.kind === "trial" && (
+          <Field name="Shown in">
+            <ShownIn
+              project={project}
+              attempt={attempt}
+              listed={listedTrials(record, index, action)}
+            />
+          </Field>
+        )}
         {action.kind !== "trial" && (
           <Field name="Logs">
             <Logs project={project} attempt={attempt} logs={action.logs} />
