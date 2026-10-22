@@ -55,7 +55,10 @@ def _status(case: ET.Element) -> junit.Outcome:
 
 @final
 class CTest(Runner):
-  """CTest, run as `ctest --output-junit` on the listed tests by name."""
+  """CTest, run as `ctest --output-junit` on the listed tests by name.
+
+  `--output-junit` needs CMake 3.21 or later.
+  """
 
   _REPORT = "ctest.xml"
 
