@@ -17,6 +17,7 @@ import { Elapsed, RunningIcon } from "../../../ui/running";
 import { StatusIcon } from "../../../ui/status-mark";
 import {
   type Edge,
+  labelLine,
   type Layout,
   LINE,
   SUB_LINE,
@@ -481,9 +482,7 @@ function EdgeView({
                   : "fill-fg-3"
             }
           >
-            {part.outcome}
-            {part.taken > 0 && ` ×${part.taken}`}
-            {part.to !== null && ` → ${part.to}`}
+            {labelLine(part)}
           </tspan>
         ))}
       </text>

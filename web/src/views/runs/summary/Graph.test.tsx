@@ -167,6 +167,13 @@ describe("the machine's graph", () => {
     expect(check).toHaveAttribute("href", "/run/25");
   });
 
+  it("writes each outcome on its edge as the project labels it, else as it is", () => {
+    const { edge } = show(early);
+
+    expect(edge("build", "smoke")).toHaveTextContent(/^Pass ×1$/);
+    expect(edge("draft", "build")).toHaveTextContent(/^done ×1$/);
+  });
+
   it("opens at scale 1 in a frame narrower than the graph", () => {
     frameOf(600, 300);
     const { graph } = show(busy);
@@ -573,8 +580,12 @@ describe("a running attempt's machine", () => {
         must(graph.querySelector<HTMLElement>('[data-node="solve"]')),
       ).getByRole("img", { name: "Running" }),
     ).toBeInTheDocument();
+    // Still on the state it ran in when first shown, which the later
+    // layout may move by a little: its labels' counts changed.
+    const smokeLater = must(later.nodes.find((n) => n.key === "smoke"));
+    const centred = 120 - (smokeLater.x + smokeLater.width / 2);
     expect(must(graph.querySelector("g")).getAttribute("transform")).toMatch(
-      new RegExp(`^translate\\(${String(x)} 0\\)`),
+      new RegExp(`^translate\\(${String(centred)} 0\\)`),
     );
   });
 

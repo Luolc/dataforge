@@ -82,7 +82,9 @@ function show(url = "/sample", shown: Project = project) {
 
 /** The item IDs of a group, in the order shown. */
 function itemsOf(title: string): string[] {
-  const heading = screen.getByRole("button", { name: new RegExp(`^${title}`) });
+  const heading = screen.getByRole("button", {
+    name: new RegExp(`^${title}\\d`),
+  });
   const body = document.getElementById(
     heading.getAttribute("aria-controls") ?? "",
   );
@@ -100,7 +102,7 @@ describe("the home page", () => {
     expect(itemsOf("Not ended")).toEqual(["t-run"]);
     expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
     expect(itemsOf("Unreadable record")).toEqual(["t-bad"]);
-    expect(screen.getByRole("button", { name: /^Ended/ })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: /^Ended\d/ })).toHaveTextContent(
       "Ended1 of 2 bad or warn",
     );
     expect(screen.getByText("t-run").closest("tr")).toHaveTextContent(
@@ -110,7 +112,7 @@ describe("the home page", () => {
 
   it("folds a group", async () => {
     show();
-    const heading = await screen.findByRole("button", { name: /^Ended/ });
+    const heading = await screen.findByRole("button", { name: /^Ended\d/ });
 
     act(() => {
       heading.click();
@@ -161,9 +163,45 @@ describe("the home page", () => {
     expect(itemsOf("Ended")).toEqual(["t-new", "t-old", "2", "1"]);
     expect(sub("t-old/2")).toBeVisible();
     expect(sub("t-old/1")).toHaveTextContent("1");
-    // The item sums its attempts; a sub-row shows its own cost.
-    const item = screen.getByText("t-old").closest("tr");
-    expect(item).toHaveTextContent("$3.50");
+  });
+
+  it("shows an item's newest attempt's cost, with what all its attempts spent on focus", async () => {
+    show();
+    const item = (await screen.findByText("t-old")).closest("tr");
+    if (!item) throw new Error("no row");
+    // Its newest attempt, t-old/2, as the row's other cells are.
+    expect(item).toHaveTextContent("$2.00");
+    expect(item).not.toHaveTextContent("$3.50");
+
+    const spent = within(item).getByText("$2.00").closest("[tabindex]");
+    if (!(spent instanceof HTMLElement)) throw new Error("no hint");
+    fireEvent.focus(spent);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "$3.50 spent over its 2 attempts.",
+    );
+    // An item of one attempt has no sum to give.
+    const one = screen.getByText("t-new").closest("tr");
+    expect(within(one ?? document.body).getByText("$0.50")).not.toHaveAttribute(
+      "tabindex",
+    );
+  });
+
+  it("sorts an item by its newest attempt's cost, not by its attempts' sum", async () => {
+    // a's newest spent $2.00 and its two attempts $5.00; b's one $3.00.
+    const rows = [
+      row("a/2", { started_at: at(8), ended_at: at(9), cost_usd: 2 }),
+      row("a/1", { started_at: at(5), ended_at: at(6), cost_usd: 3 }),
+      row("b/1", { started_at: at(6), ended_at: at(7), cost_usd: 3 }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show("/sample?sort=-spent");
+    await screen.findByText("a");
+    expect(itemsOf("Ended")).toEqual(["b", "a"]);
   });
 
   it("filters by a status chip and says how many it hides", async () => {
@@ -184,7 +222,7 @@ describe("the home page", () => {
     expect(itemsOf("Ended")).toEqual(["t-new"]);
     expect(screen.queryByRole("button", { name: /^Not ended/ })).toBeNull();
     expect(
-      screen.getByText("3 of 4 hidden by the status filter."),
+      screen.getByText("3 of 4 Tasks hidden by the status filter."),
     ).toBeVisible();
   });
 
@@ -193,7 +231,9 @@ describe("the home page", () => {
     await screen.findByText("t-old");
 
     expect(screen.queryByText("t-run")).toBeNull();
-    expect(screen.getByText("3 of 4 hidden by the search.")).toBeVisible();
+    expect(
+      screen.getByText("3 of 4 Tasks hidden by the search."),
+    ).toBeVisible();
   });
 
   it("reads the listing again on refresh", async () => {
@@ -229,7 +269,7 @@ describe("the home page", () => {
     show("/sample?q=t-&status=too_easy&older=1");
     expect(
       await screen.findByText(
-        "3 of 4 hidden by the search and the status filter.",
+        "3 of 4 Tasks hidden by the search and the status filter.",
       ),
     ).toBeVisible();
   });
@@ -262,11 +302,16 @@ describe("the home page", () => {
     expect(round).toHaveTextContent("Pass@kPass");
   });
 
-  it("shows a round with no outcome as No outcome once its attempt ended", async () => {
+  it("shows a round with no outcome as No outcome once its attempt ended, Running while it runs", async () => {
     const open = [{ round: 1, state: "solve", outcome: null }];
     const rows = [
       row("t-done/1", { status: null, rounds: open }),
       row("t-live/1", { status: null, rounds: open, live: "running" }),
+      row("t-lost/1", {
+        status: null,
+        rounds: open,
+        live: "may have stopped",
+      }),
     ];
     vi.stubGlobal(
       "fetch",
@@ -278,11 +323,107 @@ describe("the home page", () => {
     const roundOf = async (id: string) =>
       (await screen.findByText(id)).closest("tr")?.querySelector("ol li");
 
-    expect(await roundOf("t-done")).toHaveTextContent("Pass@kNo outcome");
-    expect(await roundOf("t-live")).toHaveTextContent("Pass@kNot ended");
+    expect(await roundOf("t-done")).toHaveTextContent("R1Pass@kNo outcome");
+    const live = await roundOf("t-live");
+    expect(live).toHaveTextContent(/^R1Pass@kRunning$/);
+    expect(live?.querySelector("svg")).toHaveClass(
+      "lucide-loader-circle",
+      "motion-reduce:animate-none",
+    );
+    // Only an attempt that runs now has a round that runs.
+    expect(await roundOf("t-lost")).toHaveTextContent("R1Pass@kNot ended");
     // Each round on one line, as its height is one line: Not / ended
     // folded over two ran into the round below it.
-    expect(await roundOf("t-live")).toHaveClass("h-5", "whitespace-nowrap");
+    expect(await roundOf("t-lost")).toHaveClass("h-5", "whitespace-nowrap");
+  });
+
+  it("numbers each round, and puts rounds in a row that ended alike in one cell with their count", async () => {
+    const rounds = [
+      { round: 1, state: "solve", outcome: "exhausted" },
+      { round: 2, state: "solve", outcome: "exhausted" },
+      { round: 3, state: "solve", outcome: "exhausted" },
+      { round: 4, state: "solve", outcome: "pass" },
+      { round: 5, state: "solve", outcome: "exhausted" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify([row("t-many/1", { rounds })]), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    show();
+    const cells = (await screen.findByText("t-many"))
+      .closest("tr")
+      ?.querySelectorAll("ol li");
+
+    expect([...(cells ?? [])].map((c) => c.textContent)).toEqual([
+      "R1–R3Pass@kExhausted×3",
+      "R4Pass@kPass",
+      "R5Pass@kExhausted",
+    ]);
+  });
+
+  it("gives each attempt's end in a column of its own, none while it has not ended", async () => {
+    show();
+    await screen.findByText("t-run");
+    const headings = screen
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
+    expect(headings.slice(5, 9)).toEqual([
+      "Spent",
+      "Started",
+      "Ended",
+      "Duration",
+    ]);
+    const endOf = (id: string) =>
+      screen.getByText(id).closest("tr")?.querySelector("td:nth-child(8)");
+    expect(endOf("t-new")).toHaveTextContent("2026-03-02 11:00 UTC");
+    expect(endOf("t-new")).toHaveClass("text-right", "tabular-nums");
+    // t-run's listing has an ended_at, its last action's end, but it runs.
+    expect(endOf("t-run")).toHaveTextContent(/^—$/);
+  });
+
+  it("says what the chips count, on focus", async () => {
+    show("/sample?older=1");
+    const all = await screen.findByRole("button", { name: /^All/ });
+    fireEvent.focus(all);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/^4 Tasks$/);
+  });
+
+  it("keeps the status icon, the item and a group's heading at the left as the table scrolls sideways", async () => {
+    show();
+    const item = (await screen.findByText("t-old")).closest("tr");
+    const [icon, id, status] = [...(item?.querySelectorAll("td") ?? [])];
+    expect(icon).toHaveClass("sticky", "left-0", "bg-panel");
+    // Beside the icon's column, as wide as it is for a fine or a coarse
+    // pointer, and edged on its right.
+    expect(icon).toHaveClass("w-row-icon");
+    expect(id).toHaveClass(
+      "sticky",
+      "left-row-icon",
+      "bg-panel",
+      "shadow-stuck",
+    );
+    expect(status).not.toHaveClass("sticky");
+    // On the row's surface as a pointer hovers it, and a sub-row's.
+    expect(icon).toHaveClass("group-hover/row:bg-hover");
+    expect(item).toHaveClass("group/row");
+    const sub = document.querySelector(
+      `tr[id] a[href="/sample/attempt?id=${encodeURIComponent("t-old/1")}"]`,
+    );
+    expect(sub?.closest("td")).toHaveClass("sticky", "bg-app");
+    const heads = screen.getAllByRole("columnheader");
+    expect(heads[0]).toHaveClass("sticky", "left-0", "bg-head");
+    expect(heads[0]).toHaveClass("w-row-icon");
+    expect(heads[1]).toHaveClass("sticky", "left-row-icon", "bg-head");
+    expect(screen.getByRole("button", { name: /^Ended\d/ })).toHaveClass(
+      "sticky",
+      "left-1",
+    );
   });
 
   it("scrolls a table wider than the page sideways on its own, under the filters", async () => {
@@ -372,6 +513,57 @@ describe("the home page", () => {
     }
   });
 
+  it("says in a column of a tab not run how the tab's job stands", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        { title: "A", field: ["a"], format: "text" },
+        { title: "B", field: ["b"], format: "text" },
+        { title: "C", field: ["c"], format: "text" },
+        { title: "D", field: ["d"], format: "text" },
+      ],
+    };
+    const job = {
+      id: 98,
+      queue: "slow",
+      labels: { action: "note", item: "t-new" },
+      state: "canceled",
+      memory_mib: 1,
+      queued_at: 1772442900,
+      started_at: null,
+      ended_at: 1772443200,
+      exit_code: null,
+      cancel_requested_at: 1772443200,
+    };
+    const pause = { queue: "slow", paused_at: 1772442000, reason: null };
+    const failed = { ...job, id: 99, state: "failed", exit_code: 1 };
+    ROWS[3] = {
+      ...must(ROWS[3]),
+      values: [null, null, null, null],
+      reads: ["not run", "not run", "not run", "not run"],
+      queued: [
+        { job, paused: pause, reason: null },
+        { job: failed, paused: null, reason: null },
+        { job: null, paused: pause, reason: null },
+        { job: null, paused: null, reason: null },
+      ],
+    };
+    try {
+      show("/sample", withColumns);
+      const item = (await screen.findByText("t-new")).closest("tr");
+      const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-4);
+      // A tab its job never made is not run, whatever the job's state (L40).
+      expect(cells.map((c) => c.textContent)).toEqual([
+        "Not run · job 98 canceled · queue paused",
+        "Not run · job 99 failed",
+        "Not run · queue paused",
+        "Not run",
+      ]);
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [], reads: null, queued: null };
+    }
+  });
+
   it("shows each row's status as an icon first, a spinner while it runs", async () => {
     // With older records shown, so the unreadable one has its row too.
     show("/sample?older=1");
@@ -447,7 +639,7 @@ describe("the home page's empty attempts", () => {
     await screen.findByText("t-new");
 
     expect(ids()).toEqual(["t-new", "t-mixed", "t-started"]);
-    expect(screen.getByText("4 older records hidden")).toBeVisible();
+    expect(screen.getByText("4 older attempts hidden (3 Tasks)")).toBeVisible();
     expect(screen.getByRole("button", { name: "Show" })).toHaveAttribute(
       "aria-pressed",
       "false",
@@ -467,7 +659,7 @@ describe("the home page's empty attempts", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByLabelText("where")).toHaveTextContent("/sample?older=1");
-    expect(screen.getByText("4 older records shown")).toBeVisible();
+    expect(screen.getByText("4 older attempts shown (3 Tasks)")).toBeVisible();
     expect(ids()).toEqual(
       expect.arrayContaining(["t-mixed", "t-empty", "t-gone", "t-started"]),
     );
@@ -479,7 +671,7 @@ describe("the home page's empty attempts", () => {
 
   it("counts only what it shows in the chips, a chosen one at 0", async () => {
     show("/sample?status=~no-status");
-    await screen.findByText("4 older records hidden");
+    await screen.findByText("4 older attempts hidden (3 Tasks)");
 
     expect(
       screen.getByText("Nothing matches the search and the status filter."),
@@ -494,7 +686,7 @@ describe("the home page's empty attempts", () => {
     ).toHaveTextContent("Unreadable1");
   });
 
-  it("says when every attempt is an older record", async () => {
+  it("says when every attempt is an older attempt", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -509,10 +701,10 @@ describe("the home page's empty attempts", () => {
 
     expect(
       await screen.findByText(
-        "Every attempt of the project is an older record.",
+        "Every attempt of the project is an older attempt.",
       ),
     ).toBeVisible();
-    expect(screen.getByText("1 older record hidden")).toBeVisible();
+    expect(screen.getByText("1 older attempt hidden (1 Task)")).toBeVisible();
   });
 });
 
@@ -544,7 +736,7 @@ describe("the home page while an attempt runs", () => {
   /** The Duration cell of an item's row. */
   const durationOf = (id: string) =>
     must(
-      screen.getByText(id).closest("tr")?.querySelector("td:nth-child(8)") ??
+      screen.getByText(id).closest("tr")?.querySelector("td:nth-child(9)") ??
         undefined,
     );
 

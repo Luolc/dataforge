@@ -2,9 +2,9 @@
 // split into the page's groups, and what search and the status chips keep.
 import type { AttemptRow, Live, Project } from "../../api/types";
 import {
+  isEnding,
   liveStatus,
   NOT_ENDED,
-  RAISED,
   statusOf,
   viewerStatus,
 } from "../../ui/status";
@@ -53,13 +53,15 @@ export const notEnded = (row: AttemptRow): boolean =>
 /**
  * An attempt's status word: UNREADABLE_KEY when its record cannot be read; while
  * it has not ended, live's word (null for not ended); else its record's
- * status, raised when its last visit raised, or NO_STATUS_KEY.
+ * status, its last visit's outcome when that raised or was interrupted, or
+ * NO_STATUS_KEY.
  */
 export function rowStatus(row: AttemptRow): string | null {
   if (row.error !== null) return UNREADABLE_KEY;
   if (row.live !== null && row.live !== undefined) return LIVE_WORD[row.live];
   if (row.status !== null) return row.status;
-  return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : NO_STATUS_KEY;
+  const last = row.rounds?.at(-1)?.outcome;
+  return last !== undefined && isEnding(last) ? last : NO_STATUS_KEY;
 }
 
 /**
@@ -88,6 +90,50 @@ export function rowSeconds(row: AttemptRow): number | null {
 export function spent(rows: AttemptRow[]): number | null {
   const costs = rows.flatMap((r) => (r.cost_usd === null ? [] : [r.cost_usd]));
   return costs.length === 0 ? null : costs.reduce((a, b) => a + b, 0);
+}
+
+/** n and a noun, the noun with an s unless n is 1: "3 CVEs", "1 attempt". */
+export const counted = (n: number, noun: string): string =>
+  `${n.toString()} ${noun}${n === 1 ? "" : "s"}`;
+
+type Round = NonNullable<AttemptRow["rounds"]>[number];
+
+/** A run of rounds in a row that ended alike: the same state and outcome. */
+export interface RoundRun {
+  first: number;
+  last: number;
+  count: number;
+  state: string | null;
+  outcome: string | null;
+}
+
+/**
+ * The rounds, each run of them in a row with the same state and outcome as
+ * one; with open, the last round, which runs now, stands alone.
+ */
+export function roundRuns(rounds: Round[], open: boolean): RoundRun[] {
+  const runs: RoundRun[] = [];
+  rounds.forEach((r, i) => {
+    const before = runs.at(-1);
+    const alone = open && i === rounds.length - 1;
+    if (
+      before !== undefined &&
+      !alone &&
+      before.state === r.state &&
+      before.outcome === r.outcome
+    ) {
+      before.last = r.round;
+      before.count += 1;
+    } else
+      runs.push({
+        first: r.round,
+        last: r.round,
+        count: 1,
+        state: r.state,
+        outcome: r.outcome,
+      });
+  });
+  return runs;
 }
 
 /** A time as milliseconds for ordering; one missing or bad is the oldest. */
