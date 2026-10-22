@@ -2,7 +2,10 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-/** A group of rows under a heading row that folds it. */
+/**
+ * A group of rows under a heading row that folds it; the heading's text stays
+ * at the left of a table that scrolls sideways.
+ */
 export function Group({
   id,
   title,
@@ -33,7 +36,7 @@ export function Group({
               onClick={() => {
                 setFolded((f) => !f);
               }}
-              className="inline-flex target items-center gap-1.5 rounded-row px-1.5 text-xs font-medium hover:bg-hover"
+              className="sticky left-1 inline-flex target items-center gap-1.5 rounded-row px-1.5 text-xs font-medium hover:bg-hover"
             >
               {folded ? (
                 <ChevronRight className="size-3.5 text-icon" aria-hidden />

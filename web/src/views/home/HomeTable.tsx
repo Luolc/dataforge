@@ -26,6 +26,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import type { AttemptRow, Project } from "../../api/types";
 import { duration, formatValue, readValue, time, usd } from "../../ui/format";
 import {
+  liveStatus,
   outcomeOf,
   stateTitle,
   statusOf,
@@ -33,6 +34,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { Chip, control } from "../../ui/chip";
+import { Hint } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
@@ -40,6 +42,7 @@ import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import { queuedShort, stateLabel } from "../queue/status";
 import {
+  counted,
   filterItems,
   flagged,
   GROUPS,
@@ -47,6 +50,7 @@ import {
   keyWord,
   notEnded,
   rowSeconds,
+  roundRuns,
   rowStatus,
   spent,
   toItems,
@@ -115,8 +119,8 @@ function timeValue(iso: string | null): Value {
 
 const NUMERIC_FORMATS = new Set(["number", "usd", "duration", "time"]);
 
-const lineSpent = (l: Line) =>
-  l.sub ? l.row.cost_usd : spent(l.item.attempts);
+/** A row's end, null while it has not ended. */
+const lineEnded = (l: Line) => (notEnded(l.row) ? null : l.row.ended_at);
 
 function specs(project: Project): Spec[] {
   const fixed: Spec[] = [
@@ -165,10 +169,23 @@ function specs(project: Project): Spec[] {
       id: "spent",
       title: "Spent",
       numeric: true,
-      value: (l) => lineSpent(l) ?? undefined,
+      // An item's row is its newest attempt, as its other cells are; what all
+      // of its attempts spent is on hover.
+      value: (l) => l.row.cost_usd ?? undefined,
       cell: (l) => {
-        const v = lineSpent(l);
-        return v === null ? "—" : usd(v);
+        const shown = l.row.cost_usd === null ? "—" : usd(l.row.cost_usd);
+        const total = spent(l.item.attempts);
+        if (l.sub || l.item.attempts.length < 2 || total === null) return shown;
+        return (
+          <Hint
+            hint={`${usd(total)} spent over its ${counted(l.item.attempts.length, "attempt")}.`}
+          >
+            {/* Dotted, as a hint's sign. */}
+            <span className="underline decoration-faint decoration-dotted underline-offset-3">
+              {shown}
+            </span>
+          </Hint>
+        );
       },
     },
     {
@@ -177,6 +194,16 @@ function specs(project: Project): Spec[] {
       numeric: true,
       value: (l) => timeValue(l.row.started_at),
       cell: (l) => (l.row.started_at === null ? "—" : time(l.row.started_at)),
+    },
+    {
+      id: "ended",
+      title: "Ended",
+      numeric: true,
+      value: (l) => timeValue(lineEnded(l)),
+      cell: (l) => {
+        const ended = lineEnded(l);
+        return ended === null ? "—" : time(ended);
+      },
     },
     {
       id: "duration",
@@ -225,6 +252,20 @@ function specs(project: Project): Spec[] {
   return [...fixed, ...extra];
 }
 
+// The status icon and the item stay at the left as the table scrolls
+// sideways, so a row is known at its right; the icon's column is
+// w-row-icon wide, the item's edged on its right.
+const STUCK: Partial<Record<string, string>> = {
+  icon: "sticky left-0 z-1",
+  item: "sticky left-row-icon z-1 shadow-stuck",
+};
+
+/** A heading's class when its column stays at the left, on the head's surface. */
+function stuckHead(id: string): string {
+  const at = STUCK[id];
+  return at === undefined ? "" : `${at} bg-head`;
+}
+
 /** ?sort=<column> ascending, ?sort=-<column> descending. */
 function parseSort(param: string | null, ids: string[]): SortingState {
   if (param === null) return [];
@@ -242,26 +283,7 @@ function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
       ? stoppedWhy(row.stopped)
       : row.reason);
   if (why === null) return label;
-  return (
-    <Tooltip.Root>
-      <Tooltip.Trigger asChild>
-        {/* eslint-disable-next-line jsx-a11y-x/no-noninteractive-tabindex -- the tooltip opens on focus, so a keyboard can reach it */}
-        <span tabIndex={0} className="inline-flex rounded-row">
-          {label}
-        </span>
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Content
-          side="bottom"
-          align="start"
-          sideOffset={4}
-          className="z-10 max-w-96 rounded-row border border-line bg-active px-2.5 py-1.5 text-xs break-words text-fg"
-        >
-          {why}
-        </Tooltip.Content>
-      </Tooltip.Portal>
-    </Tooltip.Root>
-  );
+  return <Hint hint={why}>{label}</Hint>;
 }
 
 /** Why an attempt that may have stopped has: its job has ended. */
@@ -284,27 +306,56 @@ function RowIcon({ project, row }: { project: Project; row: AttemptRow }) {
   );
 }
 
-/** One cell per round: its last visit's state and outcome. */
+/**
+ * One cell per round, its number and its last visit's state and outcome,
+ * rounds in a row that ended alike in one cell, with how many they are; the
+ * round that runs now as Running.
+ */
 function RoundsCell({ project, row }: { project: Project; row: AttemptRow }) {
   if (!row.rounds || row.rounds.length === 0) return "—";
+  const running = row.live === "running" && row.rounds.at(-1)?.outcome === null;
+  const runs = roundRuns(row.rounds, running);
   return (
     <ol className="flex flex-wrap gap-1">
-      {row.rounds.map((r) => {
+      {runs.map((r, i) => {
         const outcome = outcomeOf(project, r.outcome, !notEnded(row));
+        const now = running && i === runs.length - 1;
         return (
           <li
-            key={r.round}
+            key={r.first}
             className="inline-flex h-5 items-center gap-1 rounded-row bg-neutral-bg px-1.5 text-xs whitespace-nowrap"
           >
+            <span className="text-fg-3 tabular-nums">
+              {r.count > 1
+                ? `R${r.first.toString()}–R${r.last.toString()}`
+                : `R${r.first.toString()}`}
+            </span>
             {r.state !== null && (
               <span className="text-fg-2">{stateTitle(project, r.state)}</span>
             )}
-            <span
-              className={`inline-flex items-center gap-0.5 ${toneText[outcome.tone]}`}
-            >
-              <OutcomeGlyph tone={outcome.tone} />
-              {outcome.label}
-            </span>
+            {now ? (
+              <span
+                className={`inline-flex items-center gap-0.5 ${toneText[liveStatus.running.tone]}`}
+              >
+                {/* The word beside it says it. */}
+                <span aria-hidden className="inline-flex">
+                  <RunningIcon />
+                </span>
+                {liveStatus.running.label}
+              </span>
+            ) : (
+              <span
+                className={`inline-flex items-center gap-0.5 ${toneText[outcome.tone]}`}
+              >
+                <OutcomeGlyph tone={outcome.tone} />
+                {outcome.label}
+              </span>
+            )}
+            {r.count > 1 && (
+              <span className="text-fg-2 tabular-nums">
+                ×{r.count.toString()}
+              </span>
+            )}
           </li>
         );
       })}
@@ -350,10 +401,14 @@ export function HomeTable({
   const chosen = params.get("status");
 
   const showOlder = params.get("older") === "1";
-  const older = useMemo(
-    () => read.rows.filter(isEmptyAttempt).length,
-    [read.rows],
-  );
+  const older = useMemo(() => {
+    const rows = read.rows.filter(isEmptyAttempt);
+    return {
+      attempts: rows.length,
+      items: new Set(rows.map((r) => r.item)).size,
+    };
+  }, [read.rows]);
+  const itemTitle = project.item.title;
   const items = useMemo(
     () =>
       toItems(
@@ -439,10 +494,17 @@ export function HomeTable({
     void navigate(href);
   };
 
-  const cellClass = (s: Spec) =>
-    s.id === "icon"
-      ? "w-8 py-1.5 pr-0 pl-3 align-top"
-      : `px-3 py-1.5 align-top ${s.numeric ? "text-right whitespace-nowrap tabular-nums" : ""} ${s.id === "status" || s.id === "item" ? "whitespace-nowrap" : ""}`;
+  const cellClass = (s: Spec, sub: boolean) => {
+    // On the row's own surface, which the cells it stands over pass under.
+    const at = STUCK[s.id];
+    const stuck =
+      at === undefined
+        ? ""
+        : `${at} ${sub ? "bg-app" : "bg-panel"} group-hover/row:bg-hover`;
+    return s.id === "icon"
+      ? `w-row-icon py-1.5 pr-0 pl-3 align-top ${stuck}`
+      : `px-3 py-1.5 align-top ${s.numeric ? "text-right whitespace-nowrap tabular-nums" : ""} ${s.id === "status" || s.id === "item" ? "whitespace-nowrap" : ""} ${stuck}`;
+  };
 
   const lineRow = (
     line: Line,
@@ -459,7 +521,7 @@ export function HomeTable({
         }}
       >
         {columnSpecs.map((s) => (
-          <td key={s.id} className={cellClass(s)}>
+          <td key={s.id} className={cellClass(s, line.sub)}>
             {s.id === "attempts" ? attempts : s.cell(line)}
           </td>
         ))}
@@ -496,7 +558,8 @@ export function HomeTable({
     );
     return [
       lineRow(itemLine(item), attempts, {
-        className: "cursor-pointer border-b border-line-subtle hover:bg-hover",
+        className:
+          "group/row cursor-pointer border-b border-line-subtle hover:bg-hover",
       }),
       ...(row.getCanExpand()
         ? item.attempts.map((attempt, a) =>
@@ -504,7 +567,7 @@ export function HomeTable({
               id: subId(a),
               hidden: !expanded,
               className:
-                "cursor-pointer border-b border-line-subtle bg-app hover:bg-hover",
+                "group/row cursor-pointer border-b border-line-subtle bg-app hover:bg-hover",
             }),
           )
         : []),
@@ -527,6 +590,7 @@ export function HomeTable({
               }}
               label="All"
               count={filtered.searched}
+              hint={counted(filtered.searched, itemTitle)}
             />
             {filtered.chips.map(({ key, count }) => {
               const { label, tone } = statusOf(project, keyWord(key));
@@ -546,6 +610,7 @@ export function HomeTable({
                   }
                   label={label}
                   count={count}
+                  hint={counted(count, itemTitle)}
                 />
               );
             })}
@@ -589,7 +654,7 @@ export function HomeTable({
         </div>
         {filtered.hidden > 0 && (
           <p className="flex items-center gap-2 text-xs text-fg-3">
-            {filtered.hidden} of {items.length} hidden by{" "}
+            {filtered.hidden} of {counted(items.length, itemTitle)} hidden by{" "}
             {q.trim() !== "" && chosen !== null
               ? "the search and the status filter"
               : q.trim() !== ""
@@ -621,7 +686,11 @@ export function HomeTable({
                   const Arrow = sorted === "desc" ? ArrowDown : ArrowUp;
                   if (spec?.id === "icon")
                     return (
-                      <th key={header.id} scope="col" className="w-8">
+                      <th
+                        key={header.id}
+                        scope="col"
+                        className={`w-row-icon ${stuckHead("icon")}`}
+                      >
                         <span className="sr-only">Status icon</span>
                       </th>
                     );
@@ -636,7 +705,7 @@ export function HomeTable({
                             ? "descending"
                             : "none"
                       }
-                      className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"}`}
+                      className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"} ${spec === undefined ? "" : stuckHead(spec.id)}`}
                     >
                       <button
                         type="button"
@@ -686,13 +755,13 @@ export function HomeTable({
             {read.rows.length === 0
               ? "The project has no attempts."
               : items.length === 0
-                ? "Every attempt of the project is an older record."
+                ? "Every attempt of the project is an older attempt."
                 : "Nothing matches the search and the status filter."}
           </p>
         )}
-        {older > 0 && (
+        {older.attempts > 0 && (
           <p className="flex items-center gap-2 text-xs text-fg-3">
-            {`${older.toString()} older ${older === 1 ? "record" : "records"} ${showOlder ? "shown" : "hidden"}`}
+            {`${counted(older.attempts, "older attempt")} ${showOlder ? "shown" : "hidden"} (${counted(older.items, itemTitle)})`}
             <span aria-hidden>·</span>
             <button
               type="button"
