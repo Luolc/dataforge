@@ -353,7 +353,7 @@ def test_node_runs_each_file_with_its_junit_reporter(tmp_path: Path):
   app, tests = tmp_path / "app", tmp_path / "tests"
   write(app, NODE_TESTS)
   tests.mkdir()
-  found = run(load(NODE_MANIFEST), tests=tests, app=app)
+  found = run(load(NODE_MANIFEST), tests=tests, app=app).tests
   assert [(t["name"], t["status"], t.get("rawStatus")) for t in found] == [
     ("test/a.test.js > attr > nested > parses", "passed", None),
     ("test/a.test.js > attr > fails", "failed", None),
