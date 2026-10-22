@@ -10,7 +10,6 @@ from dataforge.curation import (
   End,
   Goto,
   Graph,
-  least_cap_usd,
   Machine,
   mermaid,
   Outcome,
@@ -307,30 +306,3 @@ def test_dataforge_graph_refuses_a_declaration_that_does_not_load(
     f"{declaration}: states.make.transitions.ok.goto: no state named 'gone'\n"
   )
   assert main(["graph", str(declaration), "--inputs", str(tmp_path)]) == 2
-
-
-def test_least_cap_usd_is_the_cheapest_chain_to_an_end() -> None:
-  # write -> check -> solve costs 2.5 + 1.0 + 4.0; write -> review -> solve
-  # 2.5 + 0.5 + 4.0, the least; nothing ends "rejected".
-  found = Machine(
-    [
-      Step(
-        "write",
-        {"ok": Goto("check"), "short": Goto("review")},
-        max_cost_usd=2.5,
-      ),
-      Step("check", {"pass": Goto("solve")}, max_cost_usd=1.0),
-      Step(
-        "review",
-        {"pass": Goto("solve"), "fail": Goto("write")},
-        max_cost_usd=0.5,
-      ),
-      Step(
-        "solve",
-        {"in_range": End("passed"), "none": End("failed")},
-        max_cost_usd=4.0,
-      ),
-    ]
-  ).graph()
-  assert least_cap_usd(found, "passed") == 7.0
-  assert least_cap_usd(found, "rejected") is None

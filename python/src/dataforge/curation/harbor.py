@@ -93,6 +93,7 @@ import uuid
 
 from dataforge import stopping
 from dataforge.curation.actions import (
+  BUDGET,
   drop_escaping_links,
   drop_special_files,
   Limits,
@@ -1054,6 +1055,27 @@ def _tail(log: Path, env: Iterable[str]) -> str:
   return text
 
 
+def _session_error(kind: TraceFile, trace: Path) -> str | None:
+  """Say whether a trial Harbor recorded no exception for ended on an error.
+
+  A session that hit its own spend or turn cap is still judged (faults.JUDGED).
+
+  Args:
+    kind: The trace's kind.
+    trace: The trace file.
+
+  Returns:
+    An exception for a claude-code session whose result has `is_error` and
+    whose fault is not BUDGET; None otherwise.
+  """
+  if kind.format != claude.TRACE_FORMAT:
+    return None
+  session = claude.read_trace(trace)
+  if session.is_error and session.fault != BUDGET:
+    return "SessionError: the agent's session ended with is_error"
+  return None
+
+
 def _read(
   outdir: Path, log: Path, error: str | None, elapsed: float
 ) -> TrialResult:
@@ -1096,10 +1118,16 @@ def _read(
     ),
     None,
   )
+  readable = (
+    traced is not None
+    and traced[1].stat(follow_symlinks=False).st_size <= TRACE_LIMIT
+  )
+  if exception is None and traced is not None and readable:
+    exception = _session_error(*traced)
   cost = agent.get("cost_usd")
   if isinstance(cost, bool) or not isinstance(cost, int | float):
     cost = None
-    if traced and traced[1].stat(follow_symlinks=False).st_size <= TRACE_LIMIT:
+    if traced is not None and readable:
       cost = traced[0].cost(traced[1])
   return TrialResult(
     {key: float(value) for key, value in rewards.items()},

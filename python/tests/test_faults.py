@@ -18,6 +18,7 @@ EXIT = "NonZeroAgentExitCodeError: Command failed (exit 1): claude -p\nstdout: "
     ("TimeoutError: Harbor ran past 60 s", "timeout", False),
     ("AgentTimeoutError: ran past 3600 s", None, True),
     ("VerifierTimeoutError: timed out after 900.0 seconds", None, False),
+    ("SessionError: the agent's session ended with is_error", None, False),
     ("SomethingNewError: what Harbor 0.25 adds", None, False),
     (EXIT + '{"type":"result","subtype":"error_max_budget_usd"}', None, True),
     (EXIT + '{"type": "result", "subtype": "error_max_turns"}', None, True),

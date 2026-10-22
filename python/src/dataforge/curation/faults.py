@@ -86,6 +86,10 @@ UNCLEAR = frozenset(
     "RewardFileEmptyError",
     "VerifierOutputParseError",
     "NoReward",
+    # dataforge.curation.harbor: Harbor recorded no exception, but the
+    # claude-code trace's last result has `is_error`, so the session ended on
+    # an error whose cause is not known.
+    "SessionError",
     # trial/trial.py: Harbor was stopped by a signal, a cancel's or our
     # timeout's.
     "CancelledError",
