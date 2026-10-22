@@ -1,5 +1,5 @@
-# For the trials view's Diff tab: `dataforge viz serve --config
+# For the trials view's Diff and Tests tabs: `dataforge viz serve --config
 # web/fixtures/trialdiff/site.yaml --static web/dist`. p3's project, which
-# names no diff, is here too.
+# names no diff or tests, is here too.
 listen: { host: 127.0.0.1, port: 8847 }
 projects: [project.yaml, ../p3/project.yaml]

@@ -1,6 +1,7 @@
 """The dataforge command."""
 
 import argparse
+from collections import Counter
 from collections.abc import Sequence
 from contextlib import ExitStack
 import importlib
@@ -10,8 +11,10 @@ import sys
 from typing import cast
 
 from dataforge.curation.actions import Actions
+from dataforge.curation.engine import Machine
 from dataforge.curation.graph import mermaid
 from dataforge.curation.loader import load, SpecError
+from dataforge.curation.redeliver import describe, redeliver
 from dataforge.queue import command as queue_command
 from dataforge.share import command as share_command
 
@@ -24,7 +27,12 @@ def main(argv: Sequence[str] | None = None) -> int:
   inputs in the JSON file and the bindings the dataset registers; it starts
   nothing. "dataforge graph" takes the same arguments and "--format json" or
   "--format mermaid", loads the declaration as check does and prints the
-  machine's graph: its JSON, or a Mermaid flowchart. "dataforge viz serve
+  machine's graph: its JSON, or a Mermaid flowchart. "dataforge redeliver
+  <file> <record>... [--not-ended WORD]... [--write]" takes the same
+  arguments, loads the declaration as check does and resolves its
+  deliverables again in each record of an attempt that has ended, printing
+  what would change, and with --write writes them, keeping a backup of each
+  record it writes; see dataforge.curation.redeliver. "dataforge viz serve
   --config <site file> --static <dir>" starts the viewer; it needs the extra
   viz. "dataforge queue submit|list|cancel|serve --config <queue file>"
   puts a command in a queue, lists the jobs, cancels one, or runs the
@@ -38,7 +46,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
   Returns:
     The exit status: 0 when the declaration loads, 1 when it does not, 2 for
-    bad arguments; for viz serve, see dataforge.viz.serve; for queue, see
+    bad arguments; for redeliver, also 1 when a record cannot be read or
+    written; for viz serve, see dataforge.viz.serve; for queue, see
     dataforge.queue.command.run.
   """
   parser = argparse.ArgumentParser(prog="dataforge")
@@ -50,7 +59,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     "graph",
     help="print a machine's states and transitions from its declaration",
   )
-  for sub in (check, graph):
+  again = commands.add_parser(
+    "redeliver",
+    help=(
+      "resolve the deliverables of ended attempts again from the"
+      " declaration as it is now"
+    ),
+    description=(
+      "Resolve the deliverables of each record's attempt again from the"
+      " declaration as it is now, and print a line for each record (change,"
+      " same, skip or error; wrote with --write) and the deliverables that"
+      " change, then a line of how many records had each. Without --write it"
+      " writes nothing. With --write it replaces only the deliverables key"
+      " of each record that changes, after copying the record to"
+      " <record>.<UTC time>.bak beside it; moving that file back restores it."
+      " An attempt that has not ended is skipped: its status is one of"
+      " --not-ended, or without --not-ended its status is null and its last"
+      " visit did not raise, or its last visit has no outcome."
+    ),
+    epilog=(
+      "Exit status: 0 when every record was read and, with --write, every"
+      " change written; 1 when the declaration does not load, or when a"
+      " record could not be read or written, the other records being handled"
+      " all the same; 2 for bad arguments."
+    ),
+  )
+  for sub in (check, graph, again):
     _ = sub.add_argument("file", type=Path, help="the declaration (YAML)")
     _ = sub.add_argument(
       "--inputs", type=Path, help="a JSON file of the inputs, by name"
@@ -65,6 +99,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     choices=("json", "mermaid"),
     default="json",
     help="the graph's JSON (the default) or a Mermaid flowchart",
+  )
+  _ = again.add_argument(
+    "records", type=Path, nargs="+", help="the attempts' record files"
+  )
+  _ = again.add_argument(
+    "--not-ended",
+    action="append",
+    metavar="WORD",
+    help=(
+      "a status word of an attempt that has not ended, as the viewer's"
+      " not_ended; repeat for each"
+    ),
+  )
+  _ = again.add_argument(
+    "--write",
+    action="store_true",
+    help="write the records whose deliverables change; else only print",
   )
   viz = commands.add_parser(
     "viz", help="the viewer of attempts and the job queue"
@@ -112,6 +163,8 @@ def main(argv: Sequence[str] | None = None) -> int:
   except (SpecError, OSError) as error:
     print(f"{file}: {error}", file=sys.stderr)
     return 1
+  if command == "redeliver":
+    return _redeliver(machine, args)
   if command == "check":
     print(f"{file}: ok, {len(machine.states)} states")
   elif cast(str, args.format) == "json":
@@ -119,6 +172,25 @@ def main(argv: Sequence[str] | None = None) -> int:
   else:
     print(mermaid(machine.graph()), end="")
   return 0
+
+
+def _redeliver(machine: Machine, args: argparse.Namespace) -> int:
+  write = cast(bool, args.write)
+  records = cast(list[Path], args.records)
+  counts = Counter[str]()
+  for record in records:
+    result = redeliver(
+      machine,
+      record,
+      not_ended=cast(list[str] | None, args.not_ended),
+      write=write,
+    )
+    counts[result.action] += 1
+    print("\n".join(describe(result)))
+  actions = ("wrote" if write else "change", "same", "skip", "error")
+  each = ", ".join(f"{action} {counts[action]}" for action in actions)
+  print(f"{len(records)} records: {each}")
+  return 1 if counts["error"] else 0
 
 
 def _viz(config: Path, static: Path) -> int:

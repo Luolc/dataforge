@@ -30,7 +30,23 @@ interrupted, Harbor and its children are stopped first. Then, as the
 containers wrote into the trial's directory, each symlink there that resolves,
 or may, outside it, and each entry that is no regular file, directory or
 symlink, is removed and named in `harbor.log`, before run gives the trial to any
-reader; when the cleanup fails, run raises and gives no trial.
+reader; when the cleanup fails, run raises DockerError and gives no trial.
+
+When Harbor exits before it starts the trial (no `job/*/config.json` or
+`job/*/result.json`), nothing of the task has run and no model has been called:
+run moves what that run left (`harbor.log`, `job/`, `overlay.json`) into
+`not-started-<n>/` and runs the trial again, from its setup on, up to RETRIES
+times while time is left of `timeout`, which bounds all the runs together. An
+interrupt, such as the SystemExit of a SIGTERM, escapes run at once, so no run
+follows it. A trial that still did not start gives an exception that starts with
+`HarborNotStarted:` and holds the end of the last `harbor.log`, with the values
+of the trial's env (HIDE_MIN characters or more) replaced by `***`.
+
+Harbor's own Docker environment probes, with a timeout of 30 s, whether the
+Docker host can deny a container the network, and fails each task that asks for
+no network when the probe does not answer in time; `environment` set to
+DOCKER_ENVIRONMENT makes Harbor use `dataforge.curation.harbor_env`'s, which
+runs no probe.
 
 A trial reserves from the pool the task's memory plus the sidecar's limit
 (`memory_gb`), whether or not the task has a sidecar; image builds and the
@@ -47,13 +63,14 @@ A dataset connects its own host side (a model gateway, say) through `mounts`,
 spans the whole trial and may add to the other three for that trial.
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import time
@@ -94,6 +111,33 @@ CHOWN_IMAGE = "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab30
 # The variables of this process that Harbor and docker get; everything else is
 # dropped.
 PASSED = ("HOME", "PATH", "DOCKER_HOST", "DOCKER_CONFIG")
+# Harbor's Docker environment without its probe for no-network, as `environment`
+# names it; only Harbor's process imports the module.
+DOCKER_ENVIRONMENT = "dataforge.curation.harbor_env:DockerEnvironment"
+# How many more times a trial Harbor did not start is run.
+RETRIES = 2
+# The most lines, and bytes, of harbor.log that a trial Harbor did not start
+# gives in its exception.
+LOG_LINES = 20
+LOG_BYTES = 4096
+# The shortest value of the trial's env that is hidden in that exception; a
+# shorter one, such as "1", would hide ordinary text.
+HIDE_MIN = 8
+NOT_STARTED = "HarborNotStarted"
+# How long one docker command of the cleanup may run, in seconds.
+DOCKER_TIMEOUT = 120.0
+
+
+class DockerError(subprocess.SubprocessError, RuntimeError):
+  """Docker failed, ran past its timeout or left something in a cleanup.
+
+  An infrastructure failure, not the task's: what is left of the trial is not
+  known, so the trial gives no result. It is a SubprocessError, as the
+  `subprocess.TimeoutExpired` and `CalledProcessError` that a cleanup's docker
+  raised before were, and a RuntimeError, as a container left or a failed
+  `docker container ls` or `inspect` raised before, so that a caller that
+  caught either catches it.
+  """
 
 
 @dataclass(frozen=True)
@@ -204,7 +248,7 @@ class HarborRunner:
     cpu_shares: The task container's CPU weight.
     pids: The task container's process limit.
     sidecar: The egress sidecar's limits.
-    timeout: How long Harbor may run.
+    timeout: How long Harbor may run, over all its runs of one trial.
     mounts: Go to the task's container.
     env: Go to the task's container and to Harbor, whose agents read some
       variables from their own environment. The overlay names the variables
@@ -220,13 +264,17 @@ class HarborRunner:
       and yields the socket's mount. It runs inside the trial's reservation
       from the pool, as run does. A container of its own that mounts from
       under the output directory is removed with the trial's, before the
-      context exits.
+      context exits. A trial that Harbor runs again, as it did not start,
+      enters it again.
     docker: The docker command that reads the task's compose file and that the
       cleanup runs; when docker fails during the cleanup, run raises, since it
       cannot tell what is left.
     verifier: The import path (`module:Class`) of the verifier Harbor runs
       instead of its own, passed as `--verifier`, so that a dataset can take
       over how the reward is read.
+    environment: The environment Harbor runs the trial in, passed as `--env`:
+      a type of Harbor's, such as `docker`, or the import path of a class,
+      such as DOCKER_ENVIRONMENT; None leaves Harbor's default, `docker`.
   """
 
   harbor: Path
@@ -246,6 +294,7 @@ class HarborRunner:
   ) = None
   docker: str = "docker"
   verifier: str | None = None
+  environment: str | None = None
 
   def memory_gb(self, limits: Limits) -> float:
     """Return the memory a trial reserves: the task's and the sidecar's.
@@ -271,7 +320,37 @@ class HarborRunner:
 
     Returns:
       Its result.
-    """
+
+    Raises:
+      DockerError: When docker, in the cleanup after a run of Harbor, fails,
+        runs past DOCKER_TIMEOUT (300 s for the chown) or leaves a container
+        that mounts from under outdir or something with the trial's label; no
+        run follows it.
+    """  # noqa: DOC502
+    deadline = time.monotonic() + self.timeout
+    number = 1
+    while True:
+      result = self._set_up_and_run(
+        task_dir, agent, limits, outdir, deadline, number
+      )
+      if number > RETRIES or _started(outdir) or time.monotonic() >= deadline:
+        return result
+      kept = outdir / f"not-started-{number}"
+      kept.mkdir()
+      for name in ("harbor.log", "job", "overlay.json"):
+        if os.path.lexists(outdir / name):
+          _ = (outdir / name).rename(kept / name)
+      number += 1
+
+  def _set_up_and_run(
+    self,
+    task_dir: Path,
+    agent: TrialAgent,
+    limits: Limits,
+    outdir: Path,
+    deadline: float,
+    number: int,
+  ) -> TrialResult:
     context = (
       nullcontext(TrialSetup())
       if self.setup is None
@@ -284,10 +363,16 @@ class HarborRunner:
         env={**self.env, **extra.env},
         compose_overlay=(*self.compose_overlay, *extra.compose_overlay),
       )
-      return runner._run(task_dir, agent, limits, outdir)
+      return runner._run(task_dir, agent, limits, outdir, deadline, number)
 
   def _run(
-    self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+    self,
+    task_dir: Path,
+    agent: TrialAgent,
+    limits: Limits,
+    outdir: Path,
+    deadline: float,
+    number: int,
   ) -> TrialResult:
     egress = _has_sidecar(task_dir)
     agent_args = _agent_args(agent)
@@ -302,6 +387,7 @@ class HarborRunner:
       "--path", str(task_dir.resolve()),
       *agent_args,
       *(() if self.verifier is None else ("--verifier", self.verifier)),
+      *(() if self.environment is None else ("--env", self.environment)),
       "--jobs-dir", str(outdir.resolve()),
       "--job-name", "job",
       "--n-attempts", "1",
@@ -314,7 +400,7 @@ class HarborRunner:
     log = outdir / "harbor.log"
     started = time.monotonic()
     try:
-      error = self._harbor(args, log)
+      error = self._harbor(args, log, deadline)
     finally:
       try:
         held = release(outdir, self.docker)
@@ -324,9 +410,9 @@ class HarborRunner:
         finally:
           left = cleanup(f"{LABEL}={label}", self.docker)
     if held:
-      raise RuntimeError(f"containers still mount {outdir}: {held}")
+      raise DockerError(f"containers still mount {outdir}: {held}")
     if any(left.values()):
-      raise RuntimeError(f"left after the cleanup of {LABEL}={label}: {left}")
+      raise DockerError(f"left after the cleanup of {LABEL}={label}: {left}")
     # No container can reach the trial now, so nothing in it changes after it
     # was checked.
     notes: list[str] = []
@@ -337,7 +423,16 @@ class HarborRunner:
     if notes:
       with log.open("a") as out:
         _ = out.write("".join(f"{note}\n" for note in notes))
-    return _read(outdir, log, error, time.monotonic() - started)
+    elapsed = time.monotonic() - started
+    if not _started(outdir):
+      why = error or "harbor exited 0"
+      runs = f"run {number} of at most {RETRIES + 1}"
+      reason = (
+        f"{NOT_STARTED}: Harbor did not start the trial ({why}), on {runs};"
+        + f" the end of harbor.log:\n{_tail(log, self.env.values())}"
+      )
+      return TrialResult({}, reason, 0.0, elapsed, {"log": log})
+    return _read(outdir, log, error, elapsed)
 
   def overlay(
     self,
@@ -396,12 +491,15 @@ class HarborRunner:
       }
     return {"services": services, "networks": {"default": {"labels": labels}}}
 
-  def _harbor(self, args: Sequence[str], log: Path) -> str | None:
+  def _harbor(
+    self, args: Sequence[str], log: Path, deadline: float
+  ) -> str | None:
     """Run Harbor.
 
     Args:
       args: Its command line.
       log: The file its output goes to.
+      deadline: When it is stopped, by time.monotonic().
 
     Returns:
       Why it failed, or None when it exited 0.
@@ -427,7 +525,7 @@ class HarborRunner:
         start_new_session=True,
       )
       try:
-        code = process.wait(self.timeout)
+        code = process.wait(max(0.0, deadline - time.monotonic()))
       except subprocess.TimeoutExpired:
         _stop(process)
         return f"TimeoutError: Harbor ran past {self.timeout:g} s"
@@ -436,26 +534,20 @@ class HarborRunner:
         # start a container or write after the cleanup gave its files back.
         _stop(process)
         raise
-    return (
-      None if code == 0 else f"HarborError: harbor exited {code}; see {log}"
-    )
+    return None if code == 0 else f"HarborError: harbor exited {code}"
 
   def _chown(self, outdir: Path, label: str) -> None:
-    _ = subprocess.run(
-      [
-        self.docker, "run", "--rm",
-        f"--label={LABEL}={label}",
-        "--network=none",
-        "--cap-drop=ALL",
-        "--cap-add=CHOWN", "--cap-add=DAC_READ_SEARCH",
-        "--security-opt=no-new-privileges",
-        "--cpus=1", "--memory=256m", "--pids-limit=64",
-        f"--volume={outdir.resolve()}:/trial",
-        CHOWN_IMAGE,
-        "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/trial",
-      ],
-      env=_passed(),
-      capture_output=True,
+    _ = _docker(
+      self.docker, "run", "--rm",
+      f"--label={LABEL}={label}",
+      "--network=none",
+      "--cap-drop=ALL",
+      "--cap-add=CHOWN", "--cap-add=DAC_READ_SEARCH",
+      "--security-opt=no-new-privileges",
+      "--cpus=1", "--memory=256m", "--pids-limit=64",
+      f"--volume={outdir.resolve()}:/trial",
+      CHOWN_IMAGE,
+      "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/trial",
       timeout=300,
       check=True,
     )  # fmt: skip
@@ -470,19 +562,19 @@ def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
 
   Returns:
     How many of each kind are left.
-  """
+
+  Raises:
+    DockerError: When `docker <kind> ls` exits non-zero, or a docker command
+      runs past DOCKER_TIMEOUT.
+  """  # noqa: DOC502
 
   def ids(kind: str) -> list[str]:
     # Without -a, `image ls` leaves out labelled intermediate images.
     extra = ["-a"] if kind in ("container", "image") else []
-    out = subprocess.run(
-      [docker, kind, "ls", "-q", *extra, "--filter", f"label={selector}"],
-      env=_passed(),
-      capture_output=True,
-      text=True,
-      timeout=120,
+    out = _docker(
+      docker, kind, "ls", "-q", *extra, "--filter", f"label={selector}",
       check=True,
-    ).stdout
+    ).stdout  # fmt: skip
     return sorted(set(out.split()))
 
   # An image whose child is still there is not removed, so images take as many
@@ -496,13 +588,7 @@ def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
     for _ in range(rounds):
       if not (found := ids(kind)):
         break
-      _ = subprocess.run(
-        [docker, kind, *remove, *found],
-        env=_passed(),
-        capture_output=True,
-        timeout=120,
-        check=False,
-      )
+      _ = _docker(docker, kind, *remove, *found)
   return {
     kind: len(ids(kind)) for kind in ("container", "image", "network", "volume")
   }
@@ -513,7 +599,9 @@ def release(path: Path, docker: str = "docker") -> list[str]:
 
   Harbor starts some containers, such as a separate verifier's, without the
   trial's label, and may leave one when it is stopped or its own cleanup
-  fails.
+  fails. Only the containers that `docker container ls` shows with a mount from
+  under path are inspected, so that a container of another trial that docker
+  cannot inspect in time holds up only its own trial's cleanup.
 
   Args:
     path: A directory on the host.
@@ -521,45 +609,46 @@ def release(path: Path, docker: str = "docker") -> list[str]:
 
   Returns:
     The containers that still mount from under path.
-  """
+
+  Raises:
+    DockerError: When `docker container ls` exits non-zero, `docker container
+      inspect` says anything but "No such container" or exits non-zero
+      without a word, or a docker command runs past DOCKER_TIMEOUT.
+  """  # noqa: DOC502
   if found := _mounting(path, docker):
-    _ = subprocess.run(
-      [docker, "container", "rm", "-f", *found],
-      env=_passed(),
-      capture_output=True,
-      timeout=120,
-      check=False,
-    )
+    _ = _docker(docker, "container", "rm", "-f", *found)
   return _mounting(path, docker)
 
 
 def _mounting(path: Path, docker: str) -> list[str]:
-  def run(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-      [docker, "container", *args],
-      env=_passed(),
-      capture_output=True,
-      text=True,
-      timeout=120,
-      check=False,
-    )
-
-  listed = run("ls", "-a", "-q", "--no-trunc")
+  root = str(path.resolve())
+  listed = _docker(
+    docker, "container", "ls", "-a", "--no-trunc", "--format", "{{json .}}"
+  )
   if listed.returncode != 0:
-    raise RuntimeError(f"docker container ls failed: {listed.stderr.strip()}")
-  if not (ids := listed.stdout.split()):
+    raise DockerError(f"docker container ls failed: {listed.stderr.strip()}")
+  # `ls` joins a container's mount sources with commas, a source that has
+  # one included, so this keeps every container with a source under root, and
+  # perhaps a few more, which inspect then tells apart.
+  under = re.compile(f"(?:^|,){re.escape(root)}(?:/|,|$)")
+  ids: list[str] = []
+  for line in listed.stdout.splitlines():
+    if line.strip():
+      container = cast(Mapping[str, object], json.loads(line))
+      if under.search(str(container.get("Mounts") or "")):
+        ids.append(str(container["ID"]))
+  if not ids:
     return []
-  inspected = run("inspect", *ids)
-  # Another job's container may go between the two commands; any other error
-  # could hide a container.
+  inspected = _docker(docker, "container", "inspect", *ids)
+  # A container may go between the two commands; any other error could hide
+  # one.
   errors = [
     line
     for line in inspected.stderr.splitlines()
     if line.strip() and "No such container" not in line
   ]
   if errors or (inspected.returncode != 0 and not inspected.stderr.strip()):
-    raise RuntimeError(f"docker container inspect failed: {errors}")
-  root = path.resolve()
+    raise DockerError(f"docker container inspect failed: {errors}")
   containers = cast(
     list[Mapping[str, object]], json.loads(inspected.stdout or "[]")
   )
@@ -573,6 +662,45 @@ def _mounting(path: Path, docker: str) -> list[str]:
       )
     )
   )
+
+
+def _docker(
+  docker: str, *args: str, timeout: float | None = None, check: bool = False
+) -> subprocess.CompletedProcess[str]:
+  """Run docker.
+
+  Args:
+    docker: The docker command.
+    *args: Its arguments.
+    timeout: How long it may run, in seconds; DOCKER_TIMEOUT when None.
+    check: Whether a status other than 0 is an error.
+
+  Returns:
+    What it did.
+
+  Raises:
+    DockerError: When it ran past timeout, or, with check, exited non-zero.
+  """
+  timeout = DOCKER_TIMEOUT if timeout is None else timeout
+  try:
+    done = subprocess.run(
+      [docker, *args],
+      env=_passed(),
+      capture_output=True,
+      text=True,
+      timeout=timeout,
+      check=False,
+    )
+  except subprocess.TimeoutExpired as e:
+    raise DockerError(
+      f"docker {args[0]} {args[1]} ran past {timeout:g} s"
+    ) from e
+  if check and done.returncode != 0:
+    error = done.stderr.strip()
+    raise DockerError(
+      f"docker {args[0]} {args[1]} exited {done.returncode}: {error}"
+    )
+  return done
 
 
 def _passed() -> dict[str, str]:
@@ -671,6 +799,45 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
   # While any of them runs, the group keeps its ID, so this reaches only them.
   with suppress(ProcessLookupError):
     os.killpg(process.pid, signal.SIGKILL)
+
+
+def _started(outdir: Path) -> bool:
+  # Harbor 0.24.0 writes a trial's config.json first when it runs the trial,
+  # after it has made the trial's environments and before any container of the
+  # task starts (`harbor/trial/trial.py:492-493`, `1066-1069`).
+  job = outdir / "job"
+  return any(job.glob("*/config.json")) or any(job.glob("*/result.json"))
+
+
+def _tail(log: Path, env: Iterable[str]) -> str:
+  """Return the end of a harbor.log, with the values of env hidden.
+
+  Args:
+    log: The file.
+    env: The values to hide; each line of one that has HIDE_MIN characters or
+      more becomes `***`.
+
+  Returns:
+    Its last LOG_LINES lines, of its last LOG_BYTES bytes at most, less the
+    line the first of those bytes cut.
+  """
+  try:
+    with log.open("rb") as f:
+      start = max(0, f.seek(0, os.SEEK_END) - LOG_BYTES)
+      _ = f.seek(start)
+      lines = f.read().decode(errors="replace").splitlines()
+  except FileNotFoundError:
+    return "(no harbor.log)"
+  text = "\n".join(lines[1 if start else 0 :][-LOG_LINES:])
+  hidden = {
+    line
+    for value in env
+    for line in value.splitlines()
+    if len(line) >= HIDE_MIN
+  }
+  for value in sorted(hidden, key=len, reverse=True):
+    text = text.replace(value, "***")
+  return text
 
 
 def _read(
