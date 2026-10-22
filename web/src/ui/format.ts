@@ -159,6 +159,18 @@ export function instant(seconds: number): string {
   return `${get("hour")}:${get("minute")}:${get("second")} ${get("timeZoneName")}`;
 }
 
+/** Seconds since the epoch as "2026-03-02 09:15:42 PST", the day with the time. */
+export function moment(seconds: number): string {
+  const get = parts(new Date(seconds * 1000), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...numeric,
+    second: "2-digit",
+  });
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${get("timeZoneName")}`;
+}
+
 /** Bytes in binary units, as "512 MiB" or "12.5 GiB". */
 export function bytes(value: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -175,3 +187,7 @@ export function bytes(value: number): string {
 /** CPU time per second, as "1.5 cores". */
 export const cores = (value: number): string =>
   `${value.toFixed(value >= 10 || Number.isInteger(value) ? 0 : 1)} cores`;
+
+/** A load average, a count of runnable tasks with no unit, as "10.4". */
+export const load = (value: number): string =>
+  value.toFixed(value >= 100 || Number.isInteger(value) ? 0 : 1);

@@ -139,9 +139,9 @@ describe("the Summary's Task card", () => {
 });
 
 describe("an attempt's status", () => {
-  it("is raised when a state raised, else Not ended until it ends", () => {
+  it("is Exception when a state raised, else Not ended until it ends", () => {
     const { unmount } = show("raised");
-    expect(screen.getByText("raised")).toBeVisible();
+    expect(screen.getByText("Exception")).toBeVisible();
     unmount();
 
     show("running");
