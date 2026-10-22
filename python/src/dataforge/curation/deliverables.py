@@ -27,7 +27,7 @@ class Source:
   Attributes:
     state: The state.
     output: The output's name; None for a "trials" deliverable, which takes
-      every trial of the visit.
+      the visit's trials.
     visit: Which visit of the state: "kept" for its last one up to the visit
       the attempt kept (see Attempt.final), its last one when none was kept;
       "last" for its last one; n for its n-th, from 1.
@@ -64,6 +64,9 @@ class Deliverable:
     table: For a report, a JSON output with the same results as a table, if
       any.
     value: For trials, a value to show with them, if any.
+    match: For trials, a glob (fnmatch, case-sensitive) that a trial's output
+      name matches to be listed, such as "regrade-[0-9]*"; None for every
+      trial of the visit.
   """
 
   kind: Kind
@@ -71,6 +74,7 @@ class Deliverable:
   source: Source
   table: Source | None = None
   value: Value | None = None
+  match: str | None = None
 
 
 def check(deliverables: Mapping[str, Deliverable], states: set[str]) -> None:
@@ -82,19 +86,13 @@ def check(deliverables: Mapping[str, Deliverable], states: set[str]) -> None:
 
   Raises:
     ValueError: When one has an unknown kind, state or visit, has or lacks an
-      output against its kind, or has a table or a value its kind does not.
+      output against its kind, has a table, a value or a match its kind does
+      not, or an empty match.
   """
   for name, item in deliverables.items():
     where = f"deliverable {name}"
-    if item.kind not in KINDS:
-      raise ValueError(f"{where}: unknown kind {item.kind!r}")
-    if (item.kind == "trials") != (item.source.output is None):
-      need = "no output" if item.kind == "trials" else "an output"
-      raise ValueError(f"{where}: a {item.kind} deliverable takes {need}")
-    if item.table is not None and item.kind != "report":
-      raise ValueError(f"{where}: only a report has a table")
-    if item.value is not None and item.kind != "trials":
-      raise ValueError(f"{where}: only trials have a value")
+    if (why := _kind_error(item)) is not None:
+      raise ValueError(f"{where}: {why}")
     for source in (item.source, item.table):
       if source is None:
         continue
@@ -104,3 +102,20 @@ def check(deliverables: Mapping[str, Deliverable], states: set[str]) -> None:
         type(source.visit) is int and source.visit >= 1
       ):
         raise ValueError(f"{where}: unknown visit {source.visit!r}")
+
+
+def _kind_error(item: Deliverable) -> str | None:
+  if item.kind not in KINDS:
+    return f"unknown kind {item.kind!r}"
+  if (item.kind == "trials") != (item.source.output is None):
+    need = "no output" if item.kind == "trials" else "an output"
+    return f"a {item.kind} deliverable takes {need}"
+  if item.table is not None and item.kind != "report":
+    return "only a report has a table"
+  if item.value is not None and item.kind != "trials":
+    return "only trials have a value"
+  if item.match is not None and item.kind != "trials":
+    return "only trials have a match"
+  if item.match == "":
+    return "an empty match"
+  return None

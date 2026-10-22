@@ -42,6 +42,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
+import { leading } from "../kind";
 import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
@@ -243,10 +244,9 @@ function Attempt({
   const tabs = [
     { key: "runs", title: "Runs", count: <>{runs}</> },
     ...kinds.map((kind) => {
-      const items = itemsOf(kind);
-      const first = items[0];
+      const first = leading(itemsOf(kind));
       const counted = recorded.filter((d) => d.kind === kind);
-      const one = counted[0];
+      const one = leading(counted);
       return {
         key: kind,
         title: first?.title ?? kind,
