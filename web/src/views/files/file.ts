@@ -72,7 +72,7 @@ export function size(bytes: number): string {
 export function tooLarge(reason: string, path: string): string {
   const found = /^([0-9]+) bytes, over ([0-9]+)$/.exec(reason);
   const why = found
-    ? `${size(Number(found[1]))}, over the ${size(Number(found[2]))} the viewer serves`
+    ? `${size(Number(found[1]))}, over the ${size(Number(found[2]))} limit`
     : reason;
   return `Too large to show or download here: ${why}. It is at ${path} in the attempt's directory.`;
 }

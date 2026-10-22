@@ -8,6 +8,10 @@ export type Placed = Pick<
   "kind" | "state" | "visit_index" | "path"
 >;
 
+/** Whether a deliverable was reached from a run the record names. */
+export const fromARun = (deliverable: Placed): boolean =>
+  deliverable.path !== null && deliverable.visit_index !== null;
+
 /** A reached deliverable's title, state and run. */
 export interface Made {
   title: string;

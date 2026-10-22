@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import type { AttemptRecord, Project } from "../api/types";
 import { stateTitle } from "../ui/status";
 import { attemptHref } from "./attempt/href";
-import { laterFiles, type Placed } from "./source";
+import { fromARun, laterFiles, type Placed } from "./source";
 
 /**
  * The run a reached deliverable came from, a link to its run page, and the
@@ -23,7 +23,7 @@ export function FromRun({
   deliverable: Placed;
 }) {
   const at = deliverable.visit_index;
-  if (deliverable.path === null || at === null) return null;
+  if (!fromARun(deliverable) || at === null) return null;
   const run = (state: string, index: number) => (
     <Link
       to={attemptHref(project.id, attempt, { tab: "runs", run: index })}

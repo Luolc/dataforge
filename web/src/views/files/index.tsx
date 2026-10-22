@@ -11,6 +11,7 @@ import { Card, Note } from "../../ui/card";
 import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
+import { fromARun } from "../source";
 import { firstFile } from "./entries";
 import { Preview } from "./Preview";
 import { Tree } from "./Tree";
@@ -28,12 +29,14 @@ export default function FilesView({
       attempt={attempt}
       deliverable={deliverable}
       byline={
-        <FromRun
-          project={project}
-          attempt={attempt}
-          record={record}
-          deliverable={deliverable}
-        />
+        fromARun(deliverable) ? (
+          <FromRun
+            project={project}
+            attempt={attempt}
+            record={record}
+            deliverable={deliverable}
+          />
+        ) : undefined
       }
     />
   );

@@ -283,7 +283,7 @@ describe("the files view", () => {
 
     expect(
       await screen.findByText(
-        `Too large to show or download here: 20.0 MiB, over the 16.0 MiB the viewer serves. It is at ${root}/huge.log in the attempt's directory.`,
+        `Too large to show or download here: 20.0 MiB, over the 16.0 MiB limit. It is at ${root}/huge.log in the attempt's directory.`,
       ),
     ).toBeVisible();
     expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
@@ -327,6 +327,8 @@ describe("the files view", () => {
 
     expect(screen.getByText("Not run: author was never visited")).toBeVisible();
     expect(fetch).not.toHaveBeenCalled();
+    // No line says which run made it, not even an empty one.
+    expect(document.querySelector("header p")).toBeNull();
   });
 });
 
