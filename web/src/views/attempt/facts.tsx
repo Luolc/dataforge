@@ -3,6 +3,7 @@
 import type { AttemptRecord, LiveInfo, Project } from "../../api/types";
 import {
   attemptTimes,
+  counted,
   duration,
   span,
   time,
@@ -104,7 +105,7 @@ function Cost({ record }: { record: AttemptRecord }) {
         : `${usd(budget.cost_usd)} of ${usd(budget.max_usd)}`}
       {carry.usd > 0 && (
         <span className="ml-1.5 font-normal text-fg-3">
-          {`${usd(carry.usd)} carried over ${carry.count.toString()} ${carry.count === 1 ? "resumption" : "resumptions"}`}
+          {`${usd(carry.usd)} carried over ${counted(carry.count, "resumption")}`}
         </span>
       )}
     </>
