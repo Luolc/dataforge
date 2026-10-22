@@ -101,14 +101,14 @@ export function VersionLine({
           </div>
         )}
         <div className="flex items-center gap-1.5">
-          <dt>commit</dt>
+          <dt>Dataset commit</dt>
           <dd className="flex items-center gap-1.5 font-mono text-fg">
             <Short value={v.commit} />
             {v.dirty === true && <ToneLabel {...DIRTY} />}
           </dd>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <dt>prompt_version</dt>
+          <dt>Prompt version</dt>
           <dd className="font-mono text-fg">
             <Short value={v.prompt_version} />
           </dd>

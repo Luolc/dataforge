@@ -69,6 +69,8 @@ const RUNS = [
     ended_at: T - 4000,
     stop_reason: "ended",
     source: "standalone",
+    interval_s: 10,
+    last_t: T - 4005,
   },
   {
     run_id: 2,
@@ -76,6 +78,8 @@ const RUNS = [
     ended_at: T + 600,
     stop_reason: "ended",
     source: "batch",
+    interval_s: 10,
+    last_t: T + 595,
   },
 ];
 
@@ -192,7 +196,104 @@ describe("the Monitor page", () => {
         (_, el) => el?.textContent === "2 containers, 1 exited non-zero",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("Paused after a 429 (1)")).toBeInTheDocument();
+    expect(screen.getByText("Pauses: 1")).toBeInTheDocument();
+  });
+
+  it("opens the run whose last sample is the latest, and tells a sampler still writing from one that stopped", async () => {
+    // Read 5 seconds after run 1's last sample; run 3 started last, ended.
+    vi.useFakeTimers({ toFake: ["Date"], now: (T + 9_000 + 5) * 1000 });
+    try {
+      const runs = [
+        {
+          ...RUNS[0],
+          run_id: 1,
+          started_at: T,
+          ended_at: null,
+          last_t: T + 9_000,
+        },
+        { ...RUNS[0], run_id: 2, started_at: T + 10, ended_at: null },
+        {
+          ...RUNS[1],
+          run_id: 3,
+          started_at: T + 100,
+          ended_at: T + 700,
+          last_t: T + 695,
+        },
+        {
+          ...RUNS[0],
+          run_id: 4,
+          started_at: T + 200,
+          ended_at: null,
+          last_t: null,
+        },
+      ];
+      fetchMock.mockImplementation((url: string) =>
+        Promise.resolve(
+          url.includes("/monitor/runs")
+            ? new Response(JSON.stringify(runs), { status: 200 })
+            : answer(url),
+        ),
+      );
+      show();
+
+      const menu = await screen.findByRole("combobox");
+      expect(menu).toHaveValue("1");
+      expect(urls()).toContain("/api/projects/sample/monitor/window?run=1");
+      const options = [...menu.querySelectorAll("option")].map(
+        (o) => o.textContent,
+      );
+      expect(options).toEqual([
+        "2026-09-21 14:16 UTC · no sample yet · standalone",
+        "2026-09-21 14:15 UTC · 10m 0s · batch",
+        "2026-09-21 14:13 UTC · stopped with no end, last sample 2026-09-21 13:06:35 UTC · standalone",
+        "2026-09-21 14:13 UTC · sampling, last sample 2026-09-21 16:43:20 UTC · standalone",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives each curve's value at a bucket and over the whole window", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/window")
+          ? new Response(
+              JSON.stringify({
+                ...WINDOW,
+                machine: [
+                  ...WINDOW.machine,
+                  {
+                    t: T + 2,
+                    cpu_cores_avg: 4.5,
+                    cpu_cores_max: 21,
+                    mem_used_bytes_avg: 2 ** 30,
+                    mem_used_bytes_max: 2 ** 31,
+                    swap_used_bytes_max: 0,
+                    load1_max: 10.4,
+                  },
+                ],
+              }),
+              { status: 200 },
+            )
+          : answer(url),
+      ),
+    );
+    show();
+
+    const cpu = await screen.findByRole("table", { name: "CPU, values" });
+    const rows = [...cpu.querySelectorAll("tr")].map((r) =>
+      [...r.children].map((c) => c.textContent),
+    );
+    expect(rows).toEqual([
+      [
+        "Series",
+        "Last bucket, from 2026-09-21 14:13:22 UTC",
+        "Over the window",
+      ],
+      ["Mean", "4.5 cores", "3 cores mean"],
+      ["Peak", "21 cores", "21 cores peak"],
+      ["Load (1 min)", "10.4", "10.4 peak"],
+    ]);
   });
 
   it("shows why the database cannot be read", async () => {

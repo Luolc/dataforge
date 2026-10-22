@@ -30,7 +30,8 @@ class MissingError(RefusedError):
 
 RUNS = """
 SELECT run_id, started_at, ended_at, stop_reason, source, pid, host,
-  interval_s
+  interval_s,
+  (SELECT max(t) FROM machine m WHERE m.run_id = runs.run_id) AS last_t
 FROM runs
 ORDER BY started_at
 """

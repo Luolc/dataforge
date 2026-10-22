@@ -5,7 +5,7 @@ import "./chart.css";
 import { useEffect, useRef, useState } from "react";
 import uPlot from "uplot";
 
-import { clock, instant } from "../../ui/format";
+import { clock, moment } from "../../ui/format";
 import { colour, cssVar, px, useTemplate } from "./theme";
 import type { Pause } from "./types";
 
@@ -26,6 +26,22 @@ export interface Series {
   values: (number | null)[];
   color: Colour;
   dashed?: boolean;
+  /**
+   * What a bucket's value is, and so what the window's is: the mean of the
+   * buckets', each an equal span of time, or the peak of them.
+   */
+  whole: "mean" | "peak";
+  /** How its values read in the caption; the chart's own when not given. */
+  format?: (value: number) => string;
+}
+
+/** The window's value of a series, from its buckets'; null with none. */
+function overWindow(s: Series): number | null {
+  const found = s.values.filter((v) => v !== null);
+  if (found.length === 0) return null;
+  return s.whole === "peak"
+    ? Math.max(...found)
+    : found.reduce((a, b) => a + b, 0) / found.length;
 }
 
 interface Props {
@@ -148,28 +164,54 @@ export function Chart(props: Props) {
 
   const at = cursor ?? times.length - 1;
   const t = times[at];
+  const cell = "px-2 py-0.5 text-right whitespace-nowrap tabular-nums";
   return (
     <figure className="min-w-0">
-      <figcaption className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
+      <figcaption className="flex flex-col gap-1 text-xs">
         <span className="font-semibold text-fg">{title}</span>
-        {series.map((s) => {
-          const v = s.values[at];
-          return (
-            <span key={s.label} className="inline-flex items-center gap-1.5">
-              <Swatch color={s.color} dashed={s.dashed === true} />
-              <span className="text-fg-3">{s.label}</span>
-              <span className="text-fg tabular-nums">
-                {v === null || v === undefined ? "—" : format(v)}
-              </span>
-            </span>
-          );
-        })}
-        {t !== undefined && (
-          <span className="ml-auto text-fg-3 tabular-nums">
-            {cursor === null ? "Last " : ""}
-            {instant(t)}
-          </span>
-        )}
+        <table aria-label={`${title}, values`} className="self-start">
+          <thead className="text-fg-3">
+            <tr>
+              <th scope="col" className="sr-only">
+                Series
+              </th>
+              <th scope="col" className={`${cell} font-normal`}>
+                {t === undefined
+                  ? "No sample"
+                  : `${cursor === null ? "Last bucket" : "Bucket"}, from ${moment(t)}`}
+              </th>
+              <th scope="col" className={`${cell} font-normal`}>
+                Over the window
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {series.map((s) => {
+              const v = s.values[at];
+              const whole = overWindow(s);
+              const shown = s.format ?? format;
+              return (
+                <tr key={s.label}>
+                  <th
+                    scope="row"
+                    className="pr-2 text-left font-normal whitespace-nowrap text-fg-3"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Swatch color={s.color} dashed={s.dashed === true} />
+                      {s.label}
+                    </span>
+                  </th>
+                  <td className={`${cell} text-fg`}>
+                    {v === null || v === undefined ? "—" : shown(v)}
+                  </td>
+                  <td className={`${cell} text-fg`}>
+                    {whole === null ? "—" : `${shown(whole)} ${s.whole}`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </figcaption>
       <div ref={boxRef} data-monitor-chart className="mt-2" />
     </figure>

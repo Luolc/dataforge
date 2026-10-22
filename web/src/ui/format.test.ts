@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { bytes, clock, cores, duration, epoch, instant, time } from "./format";
+import {
+  bytes,
+  clock,
+  cores,
+  duration,
+  epoch,
+  instant,
+  moment,
+  time,
+} from "./format";
 
 describe("the formatters the Monitor page reads", () => {
   it("write bytes in binary units", () => {
@@ -20,6 +29,7 @@ describe("the formatters the Monitor page reads", () => {
     expect(epoch(t)).toBe("2026-03-02 09:15 UTC");
     expect(clock(t)).toBe("09:15");
     expect(instant(t)).toBe("09:15:42 UTC");
+    expect(moment(t)).toBe("2026-03-02 09:15:42 UTC");
   });
 
   it("write a time in a zone with its abbreviation, as the zone's offset moves", () => {
