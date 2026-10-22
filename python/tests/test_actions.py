@@ -138,10 +138,14 @@ def test_a_sigterm_during_a_fan_out_ends_its_waits_for_the_pool(
   pool = ResourcePool(0.5)
   pool.acquire(0.5)
   started: list[float] = []
+  ended: list[float] = []
 
   def call() -> None:
     started.append(time.monotonic())
-    pool.acquire(0.25)
+    try:
+      pool.acquire(0.25)
+    finally:
+      ended.append(time.monotonic())
 
   def fail() -> None:
     started.append(time.monotonic())
@@ -152,17 +156,27 @@ def test_a_sigterm_during_a_fan_out_ends_its_waits_for_the_pool(
   def ready() -> bool:
     return len(started) == len(calls) and time.monotonic() - max(started) > 0.2
 
+  released: list[float] = []
+
+  def release() -> None:
+    released.append(time.monotonic())
+    pool.release(0.5)
+
   # Were they not stopped, the calls would get the memory after WAIT.
-  timer = threading.Timer(WAIT, pool.release, (0.5,))
+  timer = threading.Timer(WAIT, release)
   timer.start()
   try:
     with sigterm_once(ready) as sent:
       with pytest.raises(SystemExit):
         _ = fan_out(calls)
-      ended = time.monotonic()
-    assert ended - sent[0] < 2
+      raised = time.monotonic()
+    assert raised - sent[0] < 2
+    assert len(ended) == 2
   finally:
     timer.cancel()
+    timer.join()
+    if not released:
+      release()
 
 
 def test_a_docker_env_of_a_stopped_fan_out_does_not_start() -> None:
