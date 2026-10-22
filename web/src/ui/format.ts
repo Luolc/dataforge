@@ -211,3 +211,7 @@ export const cores = (value: number): string =>
 /** A load average, a count of runnable tasks with no unit, as "10.4". */
 export const load = (value: number): string =>
   value.toFixed(value >= 100 || Number.isInteger(value) ? 0 : 1);
+
+/** A count with its unit, as "1 run" or "13 runs". */
+export const counted = (n: number, one: string, many = `${one}s`): string =>
+  `${n.toString()} ${n === 1 ? one : many}`;

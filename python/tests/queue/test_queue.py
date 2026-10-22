@@ -31,7 +31,16 @@ from dataforge.queue import (
 )
 from dataforge.queue import scheduler as scheduler_module
 from dataforge.queue import store as queue_store
-from dataforge.queue.proc import alive, group_alive, Leader, leader
+from dataforge.queue.proc import (
+  alive,
+  descendants,
+  group_alive,
+  Leader,
+  leader,
+  Process,
+  send,
+  starttime,
+)
 from dataforge.queue.scheduler import Scheduler
 from dataforge.queue.store import row as read_row
 from dataforge.queue.wrapper import _wait  # pyright: ignore[reportPrivateUsage]
@@ -308,10 +317,172 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
   done = state(config, job)
   assert (done.state, done.exit_code) == ("canceled", None)
   assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
-  assert not group_alive(started)
+  # The wrapper writes the end once nothing below it runs, and then exits.
+  assert descendants(started.pid) == {}
+  while group_alive(started):
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
   # A scheduler that runs again changes nothing of the ended job.
   scheduler.tick()
   assert state(config, job) == done
+
+
+@pytest.fixture
+def strays() -> Generator[list[Process]]:
+  # The processes a test's job started outside its wrapper's process group,
+  # killed after the test whatever became of them.
+  found: list[Process] = []
+  yield found
+  _ = send(found, signal.SIGKILL)
+
+
+_SPREAD = """
+echo $PPID >> "$1"
+setsid sh -c 'echo $$ >> "$0"; exec sleep 600' "$1" &
+(sleep 600 & echo $! >> "$1")
+echo $$ >> "$1"
+exec sleep 600
+"""
+
+
+def spread(
+  config: Config,
+  scheduler: Scheduler,
+  pids: Path,
+  strays: list[Process],
+  *,
+  ignore_term: bool,
+) -> Job:
+  # A job under timeout, which moves to a process group of its own, whose
+  # shell starts another in a session of its own and leaves a sleep to the
+  # nearest subreaper, as a double fork does. Each writes its pid, and the
+  # job is returned once all four have.
+  script = ("trap '' TERM" if ignore_term else "") + _SPREAD
+  argv = ("timeout", "600", "sh", "-c", script, "sh", str(pids))
+  job = put(config, "alpha", *argv)
+  until(lambda: pids.exists() and len(pids.read_text().split()) == 4, scheduler)
+  for pid in map(int, pids.read_text().split()):
+    start = starttime(pid)
+    assert start is not None
+    strays.append(Process(pid, start))
+  return job
+
+
+def running(processes: list[Process]) -> list[Process]:
+  return [p for p in processes if starttime(p.pid) == p.start]
+
+
+def test_canceling_a_job_ends_its_processes_in_other_groups_and_sessions(
+  patient: Scheduler, tmp_path: Path, strays: list[Process]
+):
+  config, scheduler = patient.config, patient
+  job = spread(config, scheduler, tmp_path / "pids", strays, ignore_term=False)
+  _ = cancel(config, job.id)
+  until(ended(config, job), scheduler)
+  assert state(config, job).state == "canceled"
+  assert running(strays) == []
+
+
+def test_sigkill_after_the_grace_period_ends_a_jobs_processes_everywhere(
+  config: Config, scheduler: Scheduler, tmp_path: Path, strays: list[Process]
+):
+  job = spread(config, scheduler, tmp_path / "pids", strays, ignore_term=True)
+  # No tick from here on: the wrapper alone sends SIGKILL.
+  _ = cancel(config, job.id)
+  deadline = time.monotonic() + 20
+  while state(config, job).ended_at is None:
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("canceled", None)
+  assert running(strays) == []
+
+
+def test_the_scheduler_ends_what_runs_below_a_wrapper_that_does_not(
+  config: Config, scheduler: Scheduler, tmp_path: Path, strays: list[Process]
+):
+  job = spread(config, scheduler, tmp_path / "pids", strays, ignore_term=True)
+  started = state(config, job).leader()
+  assert started is not None
+  os.kill(started.pid, signal.SIGSTOP)
+  _ = cancel(config, job.id)
+  until(ended(config, job), scheduler)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("canceled", None)
+  assert running(strays) == []
+
+
+def test_what_a_job_leaves_running_ends_before_its_end_is_recorded(
+  config: Config, scheduler: Scheduler, tmp_path: Path, strays: list[Process]
+):
+  # The command exits once the process it left in a session of its own,
+  # which ignores SIGTERM, has written its pid and starttime.
+  pid = tmp_path / "pid"
+  script = """
+    trap '' TERM
+    setsid sh -c '
+      echo $$ $(cut -d " " -f 22 /proc/$$/stat) > "$0.new"
+      mv "$0.new" "$0"
+      exec sleep 600
+    ' "$1" &
+    until [ -e "$1" ]; do sleep 0.05; done
+  """
+  job = put(config, "alpha", "sh", "-c", script, "sh", str(pid))
+  until(ended(config, job), scheduler)
+  left = Process(*map(int, pid.read_text().split()))
+  strays.append(left)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("done", 0)
+  assert running([left]) == []
+
+
+@pytest.mark.parametrize(
+  "end",
+  [
+    # The wrapper passes the SIGTERM on while the command still runs.
+    "trap 'sleep 2; exit 0' TERM; while :; do sleep 0.1; done",
+    # The command may have ended before the wrapper woke.
+    "exec sleep 600",
+  ],
+)
+def test_a_canceled_jobs_leftovers_get_one_sigterm_and_sigkill_in_its_grace(
+  config: Config,
+  readings: Readings,
+  tmp_path: Path,
+  strays: list[Process],
+  end: str,
+):
+  # The command ends on the cancellation's SIGTERM, as end says; the process
+  # it leaves in a session of its own writes a line for each SIGTERM and runs
+  # on.
+  scheduler = Scheduler(replace(config, cancel_grace_s=4.0), readings)
+  terms = tmp_path / "terms"
+  script = """
+    setsid sh -c '
+      trap "echo term >> \\"\\$0\\"" TERM
+      echo $$ $(cut -d " " -f 22 /proc/$$/stat) > "$0.new"
+      mv "$0.new" "$0.pid"
+      while :; do sleep 0.1; done
+    ' "$1" &
+    until [ -e "$1.pid" ]; do sleep 0.05; done
+    echo ready
+  """
+  try:
+    job = put(config, "alpha", "sh", "-c", script + end, "sh", str(terms))
+    until(lambda: "ready" in log(config, job), scheduler)
+    left = Process(*map(int, Path(f"{terms}.pid").read_text().split()))
+    strays.append(left)
+    # No tick from here on: the wrapper alone ends the leftover.
+    _ = cancel(config, job.id)
+    deadline = time.monotonic() + 20
+    while state(config, job).ended_at is None:
+      assert time.monotonic() < deadline, "timed out"
+      time.sleep(0.05)
+    assert state(config, job).state == "canceled"
+    assert running([left]) == []
+    assert terms.read_text() == "term\n"
+  finally:
+    _clean_up(scheduler.config, scheduler)
 
 
 def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
@@ -344,8 +515,10 @@ def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
   child = subprocess.Popen(["sh", "-c", script])
   try:
     # As after a SIGTERM that was no cancellation, with a short grace period:
-    # the row is read each time it passes.
-    assert _wait(child, config.database, job.id, 0.1, lambda: True) == 3
+    # the row is read each time it passes. Run in this process, _wait also
+    # reaps its children other than the command and passes the SIGTERM on to
+    # what runs below it outside its group; nothing else runs below it here.
+    assert _wait(child, config.database, job.id, 0.1, lambda: 1) == 3
   finally:
     child.kill()
     _ = child.wait()

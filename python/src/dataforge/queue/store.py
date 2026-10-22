@@ -430,10 +430,11 @@ def cancel(config: Config, job_id: int) -> Job:
   """Cancel a job.
 
   A queued job becomes canceled at once. A running one is marked, and its
-  process group gets SIGTERM; it is recorded canceled when it ends, and its
-  wrapper, and the scheduler while it runs, send the group SIGKILL once
-  cancel_grace_s has passed. Asking again sends SIGTERM again. An ended job
-  is left as it is.
+  process group gets SIGTERM, which its wrapper passes on to the processes
+  below it outside the group; it is recorded canceled when it ends, and its
+  wrapper, and the scheduler while it runs, send SIGKILL to every process
+  below the wrapper once cancel_grace_s has passed. Asking again sends
+  SIGTERM again. An ended job is left as it is.
 
   Args:
     config: The queue file.

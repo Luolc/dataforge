@@ -1,11 +1,15 @@
 """What the scheduler reads of the machine and of its jobs, from /proc.
 
+The scheduler and a job's wrapper also find here the processes below the
+wrapper, and signal them.
+
 A job is known by its wrapper, the leader of its session and process group:
 the wrapper's pid, its starttime (field 22 of /proc/<pid>/stat, in clock
 ticks since boot) and the boot's ID, so that a pid the kernel has given to
 another process since, in this boot or a later one, is not taken for the job.
 """
 
+from collections.abc import Iterable
 import os
 from pathlib import Path
 import signal
@@ -14,6 +18,7 @@ from typing import NamedTuple, Protocol
 _PROC = Path("/proc")
 _PAGE = os.sysconf("SC_PAGE_SIZE")
 _MIB = 1024 * 1024
+_LOOKS = 10
 
 
 class Leader(NamedTuple):
@@ -206,6 +211,125 @@ def signal_group(job: Leader, sig: signal.Signals) -> bool:
   except ProcessLookupError:
     return False
   return True
+
+
+class Process(NamedTuple):
+  """A process, known by its pid and starttime.
+
+  Attributes:
+    pid: Its pid.
+    start: Its starttime.
+  """
+
+  pid: int
+  start: int
+
+
+def descendants(root: int) -> dict[Process, int]:
+  """Find the processes below one, by the parent /proc gives each.
+
+  A process whose parent ends goes to the nearest subreaper above it, or to
+  init: it is below root only while root or a process below it adopts it.
+
+  Args:
+    root: The process.
+
+  Returns:
+    Each process below root that has not ended, with its process group's
+    ID.
+  """
+  children: dict[int, list[tuple[Process, int]]] = {}
+  for entry in _PROC.iterdir():
+    if not entry.name.isdigit():
+      continue
+    fields = _stat(int(entry.name))
+    if fields is None or fields[0] in ("Z", "X"):
+      continue
+    process = Process(int(entry.name), int(fields[19]))
+    children.setdefault(int(fields[1]), []).append((process, int(fields[2])))
+  found: dict[Process, int] = {}
+  parents = [root]
+  while parents:
+    for process, group in children.pop(parents.pop(), []):
+      found[process] = group
+      parents.append(process.pid)
+  return found
+
+
+def send(processes: Iterable[Process], sig: signal.Signals) -> set[Process]:
+  """Send a signal to each of some processes that has not ended.
+
+  Each gets it through a pidfd opened while its pid and starttime were its
+  own, so that a process given its pid since gets nothing.
+
+  Args:
+    processes: The processes.
+    sig: The signal.
+
+  Returns:
+    Those that the signal may not be sent to, such as one of another user.
+  """
+  refused: set[Process] = set()
+  for process in processes:
+    try:
+      fd = os.pidfd_open(process.pid)
+    except ProcessLookupError:
+      continue
+    try:
+      if starttime(process.pid) == process.start:
+        signal.pidfd_send_signal(fd, sig)
+    except ProcessLookupError:
+      pass
+    except PermissionError:
+      refused.add(process)
+    finally:
+      os.close(fd)
+  return refused
+
+
+def kill_below(root: int) -> set[Process]:
+  """Send SIGKILL to every process below one.
+
+  It looks again for what the processes it sent SIGKILL forked before it
+  reached them, until a look finds none it has not sent it, or for at most
+  _LOOKS looks; a process forks nothing once SIGKILL is pending.
+
+  Args:
+    root: The process.
+
+  Returns:
+    Those that SIGKILL may not be sent to.
+  """
+  sent: set[Process] = set()
+  refused: set[Process] = set()
+  for _ in range(_LOOKS):
+    new = [p for p in descendants(root) if p not in sent]
+    if not new:
+      break
+    refused |= send(new, signal.SIGKILL)
+    sent.update(new)
+  return refused
+
+
+def kill_job(job: Leader) -> bool:
+  """Send SIGKILL to a job: every process below its wrapper, then its group.
+
+  A wrapper that runs is stopped first, so that it neither writes the job's
+  end before its group is killed nor ends before the processes it adopted.
+
+  Args:
+    job: The leader.
+
+  Returns:
+    True when SIGKILL was sent to the group.
+  """
+  try:
+    if alive(job):
+      _ = send([Process(job.pid, job.start)], signal.SIGSTOP)
+      _ = kill_below(job.pid)
+  finally:
+    sent = signal_group(job, signal.SIGKILL)
+  return sent
 
 
 def _stat(pid: int) -> list[str] | None:

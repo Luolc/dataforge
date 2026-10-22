@@ -11,16 +11,25 @@ database's absolute path, through which a store of attempts (dataforge.runs)
 knows the job an attempt runs in. It outlives a scheduler that stops, so a
 job's end is written also when no scheduler waits for it.
 
-A command still running cancel_grace_s after its cancellation was asked for
-gets SIGKILL to its process group from the wrapper, so that it ends also while
-no scheduler runs; the wrapper keeps the cancel_grace_s it was started with.
-The wrapper leads that group and ends with it: a child of it that has left the
-group for a session of its own sends the signal, and writes the end, canceled
-with no exit code, once nothing of the group runs, as a scheduler does for a
-wrapper that is gone.
+The wrapper is a child subreaper: a process below it whose parent ends, as
+after a double fork, becomes its child, so that whatever the command starts
+stays below it, in whatever process group or session. A SIGTERM to its process
+group, as a cancellation sends, reaches the processes of the group, and the
+wrapper passes each one it gets on to the processes below it outside the
+group. A command still running cancel_grace_s after its cancellation was asked
+for gets SIGKILL from the wrapper, with every process below it, so that it
+ends also while no scheduler runs; the wrapper keeps the cancel_grace_s it was
+started with, and writes the end, canceled with no exit code, once none of
+them runs. Once the command ends, what it left running below the wrapper gets
+SIGTERM, and SIGKILL once cancel_grace_s has passed, and the end is written
+once none of it runs; after a cancellation, which sent SIGTERM already, it
+gets SIGKILL once cancel_grace_s has passed since the cancellation was asked
+for. The wrapper reaps the processes it adopts, and passes
+over one it may not signal, such as one of another user.
 """
 
 from collections.abc import Callable, Sequence
+import ctypes
 import os
 from pathlib import Path
 import select
@@ -30,7 +39,7 @@ import subprocess
 import sys
 import time
 
-from dataforge.queue.proc import group_alive, Leader
+from dataforge.queue.proc import descendants, kill_below, Process, send
 from dataforge.queue.store import connect, row, write
 
 _END = """
@@ -39,6 +48,7 @@ WHERE id = ? AND state = 'running' AND pid = ?
 """
 
 _POLL_S = 0.1
+_PR_SET_CHILD_SUBREAPER = 36
 
 JOB_ID_ENV = "DATAFORGE_JOB_ID"
 """The variable that gives a command the ID of the job it runs in."""
@@ -74,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
   Args:
     argv: The database, the job's ID and, optionally, cancel_grace_s; None
       for the command line's. Without cancel_grace_s the wrapper sends no
-      SIGKILL.
+      SIGKILL, and waits for what SIGTERM does not end.
 
   Returns:
     0 once the end is written, 1 when the job was not claimed for this
@@ -82,15 +92,18 @@ def main(argv: Sequence[str] | None = None) -> int:
   """
   database, job_id, *rest = sys.argv[1:] if argv is None else argv
   grace = float(rest[0]) if rest else None
-  terminated = False
+  terms = 0
 
   def _term(_sig: int, _frame: object) -> None:
     # SIGTERM goes to the whole process group: the command gets it too, and
-    # the wrapper stays to write the end.
-    nonlocal terminated
-    terminated = True
+    # the wrapper stays to pass it on and write the end.
+    nonlocal terms
+    terms += 1
 
   _ = signal.signal(signal.SIGTERM, _term)
+  # Only to wake the wait when a process the wrapper adopted ends.
+  _ = signal.signal(signal.SIGCHLD, lambda _sig, _frame: None)
+  signal.siginterrupt(signal.SIGCHLD, False)
   path, pid = Path(database), os.getpid()
   with connect(path) as conn:
     with write(conn):
@@ -105,6 +118,7 @@ def main(argv: Sequence[str] | None = None) -> int:
       print(f"wrapper: job {job_id} is not claimed by {pid}", file=sys.stderr)
       return 1
   print(f"wrapper: job {job.id}: {job.argv} in {job.cwd}", file=sys.stderr)
+  _subreaper()
   code: int | None = None
   if job.cancel_requested_at is None:
     try:
@@ -119,15 +133,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     except OSError as error:
       print(f"wrapper: job {job.id}: {error}", file=sys.stderr)
     else:
-      if terminated:
+      if terms:
         os.killpg(0, signal.SIGTERM)
-      code = _wait(child, path, job.id, grace, lambda: terminated)
+      code = _wait(child, path, job.id, grace, lambda: terms)
       if code is None:
         print(
           f"wrapper: job {job.id}: SIGKILL after the grace period",
           file=sys.stderr,
         )
-        _kill_group(started)
+        _kill_below(child.pid)
+        _ = child.wait()
+      else:
+        _end_below(path, job.id, grace, child.pid)
   with connect(path) as conn, write(conn):
     now = row(conn, job.id)
     canceled = now is not None and now.cancel_requested_at is not None
@@ -140,44 +157,68 @@ def main(argv: Sequence[str] | None = None) -> int:
   return 0
 
 
+def _subreaper() -> None:
+  # A process below the wrapper whose parent ends, such as one a double fork
+  # left, becomes the wrapper's child rather than init's, so that the
+  # wrapper still finds it below itself.
+  libc = ctypes.CDLL(None, use_errno=True)
+  if libc.prctl(_PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+    errno = ctypes.get_errno()
+    raise OSError(errno, os.strerror(errno), "PR_SET_CHILD_SUBREAPER")
+
+
 def _wait(
   child: subprocess.Popen[bytes],
   path: Path,
   job_id: int,
   grace: float | None,
-  terminated: Callable[[], bool],
+  terms: Callable[[], int],
 ) -> int | None:
   # Wait for the command, or until grace has passed since the job's
   # cancellation was asked for. A cancellation sends SIGTERM once it is in
   # the row, so the wrapper reads the row only when grace has passed since
   # SIGTERM came, not while a command that SIGTERM ends is exiting, and reads
   # it again a grace period later when the read fails or finds no
-  # cancellation.
-  if grace is None:
-    return child.wait()
+  # cancellation. Each SIGTERM that comes is passed on to the processes
+  # below the wrapper outside its group, which the group's did not reach.
   deadline: float | None = None
+  passed = 0
   wake, woken = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
   ended = os.pidfd_open(child.pid)
   previous = signal.set_wakeup_fd(woken)
   try:
     while (code := child.poll()) is None:
-      if deadline is None and terminated():
+      _reap(child.pid)
+      passed = _pass_on(passed, terms())
+      if deadline is None and passed and grace is not None:
         deadline = time.time() + grace
       timeout = None if deadline is None else max(0.0, deadline - time.time())
       ready, _, _ = select.select([ended, wake], [], [], timeout)
       if wake in ready:
         _ = os.read(wake, 512)
-      if ready or deadline is None:
+      if ready or deadline is None or grace is None:
         continue
       asked = _asked(path, job_id)
       if asked is not None and time.time() >= asked + grace:
         return None
       deadline = None if asked is None else asked + grace
+    # A SIGTERM that the command ended on before the wrapper woke.
+    _ = _pass_on(passed, terms())
     return code
   finally:
     _ = signal.set_wakeup_fd(previous)
     for fd in (wake, woken, ended):
       os.close(fd)
+
+
+def _pass_on(passed: int, terms: int) -> int:
+  # Pass the SIGTERMs that came since the last on to the processes below the
+  # wrapper outside its group, and give how many have come.
+  if terms > passed:
+    group = os.getpgrp()
+    outside = [p for p, g in descendants(os.getpid()).items() if g != group]
+    _ = send(outside, signal.SIGTERM)
+  return terms
 
 
 def _asked(path: Path, job_id: int) -> float | None:
@@ -193,20 +234,56 @@ def _asked(path: Path, job_id: int) -> float | None:
   return None if now is None else now.cancel_requested_at
 
 
-def _kill_group(started: Leader) -> None:
-  # Returns only in a child that has left the group and outlived it; the
-  # wrapper ends with the group.
-  killer = os.fork()
-  if killer == 0:
-    _ = os.setsid()
-    os.killpg(started.pid, signal.SIGKILL)
-    while group_alive(started):
-      time.sleep(_POLL_S)
-    return
-  _ = os.waitpid(killer, 0)
-  # The child ended before it sent the signal: end the group from here, and
-  # leave the end to the scheduler.
-  os.killpg(0, signal.SIGKILL)
+def _end_below(
+  path: Path, job_id: int, grace: float | None, command: int
+) -> None:
+  # What the command left running below the wrapper gets SIGTERM, and
+  # SIGKILL once grace has passed, so that nothing of the job outlives its
+  # end. After a cancellation it had its SIGTERM already, and gets SIGKILL
+  # once grace has passed since the cancellation was asked for.
+  me = os.getpid()
+  asked = _asked(path, job_id)
+  refused: set[Process] = set()
+  if asked is None:
+    refused = send(descendants(me), signal.SIGTERM)
+  start = time.time() if asked is None else asked
+  deadline = None if grace is None else start + grace
+  while _running(me, refused):
+    if deadline is not None and time.time() >= deadline:
+      _kill_below(command)
+      return
+    _reap(command)
+    time.sleep(_POLL_S)
+  _reap(command)
+
+
+def _kill_below(command: int) -> None:
+  # SIGKILL to every process below the wrapper, until none that it may
+  # signal runs.
+  me = os.getpid()
+  while True:
+    refused = kill_below(me)
+    _reap(command)
+    if not _running(me, refused):
+      return
+    time.sleep(_POLL_S)
+
+
+def _running(root: int, refused: set[Process]) -> bool:
+  return any(p not in refused for p in descendants(root))
+
+
+def _reap(command: int) -> None:
+  # Reap the processes the wrapper adopted that have ended; the command's
+  # end is left to Popen.
+  while True:
+    try:
+      ended = os.waitid(os.P_ALL, 0, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError:
+      return
+    if ended is None or ended.si_pid == command:
+      return
+    _ = os.waitpid(ended.si_pid, 0)
 
 
 if __name__ == "__main__":
