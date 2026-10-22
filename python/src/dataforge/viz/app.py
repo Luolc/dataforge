@@ -210,7 +210,7 @@ class _Api:
           "name": a.name,
           "label": a.label,
           "queue": a.queue,
-          "reason": actions.unavailable(a, item, rows, jobs),
+          "reason": actions.unavailable(project, a, item, rows, jobs),
           "params": [param.public() for param in a.params],
         }
         for a in project.actions
@@ -227,7 +227,7 @@ class _Api:
     args = actions.param_args(action, request.query_params)
     rows = _item_rows(project, item)
     config = self._config()
-    reason = actions.unavailable(action, item, rows, self._open_jobs())
+    reason = actions.unavailable(project, action, item, rows, self._open_jobs())
     if reason is not None:
       raise RefusedError(409, reason)
     try:
