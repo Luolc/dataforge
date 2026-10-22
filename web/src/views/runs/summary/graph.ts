@@ -256,7 +256,9 @@ export function layout(
       mine.length === 0
         ? null
         : times.length === 0
-          ? NO_ACTION
+          ? mine.every((v) => v.actions.length === 0)
+            ? NO_ACTION
+            : "—"
           : mine.length > 1
             ? `${duration(seconds)} ${IN_ALL}`
             : duration(seconds);

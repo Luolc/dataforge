@@ -442,14 +442,26 @@ describe("why a deliverable has no path, in the viewer's words", () => {
     expect(why(before(5, null), entry({}))).toBe(
       "Pass@k has not finished a run yet.",
     );
+    // Its process stopped and the attempt ended with a status meanwhile.
+    expect(why({ ...before(5, null), status: "exhausted" }, entry({}))).toBe(
+      "Pass@k never finished a run.",
+    );
   });
 
-  it("says a state ran but not in the run the deliverable takes", () => {
-    expect(why(ended, entry({}))).toBe(
-      "Pass@k ran, but not the run this takes.",
+  it("says a state ran only after the run the attempt kept", () => {
+    const kept = { ...ended, kept_visit: 1 };
+
+    expect(why(kept, entry({ state: "review" }))).toBe(
+      "review ran only after the run the attempt kept, run 2.",
     );
-    expect(why(running, entry({}))).toBe(
-      "Pass@k has not made the run this takes yet.",
+  });
+
+  it("says a state's runs do not include the one the deliverable takes", () => {
+    expect(why(ended, entry({}))).toBe(
+      "Pass@k's 1 run does not include the one this takes.",
+    );
+    expect(why(running, entry({ state: "author" }))).toBe(
+      "author's 2 runs do not include the one this takes yet.",
     );
   });
 

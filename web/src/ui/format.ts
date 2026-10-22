@@ -112,7 +112,7 @@ export const visitEnd = (v: Visit): string | undefined =>
 
 /**
  * A visit's seconds, from its first action's start to its last's end; null
- * for a visit that recorded no action.
+ * for a visit that recorded no action, or whose actions' times do not read.
  */
 export function visitSeconds(v: Visit): number | null {
   const from = visitStart(v);
@@ -120,8 +120,18 @@ export function visitSeconds(v: Visit): number | null {
   return from === undefined || to === undefined ? null : span(from, to);
 }
 
-/** What stands for the time of a visit that has none (visitSeconds). */
+/** What stands for the time of a visit that recorded no action. */
 export const NO_ACTION = "no action recorded";
+
+/**
+ * A visit's time: its duration (visitSeconds), NO_ACTION when it recorded no
+ * action, "—" when its actions' times do not read.
+ */
+export function visitTime(v: Visit): string {
+  const seconds = visitSeconds(v);
+  if (seconds !== null) return duration(seconds);
+  return v.actions.length === 0 ? NO_ACTION : "—";
+}
 
 /** A count of runs: "1 run", "3 runs". */
 export const runCount = (n: number): string =>

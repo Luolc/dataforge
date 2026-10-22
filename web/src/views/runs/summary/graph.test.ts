@@ -76,6 +76,10 @@ describe("the graph", () => {
       );
 
     expect(node([must(author), bare]).time).toBe("no action recorded");
+    // An action whose times do not read is still an action.
+    const action = must(must(check).actions[0]);
+    const unread = { ...must(check), actions: [{ ...action, ended_at: "?" }] };
+    expect(node([must(author), unread]).time).toBe("—");
     expect(node([must(author), bare]).under.join(" ")).not.toMatch(/0s/);
     // A run that has a time gives the state's, the other adding nothing.
     const timed = node([must(author), must(check), must(author), bare]);

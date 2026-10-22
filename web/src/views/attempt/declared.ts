@@ -1,6 +1,7 @@
 // The deliverables a project declares, set beside a record's (design-viz.md
 // section 5, "Attempt page"): a record has none until its attempt ends.
 import type { AttemptRecord, Deliverable, Project } from "../../api/types";
+import { runCount } from "../../ui/format";
 import { attemptStatus, stateTitle } from "../../ui/status";
 
 /**
@@ -31,8 +32,10 @@ export function asShown(
 /**
  * Why a deliverable of the record has no path, after "Not run: ", by the
  * title of the state it comes from: the attempt never reached the state, or
- * has not yet while it runs; the state is in its first run; its runs hold
- * none that the deliverable takes; or the run it takes wrote no such output.
+ * has not yet while it runs; the state never finished a run, or has not
+ * finished its first yet; it ran only after the run the attempt kept; its
+ * runs are not the one the deliverable takes; or the run it takes wrote no
+ * such output.
  */
 function notReached(
   project: Project,
@@ -42,16 +45,22 @@ function notReached(
   const title = stateTitle(project, item.state);
   const ended = attemptStatus(project, record) !== null;
   if (item.visit_index === null) {
-    const mine = record.visits.filter((v) => v.state === item.state);
+    const mine = record.visits.flatMap((v, i) =>
+      v.state === item.state ? [{ v, i }] : [],
+    );
     if (mine.length === 0)
       return ended
         ? `the attempt never reached ${title}.`
         : `the attempt has not reached ${title} yet.`;
-    if (mine.every((v) => v.outcome === null))
-      return `${title} has not finished a run yet.`;
-    return ended
-      ? `${title} ran, but not the run this takes.`
-      : `${title} has not made the run this takes yet.`;
+    if (mine.every(({ v }) => v.outcome === null))
+      return ended
+        ? `${title} never finished a run.`
+        : `${title} has not finished a run yet.`;
+    const kept = record.kept_visit;
+    if (kept !== null && mine.every(({ i }) => i > kept))
+      return `${title} ran only after the run the attempt kept, run ${(kept + 1).toString()}.`;
+    const runs = `${title}'s ${runCount(mine.length)} ${mine.length === 1 ? "does" : "do"}`;
+    return `${runs} not include the one this takes${ended ? "" : " yet"}.`;
   }
   const run = (item.visit_index + 1).toString();
   return `${title} · run ${run} wrote no ${item.output ?? "output"}.`;
