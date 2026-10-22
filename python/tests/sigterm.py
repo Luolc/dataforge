@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Generator
 import contextlib
+import gc
 import os
 import signal
 import threading
@@ -19,7 +20,9 @@ def sigterm_once(
 
   The SIGTERM raises what interrupt makes in the main thread, wherever it is,
   as a command that wants its `finally` blocks run on SIGTERM has it do:
-  SystemExit(143) by default, or KeyboardInterrupt.
+  SystemExit(143) by default, or KeyboardInterrupt. Garbage is collected
+  before the block and not during it: a finalizer that a collection runs in
+  the main thread would lose the exception the handler raises in it.
 
   Args:
     ready: Asked every 50 ms, for at most WAIT seconds.
@@ -43,6 +46,9 @@ def sigterm_once(
   def handler(*_: object) -> None:
     raise interrupt()
 
+  collecting = gc.isenabled()
+  _ = gc.collect()
+  gc.disable()
   previous = signal.signal(signal.SIGTERM, handler)
   thread = threading.Thread(target=send)
   thread.start()
@@ -52,3 +58,5 @@ def sigterm_once(
     done.set()
     thread.join()
     _ = signal.signal(signal.SIGTERM, previous)
+    if collecting:
+      gc.enable()
