@@ -1736,7 +1736,8 @@ def commit_repository(tree: Path) -> None:
 def images(tmp_path: Path) -> dict[str, Path]:
   """Make an old image and a new one whose /app has the same HEAD.
 
-  HEAD has a repository inside it, as a submodule is. Both builds have
+  HEAD has a repository inside it, as a checked out submodule is, and
+  another whose directory is empty, as one never checked out. Both builds have
   rewritten a tracked file and left one git does not ignore, and the new one
   also another and one git ignores, as an image's build may.
 
@@ -1755,6 +1756,9 @@ def images(tmp_path: Path) -> dict[str, Path]:
   _ = (app / "blob.bin").write_bytes(bytes(range(256)))
   _ = (app / "stamp.txt").write_text("in HEAD\n")
   commit_repository(app / "sub")
+  commit = git(app / "sub", "rev-parse", "HEAD").strip()
+  _ = git(app, "update-index", "--add", "--cacheinfo", f"160000,{commit},lib")
+  (app / "lib").mkdir()
   _ = git(app, "add", "--all")
   _ = git(app, "commit", "--quiet", "--message", "one")
   _ = (app / "stamp.txt").write_text("by each image\n")
@@ -1877,7 +1881,23 @@ def a_changed_submodule(app: Path) -> None:
   _ = (app / "sub" / "file.txt").write_text("two\n")
 
 
-@pytest.mark.parametrize("change", [a_new_repository, a_changed_submodule])
+def a_deleted_submodule(app: Path) -> None:
+  shutil.rmtree(app / "sub")
+
+
+def a_file_in_a_submodule_never_checked_out(app: Path) -> None:
+  _ = (app / "lib" / "mine.c").write_text("int mine;\n")
+
+
+@pytest.mark.parametrize(
+  "change",
+  [
+    a_new_repository,
+    a_changed_submodule,
+    a_deleted_submodule,
+    a_file_in_a_submodule_never_checked_out,
+  ],
+)
 def test_a_changed_repository_in_the_tree_stops_replace_before_it_creates(
   tmp_path: Path, change: Callable[[Path], None]
 ) -> None:

@@ -30,7 +30,7 @@ import subprocess
 import tempfile
 import threading
 from types import TracebackType
-from typing import cast, Protocol, Self
+from typing import cast, NoReturn, Protocol, Self
 
 from dataforge.curation.engine import (
   ActionRecord,
@@ -941,9 +941,10 @@ class Docker:
     as this env's and raises, so no change is lost; else it removes the old
     one, and a removal that fails is logged and left to the dataset's
     cleanup, as the env has gone on in the new one. A git repository inside
-    a tree, such as a submodule, whose files or commit differ from `HEAD`
-    makes it raise before it creates the new one, since a diff holds only
-    that repository's commit. The two run one at a time, only for git and
+    a tree, such as a submodule, whose files or commit differ from `HEAD`, or
+    a submodule's directory that holds files but is no repository, makes it
+    raise before it creates the new one, since a diff holds only that
+    repository's commit. The two run one at a time, only for git and
     the copies, without pre_start and post_start, and with memory_gb reserved
     from pool. An env with no container yet only takes the image.
 
@@ -1053,7 +1054,9 @@ class Docker:
   ) -> None:
     # A repository inside the tree, a submodule or one the session made, is
     # one line of the diff, its commit, and none of its files; so one that
-    # differs from HEAD, its files or commit, is refused.
+    # differs from HEAD, its files or commit, is refused, and so is a
+    # submodule's directory that holds files but is no repository of its
+    # own, such as one never checked out, whose files git does not see.
     argv = [
       "git",
       "diff",
@@ -1064,9 +1067,29 @@ class Docker:
     ]
     for line in self._in(container, argv, workdir=tree, env=index).split("\n"):
       modes, _, path = line.partition("\t")
-      if line.startswith(":") and _GITLINK in modes.split()[:2]:
-        why = "a git repository inside the tree differs from HEAD"
-        raise RuntimeError(f"{tree}: {why}, which a diff cannot carry: {path}")
+      if line.startswith(":") and _GITLINK in modes.lstrip(":").split()[:2]:
+        self._refuse(tree, "differs from HEAD", path)
+    argv = ["git", "ls-files", "--stage", "-z"]
+    for entry in self._in(container, argv, workdir=tree, env=index).split("\0"):
+      mode, _, path = entry.partition("\t")
+      if not mode.startswith(_GITLINK):
+        continue
+      listed = self.cli(
+        ["exec", "--workdir", tree, container, "ls", "-A", "--", path]
+      )
+      if listed.exit_code != 0 or not listed.log.strip():
+        continue
+      inside = str(PurePosixPath(tree) / path)
+      prefix = self._in(
+        container, ["git", "rev-parse", "--show-prefix"], workdir=inside
+      )
+      if prefix.partition("\n")[0]:
+        self._refuse(tree, "holds files but is no repository", path)
+
+  @staticmethod
+  def _refuse(tree: str, why: str, path: str) -> NoReturn:
+    whole = f"a git repository inside the tree {why}, which a diff cannot carry"
+    raise RuntimeError(f"{tree}: {whole}: {path}")
 
   def _head(self, container: str, tree: str) -> str:
     # The tree of HEAD in the work tree whose top is tree.
