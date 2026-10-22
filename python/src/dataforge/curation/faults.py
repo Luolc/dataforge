@@ -6,8 +6,8 @@ FAULTS words of dataforge.curation.actions; `trial_judged` says whether the
 trial's rewards can be judged as they are. A trial is judged when nothing
 ended it early, or when the agent ended it itself: on its own time limit
 (Harbor's `AgentTimeoutError`) or its own spend or turn cap, as a pass@k
-measures whether the solver solves the task within them, or by exiting
-non-zero after the processes in its container had hit the container's process
+measures whether the solver solves the task within them, or by aborting (exit
+134) after the processes in its container had hit the container's process
 limit (dataforge.curation.harbor's PIDS_HIT): those processes are the agent's
 own and the ones it started (and the verifier's, for a verifier that runs in
 the trial's container rather than its own), and Harbor still collects what the
@@ -146,8 +146,8 @@ def trial_judged(exception: str | None) -> bool:
   Returns:
     True when there is none, its type is in JUDGED, or it is a
     NonZeroAgentExitCodeError of a session that hit its own spend or turn
-    cap or of an agent whose container had hit its process limit; False for
-    every other exception.
+    cap or of an agent that aborted after its container had hit its process
+    limit; False for every other exception.
   """
   if exception is None:
     return True

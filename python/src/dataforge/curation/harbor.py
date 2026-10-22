@@ -63,10 +63,12 @@ None or 0, or an environment of Harbor's own, gives no tmpfs.
 DOCKER_ENVIRONMENT's also has Harbor's process write into the trial's
 directory how often a process in the trial's `main` could not start because
 the container was at its process limit (PIDS_FILE, `harbor_env`). When it was
-at least once and the agent exited non-zero (Harbor's
-NonZeroAgentExitCodeError), the exception gives it right after its type:
-`NonZeroAgentExitCodeError: the agent's container hit its process limit (512)
-530 times; Command failed ...` (PIDS_HIT), which `faults` reads. A file that
+at least once and the agent aborted (Harbor's NonZeroAgentExitCodeError with
+exit 134, SIGABRT, as a client that cannot start a thread exits), the
+exception gives it right after its type: `NonZeroAgentExitCodeError: the
+agent's container hit its process limit (512) 530 times; Command failed (exit
+134) ...` (PIDS_HIT), which `faults` reads. Any other exit, such as 137 for a
+SIGKILL, is left as it is, as the hit need not have caused it. A file that
 is missing, too big, a link, or not such a reading adds nothing; the file of a
 separate verifier's environment is a record only and is not read.
 
@@ -165,9 +167,10 @@ HIDE_MIN = 8
 NOT_STARTED = "HarborNotStarted"
 # How the exception of a trial whose Harbor ran past `timeout` starts.
 TIMED_OUT = "TimeoutError"
-# The type of the exception of an agent that exited non-zero
-# (harbor/agents/installed/base.py).
+# How the exception of an agent that aborted starts: its type and Harbor's
+# message for an exit with 134, SIGABRT (harbor/agents/installed/base.py).
 _AGENT_EXIT = "NonZeroAgentExitCodeError"
+_ABORTED = f"{_AGENT_EXIT}: Command failed (exit 134)"
 # The label compose gives what a project holds, its value the project's name.
 PROJECT = "com.docker.compose.project"
 # How long one docker command of the cleanup may run, in seconds.
@@ -177,8 +180,8 @@ DOCKER_TIMEOUT = 120.0
 # environment `<trial>__env`.
 PIDS_FILE = "{}.pids.json"
 TRIAL_ENV = "{}__env"
-# What follows the type of the exception of an agent that exited non-zero
-# while its container had been at its process limit.
+# What follows the type of the exception of an agent that aborted after its
+# container had been at its process limit.
 PIDS_HIT = "the agent's container hit its process limit"
 # The most bytes of PIDS_FILE read.
 PIDS_FILE_LIMIT = 4096
@@ -1162,9 +1165,9 @@ def _pids_hits(trial: Path) -> tuple[int, str] | None:
 
 
 def _with_pids_hits(exception: str | None, trial: Path) -> str | None:
-  # An agent's non-zero exit says first that its container hit its process
-  # limit, when it did.
-  if exception is None or not exception.startswith(f"{_AGENT_EXIT}:"):
+  # An agent's abort says first that its container hit its process limit,
+  # when it did.
+  if exception is None or not exception.startswith(_ABORTED):
     return exception
   hits = _pids_hits(trial)
   if hits is None:

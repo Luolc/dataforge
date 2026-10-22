@@ -458,14 +458,37 @@ def test_an_agent_that_exited_after_its_container_hit_the_limit_is_judged(
   assert trial_judged(result.exception) is (exception is not None)
 
 
-def test_only_an_agents_non_zero_exit_says_its_container_hit_the_limit(
-  tmp_path: Path, fakes: tuple[Path, Path]
+@pytest.mark.parametrize(
+  ("mode", "env", "exception", "judged"),
+  [
+    ("exception", {}, "AgentTimeoutError: agent ran past 600 s", True),
+    # A SIGKILL, not an abort: the hit need not have caused it.
+    (
+      "ok",
+      {
+        "FAKE_EXCEPTION": json.dumps(
+          ["NonZeroAgentExitCodeError", "Command failed (exit 137): claude"]
+        )
+      },
+      "NonZeroAgentExitCodeError: Command failed (exit 137): claude",
+      False,
+    ),
+  ],
+)
+def test_only_an_agents_abort_says_its_container_hit_the_limit(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  mode: str,
+  env: dict[str, str],
+  exception: str,
+  judged: bool,
 ) -> None:
-  env = {"FAKE_FILES": json.dumps({PIDS_FILE: '{"max": 530, "limit": "512"}'})}
-  result = runner(fakes, "exception", env=env).run(
+  files = {PIDS_FILE: '{"max": 530, "limit": "512"}'}
+  result = runner(fakes, mode, {**env, "FAKE_FILES": json.dumps(files)}).run(
     task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
   )
-  assert result.exception == "AgentTimeoutError: agent ran past 600 s"
+  assert result.exception == exception
+  assert trial_judged(result.exception) is judged
 
 
 def test_harbor_gets_only_the_passed_variables_and_env(

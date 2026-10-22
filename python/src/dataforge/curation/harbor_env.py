@@ -42,7 +42,9 @@ As it stops, while `main` still runs, this environment also reads from the
 host how often a process in `main` could not start because the container was
 at its process limit: the `max` count of `pids.events` in the cgroup that
 `/proc/<State.Pid>/cgroup` names under /sys/fs/cgroup (cgroup v2, whatever
-Docker's cgroup driver), with `pids.max` beside it; both files are readable by
+Docker's cgroup driver; with the hierarchy mounted without `pids_localevents`,
+`max` counts the hits of the container's own limit and of any limit below
+it), with `pids.max` beside it; both files are readable by
 any user, and the cgroup is gone once the container stops. Harbor's process
 writes what it read into the trial's directory, which no container mounts, as
 `<session_id>.pids.json` (`harbor.PIDS_FILE`): `{"max": <count>, "limit":
@@ -194,7 +196,7 @@ class DockerEnvironment(HarborDockerEnvironment):
       )
     pids = [state[1] for state in states if len(state) == 2]
     self._write_pids(
-      _pids_hits(int(pids[0]), _PROC, _CGROUP)
+      _read_pids_events(int(pids[0]), _PROC, _CGROUP)
       if len(pids) == 1 and pids[0].isdigit()
       else {"unknown": f"main's State.Pid is not one number: {pids}"}
     )
@@ -259,7 +261,7 @@ def _target(entry: object, index: int) -> object:
   return None
 
 
-def _pids_hits(pid: int, proc: Path, cgroup: Path) -> dict[str, object]:
+def _read_pids_events(pid: int, proc: Path, cgroup: Path) -> dict[str, object]:
   """Read how often the cgroup of a host process was at its process limit.
 
   Args:
