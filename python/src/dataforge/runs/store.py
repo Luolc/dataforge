@@ -8,6 +8,8 @@ row is in and, for a running row, on its holder, in a BEGIN IMMEDIATE
 transaction, so a writer that finds another got there first changes nothing
 and is told so. Each change of a row's state adds a row to the table event in
 the same transaction. Each call opens its own connection and closes it.
+Attempts kept before the store are brought into it by add, ended or
+interrupted as they were, and held by no process.
 
 The schema and every statement that writes the store are in this file only.
 The schema only grows: a column added has a default and no constraint, and
@@ -94,6 +96,13 @@ _INSERT = """
 INSERT INTO attempt (id, item, root, state, holder_pid, holder_starttime,
   holder_boot_id, job_id, job_db, created_at, progress_at)
 VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_ADD = """
+INSERT INTO attempt (id, item, root, state, outcome, reason, machine_status,
+  stopped_by, record, cost_usd, progress_at, job_id, job_db, resumable,
+  resume_problem, resume_checked_at, created_at, ended_at, settled_at, extra)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _STEP = f"""
@@ -266,7 +275,7 @@ class Event:
     at: When.
     from_state: The state before; None for the row's insert.
     to_state: The state after; the same as from_state for a cleanup.
-    by: "runner" or "reconcile".
+    by: "runner", "reconcile", or "add" for a row added as it was.
     detail: What it was about, such as the outcome or what a cleanup left.
   """
 
@@ -474,6 +483,70 @@ class Store:
       except sqlite3.IntegrityError:
         return False
       _event(conn, attempt_id, None, "running", "runner", {})
+    return True
+
+  def add(self, row: AttemptRow) -> bool:
+    """Add an ended or interrupted row as it is given, with no holder.
+
+    It is how attempts kept before the store are brought into it. The row's
+    event is from no state to its own, by "add".
+
+    Args:
+      row: The row; its holder is not written.
+
+    Returns:
+      Whether it was added: False when the ID is taken.
+
+    Raises:
+      ValueError: When the row is running; ended with no outcome or no
+        ended_at; or interrupted with no stopped_by of STOPPED_BY, or with
+        an outcome, an ended_at or a settled_at.
+      NewerSchemaError: When the store's schema_major is newer.
+    """  # noqa: DOC503
+    if row.state not in ("ended", "interrupted"):
+      raise ValueError(f"{row.id}: only an ended or interrupted row is added")
+    if row.state == "ended" and row.outcome is None:
+      raise ValueError(f"{row.id}: an ended row needs an outcome")
+    if row.state == "ended" and row.ended_at is None:
+      raise ValueError(f"{row.id}: an ended row needs an ended_at")
+    if row.state == "interrupted" and row.stopped_by not in STOPPED_BY:
+      raise ValueError(f"{row.id}: an interrupted row needs a stopped_by")
+    if row.state == "interrupted" and row.outcome is not None:
+      raise ValueError(f"{row.id}: an interrupted row has no outcome")
+    if row.state == "interrupted" and row.ended_at is not None:
+      raise ValueError(f"{row.id}: an interrupted row has no ended_at")
+    if row.state == "interrupted" and row.settled_at is not None:
+      raise ValueError(f"{row.id}: an interrupted row has no settled_at")
+    with self._write() as conn:
+      try:
+        _ = conn.execute(
+          _ADD,
+          (
+            row.id,
+            row.item,
+            row.root,
+            row.state,
+            row.outcome,
+            row.reason,
+            row.machine_status,
+            row.stopped_by,
+            None if row.record is None else json.dumps(row.record),
+            row.cost_usd,
+            row.progress_at,
+            row.job_id,
+            row.job_db,
+            None if row.resumable is None else int(row.resumable),
+            row.resume_problem,
+            row.resume_checked_at,
+            row.created_at,
+            row.ended_at,
+            row.settled_at,
+            json.dumps(row.extra),
+          ),
+        )
+      except sqlite3.IntegrityError:
+        return False
+      _event(conn, row.id, None, row.state, "add", {})
     return True
 
   def step(

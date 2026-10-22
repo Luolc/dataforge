@@ -9,6 +9,13 @@ import sqlite3
 
 from dataforge.queue.proc import Leader
 
+ADD = """
+INSERT INTO attempt (id, item, root, state, outcome, reason, machine_status,
+  stopped_by, record, cost_usd, progress_at, job_id, job_db, resumable,
+  resume_problem, resume_checked_at, created_at, ended_at, settled_at, extra)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 _HOLDER = "holder_pid = ? AND holder_starttime = ? AND holder_boot_id = ?"
 
 INSERT = """
@@ -76,7 +83,8 @@ def transitions(conn: sqlite3.Connection, me: Leader, gone: Leader) -> None:
   """Run every statement, each changing one row, on a store of today.
 
   It leaves a/1 ended and settled after it was interrupted and taken again,
-  b/1 ended as given up, and c/1 interrupted, not resumable.
+  b/1 ended as given up, c/1 interrupted, not resumable, and d/1 added
+  ended and settled, with a field of its own.
 
   Args:
     conn: A connection to the store.
@@ -105,3 +113,9 @@ def transitions(conn: sqlite3.Connection, me: Leader, gone: Leader) -> None:
   one(INSERT, "c/1", "c", "/r/c", *me, None, None, AT, AT)
   one(INTERRUPT, "lost", 0, "gone", AT, "c/1", *me)
   one(CHECK, 0, "gone", AT, 1.0, "c/1")
+  one(
+    ADD,
+    *("d/1", "d", "/r/d", "ended", "passed", None, None, None, None, None),
+    *(None, None, None, None, None, None, AT, AT, AT, '{"stage": "ab"}'),
+  )
+  one(EVENT, "d/1", AT, None, "ended", "add", "{}")
