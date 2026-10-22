@@ -23,18 +23,23 @@ import pytest
 from dataforge.curation import harbor
 from dataforge.curation.actions import Limits, Mount, TrialAgent
 from dataforge.curation.harbor import (
+  DockerError,
   HarborRunner,
   LABEL,
+  NOT_STARTED,
   SIDECAR,
   Sidecar,
   TrialSetup,
 )
 
-# The fake harbor writes what it got to <jobs-dir>/fake.json and then does what
-# FAKE_MODE says: "ok", "exception", "no-reward", "exit" (exit 3 with no result)
-# or "hang" (start a child, write its own and the child's pid, sleep);
-# "interrupt" also sends its parent SIGUSR1 before it sleeps, and "stubborn"
-# does too, and again on SIGTERM instead of exiting. With FAKE_STRAGGLER, the
+# The fake harbor writes what it got to <jobs-dir>/fake.json, starts the trial
+# (writes its config.json) and then does what FAKE_MODE says: "ok",
+# "exception", "no-reward", "exit" (exit 3 with no result) or "hang" (start a
+# child, write its own and the child's pid, sleep); "interrupt" also sends its
+# parent SIGUSR1 before it sleeps, and "stubborn" does too, and again on SIGTERM
+# instead of exiting. With FAKE_NOT_STARTED, it prints that many lines, each
+# padded with FAKE_PAD x's, and then the text of FAKE_LAST_FILE if given,
+# instead of starting the trial. With FAKE_STRAGGLER, the
 # child ignores SIGTERM, so it outlives harbor. The agent's cost is FAKE_COST,
 # 0.25 by default and null for "none"; with FAKE_TRACE, the agent directory gets
 # a Claude Code trace whose last result event costs that much. FAKE_LINKS, a
@@ -49,6 +54,16 @@ trial = jobs / argv[argv.index("--job-name") + 1] / "task__abc"
     json.dumps({"argv": argv, "env": dict(os.environ)})
 )
 mode = os.environ["FAKE_MODE"]
+if "FAKE_NOT_STARTED" in os.environ:
+    pad = "x" * int(os.environ.get("FAKE_PAD", "0"))
+    for i in range(1, int(os.environ["FAKE_NOT_STARTED"]) + 1):
+        print(f"line {i}{pad}")
+    if "FAKE_LAST_FILE" in os.environ:
+        print(pathlib.Path(os.environ["FAKE_LAST_FILE"]).read_text())
+    sys.stdout.flush()
+else:
+    trial.mkdir(parents=True)
+    (trial / "config.json").write_text("{}")
 if mode == "exit":
     sys.exit(3)
 if mode in ("hang", "interrupt", "stubborn"):
@@ -64,7 +79,7 @@ if mode in ("hang", "interrupt", "stubborn"):
     if mode != "hang":
         os.kill(os.getppid(), signal.SIGUSR1)
     time.sleep(60)
-(trial / "agent").mkdir(parents=True)
+(trial / "agent").mkdir()
 result = {
     "started_at": "2026-10-19T10:00:00+00:00",
     "finished_at": "2026-10-19T10:01:30+00:00",
@@ -106,23 +121,26 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 (trial / "result.json").write_text(json.dumps(result))
 """
 
-# The fake docker appends its argv to calls.jsonl next to it. `<kind> ls` with a
-# label filter prints the ids in <kind>.ids; `rm` and `rmi` remove them unless a
-# file "stuck" is there. mounts.json maps the ids of containers without the
-# label to their mounts' sources, or to null for one gone before it is
-# inspected: `container ls` without a filter prints those ids, `container
-# inspect` gives their mounts, says "No such container" for each gone one and
-# the line in a file "inspect-error" when there is one, exiting 1 when it said
-# anything, and `container rm` removes them unless "stuck" is there. `run` (the
-# chown) writes to alive.json which of the pids in the trial's "pids" still run.
+# The fake docker appends its argv to calls.jsonl next to it, and first sleeps
+# 10 s when a file "slow-<argv[0]>-<argv[1]>" is there. `<kind> ls` with a label
+# filter prints the ids in <kind>.ids; `rm` and `rmi` remove them unless a file
+# "stuck" is there. mounts.json maps the ids of containers without the label to
+# their mounts' sources: `container ls` without a filter prints each as JSON,
+# its sources joined with commas, `container inspect` gives their mounts, says
+# "No such container" for each id in gone.json and the line in a file
+# "inspect-error" when there is one, exiting 1 when it said anything, and
+# `container rm` removes them unless "stuck" is there. `run` (the chown) writes
+# to alive.json which of the pids in the trial's "pids" still run.
 # `compose` goes to the real docker on PATH, which only reads compose files
 # here.
 FAKE_DOCKER = """\
-import json, os, pathlib, sys
+import json, os, pathlib, sys, time
 here = pathlib.Path(__file__).parent
 argv = sys.argv[1:]
 with (here / "calls.jsonl").open("a") as f:
     f.write(json.dumps(argv) + "\\n")
+if (here / f"slow-{argv[0]}-{argv[1]}").exists():
+    time.sleep(10)
 def running(pid):
     try:
         stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
@@ -140,16 +158,19 @@ if argv[0] == "compose":
     os.execvp("docker", ["docker", *argv])
 mounts_file = here / "mounts.json"
 mounts = json.loads(mounts_file.read_text()) if mounts_file.exists() else {}
+gone_file = here / "gone.json"
+gone_ids = json.loads(gone_file.read_text()) if gone_file.exists() else []
 if argv[0] == "container" and "--filter" not in argv:
     if argv[1] == "ls":
-        print(" ".join(mounts))
+        for i, sources in mounts.items():
+            print(json.dumps({"ID": i, "Mounts": ",".join(sources)}))
         sys.exit(0)
     if argv[1] == "inspect":
         print(json.dumps([
             {"Id": i, "Mounts": [{"Source": s} for s in mounts[i]]}
-            for i in argv[2:] if mounts.get(i) is not None
+            for i in argv[2:] if i in mounts and i not in gone_ids
         ]))
-        gone = [i for i in argv[2:] if i in mounts and mounts[i] is None]
+        gone = [i for i in argv[2:] if i in gone_ids]
         errors = [f"Error response from daemon: No such container: {i}"
                   for i in gone]
         if (here / "inspect-error").exists():
@@ -349,6 +370,171 @@ def test_harbor_gets_the_verifier_only_when_one_is_set(
   assert "--verifier" not in seen_argv(plain)
   argv = seen_argv(custom)
   assert argv[argv.index("--verifier") + 1] == "my_dataset.verifier:Mine"
+
+
+def test_harbor_gets_the_environment_only_when_one_is_set(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  plain, custom = outdir(tmp_path, "plain"), outdir(tmp_path, "custom")
+  _ = runner(fakes).run(task(tmp_path), "nop", Limits(2), plain)
+  _ = replace(runner(fakes), environment=harbor.DOCKER_ENVIRONMENT).run(
+    task(tmp_path), "nop", Limits(2), custom
+  )
+  assert "--env" not in seen_argv(plain)
+  argv = seen_argv(custom)
+  assert argv[argv.index("--env") + 1] == harbor.DOCKER_ENVIRONMENT
+  assert argv.index("--env") < argv.index("--yes")
+
+
+def not_started(
+  fakes: tuple[Path, Path], mode: str = "exit", **env: str
+) -> HarborRunner:
+  # A runner whose fake harbor prints 30 lines, or as many as FAKE_NOT_STARTED
+  # in env says, and does what mode says before it starts the trial.
+  return runner(fakes, mode, {"FAKE_NOT_STARTED": "30", **env})
+
+
+def test_a_trial_harbor_did_not_start_gives_the_end_of_its_log(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  result = not_started(fakes).run(task(tmp_path), "nop", Limits(2), out)
+  assert result.exception is not None
+  first, *lines = result.exception.splitlines()
+  assert first == (
+    f"{NOT_STARTED}: Harbor did not start the trial (HarborError: harbor"
+    + " exited 3), on run 3 of at most 3; the end of harbor.log:"
+  )
+  assert lines == [f"line {i}" for i in range(11, 31)]
+  assert str(out) not in result.exception
+  assert result.rewards == {}
+  assert result.artifacts == {"log": out / "harbor.log"}
+
+
+def test_the_end_of_the_log_is_cut_to_its_bytes(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  # 30 lines of 300 bytes: the last 4096 bytes hold 13 of them whole.
+  result = not_started(fakes, FAKE_PAD="292").run(
+    task(tmp_path), "nop", Limits(2), outdir(tmp_path)
+  )
+  assert result.exception is not None
+  lines = result.exception.splitlines()[1:]
+  assert lines == [f"line {i}{'x' * 292}" for i in range(18, 31)]
+
+
+def test_the_end_of_the_log_hides_the_values_of_the_env(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  value = "a value of the env"
+  last = tmp_path / "last.txt"
+  _ = last.write_text(f"Error: {value}, short, FAKE_MODE=exit\n{value[:7]}")
+  result = not_started(
+    fakes, FAKE_LAST_FILE=str(last), VALUE=value, SHORT="short"
+  ).run(task(tmp_path), "nop", Limits(2), outdir(tmp_path))
+  assert result.exception is not None
+  assert result.exception.splitlines()[-2:] == [
+    "Error: ***, short, FAKE_MODE=exit",
+    "a value",
+  ]
+
+
+def test_a_trial_harbor_did_not_start_is_run_again_and_each_run_kept(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  setup = Setup(fakes, tmp_path)
+  _ = replace(not_started(fakes), setup=setup).run(
+    task(tmp_path), "nop", Limits(2), out
+  )
+  kept = sorted(path.name for path in out.glob("not-started-*"))
+  assert kept == ["not-started-1", "not-started-2"]
+  for name in kept:
+    assert sorted(os.listdir(out / name)) == ["harbor.log", "overlay.json"]
+    assert (out / name / "harbor.log").read_text().endswith("line 30\n")
+  assert (out / "harbor.log").exists()
+  # Each run has its own setup, entered after the last run's cleanup.
+  assert [call[0] for call in setup.calls] == ["enter", "exit"] * 3
+  counts = [call[3] for call in setup.calls]
+  assert counts[1] == counts[2] and counts[3] == counts[4]
+  assert counts[0] < counts[1] < counts[3] < counts[5]
+  chowns = [call for call in docker_calls(fakes) if call[0] == "run"]
+  assert len(chowns) == 3
+  labels = {chown[2] for chown in chowns}
+  assert len(labels) == 3
+
+
+def test_a_trial_harbor_started_is_not_run_again(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  result = runner(fakes, "exit").run(task(tmp_path), "nop", Limits(2), out)
+  assert result.exception == "HarborError: harbor exited 3"
+  assert list(out.glob("not-started-*")) == []
+
+
+def test_a_run_that_starts_the_trial_ends_the_runs(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  # A harbor that starts the trial on its second run.
+  wrapper = script(
+    fakes[0].with_name("flaky-harbor"),
+    "import os, pathlib, sys\n"
+    + f"marker = pathlib.Path({str(tmp_path / 'ran')!r})\n"
+    + "if marker.exists():\n"
+    + "    os.environ.pop('FAKE_NOT_STARTED')\n"
+    + "marker.touch()\n"
+    + f"os.execv({str(fakes[0])!r}, [{str(fakes[0])!r}, *sys.argv[1:]])\n",
+  )
+  result = replace(not_started(fakes, "ok"), harbor=wrapper).run(
+    task(tmp_path), "nop", Limits(2), out
+  )
+  assert result.exception is None
+  assert result.rewards == {"reward": 1.0}
+  assert [path.name for path in out.glob("not-started-*")] == ["not-started-1"]
+
+
+def test_no_run_follows_once_the_time_is_up(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  try:
+    result = replace(not_started(fakes, "hang"), timeout=1.0).run(
+      task(tmp_path), "nop", Limits(2), out
+    )
+    assert result.exception is not None
+    assert result.exception.startswith(
+      f"{NOT_STARTED}: Harbor did not start the trial (TimeoutError: Harbor"
+      + " ran past 1 s), on run 1 of at most 3;"
+    )
+    assert list(out.glob("not-started-*")) == []
+  finally:
+    for pid in alive(out):
+      os.kill(pid, signal.SIGKILL)
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt(), SystemExit(143)])
+def test_no_run_follows_an_interrupt(
+  tmp_path: Path, fakes: tuple[Path, Path], interrupt: BaseException
+) -> None:
+  out = outdir(tmp_path)
+
+  def handler(*_: object) -> None:
+    raise interrupt
+
+  previous = signal.signal(signal.SIGUSR1, handler)
+  try:
+    with pytest.raises(type(interrupt)):
+      _ = not_started(fakes, "interrupt").run(
+        task(tmp_path), "nop", Limits(2), out
+      )
+    assert list(out.glob("not-started-*")) == []
+    assert len([c for c in docker_calls(fakes) if c[0] == "run"]) == 1
+  finally:
+    _ = signal.signal(signal.SIGUSR1, previous)
+    for pid in alive(out):
+      os.kill(pid, signal.SIGKILL)
 
 
 def test_the_overlay_caps_the_task_container(
@@ -595,7 +781,7 @@ def test_the_cleanup_chowns_and_removes_what_has_the_label(
   assert chown[:3] == ["run", "--rm", f"--label={LABEL}={label}"]
   assert f"--volume={out.resolve()}:/trial" in chown
   assert ["container", "rm", "-f", "c1", "c2"] in calls
-  release = ["container", "ls", "-a", "-q", "--no-trunc"]
+  release = ["container", "ls", "-a", "--no-trunc", "--format", "{{json .}}"]
   assert all(
     f"label={LABEL}={label}" in call
     for call in calls
@@ -608,7 +794,7 @@ def test_something_left_after_the_cleanup_is_an_error(
 ) -> None:
   _ = (fakes[1].parent / "network.ids").write_text("n1")
   _ = (fakes[1].parent / "stuck").write_text("")
-  with pytest.raises(RuntimeError, match="'network': 1"):
+  with pytest.raises(DockerError, match="'network': 1"):
     _ = runner(fakes).run(task(tmp_path), "nop", Limits(2), outdir(tmp_path))
 
 
@@ -958,7 +1144,7 @@ def test_a_container_that_still_mounts_the_trial_is_an_error(
   source = str(out.resolve() / "job" / "task__abc" / "verifier")
   _ = (fakes[1].parent / "mounts.json").write_text(json.dumps({"v": [source]}))
   _ = (fakes[1].parent / "stuck").write_text("")
-  with pytest.raises(RuntimeError, match="containers still mount"):
+  with pytest.raises(DockerError, match="containers still mount"):
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
 
 
@@ -967,8 +1153,9 @@ def test_a_container_gone_before_it_is_inspected_is_passed_over(
 ) -> None:
   out = outdir(tmp_path)
   source = str(out.resolve() / "job" / "task__abc" / "verifier")
-  mounts = {"gone": None, "verifier": [source]}
+  mounts = {"gone": [source], "verifier": [source]}
   _ = (fakes[1].parent / "mounts.json").write_text(json.dumps(mounts))
+  _ = (fakes[1].parent / "gone.json").write_text(json.dumps(["gone"]))
   result = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
   assert result.exception is None
   assert ["container", "rm", "-f", "verifier"] in docker_calls(fakes)
@@ -977,11 +1164,68 @@ def test_a_container_gone_before_it_is_inspected_is_passed_over(
 def test_any_other_error_of_docker_inspect_is_an_error(
   tmp_path: Path, fakes: tuple[Path, Path]
 ) -> None:
-  mounts = {"gone": None, "other": [str(tmp_path)]}
+  out = outdir(tmp_path)
+  source = str(out.resolve() / "job" / "task__abc" / "verifier")
+  mounts = {"gone": [source], "verifier": [source]}
   _ = (fakes[1].parent / "mounts.json").write_text(json.dumps(mounts))
+  _ = (fakes[1].parent / "gone.json").write_text(json.dumps(["gone"]))
   _ = (fakes[1].parent / "inspect-error").write_text("permission denied")
-  with pytest.raises(RuntimeError, match="docker container inspect failed"):
-    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
+  with pytest.raises(DockerError, match="docker container inspect failed"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+
+
+def test_only_containers_that_ls_shows_mounting_the_trial_are_inspected(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  # Docker cannot inspect a container of another trial in time; that holds up
+  # only that trial's cleanup.
+  out = outdir(tmp_path)
+  root = out.resolve()
+  mounts = {
+    "verifier": [str(tmp_path / "a,b"), str(root / "job" / "t" / "verifier")],
+    "whole": [str(root)],
+    "next-door": [f"{root}-2/job", f"{root}x"],
+    "other": [str(tmp_path), "/var/lib/docker/volumes/v/_data"],
+  }
+  _ = (fakes[1].parent / "mounts.json").write_text(json.dumps(mounts))
+  result = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  assert result.exception is None
+  inspected = [call for call in docker_calls(fakes) if call[1] == "inspect"]
+  assert inspected[0] == ["container", "inspect", "verifier", "whole"]
+  assert ["container", "rm", "-f", "verifier", "whole"] in docker_calls(fakes)
+  left = json.loads((fakes[1].parent / "mounts.json").read_text())
+  assert set(left) == {"next-door", "other"}
+
+
+@pytest.mark.parametrize(
+  "slow", ["container-ls", "container-inspect", "image-ls"]
+)
+def test_docker_past_its_timeout_in_the_cleanup_is_a_docker_error(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+  slow: str,
+) -> None:
+  monkeypatch.setattr(harbor, "DOCKER_TIMEOUT", 0.5)
+  out = outdir(tmp_path)
+  source = str(out.resolve() / "job" / "task__abc" / "verifier")
+  _ = (fakes[1].parent / "mounts.json").write_text(json.dumps({"v": [source]}))
+  _ = (fakes[1].parent / f"slow-{slow}").write_text("")
+  with pytest.raises(DockerError, match="ran past"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+
+
+def test_a_cleanup_past_its_timeout_raises_what_callers_caught_before(
+  fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # A timeout raised subprocess.TimeoutExpired, and a container left a
+  # RuntimeError; a caller that caught either still catches DockerError.
+  monkeypatch.setattr(harbor, "DOCKER_TIMEOUT", 0.5)
+  _ = (fakes[1].parent / "slow-network-ls").write_text("")
+  with pytest.raises(DockerError, match=r"ran past 0\.5 s") as caught:
+    _ = harbor.cleanup("dataforge.trial=x", str(fakes[1]))
+  assert isinstance(caught.value, subprocess.SubprocessError)
+  assert isinstance(caught.value, RuntimeError)
 
 
 def test_an_entry_of_a_trial_that_is_no_file_directory_or_link_is_removed(
