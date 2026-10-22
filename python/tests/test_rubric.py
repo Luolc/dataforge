@@ -408,12 +408,32 @@ def test_a_review_that_hit_its_own_cap_is_not_retried(
   passed = verdicts(sound=PASS, tidy=PASS)
   judges = Capped({"tests": [("failed", "")], "docs": [("ok", passed)]})
   attempt = machine(rubric_state(tmp_path, judges, task)).run(tmp_path / "a")
-  assert attempt.status == "errored"
+  assert attempt.status == "budget"
   assert len(judges.starts["tests"]) == 1
   assert (
     "It was not retried: it hit its own spend cap, which a retry would hit"
     + " again."
   ) in report(attempt)
+
+
+@pytest.mark.parametrize(
+  ("docs", "status"), [("budget", "budget"), ("model", "errored")]
+)
+def test_reviews_that_hit_their_own_caps_end_the_attempt_with_budget(
+  tmp_path: Path, task: Path, docs: str, status: str
+) -> None:
+  faults = {"tests": "budget", "docs": docs}
+
+  class Faulted(Judges):
+    @override
+    def start(self, spec: AgentSpec, task: AgentTask, env: Env) -> AgentRun:
+      run = super().start(spec, task, env)
+      assert spec.name is not None
+      return replace(run, fault=faults[spec.name])
+
+  judges = Faulted({"tests": [("failed", "")], "docs": [("failed", "")] * 2})
+  attempt = machine(rubric_state(tmp_path, judges, task)).run(tmp_path / "a")
+  assert (attempt.status, attempt.visits[0].outcome) == (status, "error")
 
 
 @pytest.mark.parametrize(("max_cost_usd", "retried"), [(1.0, 1), (0.99, 0)])
