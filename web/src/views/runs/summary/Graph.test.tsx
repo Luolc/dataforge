@@ -9,6 +9,7 @@ import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.j
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
 import { must, sampleProject } from "../../../../fixtures/sample";
 import { type Project, record } from "../../../api/types";
+import { TEMPLATES } from "../../../ui/template";
 import { Graph } from "./Graph";
 import { type Layout, layout } from "./graph";
 
@@ -186,32 +187,7 @@ describe("the machine's graph", () => {
   });
 });
 
-describe("edges that share a lane", () => {
-  // Dashes line up only when every edge in the lane starts where the others
-  // do: at the state they go back to.
-  it("start at the state they go back to, so their dashes stay dashes", () => {
-    const { graph } = show(early);
-    const back = [...graph.querySelectorAll('[data-taken="false"]')].filter(
-      (g) => {
-        const [from, to] = (g.getAttribute("data-edge") ?? "").split("\0");
-        return to === "draft" && from !== "draft";
-      },
-    );
-    const starts = back.map(
-      (g) =>
-        /^M[\d.]+ [\d.]+/.exec(
-          g.querySelector("path")?.getAttribute("d") ?? "",
-        )?.[0],
-    );
-
-    expect(back.length).toBeGreaterThan(3);
-    expect(new Set(starts).size).toBe(1);
-    for (const g of back)
-      expect(g.querySelector("path")?.getAttribute("class")).toContain(
-        "stroke-dasharray",
-      );
-  });
-
+describe("edges not taken", () => {
   it("are drawn under the taken ones, lit or not", () => {
     const { graph, edge, node } = show(busy);
     // Draft's edges back include ones not taken, now lit.
@@ -276,10 +252,40 @@ describe("what was not run or not taken, at rest", () => {
 
     expect(text.length).toBeGreaterThan(0);
     expect(lines.length).toBeGreaterThan(0);
-    for (const c of [...text, ...labels])
+    // A state not run is filled with app, and the graph is drawn on card.
+    for (const c of text)
       expect(contrast(hex(c), hex("app"))).toBeGreaterThanOrEqual(4.5);
+    for (const c of labels)
+      expect(contrast(hex(c), hex("card"))).toBeGreaterThanOrEqual(4.5);
     for (const c of lines)
-      expect(contrast(hex(c), hex("app"))).toBeGreaterThanOrEqual(3);
+      for (const ground of ["app", "card"])
+        expect(contrast(hex(c), hex(ground))).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// Each colour template's value of a token: the root's, else contrast's.
+const templateHex = (template: string, name: string) => {
+  const block =
+    new RegExp(`html\\[data-template="${template}"\\] \\{([^}]*)\\}`).exec(
+      theme,
+    )?.[1] ?? "";
+  return (
+    new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6});`).exec(block)?.[1] ??
+    hex(name)
+  );
+};
+
+describe("the graph's ground", () => {
+  it("is the card's body, as the Deliverables table's is, not its head", () => {
+    const { graph } = show(early);
+    const frame = must(graph.parentElement);
+
+    expect(frame).toHaveClass("bg-card");
+    expect(frame).not.toHaveClass("bg-app");
+    for (const { id: template } of TEMPLATES)
+      expect(templateHex(template, "card")).not.toBe(
+        templateHex(template, "head"),
+      );
   });
 });
 

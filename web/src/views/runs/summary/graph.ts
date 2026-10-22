@@ -1,9 +1,9 @@
 // The layout of the machine's graph and the transitions an attempt took. The
-// states sit in one row in the graph's order, then the end, each a card with a
-// port on either side. An edge to the next node runs straight between their
-// ports; an edge further forward runs above the row, an edge back below it,
-// in one lane for all the edges back to its state; an edge to its own state
-// is a loop over the card.
+// states, then the end, are cards in layers from left to right (layered.ts),
+// in the graph's order where the transitions allow; an edge against that
+// order runs right to left. Each edge leaves and reaches a card at a port of
+// its own on the card's side, its label beside the card it leaves; an edge
+// to its own state is a loop over the card, its label beside the loop.
 
 import type { AttemptRecord, Current, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
@@ -16,23 +16,29 @@ import {
   stateTitle,
   statusOf,
 } from "../../../ui/status";
+import { layered } from "./layered";
 
 export const END = "\0end";
 
 const W = 168;
 const H = 56;
-const GAP = 88;
-const X0 = 32;
-/** How far apart the lanes above and below the row run. */
-const LANE = 36;
-/** How far the lane nearest the row runs from the cards. */
-const NEAR = 22;
 /** The radius of an edge's corners. */
 const R = 8;
 /** The width of a character of a card's title, for its card's width. */
 const CHAR = 8.2;
-/** How far apart the edges that leave or reach one side of a card run. */
-const STEP = 14;
+/**
+ * The height of a line of an edge's label, how far its baseline sits above
+ * the line's bottom, and the most a character of it is wide.
+ */
+export const LINE = 14;
+const DESCENT = 4;
+const LABEL_CHAR = 7;
+/** How high a loop rises, how wide it is, and where it sits on the card. */
+const LOOP = 30;
+const LOOP_WIDTH = 28;
+const LOOP_RIGHT = 16;
+/** How far a loop's label keeps from the loop. */
+const LOOP_GAP = 6;
 
 interface Node {
   key: string;
@@ -40,6 +46,8 @@ interface Node {
   y: number;
   width: number;
   height: number;
+  /** Where its edges leave it, from its top left. */
+  ports: [number, number][];
   title: string;
   /** Runs and their total time, or the end's status; Not run when none. */
   sub: string;
@@ -74,8 +82,6 @@ export interface Edge {
   to: string;
   path: string;
   taken: boolean;
-  /** An edge back, drawn from its end, with its arrow at the path's start. */
-  back: boolean;
   label: {
     x: number;
     y: number;
@@ -125,29 +131,6 @@ export function takenCounts(
   return counts;
 }
 
-/**
- * Give each span, shortest first, the innermost lane where it overlaps no
- * span already there, so that a shorter edge never crosses a longer one's
- * corner; returns each span's lane, from 0, in the order given.
- */
-export function lanes(spans: [number, number][]): number[] {
-  const byLength = spans
-    .map((s, i) => ({ s, i }))
-    .sort((a, b) => {
-      const byLength = a.s[1] - a.s[0] - (b.s[1] - b.s[0]);
-      return byLength !== 0 ? byLength : a.s[0] - b.s[0];
-    });
-  const taken: [number, number][][] = [];
-  const lane = new Array<number>(spans.length).fill(0);
-  for (const { s, i } of byLength) {
-    let n = taken.findIndex((l) => l.every(([a, b]) => s[1] <= a || s[0] >= b));
-    if (n < 0) n = taken.push([]) - 1;
-    taken[n]?.push(s);
-    lane[i] = n;
-  }
-  return lane;
-}
-
 // A path through the given corners, each rounded by R.
 function rounded(points: [number, number][]): string {
   const [first, ...rest] = points;
@@ -180,12 +163,18 @@ export function layout(
   const graph = record.graph;
   if (!graph) return null;
   const order = [...graph.states.map((s) => s.name), END];
-  const at = (key: string) => order.indexOf(key);
   const taken = takenCounts(record, project, current);
   const attemptEnded = attemptStatus(project, record) !== null;
 
   const nodes = order.map((key): Node => {
-    const box = { key, x: 0, y: 0, width: W, height: H };
+    const box = {
+      key,
+      x: 0,
+      y: 0,
+      width: W,
+      height: H,
+      ports: [] as [number, number][],
+    };
     if (key === END) {
       const end = endWord(project, record);
       const ended = end !== null;
@@ -245,14 +234,6 @@ export function layout(
       running: null,
     };
   });
-  let left = X0;
-  for (const node of nodes) {
-    node.width = Math.max(W, Math.ceil(56 + node.title.length * CHAR + 48));
-    node.x = left;
-    left += node.width + GAP;
-  }
-  const box = (key: string) => must(nodes[at(key)]);
-
   // Transitions between the same two nodes share one edge.
   const groups = new Map<
     string,
@@ -268,154 +249,102 @@ export function layout(
     });
     groups.set(key, group);
   }
-  const all = [...groups.entries()].map(([key, g]) => ({
-    key,
-    ...g,
-    span: at(g.to) - at(g.from),
-  }));
-  const back = all.filter((g) => g.span < 0);
-  const ahead = all.filter((g) => g.span > 1);
 
-  // The edges back to one state share a lane, from that state to the
-  // furthest one they leave from.
-  const targets = [...new Set(back.map((g) => g.to))];
-  const backLane = new Map(
-    lanes(
-      targets.map((t): [number, number] => [
-        at(t),
-        Math.max(...back.filter((g) => g.to === t).map((g) => at(g.from))),
-      ]),
-    ).map((l, i) => [targets[i], l]),
+  // A card is wide enough for its title, and for its loop's label beside
+  // the loop over it.
+  const loops = new Map(
+    [...groups.values()]
+      .filter((g) => g.from === g.to)
+      .map((g) => [g.from, g.parts]),
   );
-  const aheadLane = lanes(ahead.map((g) => [at(g.from), at(g.to)]));
-  const aheadCount = Math.max(0, ...aheadLane.map((l) => l + 1));
-  const backCount = Math.max(0, ...[...backLane.values()].map((l) => l + 1));
-
-  const loops = all.some((g) => g.span === 0);
-  const top = 24 + Math.max(aheadCount * LANE, loops ? 34 : 0) + NEAR;
-  const row = top + H / 2;
-  const bottom = top + H;
-  const height = bottom + backCount * LANE + 28;
-  const width = left - GAP + X0;
-  for (const node of nodes) node.y = top;
-
-  // Where the edges leave and reach a card's bottom (back) or top (ahead):
-  // the one in the outer lane further from the edge's other end, so that
-  // no two cross.
-  const slot = (
-    list: { key: string; lane: number }[],
-    key: string,
-    farFirst: boolean,
-  ) => {
-    const sorted = [...list].sort((a, b) =>
-      farFirst ? b.lane - a.lane : a.lane - b.lane,
+  for (const node of nodes) {
+    const loop = loops.get(node.key);
+    node.width = Math.max(
+      W,
+      Math.ceil(56 + node.title.length * CHAR + 48),
+      loop ? labelWidth(loop) + LOOP_WIDTH + LOOP_RIGHT + LOOP_GAP + 8 : 0,
     );
-    return sorted.findIndex((s) => s.key === key);
-  };
+  }
 
-  // The i-th of n points spread left to right about a card's middle.
-  const spread = (node: Node, n: number, i: number) => {
-    const step = Math.min(STEP, (node.width - 32) / Math.max(1, n - 1));
-    return node.x + node.width / 2 - ((n - 1) * step) / 2 + i * step;
-  };
+  const others = [...groups.entries()].filter(([, g]) => g.from !== g.to);
+  const drawn = layered(
+    nodes.map((n) => ({
+      key: n.key,
+      width: n.width,
+      height: H,
+      above: loops.has(n.key)
+        ? Math.max(LOOP, must(loops.get(n.key)).length * LINE + 6)
+        : 0,
+    })),
+    others.map(([key, g]) => ({
+      key,
+      from: g.from,
+      to: g.to,
+      label: { width: labelWidth(g.parts), height: g.parts.length * LINE },
+    })),
+  );
+  for (const node of nodes) {
+    const at = must(drawn.boxes.get(node.key));
+    node.x = at.x;
+    node.y = at.y;
+    node.height = at.height;
+  }
+  const box = (key: string) => must(nodes.find((n) => n.key === key));
 
-  const edges = all.map((g): Edge => {
+  const edges = [...groups.entries()].map(([key, g]): Edge => {
     const on = g.parts.some((p) => p.taken > 0);
-    const from = box(g.from);
-    const to = box(g.to);
-    const common = { key: g.key, from: g.from, to: g.to, taken: on };
-    if (g.span === 0) {
-      const a = from.x + from.width - 44;
-      const b = from.x + from.width - 16;
-      const y = top;
+    const common = { key, from: g.from, to: g.to, taken: on };
+    if (g.from === g.to) {
+      // A loop over the card's right end, its label left of it.
+      const node = box(g.from);
+      const b = node.x + node.width - LOOP_RIGHT;
+      const a = b - LOOP_WIDTH;
+      const y = node.y;
       return {
         ...common,
-        back: false,
-        path: `M${a} ${y} C ${a} ${y - 30}, ${b} ${y - 30}, ${b} ${y - 3}`,
+        path: `M${a} ${y} C ${a} ${y - LOOP}, ${b} ${y - LOOP}, ${b} ${y - 3}`,
         label: {
-          x: a - 4,
-          y: y - 14,
+          x: a - LOOP_GAP,
+          y: y - 6,
           anchor: "end",
-          stack: false,
-          parts: g.parts,
-        },
-      };
-    }
-    if (g.span === 1) {
-      const x0 = from.x + from.width;
-      return {
-        ...common,
-        back: false,
-        path: `M${x0} ${row} H ${to.x - 3}`,
-        label: {
-          x: x0 + GAP / 2,
-          y: row - 8,
-          anchor: "middle",
           stack: true,
           parts: g.parts,
         },
       };
     }
-    if (g.span > 1) {
-      const lane = aheadLane[ahead.indexOf(g)] ?? 0;
-      const y1 = top - NEAR - lane * LANE;
-      const outs = ahead
-        .filter((o) => o.from === g.from)
-        .map((o) => ({ key: o.key, lane: aheadLane[ahead.indexOf(o)] ?? 0 }));
-      const ins = ahead
-        .filter((o) => o.to === g.to)
-        .map((o) => ({ key: o.key, lane: aheadLane[ahead.indexOf(o)] ?? 0 }));
-      const a = from.x + from.width - 24 - slot(outs, g.key, true) * STEP;
-      const b = to.x + 24 + slot(ins, g.key, true) * STEP;
-      return {
-        ...common,
-        back: false,
-        path: rounded([
-          [a, top],
-          [a, y1],
-          [b, y1],
-          [b, top - 3],
-        ]),
-        label: {
-          x: a + 8,
-          y: y1 - 5,
-          anchor: "start",
-          stack: false,
-          parts: g.parts,
-        },
-      };
-    }
-    const lane = backLane.get(g.to) ?? 0;
-    const y1 = bottom + NEAR + lane * LANE;
-    const outs = back
-      .filter((o) => o.from === g.from)
-      .map((o) => ({ key: o.key, lane: backLane.get(o.to) ?? 0 }));
-    const a = spread(from, outs.length, slot(outs, g.key, false));
-    // Every edge back to a state reaches it at its middle.
-    const b = to.x + to.width / 2;
+    const r = must(drawn.links.get(key));
+    // A port where the edge leaves; its arrow marks where it arrives.
+    const [x, y] = r.ports[0];
+    const from = box(g.from);
+    from.ports.push([x - from.x, y - from.y]);
     return {
       ...common,
-      back: true,
-      // Drawn from the state it goes back to, so that the dashes of edges
-      // that share a lane line up and do not join into a solid line; the
-      // arrow is at the path's start.
-      path: rounded([
-        [b, bottom + 3],
-        [b, y1],
-        [a, y1],
-        [a, bottom],
-      ]),
+      path: rounded(r.points),
       label: {
-        x: a - 8,
-        y: y1 - 5,
-        anchor: "end",
-        stack: false,
+        x: r.back ? r.label.x + r.label.width : r.label.x,
+        // The baseline of the label's last line.
+        y: r.label.y + r.label.height - DESCENT,
+        anchor: r.back ? "end" : "start",
+        stack: true,
         parts: g.parts,
       },
     };
   });
 
-  return { width, height, nodes, edges };
+  return { width: drawn.width, height: drawn.height, nodes, edges };
+}
+
+/** How wide a label of these parts is, a part to a line. */
+function labelWidth(parts: LabelPart[]): number {
+  return Math.max(
+    0,
+    ...parts.map((p) =>
+      Math.ceil(
+        (p.outcome.length + (p.taken > 0 ? 3 + String(p.taken).length : 0)) *
+          LABEL_CHAR,
+      ),
+    ),
+  );
 }
 
 function must<T>(value: T | undefined): T {

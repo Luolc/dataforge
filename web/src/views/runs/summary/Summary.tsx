@@ -66,9 +66,7 @@ export function Summary({
         {machine ? (
           <Graph project={project} layout={machine} runHref={runHref} />
         ) : (
-          <p className="rounded-b-panel bg-app p-4 text-fg-3">
-            This record has no graph.
-          </p>
+          <p className="p-4 text-fg-3">This record has no graph.</p>
         )}
       </Card>
       <Summaries project={project} record={record} runHref={runHref} />
