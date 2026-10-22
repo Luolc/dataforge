@@ -3,7 +3,9 @@
 # pyright: reportAny=false, reportPrivateUsage=false
 # Harbor is a development dependency only; its classes are typed loosely.
 
-"""Harbor's Docker environment as dataforge gives it: no probe for no-network.
+"""Harbor's Docker environment as dataforge gives it.
+
+It runs no probe for no-network, and puts a tmpfs at /tmp of the task's main.
 
 A Docker daemon that took longer than Harbor's 30 s to run the probe's
 container made Harbor's own environment refuse every task that asks for no
@@ -11,11 +13,17 @@ network; dataforge's runs no probe, also for a separate verifier, which Harbor
 makes from the same configuration.
 """
 
+import asyncio
 from collections.abc import Generator
 from importlib import metadata
+import inspect
+import json
+import logging
 from pathlib import Path
 import subprocess
 
+from harbor.cli.utils import parse_kwargs
+from harbor.environments.base import ExecResult
 from harbor.environments.docker.docker import (
   DockerEnvironment as HarborDockerEnvironment,
 )
@@ -27,10 +35,12 @@ from harbor.models.task.config import (
 )
 from harbor.models.trial.config import EnvironmentConfig as TrialEnvironment
 from harbor.models.trial.paths import TrialPaths
+from harbor.trial.trial import Trial
 import pytest
+import yaml
 
 from dataforge.curation import harbor
-from dataforge.curation.harbor_env import DockerEnvironment
+from dataforge.curation.harbor_env import DockerEnvironment, OOM_KILLED
 
 NO_NETWORK = NetworkPolicy(network_mode=NetworkMode.NO_NETWORK)
 
@@ -129,3 +139,199 @@ def test_a_separate_verifier_gets_dataforges_by_its_import_path(
   assert type(env) is DockerEnvironment
   assert slow_docker == []
   assert env._enable_egress_control
+
+
+TMPFS = ["/tmp:size=2147483648,mode=1777,exec"]
+
+
+def compose_files(env: HarborDockerEnvironment) -> list[Path]:
+  # The -f files of the compose commands Harbor runs for the environment.
+  seen: list[list[str]] = []
+
+  async def exec_(*argv: str, **_kwargs: object) -> None:
+    seen.append(list(argv))
+    raise OSError("no docker here")
+
+  with pytest.MonkeyPatch.context() as patch:
+    patch.setattr(asyncio, "create_subprocess_exec", exec_)
+    with pytest.raises(OSError, match="no docker here"):
+      _ = asyncio.run(env._run_docker_compose_command(["config"]))
+  [argv] = seen
+  return [Path(argv[i + 1]) for i, arg in enumerate(argv) if arg == "-f"]
+
+
+def harbors_files(env: DockerEnvironment) -> list[Path]:
+  return super(DockerEnvironment, env)._docker_compose_paths
+
+
+def added(env: object) -> dict[str, object] | None:
+  # The services of the compose file dataforge's environment adds after
+  # Harbor's, or None when it adds none.
+  assert isinstance(env, DockerEnvironment)
+  files = compose_files(env)
+  harbors = harbors_files(env)
+  if files == harbors:
+    return None
+  *before, ours = files
+  assert before == harbors
+  return json.loads(ours.read_text())["services"]
+
+
+def with_tmpfs(
+  tmp_path: Path, tmpfs_mb: int | None, directory: Path | None = None
+) -> DockerEnvironment:
+  return DockerEnvironment(
+    environment_dir=directory or environment_dir(tmp_path),
+    environment_name="task",
+    session_id="task__1__env",
+    trial_paths=trial_paths(tmp_path),
+    task_env_config=EnvironmentConfig(),
+    network_policy=NO_NETWORK,
+    tmpfs_mb=tmpfs_mb,
+  )
+
+
+@pytest.mark.usefixtures("slow_docker")
+def test_harbor_takes_its_compose_files_from_the_property_dataforges_extends(
+  tmp_path: Path,
+) -> None:
+  assert metadata.version("harbor") == "0.24.0"
+  assert isinstance(
+    vars(HarborDockerEnvironment)["_docker_compose_paths"], property
+  )
+  harbors = HarborDockerEnvironment(
+    environment_dir=environment_dir(tmp_path),
+    environment_name="task",
+    session_id="task__1__env",
+    trial_paths=trial_paths(tmp_path),
+    task_env_config=EnvironmentConfig(),
+  )
+  assert compose_files(harbors) == harbors._docker_compose_paths
+
+
+@pytest.mark.usefixtures("slow_docker")
+def test_main_gets_a_tmpfs_at_tmp_and_the_sidecar_none(tmp_path: Path) -> None:
+  env = with_tmpfs(tmp_path, 2048)
+  assert env._enable_egress_control
+  assert added(env) == {"main": {"tmpfs": TMPFS}}
+
+
+@pytest.mark.parametrize("tmpfs_mb", [None, 0])
+@pytest.mark.usefixtures("slow_docker")
+def test_without_a_size_the_compose_files_are_harbors(
+  tmp_path: Path, tmpfs_mb: int | None
+) -> None:
+  assert added(with_tmpfs(tmp_path, tmpfs_mb)) is None
+  plain = tmp_path / "plain"
+  plain.mkdir()
+  assert added(make(DockerEnvironment, plain)) is None
+
+
+@pytest.mark.parametrize(
+  "main",
+  [
+    {"tmpfs": "/tmp"},
+    {"tmpfs": ["/run", "/tmp:size=64m"]},
+    {"volumes": ["scratch:/tmp"]},
+    {"volumes": ["/tmp"]},
+    {"volumes": [{"type": "tmpfs", "target": "/tmp"}]},
+  ],
+)
+@pytest.mark.usefixtures("slow_docker")
+def test_a_task_that_mounts_its_own_tmp_gets_no_tmpfs(
+  tmp_path: Path, main: dict[str, object]
+) -> None:
+  directory = environment_dir(tmp_path)
+  services = {"services": {"main": main}}
+  _ = (directory / "docker-compose.yaml").write_text(yaml.safe_dump(services))
+  assert added(with_tmpfs(tmp_path, 2048, directory)) is None
+
+
+@pytest.mark.usefixtures("slow_docker")
+def test_a_task_that_mounts_elsewhere_still_gets_the_tmpfs(
+  tmp_path: Path,
+) -> None:
+  directory = environment_dir(tmp_path)
+  main = {"tmpfs": "/run", "volumes": ["data:/data", "/tmp/x:/x"]}
+  services = {"services": {"main": main, "db": {"tmpfs": "/tmp"}}}
+  _ = (directory / "docker-compose.yaml").write_text(yaml.safe_dump(services))
+  assert added(with_tmpfs(tmp_path, 2048, directory)) == {
+    "main": {"tmpfs": TMPFS}
+  }
+
+
+@pytest.mark.usefixtures("slow_docker")
+def test_a_separate_verifier_gets_the_tmpfs_of_the_run(tmp_path: Path) -> None:
+  # `--ek` as HarborRunner passes it, read as `harbor run` reads it
+  # (`harbor/cli/jobs.py:1749-1752`), into the configuration from which Harbor
+  # makes a separate verifier's environment, dropping only the run's compose
+  # files (`harbor/trial/trial.py:977-979`).
+  source = inspect.getsource(Trial._separate_verifier_env)
+  assert (
+    'model_copy(\n            update={"extra_docker_compose": []}' in source
+  )
+  config = TrialEnvironment(
+    type=None,
+    import_path=harbor.DOCKER_ENVIRONMENT,
+    kwargs=parse_kwargs(["tmpfs_mb=2048"]),
+    extra_docker_compose=[tmp_path / "overlay.json"],
+  )
+  env = EnvironmentFactory.create_environment_from_config(
+    config=config.model_copy(update={"extra_docker_compose": []}),
+    stream=False,
+    environment_dir=environment_dir(tmp_path),
+    environment_name="task",
+    session_id="task__1__verifier__0",
+    trial_paths=trial_paths(tmp_path),
+    task_env_config=EnvironmentConfig(),
+    network_policy=NO_NETWORK,
+    phase_network_policies=[NO_NETWORK],
+  )
+  assert type(env) is DockerEnvironment
+  assert added(env) == {"main": {"tmpfs": TMPFS}}
+
+
+@pytest.mark.parametrize(
+  ("inspected", "logged"),
+  [
+    ("true\n", [f"dataforge: main of task__1__env {OOM_KILLED}"]),
+    ("false\n", []),
+  ],
+)
+@pytest.mark.usefixtures("slow_docker")
+def test_stop_says_in_the_log_when_main_was_killed_for_memory(
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+  inspected: str,
+  logged: list[str],
+) -> None:
+  env = with_tmpfs(tmp_path, 2048)
+  calls: list[list[str]] = []
+
+  async def compose(command: list[str], **_kwargs: object) -> ExecResult:
+    calls.append(command)
+    return ExecResult(stdout="c1\n", return_code=0)
+
+  class Inspect:
+    async def communicate(self) -> tuple[bytes, bytes]:
+      return inspected.encode(), b""
+
+  async def exec_(*argv: str, **_kwargs: object) -> Inspect:
+    calls.append(list(argv))
+    return Inspect()
+
+  async def stop(_self: object, delete: bool) -> None:
+    calls.append(["harbor stop", str(delete)])
+
+  monkeypatch.setattr(env, "_run_docker_compose_command", compose)
+  monkeypatch.setattr(asyncio, "create_subprocess_exec", exec_)
+  monkeypatch.setattr(HarborDockerEnvironment, "stop", stop)
+  with caplog.at_level(logging.WARNING):
+    asyncio.run(env.stop(delete=True))
+  assert calls == [
+    ["ps", "--all", "--quiet", "main"],
+    ["docker", "inspect", "--format", "{{.State.OOMKilled}}", "c1"],
+    ["harbor stop", "True"],
+  ]
+  assert [r.getMessage() for r in caplog.records] == logged

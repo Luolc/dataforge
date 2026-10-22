@@ -43,8 +43,8 @@ The schema, version 1:
         #   continue_session, min_fix_usd, serve, spent
         # harbor: harbor, cpus, cpu_shares, pids, sidecar {cpus, memory_mb},
         #   timeout, mounts, env, pass_env, compose_overlay [<path> | <hook>],
-        #   setup, docker; not verifier or environment, which only Python
-        #   sets
+        #   setup, docker; not verifier, environment or tmpfs_mb, which
+        #   only Python sets
   states:
     <name>:
       uses: agent | script | judge | trial | pass-at-k | trials | rubric
@@ -1226,8 +1226,8 @@ _HARBOR: dict[str, _Read] = {
 }
 """HarborRunner's fields that a declaration sets besides harbor, env, pass_env.
 
-Only Python sets verifier and environment; a declaration that names either is
-refused as an unknown field.
+Only Python sets verifier, environment and tmpfs_mb; a declaration that
+names one is refused as an unknown field.
 """
 
 
