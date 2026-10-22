@@ -138,3 +138,15 @@ def test_remove_deletes_matches_through_no_link(tmp_path: Path):
   ]
   assert (app / "build/keep.txt").exists()
   assert (outside / "r.xml").exists()
+
+
+def test_remove_never_deletes_the_project_or_its_git(tmp_path: Path):
+  app = tmp_path / "app"
+  _ = commit(app, {"a.txt": "", "sub/b.txt": ""})
+  write(app, {"sub/.git": "gitdir: elsewhere\n"})
+  hooks = sorted(os.listdir(app / ".git/hooks"))
+  assert remove(app, [".git", ".git/hooks/*", "sub/.git"]) == []
+  assert remove(app, ["**/.*"]) == []
+  assert remove(app, ["*", "**"]) == ["a.txt", "sub"]
+  assert app.is_dir()
+  assert sorted(os.listdir(app / ".git/hooks")) == hooks

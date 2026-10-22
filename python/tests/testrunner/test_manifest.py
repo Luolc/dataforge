@@ -239,6 +239,7 @@ def test_load_reads_run_groups_restore_and_expect():
       "run 2 (a): named twice",
     ),
     ('[restore]\npaths = ["a/**b"]\n', "restore: paths: 'a/**b' is not a glob"),
+    ('[restore]\npaths = ["sub/.git"]\n', "'sub/.git' is not a glob"),
     ("[restore]\nmore = 1\n", "restore: unknown key 'more'"),
   ],
 )

@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from dataforge.testrunner import files, junit
+from dataforge.testrunner import files, junit, parse
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.parse import read, ReportError
 from tests.testrunner.projects import write
@@ -42,6 +42,7 @@ def test_ctrf_reads_name_and_status_and_rawstatus_only_makes_it_worse(
     {"name": "c", "status": "other", "message": 3},
     {"name": "d", "status": "passed", "rawStatus": "error"},
     {"name": "e", "status": "failed", "rawStatus": "AssertionError"},
+    {"name": "f", "status": "skipped"},
   ]
   write(tmp_path, {"r.json": json.dumps({"results": {"tests": tests}})})
   assert read("ctrf", tmp_path) == [
@@ -50,6 +51,7 @@ def test_ctrf_reads_name_and_status_and_rawstatus_only_makes_it_worse(
     Case("c", "failed"),
     Case("d", "failed", error=True),
     Case("e", "failed"),
+    Case("f", "skipped"),
   ]
 
 
@@ -68,6 +70,28 @@ def test_a_ctrf_report_not_of_its_shape_cannot_be_read(
   write(tmp_path, {"r.json": text})
   with pytest.raises(ReportError, match=problem):
     _ = read("ctrf", tmp_path)
+
+
+def test_a_file_over_the_limit_cannot_be_read(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  text = '{"results": {"tests": []}}'
+  monkeypatch.setattr(parse, "LIMIT", len(text))
+  write(tmp_path, {"a/r.json": text, "b/r.json": text + " "})
+  assert read("ctrf", tmp_path / "a") == []
+  with pytest.raises(ReportError, match=r"r\.json is over 26 bytes"):
+    _ = read("ctrf", tmp_path / "b")
+
+
+def test_a_junit_name_must_be_one_line(tmp_path: Path):
+  write(
+    tmp_path, {"r.xml": '<testsuite><testcase name="a&#10;b"/></testsuite>'}
+  )
+  with pytest.raises(ReportError, match="no one-line name"):
+    _ = read("junit", tmp_path)
+  write(tmp_path, {"r.xml": '<testsuite><testcase classname="c"/></testsuite>'})
+  with pytest.raises(ReportError, match="no one-line name"):
+    _ = read("junit", tmp_path)
 
 
 def test_a_report_not_in_utf_8_cannot_be_read(tmp_path: Path):

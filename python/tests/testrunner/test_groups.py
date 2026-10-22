@@ -2,7 +2,10 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from dataforge.testrunner import ctrf
+from dataforge.testrunner import run as runs
 from dataforge.testrunner.manifest import load
 from dataforge.testrunner.run import Results, run
 from tests.testrunner.projects import write
@@ -269,3 +272,12 @@ id = "t.py::test_a"
     "runner": "pytest",
     "run": "unit",
   }
+
+
+def test_a_group_keeps_at_most_the_limit_of_unlisted_names(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  monkeypatch.setattr(runs, "UNLISTED_LIMIT", 1)
+  app, tests = project(tmp_path)
+  found = run(load(MANIFEST), tests=tests, app=app)
+  assert found.unlisted == [{"run": "rspec", "total": 2, "names": ["bare"]}]

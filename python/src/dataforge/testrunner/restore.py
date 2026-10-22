@@ -104,7 +104,7 @@ def remove(app: Path, globs: Iterable[str]) -> list[str]:
 
   Returns:
     The paths deleted, sorted; a directory is deleted with what it holds.
-    A `.git` directory is never looked into or deleted.
+    The project itself, and a `.git` or what it holds, is never deleted.
   """
   found = {p for one in globs for p in _matched(app, one)}
   done: list[str] = []
@@ -121,23 +121,25 @@ def remove(app: Path, globs: Iterable[str]) -> list[str]:
 
 
 def _matched(app: Path, one: str) -> set[str]:
-  # The paths a glob matches, walked from the directory its leading
-  # components name, through no link and not into a .git.
+  # The paths under the project a glob matches, walked from the directory
+  # its leading components name, through no link and not into a .git.
   start = app
   for part in glob.literal_prefix(one):
-    if not _is_dir(start):
+    if not _is_dir(start) or part == glob.GIT:
       return set()
     start = start / part
   if not os.path.lexists(start):
     return set()
   found: set[str] = set()
-  if matches(_rel(app, start), [one]):
+  if start != app and matches(_rel(app, start), [one]):
     found.add(_rel(app, start))
   if not _is_dir(start):
     return found
   for root, dirs, files in os.walk(start):
-    dirs[:] = [d for d in dirs if d != ".git"]
+    dirs[:] = [d for d in dirs if d != glob.GIT]
     for name in [*dirs, *files]:
+      if name == glob.GIT:
+        continue
       path = _rel(app, Path(root, name))
       if matches(path, [one]):
         found.add(path)

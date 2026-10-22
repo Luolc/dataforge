@@ -4,7 +4,8 @@ A glob is a path relative to the project's root, `/`-separated. `*`, `?` and
 `[...]` match within one component, never across a `/`, and `*` matches a
 leading `.` too; a component that is `**` matches any number of components,
 none among them. So `spec/**` matches `spec` and everything under it, and
-`**/conftest.py` a conftest.py anywhere.
+`**/conftest.py` a conftest.py anywhere. A glob never names a `.git`, so
+that what a manifest's globs delete is never a repository's own.
 """
 
 from __future__ import annotations
@@ -16,6 +17,9 @@ import re
 ANY = "**"
 """The component that matches any number of components."""
 
+GIT = ".git"
+"""The name a glob never names, and a path a glob matches never holds."""
+
 _MAGIC = re.compile(r"[*?[]")
 
 
@@ -26,13 +30,13 @@ def valid(value: object) -> str | None:
     value: The glob.
 
   Returns:
-    It, or None when it is not a string, is absolute, or has an empty, `.`
-    or `..` component, or one that holds `**` but is not `**`.
+    It, or None when it is not a string, is absolute, or has an empty, `.`,
+    `..` or `.git` component, or one that holds `**` but is not `**`.
   """
   if not isinstance(value, str):
     return None
   for part in value.split("/"):
-    if part in ("", ".", "..") or "\\" in part or "\0" in part:
+    if part in ("", ".", "..", GIT) or "\\" in part or "\0" in part:
       return None
     if ANY in part and part != ANY:
       return None

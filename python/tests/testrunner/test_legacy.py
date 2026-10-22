@@ -2,8 +2,10 @@
 
 fixtures/legacy-ctrf.json is what `python -m dataforge.testrunner` wrote for
 LEGACY_MANIFEST at the commit before run groups, its times set to 0 and the
-project's path to <app>; every runner runs, the ones not on this machine as
-stand-ins that write the reports in fixtures/.
+project's path to <app>. pytest runs for real; every other runner is a
+stand-in that writes a report of fixtures/, Node's those Node 26.12's own
+junit reporter wrote for NODE_TESTS, so that the report does not depend on
+the machine's Node.
 """
 
 import json
@@ -262,6 +264,20 @@ def _project(tmp_path: Path) -> tuple[Path, Path, Path]:
   _script(stubs / "go", f"cat {shlex.quote(str(render('go.jsonl', go)))}\n")
   cargo = (FIXTURES / "cargo-test.txt").read_text().replace("/w/", root + "/")
   _script(stubs / "cargo", f"cat {render('cargo.txt', cargo)}\n")
+  for name in ("a", "broken"):
+    node = (FIXTURES / f"node-{name}.xml").read_text()
+    _ = render(f"node-{name}.xml", node)
+  _script(
+    stubs / "node",
+    f"""for arg in "$@"; do
+  case "$arg" in --test-reporter-destination=stdout) ;;
+    --test-reporter-destination=*) out="${{arg#*=}}" ;; esac
+  file="$arg"
+done
+name=$(basename "$file" .test.js)
+cp {shlex.quote(str(data))}/node-"$name".xml "$out"
+""",
+  )
   _script(stubs / "cmake", "exit 0\n")
   ctest = render("ctest.xml", (FIXTURES / "ctest.xml").read_text())
   _script(
