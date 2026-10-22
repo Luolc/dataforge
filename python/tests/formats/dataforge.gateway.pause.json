@@ -1,0 +1,20 @@
+{
+  "format": "dataforge.gateway.pause",
+  "version": 1,
+  "facts": {
+    "channels": {"value": "CLAUDE, CODEX", "additive": false},
+    "field:backoff": {"value": "object", "additive": false},
+    "field:backoff/field:factor": {"value": "float", "additive": false},
+    "field:backoff/field:limit_s": {"value": "float | None", "additive": false},
+    "field:backoff/field:max_s": {"value": "float", "additive": false},
+    "field:backoff/field:start_s": {"value": "float", "additive": false},
+    "field:cause": {"value": "Literal['429', 'quota'] | None", "additive": false},
+    "field:delay": {"value": "float | None", "additive": false},
+    "field:paused_s": {"value": "float", "additive": false},
+    "field:refusal": {"value": "str | None", "additive": false},
+    "field:refusals": {"value": "int", "additive": false},
+    "field:since": {"value": "float | None", "additive": false},
+    "field:stopped": {"value": "str | None", "additive": false},
+    "field:until": {"value": "float", "additive": false}
+  }
+}

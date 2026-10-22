@@ -40,7 +40,6 @@ from pathlib import Path
 import signal
 import sqlite3
 import subprocess
-import sys
 import threading
 import time
 
@@ -53,6 +52,7 @@ from dataforge.queue.proc import (
   signal_group,
 )
 from dataforge.queue.store import connect, Job, select, write
+from dataforge.queue.wrapper import command
 from dataforge.runs import reconcile, Store
 
 _LOST = """
@@ -219,14 +219,9 @@ class Scheduler:
     cwd = os.path.realpath(job.cwd)
     log = Path(job.log)
     log.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    wrapper = [
-      sys.executable,
-      "-m",
-      "dataforge.queue.wrapper",
-      str(self.config.database.resolve()),
-      str(job.id),
-      str(self.config.cancel_grace_s),
-    ]
+    wrapper = command(
+      self.config.database.resolve(), job.id, self.config.cancel_grace_s
+    )
     now = self.clock()
     try:
       fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)

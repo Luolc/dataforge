@@ -1,0 +1,26 @@
+{
+  "format": "dataforge.queue.table",
+  "version": 1,
+  "facts": {
+    "table:jobs": {"value": "STRICT", "additive": true},
+    "table:jobs/column:argv": {"value": "argv TEXT NOT NULL", "additive": false},
+    "table:jobs/column:boot_id": {"value": "boot_id TEXT", "additive": true},
+    "table:jobs/column:cancel_requested_at": {"value": "cancel_requested_at REAL", "additive": true},
+    "table:jobs/column:cwd": {"value": "cwd TEXT NOT NULL", "additive": false},
+    "table:jobs/column:dedup_key": {"value": "dedup_key TEXT", "additive": true},
+    "table:jobs/column:ended_at": {"value": "ended_at REAL", "additive": true},
+    "table:jobs/column:exit_code": {"value": "exit_code INTEGER", "additive": true},
+    "table:jobs/column:id": {"value": "id INTEGER PRIMARY KEY AUTOINCREMENT", "additive": false},
+    "table:jobs/column:labels": {"value": "labels TEXT NOT NULL", "additive": false},
+    "table:jobs/column:log": {"value": "log TEXT NOT NULL", "additive": false},
+    "table:jobs/column:memory_mib": {"value": "memory_mib INTEGER NOT NULL", "additive": false},
+    "table:jobs/column:pid": {"value": "pid INTEGER", "additive": true},
+    "table:jobs/column:queue": {"value": "queue TEXT NOT NULL", "additive": false},
+    "table:jobs/column:queued_at": {"value": "queued_at REAL NOT NULL", "additive": false},
+    "table:jobs/column:started_at": {"value": "started_at REAL", "additive": true},
+    "table:jobs/column:starttime": {"value": "starttime INTEGER", "additive": true},
+    "table:jobs/column:state": {"value": "state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'done', 'failed', 'canceled'))", "additive": false},
+    "table:jobs/index:jobs_live_key": {"value": "CREATE UNIQUE INDEX jobs_live_key ON jobs (dedup_key) WHERE state IN ('queued', 'running')", "additive": false},
+    "table:jobs/index:jobs_state": {"value": "CREATE INDEX jobs_state ON jobs (state, queue, id)", "additive": true}
+  }
+}

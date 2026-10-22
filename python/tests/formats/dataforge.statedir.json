@@ -1,0 +1,27 @@
+{
+  "format": "dataforge.statedir",
+  "version": 1,
+  "facts": {
+    "builds": {"value": "directory", "additive": true},
+    "builds/.lock": {"value": "file", "additive": false},
+    "builds/lease-*": {"value": "holds 1", "additive": false},
+    "default": {"value": "~/.local/state/dataforge", "additive": false},
+    "memory": {"value": "directory", "additive": true},
+    "memory/.lock": {"value": "file", "additive": false},
+    "memory/lease-*": {"value": "holds 512", "additive": false},
+    "pause": {"value": "directory", "additive": true},
+    "pause/CLAUDE.json": {"value": "file", "additive": false},
+    "pause/CLAUDE.json.lock": {"value": "file", "additive": false},
+    "pause/CODEX.json": {"value": "file", "additive": false},
+    "pause/CODEX.json.lock": {"value": "file", "additive": false},
+    "queue database": {"value": "queue/queue.sqlite", "additive": false},
+    "queue logs": {"value": "queue/logs", "additive": false},
+    "sessions": {"value": "directory", "additive": true},
+    "sessions/CLAUDE": {"value": "directory", "additive": true},
+    "sessions/CLAUDE/.lock": {"value": "file", "additive": false},
+    "sessions/CLAUDE/lease-*": {"value": "holds 1", "additive": false},
+    "sessions/CODEX": {"value": "directory", "additive": true},
+    "variable": {"value": "DATAFORGE_STATE_DIR", "additive": false},
+    "xdg": {"value": "$XDG_STATE_HOME/dataforge", "additive": false}
+  }
+}

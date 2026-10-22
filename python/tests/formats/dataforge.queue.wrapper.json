@@ -1,0 +1,11 @@
+{
+  "format": "dataforge.queue.wrapper",
+  "version": 1,
+  "facts": {
+    "command": {"value": "<python> -m dataforge.queue.wrapper /queue.sqlite 7 30.0", "additive": false},
+    "env:DATAFORGE_JOB_ID": {"value": "the job's ID", "additive": true},
+    "env:DATAFORGE_QUEUE_DB": {"value": "the database", "additive": true},
+    "leader": {"value": "pid, start, boot", "additive": false},
+    "log": {"value": "<id>.log", "additive": false}
+  }
+}
