@@ -317,7 +317,19 @@ def test_an_on_ended_that_raises_for_a_given_up_row_leaves_the_new_attempt_be(
   old = store.get(stopped.id)
   assert old is not None
   assert old.settled_at is not None
-  assert f"on_ended {stopped.id}" in hooks.hook_calls("on_ended")
+  assert hooks.hook_calls("on_ended").count(f"on_ended {stopped.id}") == 2
+
+
+def test_an_exit_in_on_ended_for_a_given_up_row_is_not_swallowed(
+  store: Store, hooks: FakeHooks
+) -> None:
+  stopped = _stopped(store, hooks)
+  hooks.stop_in = "on_ended"
+  with pytest.raises(SystemExit):
+    _ = run_attempt(store, ITEM, hooks, go_on="never")
+  old = store.get(stopped.id)
+  assert old is not None
+  assert (old.state, old.settled_at) == ("ended", None)
 
 
 def test_an_attempt_does_not_start_while_its_item_runs(

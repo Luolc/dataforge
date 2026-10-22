@@ -221,14 +221,14 @@ class _Runner:
       if ended is None:
         return
       try:
-        settled = settle(self.store, self.hooks, ended)
+        clean = settle(self.store, self.hooks, ended)
       # The new attempt goes on; reconcile calls the dataset's on_ended again.
       except Exception:  # noqa: BLE001
         _log.exception(
           "%s: on_ended failed; reconcile calls it again", ended.id
         )
-        settled = True
-      if settled:
+        clean = True
+      if clean:
         _ = clean_up(self.store, self.hooks, ended, by="runner")
 
   def _machine(
