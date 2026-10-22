@@ -14,8 +14,12 @@ interrupted as they were, and held by no process.
 The schema and every statement that writes the store are in this file only.
 The schema only grows: a column added has a default and no constraint, and
 raises SCHEMA_MINOR, so that a writer of the version before runs as it did;
-any other change raises SCHEMA_MAJOR. A store whose schema_major is newer
-than this module's is read and never written (NewerSchemaError).
+any other change raises SCHEMA_MAJOR. A store made before is not given a
+column added since: the change that adds one also adds the code that adds it
+to such a store. Either change also changes the version of the format
+`dataforge.runs.store` (dataforge.formats), so that a switch of releases
+drains the queue first. A store whose schema_major is newer than this
+module's is read and never written (NewerSchemaError).
 """
 
 from collections.abc import Generator, Mapping, Sequence

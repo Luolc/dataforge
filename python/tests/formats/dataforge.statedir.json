@@ -1,0 +1,27 @@
+{
+  "format": "dataforge.statedir",
+  "version": 1,
+  "facts": {
+    "builds": "directory",
+    "builds/.lock": "file",
+    "builds/lease-*": "holds 1",
+    "default": "~/.local/state/dataforge",
+    "memory": "directory",
+    "memory/.lock": "file",
+    "memory/lease-*": "holds 512",
+    "pause": "directory",
+    "pause/CLAUDE.json": "file",
+    "pause/CLAUDE.json.lock": "file",
+    "pause/CODEX.json": "file",
+    "pause/CODEX.json.lock": "file",
+    "queue database": "queue/queue.sqlite",
+    "queue logs": "queue/logs",
+    "sessions": "directory",
+    "sessions/CLAUDE": "directory",
+    "sessions/CLAUDE/.lock": "file",
+    "sessions/CLAUDE/lease-*": "holds 1",
+    "sessions/CODEX": "directory",
+    "variable": "DATAFORGE_STATE_DIR",
+    "xdg": "$XDG_STATE_HOME/dataforge"
+  }
+}
