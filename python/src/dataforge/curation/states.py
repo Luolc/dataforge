@@ -153,10 +153,14 @@ class AgentState(_ActionState):
   fault, the model's stop reason and the error it ended on, as AgentRun has
   them, and cost_usd None when a run did not report its cost. On "failed" the
   outcome's feedback is {"details": the validator's last output, or the
-  action's log when the validator passed or there is none}.
+  action's log when the validator passed or there is none}. With a judge,
+  the judge runs on the host after an "ok", given the outputs of the agent's
+  spec as inputs, and its verdict is the visit's outcome in place of "ok":
+  its data is the run's, updated with the verdict's, and its feedback the
+  verdict's.
 
   Attributes:
-    OUTCOMES: The outcomes it gives, before rename.
+    OUTCOMES: The outcomes it gives, before rename and without a judge.
   """
 
   OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
@@ -176,6 +180,7 @@ class AgentState(_ActionState):
     report_prompt: str | None = None,
     report_outputs: Sequence[str] = (),
     last_if_unresumable: bool = False,
+    judge: Judge | None = None,
     rename: Mapping[str, str] | None = None,
     feedback: str | None = None,
     max_cost_usd: float = 0.0,
@@ -201,6 +206,7 @@ class AgentState(_ActionState):
         last version, as AgentSpec.fresh_outputs says.
       last_if_unresumable: With True, an outcome after which the agent's
         session cannot go on has last=True.
+      judge: What decides the outcome in place of "ok", if anything.
       rename: A new name for each outcome that is to have one, by its name.
       feedback: The state's feedback template.
       max_cost_usd: The most one visit may spend, in US dollars.
@@ -220,6 +226,15 @@ class AgentState(_ActionState):
     self.report_prompt: str | None = report_prompt
     self.report_outputs: tuple[str, ...] = tuple(report_outputs)
     self.last_if_unresumable: bool = last_if_unresumable
+    self.judge: Judge | None = judge
+
+  @override
+  def given_outcomes(self) -> frozenset[str] | None:
+    given = super().given_outcomes()
+    if self.judge is None or given is None:
+      return given
+    judged = _judge_outcomes(self.judge)
+    return None if judged is None else (given - {"ok"}) | judged
 
   def spec(self, ctx: Context) -> AgentSpec:
     """Return what the agent runs: the spec given, its prompt rendered.
@@ -280,8 +295,18 @@ class AgentState(_ActionState):
 
   @override
   def run(self, ctx: Context) -> Outcome:
-    result = self.actions.agent(ctx, self.spec(ctx), self.env)
-    return self.renamed(self.outcome(ctx, result))
+    spec = self.spec(ctx)
+    result = self.actions.agent(ctx, spec, self.env)
+    outcome = self.outcome(ctx, result)
+    if self.judge is not None and outcome.name == "ok":
+      verdict = self.actions.judge(ctx, self.judge, spec.outputs)
+      outcome = dataclasses.replace(
+        outcome,
+        name=verdict.outcome,
+        data={**outcome.data, **verdict.data},
+        feedback=verdict.feedback,
+      )
+    return self.renamed(outcome)
 
 
 class ScriptState(_ActionState):

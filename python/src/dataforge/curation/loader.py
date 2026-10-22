@@ -49,7 +49,10 @@ The schema, version 1:
     <name>:
       uses: agent | script | judge | trial | pass-at-k | trials | rubric
             | <binding>               # a State subclass the dataset registers
-      with: {...}                     # the state's own arguments
+      with: {...}                     # the state's own arguments;
+                                      # agent, pass-at-k and trials take
+                                      # judge: {argv, <a script's fields>,
+                                      # outcomes}, for agent run after an ok
       env: <environment> | <binding>  # agent, script, rubric
       runner: <runner> | <binding>    # agent and rubric: an AgentRunner;
                                       # trial, pass-at-k, trials: TrialRunner
@@ -61,13 +64,17 @@ The schema, version 1:
       transitions:
         <outcome>: {goto: <state>, report: <boolean>, mark: <string>,
                     end_on_last_visit: <boolean>}
-                 | {end: <status>}
+                 | {end: <status>,
+                    keep_mark: <string>}  # keep the last visit marked so
   deliverables:                       # what an attempt shows, in this order
     <name>:
       kind: files | trials | report
       title: <string>
       source: {state: <state>, output: <string>,   # no output for trials
                visit: kept | last | <integer>}     # kept by default
+                                      # state may list states: the last of
+                                      # their visits that has the output,
+                                      # with an output and visit kept or last
       table: <source>                 # report only
       value: {field: [<string>], output: <string>} # trials only
       match: <glob>                   # trials only: list only the trials
@@ -407,8 +414,11 @@ class _Loader:
       raise SpecError(
         f"{at}.visit", _expected('"kept", "last" or an integer', visit)
       )
+    state, where = fields["state"], f"{at}.state"
     return Source(
-      self.string(fields["state"], f"{at}.state"),
+      self.strings(cast(object, state), where)
+      if isinstance(state, list)
+      else self.string(state, where),
       self.optional_string(fields.get("output"), f"{at}.output"),
       visit,
     )
@@ -519,8 +529,13 @@ class _Loader:
       for key in fields:
         if key in {"report", "mark", "end_on_last_visit"}:
           raise SpecError(f"{at}.{key}", "only a goto takes it")
-      _ = _fields(fields, at, required={"end"}, optional=set())
-      return End(self.string(fields["end"], f"{at}.end"))
+      _ = _fields(fields, at, required={"end"}, optional={"keep_mark"})
+      return End(
+        self.string(fields["end"], f"{at}.end"),
+        self.optional_string(fields.get("keep_mark"), f"{at}.keep_mark"),
+      )
+    if "keep_mark" in fields:
+      raise SpecError(f"{at}.keep_mark", "only an end takes it")
     fields = _fields(
       fields,
       at,
@@ -899,6 +914,7 @@ def _agent(
       "report_prompt",
       "report_outputs",
       "last_if_unresumable",
+      "judge",
     },
   )
   get = fields.get
@@ -934,7 +950,15 @@ def _agent(
       get("optional_inputs", []), f"{at}.optional_inputs"
     ),
   )
+  # Only a declared judge is passed on, so that a subclass a dataset
+  # registers need not take one.
+  judge = (
+    {}
+    if "judge" not in fields
+    else {"judge": loader.judge(fields["judge"], f"{at}.judge")}
+  )
   return {
+    **judge,
     "spec": spec,
     "report_prompt": (
       None
@@ -1271,6 +1295,22 @@ def _read(
 def _check_graph(states: Mapping[str, State], start: str) -> None:
   for name, state in states.items():
     _check_transitions(state, states, f"states.{name}.transitions")
+  marks = {
+    transition.mark
+    for state in states.values()
+    for transition in state.transitions.values()
+    if isinstance(transition, Goto)
+  }
+  for name, state in states.items():
+    for outcome, transition in state.transitions.items():
+      if isinstance(transition, End) and transition.keep_mark not in {
+        None,
+        *marks,
+      }:
+        raise SpecError(
+          f"states.{name}.transitions.{outcome}.keep_mark",
+          f"no goto has the mark {transition.keep_mark!r}",
+        )
   reached, todo = {start}, [start]
   while todo:
     for transition in states[todo.pop()].transitions.values():

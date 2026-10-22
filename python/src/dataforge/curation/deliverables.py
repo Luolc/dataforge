@@ -2,7 +2,8 @@
 
 A dataset declares each deliverable as a Deliverable: its kind, which says how
 it is shown ("files", "trials" or "report"), a title, and where it comes from,
-a state's output in one of the state's visits. The machine
+a state's output in one of the state's visits, or the output of one of several
+states, in the last of their visits that wrote it. The machine
 (dataforge.curation.engine) resolves them into the record's "deliverables" at
 each step, as the attempt would end then, and when it ends, with paths
 relative to the attempt's root and, for what was not reached, a reason instead
@@ -25,7 +26,9 @@ class Source:
   """Where a deliverable comes from.
 
   Attributes:
-    state: The state.
+    state: The state, or several: of their visits, the source is the last
+      that has the output, under the same visit rule; several take an
+      output, and a visit "kept" or "last".
     output: The output's name; None for a "trials" deliverable, which takes
       the visit's trials.
     visit: Which visit of the state: "kept" for its last one up to the visit
@@ -33,9 +36,14 @@ class Source:
       "last" for its last one; n for its n-th, from 1.
   """
 
-  state: str
+  state: str | tuple[str, ...]
   output: str | None = None
   visit: Which = "kept"
+
+  @property
+  def states(self) -> tuple[str, ...]:
+    """The state, or the states, as a tuple."""
+    return (self.state,) if isinstance(self.state, str) else self.state
 
 
 @dataclass(frozen=True)
@@ -87,7 +95,8 @@ def check(deliverables: Mapping[str, Deliverable], states: set[str]) -> None:
   Raises:
     ValueError: When one has an unknown kind, state or visit, has or lacks an
       output against its kind, has a table, a value or a match its kind does
-      not, or an empty match.
+      not, or an empty match, or a source of several states has no output or
+      a numbered visit.
   """
   for name, item in deliverables.items():
     where = f"deliverable {name}"
@@ -96,12 +105,22 @@ def check(deliverables: Mapping[str, Deliverable], states: set[str]) -> None:
     for source in (item.source, item.table):
       if source is None:
         continue
-      if source.state not in states:
-        raise ValueError(f"{where}: unknown state {source.state}")
+      if not source.states:
+        raise ValueError(f"{where}: no state")
+      for state in source.states:
+        if state not in states:
+          raise ValueError(f"{where}: unknown state {state}")
       if source.visit not in ("kept", "last") and not (
         type(source.visit) is int and source.visit >= 1
       ):
         raise ValueError(f"{where}: unknown visit {source.visit!r}")
+      if isinstance(source.state, tuple) and (
+        source.output is None or source.visit not in ("kept", "last")
+      ):
+        why = (
+          "a source of several states takes an output and visit kept or last"
+        )
+        raise ValueError(f"{where}: {why}")
 
 
 def _kind_error(item: Deliverable) -> str | None:
