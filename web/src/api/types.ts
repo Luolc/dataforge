@@ -457,6 +457,15 @@ const deliverable = z.looseObject({
     })
     .nullable()
     .optional(),
+  // Where its trials' verdicts were read, null when it names none.
+  verdicts: z
+    .looseObject({
+      output: z.string().nullable(),
+      field: z.array(z.string()),
+      reason: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   trials: z.array(trial).optional(),
 });
 export type Deliverable = z.infer<typeof deliverable>;

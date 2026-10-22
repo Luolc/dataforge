@@ -52,7 +52,8 @@ export function ChoiceMenu({
               {item.title}
               {item.aside !== undefined && (
                 <span className="text-xs text-fg-3 tabular-nums">
-                  {item.aside}
+                  {/* So a screen reader does not run the two together. */}
+                  <span className="sr-only">,</span> {item.aside}
                 </span>
               )}
             </DropdownMenu.Item>

@@ -64,10 +64,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** The record with its regrade deliverable changed as `change` says. */
-function withRegrade(change: Record<string, unknown>): unknown {
+/**
+ * The record with its regrade deliverable changed as `change` says, and only
+ * the visits `kept` keeps.
+ */
+function withRegrade(
+  change: Record<string, unknown>,
+  kept: (visit: (typeof regrade.visits)[number]) => boolean = () => true,
+): unknown {
   return {
     ...regrade,
+    visits: regrade.visits.filter(kept),
     deliverables: regrade.deliverables.map((d) =>
       d.name === "regrade" ? { ...d, ...change } : d,
     ),
@@ -85,7 +92,7 @@ const field = (label: string) =>
   );
 
 describe("a trial's verdict", () => {
-  it("is the project's word for it, with its tone, else solved or not", async () => {
+  it("is the project's word for it, with its tone, else no verdict", async () => {
     show("&tab=trials&deliverable=regrade");
 
     await screen.findByRole("button", { name: "Regrade" });
@@ -93,8 +100,11 @@ describe("a trial's verdict", () => {
     expect(within(trial("Trial 1")).getByText("Held")).toHaveClass("text-good");
     expect(trial("Trial 2")).toHaveTextContent(/Broke$/);
     expect(within(trial("Trial 2")).getByText("Broke")).toHaveClass("text-bad");
-    // One with no verdict falls back to its reward.
-    expect(trial("Trial 4")).toHaveTextContent(/solved$/);
+    // Its deliverable gives verdicts, so it is not judged by its reward.
+    expect(trial("Trial 4")).toHaveTextContent(/no verdict$/);
+    expect(within(trial("Trial 4")).getByText("no verdict")).toHaveClass(
+      "text-neutral",
+    );
   });
 
   it("says beside it that the trial also ended on an exception", async () => {
@@ -138,12 +148,13 @@ describe("the menu of a tab's trials deliverables", () => {
 
     const menu = await screen.findByRole("button", { name: "Pass@k" });
     fireEvent.pointerDown(menu, { button: 0, ctrlKey: false });
-    expect(screen.getByRole("menuitem", { name: /^Pass@k/ })).toHaveTextContent(
-      "Pass@k1 / 3",
-    );
+    // Its name keeps the title apart from the count.
     expect(
-      screen.getByRole("menuitem", { name: /^Regrade/ }),
-    ).toHaveTextContent("Regrade2 / 4");
+      screen.getByRole("menuitem", { name: "Pass@k, 1 / 3" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("menuitem", { name: "Regrade, 2 / 4" }),
+    ).toBeVisible();
   });
 });
 
@@ -188,11 +199,8 @@ describe("a trial's numbers", () => {
     show("&tab=trials&deliverable=pass_at_k");
 
     await screen.findByRole("button", { name: "Pass@k" });
-    expect(
-      numbers().getByText("Trial time", { selector: "dt" }),
-    ).toHaveAttribute(
-      "title",
-      "The whole trial: its environment, its agent and its verifier.",
+    expect(field("Trial time")).toHaveTextContent(
+      /^\d.*Environment, agent and verifier\.$/,
     );
     expect(numbers().queryByText("Duration")).toBeNull();
     expect(numbers().queryByText("Trace format")).toBeNull();
@@ -276,22 +284,27 @@ describe("a trials deliverable's heading", () => {
 });
 
 describe("a trials deliverable the attempt did not reach", () => {
-  it("is not run, its state named by its title", async () => {
+  it("is not run, with why and the icon of a thing not run", async () => {
     show(
       "&tab=trials&deliverable=regrade",
-      withRegrade({
-        path: null,
-        visit: null,
-        visit_index: null,
-        value: null,
-        verdicts: null,
-        trials: [],
-        reason: "regrade was never visited",
-      }),
+      withRegrade(
+        {
+          path: null,
+          visit: null,
+          visit_index: null,
+          value: null,
+          verdicts: null,
+          trials: [],
+          reason: "regrade was never visited",
+        },
+        (visit) => visit.state !== "regrade",
+      ),
     );
 
-    expect(
-      await screen.findByText("Not run: Regrade was never visited"),
-    ).toBeVisible();
+    const line = await screen.findByText(
+      "Not run: the attempt never reached Regrade.",
+    );
+    expect(line).toBeVisible();
+    expect(line.querySelector("svg.lucide-circle-dashed")).not.toBeNull();
   });
 });

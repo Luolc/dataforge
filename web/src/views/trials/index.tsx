@@ -27,7 +27,13 @@ import { attemptHref } from "../attempt/href";
 import { size, useFile } from "../files/file";
 import { FromRun } from "../FromRun";
 import { declared, type DeliverableProps, notRun } from "../kind";
-import { COUNTED, RUNNING, trialStatus, WITH_EXCEPTION } from "./status";
+import {
+  COUNTED,
+  NO_VERDICT,
+  RUNNING,
+  trialStatus,
+  WITH_EXCEPTION,
+} from "./status";
 import { inTrial } from "./path";
 import { type Listed, sourceOf, trialName } from "./source";
 import { TrialTests } from "./tests";
@@ -39,16 +45,23 @@ function isRunning(live: LiveInfo | null | undefined): boolean {
 function TrialStatus({
   project,
   trial,
+  judged,
   live,
   reward = false,
 }: {
   project: Project;
   trial: Trial;
+  /** Whether its deliverable gives its trials' verdicts. */
+  judged: boolean;
   live: LiveInfo | null | undefined;
   reward?: boolean;
 }) {
   const verdict =
-    trial.verdict == null ? null : statusOf(project, trial.verdict);
+    trial.verdict != null
+      ? statusOf(project, trial.verdict)
+      : judged
+        ? NO_VERDICT
+        : null;
   const { word, tone, exception } = trialStatus(
     trial.result,
     isRunning(live),
@@ -105,8 +118,7 @@ export default function TrialsView({
     });
   };
   const [pane, setPane] = useState<Pane>("trace");
-  if (deliverable.path === null)
-    return <NotRun project={project} deliverable={deliverable} />;
+  if (deliverable.path === null) return <NotRun deliverable={deliverable} />;
   if (trials.length === 0)
     return <Note>This deliverable lists no trials.</Note>;
   const visit =
@@ -122,6 +134,7 @@ export default function TrialsView({
       ? String(value.value)
       : "—";
   const entry = declared(project, deliverable.name);
+  const judged = deliverable.verdicts != null;
   return (
     // The list goes above the trial where the two do not fit side by side.
     <div className="@container">
@@ -167,7 +180,12 @@ export default function TrialsView({
                   className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
                 >
                   <span className="min-w-0">{trialName(i)}</span>
-                  <TrialStatus project={project} trial={t} live={live} />
+                  <TrialStatus
+                    project={project}
+                    trial={t}
+                    judged={judged}
+                    live={live}
+                  />
                 </button>
               </li>
             ))}
@@ -191,6 +209,7 @@ export default function TrialsView({
             }
             noTrace={entry?.no_trace ?? null}
             logs={trials.some((t) => t.log != null)}
+            judged={judged}
             pane={pane}
             onPane={setPane}
           />
@@ -224,6 +243,7 @@ function TrialPane({
   source,
   noTrace,
   logs,
+  judged,
   pane,
   onPane,
 }: {
@@ -240,6 +260,8 @@ function TrialPane({
   noTrace: string | null;
   /** Whether a trial of the deliverable has a log, and so the Log tab. */
   logs: boolean;
+  /** Whether the deliverable gives its trials' verdicts. */
+  judged: boolean;
   pane: Pane;
   onPane: (pane: Pane) => void;
 }) {
@@ -262,11 +284,17 @@ function TrialPane({
         <Field label="Reward">
           {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
-        <Field
-          label="Trial time"
-          hint="The whole trial: its environment, its agent and its verifier."
-        >
-          {seconds === null ? "—" : duration(seconds)}
+        <Field label="Trial time">
+          {seconds === null ? (
+            "—"
+          ) : (
+            <>
+              {duration(seconds)}
+              <span className="block text-xs text-fg-3">
+                Environment, agent and verifier.
+              </span>
+            </>
+          )}
         </Field>
         <Field label="Cost">
           {action === undefined ? (
@@ -340,6 +368,7 @@ function TrialPane({
                   <TrialStatus
                     project={project}
                     trial={trial}
+                    judged={judged}
                     live={live}
                     reward
                   />
@@ -634,34 +663,22 @@ function Unread({ reason }: { reason: string }) {
   );
 }
 
-/**
- * A deliverable the attempt did not reach: Not run, with the engine's
- * reason, its state named by its title.
- */
-function NotRun({
-  project,
-  deliverable,
-}: {
-  project: Project;
-  deliverable: Pick<Deliverable, "state" | "reason">;
-}) {
+/** A deliverable the attempt did not reach: Not run, with why. */
+function NotRun({ deliverable }: { deliverable: Pick<Deliverable, "reason"> }) {
   return (
     <p className="flex items-center gap-2 p-6 text-fg-3">
       <CircleDashed className="size-4 flex-none text-icon" aria-hidden />
-      {notRun(project, deliverable)}
+      {notRun(deliverable)}
     </p>
   );
 }
 
 function Field({
   label,
-  hint,
   wide = false,
   children,
 }: {
   label: string;
-  /** What the field measures, shown when the pointer rests on its label. */
-  hint?: string;
   /** Whether it takes a line of its own. */
   wide?: boolean;
   children: ReactNode;
@@ -670,9 +687,7 @@ function Field({
     <div
       className={`flex min-w-0 flex-col gap-0.5 ${wide ? "basis-full" : ""}`}
     >
-      <dt className="text-xs text-fg-3" title={hint}>
-        {label}
-      </dt>
+      <dt className="text-xs text-fg-3">{label}</dt>
       <dd className="tabular-nums">{children}</dd>
     </div>
   );

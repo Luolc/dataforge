@@ -42,6 +42,12 @@ export function trialStatus(
     : { word: NOT_SOLVED, tone: "bad", ...plain };
 }
 
+/** The verdict of a trial of a deliverable that gives verdicts, but not it. */
+export const NO_VERDICT: { label: string; tone: Tone } = {
+  label: "no verdict",
+  tone: "neutral",
+};
+
 /** The mark beside a trial's status when it also ended on an exception. */
 export const WITH_EXCEPTION = EXCEPTION;
 

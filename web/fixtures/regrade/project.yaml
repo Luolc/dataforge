@@ -6,7 +6,9 @@
 # The regrade gives regrade-1 to regrade-3 a verdict (held or broke), and
 # names their logs: regrade-1's has lines, regrade-2's is not there and
 # regrade-3's is empty; regrade-4 names none. regrade-3 also ended on an
-# exception of several lines.
+# exception of several lines. regrade-unread is the same attempt with no
+# count in the regrade's outcome data, and regrade-unreached one that ended
+# before its regrade ran.
 id: regrade
 name: Regrade samples
 color: "#7fb5f5"
