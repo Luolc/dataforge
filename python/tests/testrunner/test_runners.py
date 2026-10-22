@@ -469,7 +469,7 @@ pretty_assertions = "1.4"
       "go",
       GO_MOD,
       'replace (\n\t// ours\n\t"example.com/lib" v1.0.0 => ../lib\n'
-      "\tgithub.com/stretchr/testify => example.com/fork v1.9.1\n)\n",
+      + "\tgithub.com/stretchr/testify => example.com/fork v1.9.1\n)\n",
       [
         "example.com/lib v1.0.0 => ../lib",
         "github.com/stretchr/testify => example.com/fork v1.9.1",
@@ -506,11 +506,11 @@ pretty_assertions = "1.4"
       "cargo",
       CARGO_TOML,
       "\n[target.'cfg(unix)'.dev-dependencies]\n"
-      'tempfile = { git = "https://example.com/t", rev = "abc" }\n'
-      '\n[workspace.dependencies]\nlog = { path = "log" }\n',
+      + 'tempfile = { git = "https://example.com/t", rev = "abc" }\n'
+      + '\n[workspace.dependencies]\nlog = { path = "log" }\n',
       [
         'target.cfg(unix).dev-dependencies.tempfile = {"git":'
-        ' "https://example.com/t", "rev": "abc"}',
+        + ' "https://example.com/t", "rev": "abc"}',
         'workspace.dependencies.log = {"path": "log"}',
       ],
     ),
@@ -519,8 +519,8 @@ pretty_assertions = "1.4"
 def test_dependency_overrides_are_what_the_fix_adds(
   runner: str, base: str, added: str, found: list[str]
 ):
-  # The patch's text is from the base, the fix's adds to it; a dotted
-  # patch.crates-io key sits above [package] so it stays at the top level.
+  # The fix's file is the base's with added at its end; a dotted key put
+  # above [package] is in the top-level table.
   text = base + added
   base_text = GO_MOD if runner == "go" else CARGO_TOML
   assert dependency_overrides(runner, base_text, text) == found
