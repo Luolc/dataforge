@@ -381,9 +381,17 @@ def test_a_failed_trial_returns_its_exception(
   assert result.rewards == {}
 
 
-@pytest.mark.parametrize("subtype", ["success", "error_during_execution"])
+@pytest.mark.parametrize(
+  ("subtype", "judged"),
+  [
+    ("success", False),
+    ("error_during_execution", False),
+    ("error_max_budget_usd", True),
+    ("error_max_turns", True),
+  ],
+)
 def test_a_session_that_ended_on_an_error_without_an_exception_is_not_judged(
-  tmp_path: Path, fakes: tuple[Path, Path], subtype: str
+  tmp_path: Path, fakes: tuple[Path, Path], subtype: str, judged: bool
 ) -> None:
   trace = {"type": "result", "subtype": subtype, "is_error": True}
   env = {"FAKE_FILES": json.dumps({"agent/claude-code.txt": json.dumps(trace)})}
@@ -391,8 +399,7 @@ def test_a_session_that_ended_on_an_error_without_an_exception_is_not_judged(
     task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
   )
   assert result.rewards == {"reward": 1.0}
-  assert result.exception is not None
-  assert trial_judged(result.exception) is False
+  assert trial_judged(result.exception) is judged
 
 
 def test_harbor_gets_only_the_passed_variables_and_env(
