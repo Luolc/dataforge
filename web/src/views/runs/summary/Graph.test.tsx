@@ -321,16 +321,16 @@ describe("a running attempt's machine", () => {
   }
 
   it("opens with the state it runs in the middle of the frame", () => {
-    frameOf(600, 300);
+    frameOf(240, 300);
     const { drawn, x } = showRunning();
     const node = must(drawn.nodes.find((n) => n.key === "smoke"));
 
     expect(x).toBeLessThan(0);
-    expect(x + (node.x + node.width / 2)).toBeCloseTo(300);
+    expect(x + (node.x + node.width / 2)).toBeCloseTo(120);
   });
 
   it("keeps its view when the attempt goes on to another state", () => {
-    frameOf(600, 300);
+    frameOf(240, 300);
     const { graph, x } = showRunning();
     const on = {
       ...smoke,
@@ -342,7 +342,7 @@ describe("a running attempt's machine", () => {
     const later = must(layout(record.parse(early), project, on));
     // The state it runs in now would sit elsewhere in the frame.
     const solve = must(later.nodes.find((n) => n.key === "solve"));
-    expect(300 - (solve.x + solve.width / 2)).not.toBeCloseTo(x);
+    expect(120 - (solve.x + solve.width / 2)).not.toBeCloseTo(x);
 
     rerenderWith(later);
 

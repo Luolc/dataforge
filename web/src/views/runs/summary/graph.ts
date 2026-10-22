@@ -1,9 +1,10 @@
 // The layout of the machine's graph and the transitions an attempt took. The
-// states, then the end, are cards in layers from left to right (layered.ts),
+// states, then the end, are cards in layers from top to bottom (layered.ts),
 // in the graph's order where the transitions allow; an edge against that
-// order runs right to left. Each edge leaves and reaches a card at a port of
-// its own on the card's side, its label beside the card it leaves; an edge
-// to its own state is a loop over the card, its label beside the loop.
+// order runs bottom to top. Each edge leaves a card at a port of its own on
+// its bottom and reaches one at a port on its top, its label beside the card
+// it leaves; an edge to its own state is a loop beside the card's right
+// side, its label right of the loop.
 
 import type { AttemptRecord, Current, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
@@ -20,11 +21,22 @@ import { layered } from "./layered";
 
 export const END = "\0end";
 
-const W = 168;
-const H = 56;
+/**
+ * A card's least width, and the room its title has beside the icon; more
+ * ports on its top or bottom than that holds make it wider.
+ */
+export const CARD_WIDTH = 176;
+const TITLE_WIDTH = CARD_WIDTH - 36 - 12;
+/**
+ * The padding above and below a card's text, the height of a line of its
+ * title and of the line under it.
+ */
+const PAD = 10;
+export const TITLE_LINE = 18;
+const SUB_LINE = 16;
 /** The radius of an edge's corners. */
 const R = 8;
-/** The width of a character of a card's title, for its card's width. */
+/** The width of a character of a card's title, for where its lines break. */
 const CHAR = 8.2;
 /**
  * The height of a line of an edge's label, how far its baseline sits above
@@ -33,10 +45,9 @@ const CHAR = 8.2;
 export const LINE = 14;
 const DESCENT = 4;
 const LABEL_CHAR = 7;
-/** How high a loop rises, how wide it is, and where it sits on the card. */
+/** How far a loop reaches out of its card, and how tall it is. */
 const LOOP = 30;
-const LOOP_WIDTH = 28;
-const LOOP_RIGHT = 16;
+export const LOOP_WIDTH = 28;
 /** How far a loop's label keeps from the loop. */
 const LOOP_GAP = 6;
 
@@ -49,6 +60,8 @@ interface Node {
   /** Where its edges leave it, from its top left. */
   ports: [number, number][];
   title: string;
+  /** The title's lines, broken to fit the card's width. */
+  lines: string[];
   /** Runs and their total time, or the end's status; Not run when none. */
   sub: string;
   time: string | null;
@@ -82,11 +95,10 @@ export interface Edge {
   to: string;
   path: string;
   taken: boolean;
-  /** The parts one a line, the last line's baseline at y. */
+  /** The parts one a line from x, the last line's baseline at y. */
   label: {
     x: number;
     y: number;
-    anchor: "start" | "end";
     parts: LabelPart[];
   };
 }
@@ -170,8 +182,8 @@ export function layout(
       key,
       x: 0,
       y: 0,
-      width: W,
-      height: H,
+      width: CARD_WIDTH,
+      height: 0,
       ports: [] as [number, number][],
     };
     if (key === END) {
@@ -181,6 +193,7 @@ export function layout(
       return {
         ...box,
         title: "End",
+        lines: ["End"],
         sub: ended ? status.label : NOT_RUN,
         time: null,
         word: end,
@@ -200,6 +213,7 @@ export function layout(
       return {
         ...box,
         title: stateTitle(project, key),
+        lines: wrap(stateTitle(project, key)),
         sub: `${runs.toString()} run${runs > 1 ? "s" : ""} · ${liveStatus.running.label}`,
         time: null,
         word: null,
@@ -220,6 +234,7 @@ export function layout(
     return {
       ...box,
       title: stateTitle(project, key),
+      lines: wrap(stateTitle(project, key)),
       sub:
         mine.length === 0
           ? NOT_RUN
@@ -249,8 +264,8 @@ export function layout(
     groups.set(key, group);
   }
 
-  // A card is wide enough for its title, and for its loop's label beside
-  // the loop over it.
+  // A card's title breaks into lines at its width; the card is tall enough
+  // for them and the line under them, and for its loop's label.
   const loops = new Map(
     [...groups.values()]
       .filter((g) => g.from === g.to)
@@ -258,10 +273,9 @@ export function layout(
   );
   for (const node of nodes) {
     const loop = loops.get(node.key);
-    node.width = Math.max(
-      W,
-      Math.ceil(56 + node.title.length * CHAR + 48),
-      loop ? labelWidth(loop) + LOOP_WIDTH + LOOP_RIGHT + LOOP_GAP + 8 : 0,
+    node.height = Math.max(
+      textHeight(node.lines.length),
+      loop ? loop.length * LINE + LOOP_WIDTH : 0,
     );
   }
 
@@ -270,9 +284,9 @@ export function layout(
     nodes.map((n) => ({
       key: n.key,
       width: n.width,
-      height: H,
-      above: loops.has(n.key)
-        ? Math.max(LOOP, must(loops.get(n.key)).length * LINE + 6)
+      height: n.height,
+      beside: loops.has(n.key)
+        ? LOOP + LOOP_GAP + labelWidth(must(loops.get(n.key)))
         : 0,
     })),
     others.map(([key, g]) => ({
@@ -286,7 +300,7 @@ export function layout(
     const at = must(drawn.boxes.get(node.key));
     node.x = at.x;
     node.y = at.y;
-    node.height = at.height;
+    node.width = at.width;
   }
   const box = (key: string) => must(nodes.find((n) => n.key === key));
 
@@ -294,18 +308,17 @@ export function layout(
     const on = g.parts.some((p) => p.taken > 0);
     const common = { key, from: g.from, to: g.to, taken: on };
     if (g.from === g.to) {
-      // A loop over the card's right end, its label left of it.
+      // A loop beside the card's right side, its label right of it.
       const node = box(g.from);
-      const b = node.x + node.width - LOOP_RIGHT;
-      const a = b - LOOP_WIDTH;
-      const y = node.y;
+      const x = node.x + node.width;
+      const a = node.y + (node.height - LOOP_WIDTH) / 2;
+      const b = a + LOOP_WIDTH;
       return {
         ...common,
-        path: `M${a} ${y} C ${a} ${y - LOOP}, ${b} ${y - LOOP}, ${b} ${y - 3}`,
+        path: `M${x} ${a} C ${x + LOOP} ${a}, ${x + LOOP} ${b}, ${x + 3} ${b}`,
         label: {
-          x: a - LOOP_GAP,
-          y: y - 6,
-          anchor: "end",
+          x: x + LOOP + LOOP_GAP,
+          y: node.y + (node.height + g.parts.length * LINE) / 2 - DESCENT,
           parts: g.parts,
         },
       };
@@ -319,16 +332,44 @@ export function layout(
       ...common,
       path: rounded(r.points),
       label: {
-        x: r.back ? r.label.x + r.label.width : r.label.x,
+        x: r.label.x,
         // The baseline of the label's last line.
         y: r.label.y + r.label.height - DESCENT,
-        anchor: r.back ? "end" : "start",
         parts: g.parts,
       },
     };
   });
 
   return { width: drawn.width, height: drawn.height, nodes, edges };
+}
+
+/** The height of a card's text, of a title of this many lines. */
+export function textHeight(lines: number): number {
+  return 2 * PAD + lines * TITLE_LINE + SUB_LINE;
+}
+
+/** Where a card's text starts, so that it sits in the card's middle. */
+export function textTop(node: { height: number; lines: string[] }): number {
+  return PAD + (node.height - textHeight(node.lines.length)) / 2;
+}
+
+/**
+ * A title's lines: its words, as many to a line as fit the card, and a word
+ * too long for a line of its own broken anywhere, so that none is cut.
+ */
+function wrap(title: string): string[] {
+  const most = Math.max(1, Math.floor(TITLE_WIDTH / CHAR));
+  const lines: string[] = [];
+  for (const word of title.split(/\s+/).filter((w) => w !== "")) {
+    const last = lines.at(-1);
+    if (last !== undefined && last.length + 1 + word.length <= most) {
+      lines[lines.length - 1] = `${last} ${word}`;
+      continue;
+    }
+    for (let i = 0; i < word.length; i += most)
+      lines.push(word.slice(i, i + most));
+  }
+  return lines.length > 0 ? lines : [""];
 }
 
 /** How wide a label of these parts is, a part to a line. */

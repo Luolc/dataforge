@@ -13,7 +13,17 @@ import {
   sampleProject,
 } from "../../../../fixtures/sample";
 import { type AttemptRecord, record } from "../../../api/types";
-import { type Edge, END, type Layout, layout, takenCounts } from "./graph";
+import {
+  CARD_WIDTH,
+  type Edge,
+  END,
+  type Layout,
+  layout,
+  LINE,
+  LOOP_WIDTH,
+  takenCounts,
+  textHeight,
+} from "./graph";
 
 describe("the graph", () => {
   it("counts the transitions the visits took", () => {
@@ -161,7 +171,7 @@ function labelBox(edge: Edge): Rect {
     (p) => `${p.outcome}${p.taken > 0 ? ` ×${String(p.taken)}` : ""}`,
   );
   const w = Math.max(...lines.map((l) => l.length)) * 7;
-  const x0 = label.anchor === "start" ? label.x : label.x - w;
+  const x0 = label.x;
   return {
     x0,
     y0: label.y - 10 - (lines.length - 1) * 14,
@@ -350,6 +360,12 @@ const SIZES = [
   { most: 30, outs: 4, count: 30 },
 ];
 
+/** Titles of tangle's states that break into more than one line. */
+const long = {
+  critique: { title: "Second pass on the edits" },
+  probe: { title: "a_state_name_with_no_spaces_at_all" },
+};
+
 describe("the layout's shapes", () => {
   it("keep loops, labels and edges out of each other's way", () => {
     const found = Object.fromEntries(
@@ -362,12 +378,83 @@ describe("the layout's shapes", () => {
     expect(found).toEqual({ busy: [], early: [], tangle: [] });
   });
 
-  it("make every card as tall as the busiest side of any card needs", () => {
-    const drawn = must(layout(record.parse(tangle), sampleProject));
-    const heights = new Set(drawn.nodes.map((n) => n.height));
+  it("make each card as tall as its text and as wide as its busiest side needs", () => {
+    const sizes = (drawn: Layout) => {
+      // The ports on the top and the bottom of each card, from where its
+      // edges start and end; an arrow stops 3 short of its card.
+      const ports = new Map<string, number>();
+      for (const e of drawn.edges) {
+        if (e.from === e.to) continue;
+        const ys = [...e.path.matchAll(/[ML]\s*-?[\d.]+\s+(-?[\d.]+)/g)].map(
+          (m) => Number(m[1]),
+        );
+        for (const [key, y] of [
+          [e.from, must(ys[0])],
+          [e.to, must(ys.at(-1))],
+        ] as const) {
+          const n = must(drawn.nodes.find((c) => c.key === key));
+          const side = Math.abs(y - n.y) < Math.abs(y - n.y - n.height) ? 0 : 1;
+          const at = `${key} ${String(side)}`;
+          ports.set(at, (ports.get(at) ?? 0) + 1);
+        }
+      }
+      const loops = new Map(
+        drawn.edges
+          .filter((e) => e.from === e.to)
+          .map((e) => [e.from, e.label.parts.length]),
+      );
+      return drawn.nodes.map((n) => ({
+        width: n.width,
+        height: n.height,
+        wants: {
+          width: Math.max(
+            CARD_WIDTH,
+            ...[0, 1].map((side) => {
+              const count = ports.get(`${n.key} ${String(side)}`) ?? 0;
+              return count > 0 ? (count - 1) * 12 + 20 : 0;
+            }),
+          ),
+          height: Math.max(
+            textHeight(n.lines.length),
+            (loops.get(n.key) ?? 0) * LINE + LOOP_WIDTH,
+          ),
+        },
+      }));
+    };
+    const tangled = sizes(
+      must(layout(record.parse(tangle), { ...sampleProject, states: long })),
+    );
+    const machines = Array.from({ length: 200 }, (_, i) =>
+      sizes(must(layout(machine(3000000 + i, 30, 6, false), sampleProject))),
+    );
 
-    expect(heights.size).toBe(1);
-    expect(must([...heights][0])).toBeGreaterThan(56);
+    for (const all of [tangled, ...machines])
+      for (const s of all)
+        expect({ width: s.width, height: s.height }).toEqual(s.wants);
+    // Heights differ with the title's lines, and widths with the ports.
+    expect(new Set(tangled.map((s) => s.height)).size).toBeGreaterThan(1);
+    expect(
+      machines.some((all) => new Set(all.map((s) => s.width)).size > 1),
+    ).toBe(true);
+  });
+
+  it("break a long title into lines that fit its card, cutting nothing", () => {
+    const drawn = must(
+      layout(record.parse(tangle), { ...sampleProject, states: long }),
+    );
+    const lines = (key: string) =>
+      must(drawn.nodes.find((n) => n.key === key)).lines;
+
+    expect(lines("critique")).toEqual(["Second pass on", "the edits"]);
+    expect(lines("probe").join("")).toBe(long.probe.title);
+    expect(lines("probe").length).toBeGreaterThan(1);
+    // No card grows for its title, and each line fits beside the icon, at
+    // 8.2 a character as the layout counts them.
+    for (const n of drawn.nodes) {
+      expect(n.width).toBe(CARD_WIDTH);
+      for (const line of n.lines)
+        expect(line.length * 8.2).toBeLessThanOrEqual(CARD_WIDTH - 48);
+    }
   });
 
   it("keep apart two edges that swap heights between two layers", () => {

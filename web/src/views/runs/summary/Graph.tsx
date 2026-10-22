@@ -14,7 +14,7 @@ import { Link } from "react-router";
 import type { Project } from "../../../api/types";
 import { Elapsed, RunningIcon } from "../../../ui/running";
 import { StatusIcon } from "../../../ui/status-mark";
-import { type Edge, type Layout, LINE } from "./graph";
+import { type Edge, type Layout, LINE, textTop, TITLE_LINE } from "./graph";
 
 /** The scales the buttons step through, and the bounds of every zoom. */
 const MIN = 0.25;
@@ -430,12 +430,7 @@ function EdgeView({
       className={dim ? "opacity-[var(--opacity-idle)]" : ""}
     >
       <path d={edge.path} markerEnd={head} className={`fill-none ${stroke}`} />
-      <text
-        x={label.x}
-        y={label.y}
-        textAnchor={label.anchor}
-        className="text-xs"
-      >
+      <text x={label.x} y={label.y} className="text-xs">
         {label.parts.map((part, i, all) => (
           <tspan
             key={part.outcome}
@@ -483,6 +478,8 @@ function NodeCard({
       : node.idle
         ? "stroke-icon [stroke-dasharray:var(--dash-not-taken)]"
         : "stroke-icon";
+  const top = textTop(node);
+  const icon = top + 1;
   return (
     <g
       transform={`translate(${node.x} ${node.y})`}
@@ -503,11 +500,11 @@ function NodeCard({
         />
       ))}
       {node.running ? (
-        <foreignObject x="12" y="12" width="16" height="16">
+        <foreignObject x="12" y={icon} width="16" height="16">
           <RunningIcon />
         </foreignObject>
       ) : node.status !== null ? (
-        <foreignObject x="12" y="12" width="16" height="16">
+        <foreignObject x="12" y={icon} width="16" height="16">
           <StatusIcon project={project} word={node.word} ended={node.ended} />
         </foreignObject>
       ) : (
@@ -515,7 +512,7 @@ function NodeCard({
         // draws (3 at 10px wide is about 2 at 16px).
         <CircleDashed
           x="12"
-          y="12"
+          y={icon}
           width="16"
           height="16"
           strokeWidth={2}
@@ -524,28 +521,28 @@ function NodeCard({
         />
       )}
       <text
-        x="36"
-        y="25"
         className={`text-md font-semibold ${node.idle ? "fill-fg-3" : "fill-fg"}`}
       >
-        {node.title}
+        {node.lines
+          .map((line, i) => ({ line, y: top + 13 + i * TITLE_LINE }))
+          .map(({ line, y }) => (
+            <tspan key={y} x="36" y={y}>
+              {line}
+            </tspan>
+          ))}
       </text>
-      {(node.time !== null || node.running?.since != null) && (
-        <text
-          x={node.width - 14}
-          y="25"
-          textAnchor="end"
-          className="fill-fg-3 text-xs [font-variant-numeric:tabular-nums]"
-        >
-          {node.running?.since != null ? (
-            <Elapsed since={node.running.since} before={node.running.before} />
-          ) : (
-            node.time
-          )}
-        </text>
-      )}
-      <text x="36" y="43" className="fill-fg-3 text-xs">
+      <text
+        x="36"
+        y={top + node.lines.length * TITLE_LINE + 12}
+        className="fill-fg-3 text-xs [font-variant-numeric:tabular-nums]"
+      >
         {node.sub}
+        {(node.time !== null || node.running?.since != null) && " · "}
+        {node.running?.since != null ? (
+          <Elapsed since={node.running.since} before={node.running.before} />
+        ) : (
+          node.time
+        )}
       </text>
     </g>
   );
