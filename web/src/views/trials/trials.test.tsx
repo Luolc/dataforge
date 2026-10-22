@@ -1,10 +1,12 @@
 import {
   cleanup,
   fireEvent,
-  render,
+  render as plain,
   screen,
   within,
 } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import midway from "../../../fixtures/live-deliverables/attempts/task-0301/2026-03-04T101500Z/record.json";
@@ -15,6 +17,9 @@ import diff from "../../../fixtures/trialdiff/attempts/pass-at-k/artifacts/solve
 import { must, sampleProject } from "../../../fixtures/sample";
 import { type LiveInfo, type Project, record } from "../../api/types";
 import TrialsView from ".";
+
+// The views read the page's query.
+const render = (ui: ReactElement) => plain(ui, { wrapper: MemoryRouter });
 
 const project: Project = {
   ...sampleProject,
@@ -51,6 +56,14 @@ function show() {
   );
 }
 
+/** The value of a field of the chosen trial's numbers, by its label. */
+const field = (label: string) =>
+  must(
+    within(must(screen.getByText("Reward").closest("dl"))).getByText(label, {
+      selector: "dt",
+    }).nextElementSibling,
+  );
+
 const trial = (id: string) =>
   screen.getByRole("button", { name: new RegExp(`^${id}`) });
 
@@ -66,11 +79,11 @@ describe("the trials view", () => {
         .getAllByRole("button")
         .map((b) => b.textContent),
     ).toEqual([
-      "tinyparse-fold__p3a1solved",
-      "tinyparse-fold__p3b2not solved",
-      "tinyparse-fold__p3c3exception",
-      "tinyparse-fold__p3d4solved",
-      "tinyparse-fold__p3e5solved",
+      "Trial 1solved",
+      "Trial 2not solved",
+      "Trial 3exception",
+      "Trial 4solved",
+      "Trial 5solved",
     ]);
   });
 
@@ -114,18 +127,16 @@ describe("the trials view", () => {
   it("shows the chosen trial's numbers and its session", async () => {
     show();
 
-    expect(trial("tinyparse-fold__p3a1")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(trial("Trial 1")).toHaveAttribute("aria-pressed", "true");
+    expect(field("ID")).toHaveTextContent("tinyparse-fold__p3a1");
     expect(screen.getByText("9m 3s")).toBeVisible();
-    expect(screen.getByText("$0.31")).toBeVisible();
+    expect(field("Cost")).toHaveTextContent(/^\$0\.31$/);
     expect(await screen.findByText("Expand all")).toBeVisible();
   });
 
   it("takes each trial's duration and cost from its own action", () => {
     show();
-    fireEvent.click(trial("tinyparse-fold__p3e5"));
+    fireEvent.click(trial("Trial 5"));
 
     const numbers = must(screen.getByText("Reward").closest("dl"));
     expect(within(numbers).getByText("24m 5s")).toBeVisible();
@@ -148,13 +159,13 @@ describe("the trials view", () => {
       />,
     );
 
-    const numbers = must(screen.getByText("Reward").closest("dl"));
-    expect(within(numbers).getAllByText("—")).toHaveLength(2);
+    expect(field("Duration")).toHaveTextContent(/^—$/);
+    expect(field("Cost")).toHaveTextContent(/^—$/);
   });
 
   it("takes the badge from the reward, not from the agent's last word", async () => {
     show();
-    fireEvent.click(trial("tinyparse-fold__p3b2"));
+    fireEvent.click(trial("Trial 2"));
 
     expect(
       await screen.findByText("All tests pass, the task is done."),
@@ -165,12 +176,23 @@ describe("the trials view", () => {
 
   it("says when a trial recorded no trace, and shows its exception", () => {
     show();
-    fireEvent.click(trial("tinyparse-fold__p3c3"));
+    fireEvent.click(trial("Trial 3"));
 
     expect(screen.getByText("This trial recorded no trace.")).toBeVisible();
     expect(
       screen.getByText("AgentTimeoutError: the agent ran past its 1800s limit"),
     ).toBeVisible();
+  });
+
+  it("reads a record written before a trial had a source", () => {
+    // The record format's version 1, as every attempt before it has.
+    expect(JSON.stringify(passAtK)).not.toContain('"source"');
+    show();
+    fireEvent.click(trial("Trial 3"));
+
+    expect(screen.getByText("This trial recorded no trace.")).toBeVisible();
+    expect(screen.queryByText("Source trial")).toBeNull();
+    expect(screen.queryByText(/judged again/)).toBeNull();
   });
 });
 
@@ -299,7 +321,7 @@ describe("the trials view's Diff tab", () => {
   it("keeps the Diff tab when another trial is chosen", async () => {
     serve({ [at(1)]: diff, [at(2)]: diff });
     showDiff();
-    fireEvent.click(trial("tinyparse-fold__p3b2"));
+    fireEvent.click(trial("Trial 2"));
 
     expect(screen.getByRole("tab", { name: "Diff" })).toHaveAttribute(
       "aria-selected",
@@ -370,18 +392,18 @@ describe("the trials of a visit that has not ended", () => {
     view(info("running"));
 
     expect(rows()).toEqual([
-      "tinyparse-fold__l0solved",
-      "tinyparse-fold__l1not solved",
-      "trial-2running",
-      "trial-3running",
+      "Trial 1solved",
+      "Trial 2not solved",
+      "Trial 3running",
+      "Trial 4running",
     ]);
     // The word says it, so the turning icon is not read out as well.
     const spinner = must(
-      trial("trial-2").querySelector(".lucide-loader-circle"),
+      trial("Trial 3").querySelector(".lucide-loader-circle"),
     );
     expect(spinner).toHaveClass("animate-spin", "motion-reduce:animate-none");
     expect(spinner.closest("[aria-hidden]")).not.toBeNull();
-    expect(trial("trial-2")).toHaveAccessibleName("trial-2running");
+    expect(trial("Trial 3")).toHaveAccessibleName("Trial 3running");
     expect(screen.getByText("— / 4 solved")).toBeVisible();
     // The value is read once the visit ends, so its reason is not shown.
     expect(screen.queryByText(/has no key/)).toBeNull();
@@ -389,13 +411,19 @@ describe("the trials of a visit that has not ended", () => {
 
   it("shows a running trial's page as running", () => {
     view(info("running"));
-    fireEvent.click(trial("trial-3"));
+    fireEvent.click(trial("Trial 4"));
 
-    expect(trial("trial-3")).toHaveAttribute("aria-pressed", "true");
+    expect(trial("Trial 4")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("This trial is still running.")).toBeVisible();
-    expect(
-      within(must(screen.getByText("Reward").closest("dl"))).getAllByText("—"),
-    ).toHaveLength(5);
+    for (const label of [
+      "ID",
+      "Reward",
+      "Exception",
+      "Duration",
+      "Cost",
+      "Trace format",
+    ])
+      expect(field(label)).toHaveTextContent(/^—$/);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Diff" }));
     expect(screen.getAllByText("This trial is still running.")).toHaveLength(2);
   });
@@ -407,13 +435,13 @@ describe("the trials of a visit that has not ended", () => {
     view(live);
 
     expect(rows()).toEqual([
-      "tinyparse-fold__l0solved",
-      "tinyparse-fold__l1not solved",
-      "trial-2not finished",
-      "trial-3not finished",
+      "Trial 1solved",
+      "Trial 2not solved",
+      "Trial 3not finished",
+      "Trial 4not finished",
     ]);
     expect(document.querySelector(".lucide-loader-circle")).toBeNull();
-    fireEvent.click(trial("trial-2"));
+    fireEvent.click(trial("Trial 3"));
     expect(screen.getByText("This trial did not finish.")).toBeVisible();
   });
 });

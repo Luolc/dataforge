@@ -103,6 +103,17 @@ describe("the share site as a static site", () => {
     open("/demo/items/p3w8n5c2vd");
 
     await screen.findByRole("heading", { level: 1, name: "p3w8n5c2vd-r1" });
-    expect(screen.queryByRole("link", { name: /Download/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Download all/ })).toBeNull();
+  });
+
+  it("downloads a file it shows from the site's copy of it", async () => {
+    open("/demo/items/k7m2q9xr4t?tab=task&file=task/instruction.md");
+
+    expect(
+      await screen.findByRole("link", { name: "Download" }),
+    ).toHaveAttribute(
+      "href",
+      "/data/demo/items/k7m2q9xr4t/files/task/instruction.md",
+    );
   });
 });

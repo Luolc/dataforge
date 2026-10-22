@@ -1,12 +1,13 @@
 """testrunner, which runs a task's tests with each project's own runner.
 
-A task's tests/manifest.toml lists its tests, each with its suite, runner
-and ID; testrunner runs them with the runners the project uses and writes
-their outcomes as CTRF, the format Harbor's viewer reads from
-/logs/verifier/ctrf.json. The package uses only Python 3.12's standard
-library and imports nothing of dataforge: a dataset copies its files into
-each task (bundle.files), so that the task runs without the dataset, and
-imports them as testrunner there.
+A task's tests/manifest.toml lists its tests, each with its suite, ID and
+runner or run group; testrunner runs them with the runners the project uses,
+or with the run and parse the task gives, and writes their outcomes as
+CTRF, the format Harbor's viewer reads from /logs/verifier/ctrf.json. The
+package uses only Python 3.12's standard library and imports nothing of
+dataforge: a dataset copies its files into each task (bundle.files), so
+that the task runs without the dataset, and imports them as testrunner
+there.
 """
 
 from .bundle import files
