@@ -31,6 +31,7 @@ from dataforge.gateway.pause import (
 )
 from dataforge.gateway.session import serve
 from dataforge.gateway.spend import (
+  by_model,
   HIGHEST,
   Price,
   PRICES,
@@ -59,6 +60,7 @@ __all__ = [
   "Spend",
   "Total",
   "bindings",
+  "by_model",
   "pausing",
   "read_ledger",
   "serve",

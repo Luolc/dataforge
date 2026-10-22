@@ -25,11 +25,18 @@ from typing import Any
 import pytest
 
 from dataforge import stopping
-from dataforge.gateway import Channel, Price, proxy, read_ledger, serve, Spend
+from dataforge.gateway import (
+  by_model,
+  Channel,
+  Price,
+  proxy,
+  read_ledger,
+  serve,
+  Spend,
+)
 from dataforge.gateway.channels import DRAINED
 from dataforge.gateway.session import _Refuser, _Refusing, holders
 from dataforge.gateway.spend import (
-  by_model,
   choose,
   FALLBACK,
   Meter,
