@@ -212,7 +212,7 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
         "name: Example\ndeliverables: [{name: t, kind: trials, title: T, "
         + "no_trace: [Why]}]",
       ),
-      r"deliverables\[0\]\.no_trace",
+      r"deliverables\[0\]\.no_trace: not a non-empty string",
     ),
     (
       ("name: Example", "name: Example\ntrials: {diff: ../x.diff}"),

@@ -1750,10 +1750,17 @@ class Actions:
 
     Raises:
       RuntimeError: When there is no trial_runner.
+      ValueError: When source is not inside the attempt's directory.
     """
     runner = self.trial_runner
     if runner is None:
       raise RuntimeError("a trial needs a trial_runner")
+    # The record names it relative to the attempt's directory.
+    root = ctx.attempt.root
+    if source is not None and (
+      not source.is_relative_to(root) or ".." in source.relative_to(root).parts
+    ):
+      raise ValueError(f"{name}: source {source} is not inside the attempt")
     _, started_at = ctx.claim([name], trial=True), datetime.now(UTC)
     outdir = ctx.outdir / name
     outdir.mkdir()

@@ -1500,6 +1500,24 @@ def test_a_trial_s_source_reads_back_and_is_null_in_an_older_record(
     _ = Attempt.from_json(root, broken(record, path, "../x"))
 
 
+@pytest.mark.parametrize("source", ["/elsewhere", "attempt/../elsewhere"])
+def test_a_trial_with_a_source_outside_the_attempt_does_not_run(
+  tmp_path: Path, source: str
+) -> None:
+  actions = Actions(trial_runner=NamedTrials())
+  root = tmp_path / "attempt"
+
+  def solve(ctx: Context) -> Outcome:
+    _ = actions.trial(
+      ctx, "trial-0", tmp_path, "oracle", Limits(1), tmp_path / source
+    )
+    return Outcome("done")
+
+  with pytest.raises(ValueError, match=r"trial-0: source .* is not inside"):
+    _ = Machine([Step("solve", solve, {"done": End("passed")})]).run(root)
+  assert not (root / "artifacts/solve/1/trial-0").exists()
+
+
 class OutputTrials:
   """A trial runner whose trials solve when their output ends in 1, 3, ... 9."""
 

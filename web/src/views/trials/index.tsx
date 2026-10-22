@@ -217,6 +217,9 @@ function TrialPane({
         <Field label="ID">
           <span className="font-mono text-xs break-all">{trial.id ?? "—"}</span>
         </Field>
+        <Field label="Output">
+          <span className="font-mono text-xs break-all">{trial.output}</span>
+        </Field>
         <Field label="Reward">
           {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
@@ -356,7 +359,7 @@ function SourceName({
         deliverable: listed.deliverable.name,
         trial: listed.trial.output,
       })}
-      className="link hover:underline"
+      className="inline-flex target items-center link hover:underline"
     >
       {listed.deliverable.title} · {trialName(listed.index)}
     </Link>

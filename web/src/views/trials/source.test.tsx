@@ -94,7 +94,12 @@ describe("a trial that judged another trial's output again", () => {
     ).toHaveAttribute("aria-haspopup", "menu");
     expect(trial("Trial 2")).toHaveAttribute("aria-pressed", "true");
     expect(field("ID")).toHaveTextContent("2__rg2x");
+    expect(field("Output")).toHaveTextContent("regrade-2");
     expect(field("Source trial")).toHaveTextContent("Pass@k · Trial 2");
+    // As large a target as R246 asks, alone in the numbers.
+    expect(
+      within(field("Source trial") ?? document.body).getByRole("link"),
+    ).toHaveClass("target");
   });
 
   it("says why it has no trace, and links to the trace of the trial it judged", async () => {
