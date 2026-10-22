@@ -158,17 +158,17 @@ def least_cap_usd(graph: Graph, status: str) -> float | None:
   start = graph["start"]
   best = {start: cost[start]}
   todo = [(cost[start], start)]
+  # A state's cost is its own, so the first chain that reaches it, from the
+  # cheapest state yet, is the cheapest.
   while todo:
     spent, name = heapq.heappop(todo)
-    if spent > best[name]:
-      continue
     for edge in graph["edges"]:
       if edge["from"] != name:
         continue
       if edge["end"] == status:
         return spent
       to = edge["to"]
-      if to is not None and spent + cost[to] < best.get(to, float("inf")):
+      if to is not None and to not in best:
         best[to] = spent + cost[to]
         heapq.heappush(todo, (best[to], to))
   return None
