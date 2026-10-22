@@ -45,6 +45,10 @@ export const runs = z.array(
     ended_at: num,
     stop_reason: z.string().nullable(),
     source: z.string(),
+    // Seconds between the sampler's samples.
+    interval_s: z.number(),
+    // When the run's last machine sample was taken; null with none.
+    last_t: num,
   }),
 );
 export type Run = z.infer<typeof runs>[number];

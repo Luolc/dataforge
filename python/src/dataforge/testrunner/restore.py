@@ -103,8 +103,9 @@ def remove(app: Path, globs: Iterable[str]) -> list[str]:
     globs: The globs.
 
   Returns:
-    The paths deleted, sorted; a directory is deleted with what it holds.
-    The project itself, and a `.git` or what it holds, is never deleted.
+    The paths deleted, sorted; a directory is deleted with what it holds,
+    a `.git` in it too. The project itself and its own `.git` are never
+    deleted, and no `.git` is matched or walked into.
   """
   found = {p for one in globs for p in _matched(app, one)}
   done: list[str] = []

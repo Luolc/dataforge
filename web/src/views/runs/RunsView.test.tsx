@@ -96,7 +96,7 @@ describe("a resumed attempt in the Runs column", () => {
       "href",
       "/sample/attempt?id=batch-2%2Ftask-0005&tab=runs&discarded=0",
     );
-    expect(within(list).getByRole("img", { name: "raised" })).toBeVisible();
+    expect(within(list).getByRole("img", { name: "Exception" })).toBeVisible();
   });
 
   it("a discarded run with no copy is no link and says why", () => {
@@ -121,7 +121,7 @@ describe("a resumed attempt in the Runs column", () => {
     fireEvent.click(runs.getByRole("button", { name: /Discarded/ }));
 
     expect(runs.getByText("the caller kept no copy")).toBeVisible();
-    expect(runs.queryByRole("link", { name: /raised/ })).toBeNull();
+    expect(runs.queryByRole("link", { name: /Exception/ })).toBeNull();
     expect(runs.getByText("Resumed 2026-03-02 09:52 UTC")).toBeVisible();
     expect(runs.queryByText(/carried/)).toBeNull();
   });
@@ -137,7 +137,7 @@ describe("a resumed attempt in the Runs column", () => {
       "aria-expanded",
       "true",
     );
-    expect(runs.getByRole("link", { name: /raised/ })).toHaveAttribute(
+    expect(runs.getByRole("link", { name: /Exception/ })).toHaveAttribute(
       "aria-current",
       "page",
     );

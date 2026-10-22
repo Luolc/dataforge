@@ -83,6 +83,10 @@ describe("rowStatus", () => {
     expect(rowStatus(row("a/1", { status: null, rounds: raised }))).toBe(
       "raised",
     );
+    const interrupted = [{ round: 1, state: "solve", outcome: "interrupted" }];
+    expect(rowStatus(row("a/1", { status: null, rounds: interrupted }))).toBe(
+      "interrupted",
+    );
   });
 });
 

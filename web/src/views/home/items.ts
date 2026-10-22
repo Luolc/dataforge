@@ -2,9 +2,9 @@
 // split into the page's groups, and what search and the status chips keep.
 import type { AttemptRow, Live, Project } from "../../api/types";
 import {
+  isEnding,
   liveStatus,
   NOT_ENDED,
-  RAISED,
   statusOf,
   viewerStatus,
 } from "../../ui/status";
@@ -53,13 +53,15 @@ export const notEnded = (row: AttemptRow): boolean =>
 /**
  * An attempt's status word: UNREADABLE_KEY when its record cannot be read; while
  * it has not ended, live's word (null for not ended); else its record's
- * status, raised when its last visit raised, or NO_STATUS_KEY.
+ * status, its last visit's outcome when that raised or was interrupted, or
+ * NO_STATUS_KEY.
  */
 export function rowStatus(row: AttemptRow): string | null {
   if (row.error !== null) return UNREADABLE_KEY;
   if (row.live !== null && row.live !== undefined) return LIVE_WORD[row.live];
   if (row.status !== null) return row.status;
-  return row.rounds?.at(-1)?.outcome === RAISED ? RAISED : NO_STATUS_KEY;
+  const last = row.rounds?.at(-1)?.outcome;
+  return last !== undefined && isEnding(last) ? last : NO_STATUS_KEY;
 }
 
 /**
