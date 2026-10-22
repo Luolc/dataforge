@@ -88,6 +88,15 @@ def _listed(found: list[Change]) -> str:
   return "; ".join(str(change) for change in found)
 
 
+def _needs(fmt: Format, version: int, found: list[Change]) -> str:
+  why = (
+    "a change that is not additive"
+    if fmt.additive
+    else "a change of a format whose readers fail on what they do not know"
+  )
+  return f"{fmt.name}: {why} at version {version} ({_listed(found)})"
+
+
 def check(fmt: Format, directory: Path) -> list[str]:
   """Check that a format's code gives its snapshot.
 
@@ -115,7 +124,7 @@ def check(fmt: Format, directory: Path) -> list[str]:
         f" {version}; {_update(fmt, directory)} and commit the snapshot"
       )
     ]
-  if all(change.additive for change in found):
+  if fmt.keeps_version(found):
     return [
       (
         f"{fmt.name}: the format grew additively ({_listed(found)}), which"
@@ -126,8 +135,7 @@ def check(fmt: Format, directory: Path) -> list[str]:
     ]
   return [
     (
-      f"{fmt.name}: the format changed at version {version} in a way that is"
-      f" not additive ({_listed(found)}): raise its version where it is"
+      f"{_needs(fmt, version, found)}: raise its version where it is"
       f" declared, then {_update(fmt, directory)} and commit the snapshot; an"
       " install of the new version then runs beside one of the old only after"
       " the queue drains"
@@ -161,11 +169,11 @@ def write(fmt: Format, directory: Path) -> list[str]:
         )
       ]
     found = changes(before, facts)
-    if version == fmt.version and not all(c.additive for c in found):
+    if version == fmt.version and not fmt.keeps_version(found):
       return [
         (
-          f"{fmt.name}: not additive at version {version} ({_listed(found)}):"
-          " raise its version where it is declared, then write it again"
+          f"{_needs(fmt, version, found)}: raise its version where it is"
+          " declared, then write it again"
         )
       ]
   directory.mkdir(parents=True, exist_ok=True)
@@ -208,11 +216,10 @@ def against_base(
   if version < old_version:
     return [f"{fmt.name}: version {version}, below the {old_version} of {base}"]
   found = changes(old, facts)
-  if version == old_version and not all(c.additive for c in found):
+  if version == old_version and not fmt.keeps_version(found):
     return [
       (
-        f"{fmt.name}: the snapshot changed since {base} at version {version} in"
-        f" a way that is not additive ({_listed(found)}): raise its version"
+        f"{_needs(fmt, version, found)}, since {base}: raise its version"
         f" where it is declared, then {_update(fmt, directory)}"
       )
     ]

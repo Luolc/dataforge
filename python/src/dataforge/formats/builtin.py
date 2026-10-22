@@ -26,8 +26,6 @@ from dataforge.curation.engine import (
 )
 from dataforge.formats.core import Fact, Fingerprint, Format
 from dataforge.formats.fingerprint import json_shape, sqlite, tree, typed_dict
-from dataforge.gateway import pause
-from dataforge.gateway.channels import Channel
 from dataforge.queue import store as queue_store
 from dataforge.queue.config import Config, load_config
 from dataforge.queue.proc import Leader
@@ -87,6 +85,11 @@ def _set(values: dict[str, str | None]) -> None:
 
 
 def _statedir() -> Fingerprint:
+  # dataforge.cli imports no module of dataforge.gateway (invariant 30), so
+  # the gateway is imported only here and in _pause.
+  from dataforge.gateway import pause
+  from dataforge.gateway.channels import Channel
+
   with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     facts = {"variable": Fact(ENV)}
@@ -122,6 +125,9 @@ def _under(path: Path, root: Path) -> str:
 
 
 def _pause() -> Fingerprint:
+  from dataforge.gateway import pause
+  from dataforge.gateway.channels import Channel
+
   # The pause file's keys, of each channel (`pause/<channel>.json`).
   # The TypedDict stays private to the module that writes the file.
   facts = typed_dict(pause._State)  # pyright: ignore[reportPrivateUsage]
@@ -233,6 +239,9 @@ FORMATS: tuple[Format, ...] = (
     1,
     _pause,
     "a channel's pause file, pause/<channel>.json (dataforge.gateway.pause)",
+    # A process of the version before rewrites the whole file and reads
+    # backoff as Backoff(**...), which a key it does not know fails.
+    additive=False,
   ),
   Format(
     "dataforge.runs.store",
@@ -251,6 +260,9 @@ FORMATS: tuple[Format, ...] = (
       "an attempt's record, Attempt.to_json, in the store's rows and the"
       " record file (dataforge.curation.engine)"
     ),
+    # Attempt.from_json of a later version may need a key that a writer of
+    # the version before leaves out.
+    additive=False,
   ),
 )
 """dataforge's formats."""

@@ -14,6 +14,10 @@ of the version before reads and writes beside it as it did, such as a column
 that may be NULL: its fact says so, or one of its ancestors is new as well and
 additive, such as each column of a new table. Every other change, a fact
 removed or changed or a new one that is not additive, needs a new version.
+An additive change keeps the version only of a format whose readers of the
+version before read what it adds without failing, such as a query that
+names its columns; a format whose readers fail on a key they do not know
+says so (`Format.additive`), and every change of it needs a new version.
 """
 
 from collections.abc import Callable, Iterable, Mapping
@@ -58,12 +62,27 @@ class Format:
     fingerprint: Gives its facts from the code; it may write temporary
       files, and touches nothing else.
     about: What it is and where its code is, in a line.
+    additive: Whether an additive change keeps the version: its readers of
+      the version before read what the change adds without failing.
   """
 
   name: str
   version: int
   fingerprint: Callable[[], Fingerprint]
   about: str
+  additive: bool = True
+
+  def keeps_version(self, found: Iterable[Change]) -> bool:
+    """Tell whether changes of the fingerprint leave the version as it is.
+
+    Args:
+      found: The changes.
+
+    Returns:
+      True when there is none, or each is additive and so is the format.
+    """
+    found = list(found)
+    return not found or (self.additive and all(c.additive for c in found))
 
 
 @dataclass(frozen=True, slots=True)

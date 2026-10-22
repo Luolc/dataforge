@@ -2,6 +2,7 @@ from collections.abc import Callable, Iterable
 from contextlib import closing
 import importlib.metadata
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -10,6 +11,7 @@ from typing import cast, NotRequired, TypedDict
 import pytest
 
 from dataforge import cli
+from dataforge.curation.actions import ResourcePool
 from dataforge.formats import (
   against_base,
   changes,
@@ -25,7 +27,12 @@ from dataforge.formats import (
 )
 from dataforge.formats.builtin import FORMATS
 from dataforge.formats.snapshot import dumps
+from dataforge.queue import cancel, Config, count, jobs, submit
 from dataforge.queue import store as queue_store
+from dataforge.queue.proc import leader
+from dataforge.queue.scheduler import Scheduler
+from dataforge.runs import Store
+from dataforge.statedir import ENV
 
 SNAPSHOTS = Path(__file__).parent
 
@@ -53,7 +60,7 @@ def test_a_column_no_insert_writes_fails_the_queue_tables_snapshot(
   monkeypatch.setattr(queue_store, "_SCHEMA", schema)
   [fmt] = [one for one in FORMATS if one.name == "dataforge.queue.table"]
   [problem] = check(fmt, SNAPSHOTS)
-  assert "not additive" in problem
+  assert "a change that is not additive" in problem
   assert "added table:jobs/column:owner: owner TEXT NOT NULL" in problem
   assert "raise its version" in problem
 
@@ -279,7 +286,7 @@ def test_write_takes_an_additive_change_and_refuses_another_until_raised(
   [refused] = write(_format(facts=changed), tmp_path)
   assert "raise its version" in refused
   [stale] = check(_format(facts=changed), tmp_path)
-  assert "not additive" in stale
+  assert "a change that is not additive" in stale
   assert write(_format(version=2, facts=changed), tmp_path) == []
   assert check(_format(version=2, facts=changed), tmp_path) == []
 
@@ -338,3 +345,98 @@ def test_against_base_refuses_a_version_that_goes_down(repo: Path):
 
 def test_against_base_is_none_without_the_branch(repo: Path):
   assert against_base(_format(), repo, base="origin/main") is None
+
+
+def test_a_format_whose_readers_fail_on_new_keys_takes_no_change_at_one_version(
+  tmp_path: Path,
+):
+  base = {"field:a": Fact("float")}
+  strict = Format("project.file", 1, lambda: dict(base), "a test's", False)
+  assert write(strict, tmp_path) == []
+  grown = {**base, "field:b": Fact("str", additive=True)}
+  strict = Format("project.file", 1, lambda: dict(grown), "a test's", False)
+  [refused] = write(strict, tmp_path)
+  assert "readers fail on what they do not know" in refused
+  [stale] = check(strict, tmp_path)
+  assert "raise its version" in stale
+
+
+class _Readings:
+  def mem_available_mib(self) -> int:
+    return 1 << 20
+
+  def load1(self) -> float:
+    return 0.0
+
+  def rss_mib(self, session: int) -> int:
+    _ = session
+    return 0
+
+
+def _grow(path: Path, sql: str) -> None:
+  with closing(sqlite3.connect(path)) as conn:
+    _ = conn.executescript(sql)
+
+
+def test_the_queue_reads_and_writes_a_table_grown_additively(tmp_path: Path):
+  # What an install of a later version adds at the same version: a column
+  # that may be NULL, a table, an index.
+  config = Config(
+    queues={"q": 1},
+    max_running=1,
+    min_mem_available_mib=0,
+    max_load1=1.0,
+    database=tmp_path / "queue.sqlite",
+    logs=tmp_path / "logs",
+  )
+  with queue_store.connect(config.database):
+    pass
+  _grow(
+    config.database,
+    """
+    ALTER TABLE jobs ADD COLUMN note TEXT;
+    CREATE TABLE pauses (queue TEXT PRIMARY KEY, at REAL NOT NULL) STRICT;
+    CREATE INDEX jobs_note ON jobs (note);
+    """,
+  )
+  job = submit(config, "q", ["true"], cwd=tmp_path, memory_mib=0)
+  assert [one.id for one in jobs(config)] == [job.id]
+  assert count(config, states=["queued"]) == 1
+  assert cancel(config, job.id).state == "canceled"
+  Scheduler(config, _Readings()).tick()
+  assert [one.state for one in jobs(config)] == ["canceled"]
+
+
+def test_the_store_of_attempts_reads_and_writes_a_schema_grown_additively(
+  tmp_path: Path,
+):
+  store = Store(tmp_path / "runs.sqlite")
+  store.create()
+  _grow(
+    store.path,
+    """
+    ALTER TABLE attempt ADD COLUMN note TEXT;
+    ALTER TABLE event ADD COLUMN note TEXT;
+    CREATE TABLE other (id TEXT PRIMARY KEY) STRICT;
+    """,
+  )
+  holder = leader(os.getpid())
+  assert holder is not None
+  assert store.insert("item/1", "item", tmp_path, holder, None)
+  [row] = store.rows()
+  assert (row.id, row.state) == ("item/1", "running")
+  assert [event.to_state for event in store.events("item/1")] == ["running"]
+
+
+def test_the_state_directory_grown_by_new_directories_counts_as_before(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  # A new directory, at the top or in one of the leases', is not a lease.
+  state = tmp_path / "state"
+  for path in ("other", "memory/other", "builds/other"):
+    (state / path).mkdir(parents=True)
+  monkeypatch.setenv(ENV, str(state))
+  pool = ResourcePool(0.5)
+  with pool.build(0.25):
+    assert pool.reserved_gb == 0.25
+  assert pool.reserved_gb == 0
