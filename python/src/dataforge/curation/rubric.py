@@ -37,11 +37,6 @@ from typing import cast, TypeIs
 from dataforge.curation.actions import ActionResult
 from dataforge.curation.engine import Data, Input, Version
 
-TEXT_SUFFIXES = frozenset(
-  {"", ".cfg", ".md", ".patch", ".py", ".sh", ".toml", ".txt"}
-)
-"""The file suffixes a review reads as text; other files are named only."""
-
 MAX_FILE_CHARS = 40_000
 """How much of one file a review reads; the rest is cut."""
 
@@ -172,10 +167,13 @@ class Rubric:
   Attributes:
     system: What the reviewer reviews and how to judge.
     criteria: The criteria.
+    title: Its review's name for people, in the report; None to name the
+      review by its own name.
   """
 
   system: str
   criteria: tuple[Criterion, ...]
+  title: str | None = None
 
   @classmethod
   def load(cls, path: Path) -> Rubric:
@@ -200,11 +198,14 @@ class Rubric:
       raise ValueError(f"{path}: not a rubric: {error!r}") from error
     if not isinstance(system, str) or not criteria:
       raise ValueError(f"{path}: not a rubric: no system text or criteria")
+    title = cast(object, raw.get("title"))
+    if title is not None and (not isinstance(title, str) or not title.strip()):
+      raise ValueError(f"{path}: title: not a non-empty string")
     for criterion in criteria:
       fields = cast(tuple[object, ...], dataclasses.astuple(criterion))
       if not all(isinstance(field, str) for field in fields):
         raise ValueError(f"{path}: {criterion.id}: a field is not a string")
-    return cls(system, criteria)
+    return cls(system, criteria, title)
 
 
 @dataclass(frozen=True)
@@ -392,24 +393,25 @@ def block_text(path: Path) -> str:
 
   Args:
     path: A file, given as its text, or a directory, given as each file in
-      it, a file whose suffix is not in TEXT_SUFFIXES only named.
+      it; a file that is not text, UTF-8 that holds no NUL, only named.
 
   Returns:
     The text; each file's text and path HTML-escaped, and cut after
     MAX_FILE_CHARS characters.
   """
   if not path.is_dir():
-    return _read(path)
+    text = _read(path)
+    return _binary(path, path.name) if text is None else text
   parts: list[str] = []
   for file in sorted(path.rglob("*")):
     if not file.is_file() or "__pycache__" in file.parts:
       continue
-    at = html.escape(str(file.relative_to(path)))
-    if file.suffix not in TEXT_SUFFIXES:
-      size = file.stat().st_size
-      parts.append(f'<file path="{at}" skipped="true" bytes="{size}"/>')
+    at = str(file.relative_to(path))
+    text = _read(file)
+    if text is None:
+      parts.append(_binary(file, at))
     else:
-      parts.append(f'<file path="{at}">\n{_read(file)}\n</file>')
+      parts.append(f'<file path="{html.escape(at)}">\n{text}\n</file>')
   return "\n".join(parts) or "None."
 
 
@@ -698,34 +700,51 @@ def rubric_table(judgments: Sequence[Judgment]) -> Data:
   }
 
 
-def rubric_report(judgments: Sequence[Judgment]) -> str:
+def rubric_report(
+  judgments: Sequence[Judgment], rubrics: Mapping[str, Rubric]
+) -> str:
   """Return what reviews judged as a Markdown report for people.
 
-  A line on the whole, then for each review a heading, a table of its
-  criteria and a paragraph on what failed. A cell is one line, with "&", "<",
-  ">" and "|" escaped, so that a reviewer's words neither end the table nor
-  become HTML.
+  A line on the whole, then for each review a heading, its rubric's title or
+  else its name, a table of its criteria, each by its question and then its
+  ID, and a paragraph on what failed. A cell is one line, with "&", "<", ">"
+  and "|" escaped, so that neither a reviewer's words nor a rubric's end the
+  table or become HTML; so is a heading.
 
   Args:
     judgments: The reviews' judgments, in order.
+    rubrics: Each review's rubric, by the review's name.
 
   Returns:
     The report.
   """
-  failed = [judgment.name for judgment in judgments if not judgment.passed]
+
+  def title(judgment: Judgment) -> str:
+    rubric = rubrics.get(judgment.name)
+    return _cell(
+      judgment.name if rubric is None or rubric.title is None else rubric.title
+    )
+
+  failed = [title(judgment) for judgment in judgments if not judgment.passed]
   whole = (
     "Every review passes." if not failed else f"Failed: {', '.join(failed)}."
   )
   parts = ["# Rubric report", whole]
   for judgment in judgments:
     result = "passes" if judgment.passed else "fails"
+    rubric = rubrics.get(judgment.name)
+    questions = (
+      {} if rubric is None else {c.id: c.question for c in rubric.criteria}
+    )
     rows = [
       "| Criterion | Result | Note |",
       "| --- | --- | --- |",
-      *(_row(score) for score in judgment.scores),
+      *(
+        _row(score, questions.get(score.criterion)) for score in judgment.scores
+      ),
     ]
     parts += [
-      f"## {judgment.name} {result}{_reused(judgment)}",
+      f"## {title(judgment)} {result}{_reused(judgment)}",
       "\n".join(rows),
       _summary(judgment),
     ]
@@ -738,9 +757,14 @@ def _reused(judgment: Judgment) -> str:
   )
 
 
-def _row(score: Score) -> str:
+def _row(score: Score, question: str | None) -> str:
   result = "pass" if score.passed else "fail"
-  cells = (_cell(score.criterion), result, _cell(score.note))
+  criterion = (
+    _cell(score.criterion)
+    if question is None
+    else f"{_cell(question)} ({_cell(score.criterion)})"
+  )
+  cells = (criterion, result, _cell(score.note))
   return f"| {' | '.join(cells)} |"
 
 
@@ -800,12 +824,28 @@ def _previous(value: object) -> str:
   return "\n\n".join(lines)
 
 
-def _read(path: Path) -> str:
-  text = path.read_text(errors="replace")
-  if len(text) <= MAX_FILE_CHARS:
-    return _escape(text)
-  cut = _escape(text[:MAX_FILE_CHARS])
-  return f"{cut}\n... [cut, {len(text)} characters in all]"
+def _read(path: Path) -> str | None:
+  # None for a file that is not strict UTF-8 or holds a NUL. Read a part at
+  # a time, so that a large binary file stops at its first part and a large
+  # text file is not held whole.
+  kept, size = "", 0
+  try:
+    with path.open(encoding="utf-8") as file:
+      while part := file.read(MAX_FILE_CHARS):
+        if "\0" in part:
+          return None
+        kept += part[: max(MAX_FILE_CHARS - size, 0)]
+        size += len(part)
+  except UnicodeDecodeError:
+    return None
+  if size <= MAX_FILE_CHARS:
+    return _escape(kept)
+  return f"{_escape(kept)}\n... [cut, {size} characters in all]"
+
+
+def _binary(path: Path, at: str) -> str:
+  size = path.stat().st_size
+  return f'<file path="{html.escape(at)}" skipped="binary" bytes="{size}"/>'
 
 
 def _integer(value: object) -> TypeIs[int]:
