@@ -17,7 +17,7 @@ they start, also when several run at once.
 """
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 import json
 import os
@@ -34,6 +34,7 @@ import pytest
 from dataforge.curation import (
   ActionResult,
   Actions,
+  AgentRun,
   AgentSpec,
   AgentTask,
   CommandResult,
@@ -44,6 +45,7 @@ from dataforge.curation import (
   HOST,
   Machine,
   Outcome,
+  ResourcePool,
   State,
 )
 from dataforge.runtime import claude
@@ -341,6 +343,46 @@ def test_a_sigterm_during_a_fan_out_kills_its_sessions_with_their_children(
   else:
     os.kill(child, signal.SIGKILL)
     pytest.fail("the session's child outlived the stopped fan_out")
+
+
+def test_a_sigterm_during_a_fan_out_starts_no_session_in_a_call_that_waits(
+  tmp_path: Path,
+) -> None:
+  # Two agents in containers whose memory only one at a time fits in the pool:
+  # one runs a session that hangs, the other waits for the memory.
+  fake = Fake(tmp_path, [{"hang": True}, {"echo": True}])
+  runner = claude.Runner(fake.session, claude.numbered(tmp_path / "runs"))
+  pool = ResourcePool(0.5)
+  calls: dict[int, list[list[str]]] = {0: [], 1: []}
+
+  def cli(n: int) -> Callable[[Sequence[str]], CommandResult]:
+    def run(args: Sequence[str]) -> CommandResult:
+      calls[n].append(list(args))
+      return CommandResult(0, "c\n")
+
+    return run
+
+  def agent(env: Docker) -> Callable[[], AgentRun]:
+    def run() -> AgentRun:
+      env.start(pool)
+      try:
+        task = AgentTask("Write.", {}, "/out", None)
+        return runner.start(AgentSpec("Write.", Path("/app")), task, env)
+      finally:
+        env.stop()
+
+    return run
+
+  envs = [Docker("agent:1", memory_gb=0.5, cli=cli(n)) for n in (0, 1)]
+  with envs[0], envs[1], sigterm_once((fake.log / "pids").exists) as sent:
+    with pytest.raises(SystemExit):
+      _ = fan_out([agent(env) for env in envs])
+    ended = time.monotonic()
+  assert ended - sent[0] < 5
+  assert len(fake.calls()) == 1
+  ran, waited = sorted(calls.values(), key=len, reverse=True)
+  assert [args[0] for args in ran] == ["create", "start", "stop", "rm"]
+  assert waited == []
 
 
 def test_a_missing_or_resultless_trace_reads_as_no_result(

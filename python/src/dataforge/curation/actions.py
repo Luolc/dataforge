@@ -681,16 +681,18 @@ class Docker:
     Raises:
       BaseException: Whatever creating, starting or post_start raised; the
         memory is given back, and after a failed post_start the container is
-        stopped. Stopped, before anything, when the stop of the call this
-        thread runs is set.
+        stopped. Stopped, with the memory given back, when the stop of the
+        call this thread runs is set before the container is created or
+        started.
     """
-    stopping.check()
     with self._lock:
       if self._users == 0:
         if pool is not None and self.memory_gb is not None:
           pool.acquire(self.memory_gb)
           self._pool = pool
         try:
+          # Also once the memory came, which may be long after the call began.
+          stopping.check()
           if self._id is None:
             self._id = self._docker(self.create_args()).strip()
           if self.pre_start is not None:
