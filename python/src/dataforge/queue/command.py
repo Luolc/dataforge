@@ -1,6 +1,7 @@
-"""The dataforge queue command: submit, list, cancel and serve."""
+"""The dataforge queue command: submit, list, cancel, pause and serve."""
 
 import argparse
+from datetime import datetime
 import json
 import logging
 from pathlib import Path
@@ -15,6 +16,9 @@ from dataforge.queue.store import (
   Job,
   jobs,
   NoSuchJobError,
+  pause,
+  pauses,
+  resume,
   STATES,
   submit,
 )
@@ -55,8 +59,17 @@ def add_arguments(queue: argparse.ArgumentParser) -> None:
   )
   canceling = subs.add_parser("cancel", help="cancel a job")
   _ = canceling.add_argument("id", type=int, help="the job's ID")
+  pausing = subs.add_parser("pause", help="start no job of a queue")
+  _ = pausing.add_argument("queue", help="the queue")
+  _ = pausing.add_argument("--reason", help="why, for whoever lists pauses")
+  resuming = subs.add_parser("resume", help="start a paused queue's jobs")
+  _ = resuming.add_argument("queue", help="the queue")
+  paused = subs.add_parser("paused", help="list the paused queues")
+  _ = paused.add_argument(
+    "--json", action="store_true", help="a JSON array of the rows"
+  )
   _ = subs.add_parser("serve", help="run the scheduler")
-  for parser in (sub, listing, canceling, subs.choices["serve"]):
+  for parser in subs.choices.values():
     _ = parser.add_argument(
       "--config", type=Path, required=True, help="the queue file (YAML)"
     )
@@ -84,6 +97,14 @@ def run(args: argparse.Namespace) -> int:
       _print(_submit(args, config))
     elif command == "cancel":
       _print(cancel(config, cast(int, args.id)))
+    elif command == "pause":
+      done = pause(config, cast(str, args.queue), cast(str | None, args.reason))
+      print(json.dumps(done.to_json(), indent=2))
+    elif command == "resume":
+      ended = resume(config, cast(str, args.queue))
+      print(json.dumps(None if ended is None else ended.to_json(), indent=2))
+    elif command == "paused":
+      _paused(args, config)
     else:
       _list(args, config)
   except (ConfigError, ValueError) as error:
@@ -132,6 +153,23 @@ def _list(args: argparse.Namespace, config: Config) -> None:
   for job in found:
     code = "" if job.exit_code is None else f" exit {job.exit_code}"
     print(f"{job.id}\t{job.queue}\t{job.state}{code}\t{' '.join(job.argv)}")
+
+
+def _paused(args: argparse.Namespace, config: Config) -> None:
+  try:
+    found = pauses(config)
+  except FileNotFoundError:
+    # No job was ever submitted and no queue paused.
+    found = []
+  if cast(bool, args.json):
+    print(json.dumps([paused.to_json() for paused in found], indent=2))
+    return
+  for paused in found:
+    since = datetime.fromtimestamp(paused.paused_at).astimezone()
+    print(
+      f"{paused.queue}\t{since.isoformat(timespec='seconds')}"
+      + f"\t{paused.reason or ''}"
+    )
 
 
 def _print(job: Job) -> None:
