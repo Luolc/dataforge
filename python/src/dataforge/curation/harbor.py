@@ -134,6 +134,8 @@ LOG_BYTES = 4096
 # shorter one, such as "1", would hide ordinary text.
 HIDE_MIN = 8
 NOT_STARTED = "HarborNotStarted"
+# How the exception of a trial whose Harbor ran past `timeout` starts.
+TIMED_OUT = "TimeoutError"
 # How long one docker command of the cleanup may run, in seconds.
 DOCKER_TIMEOUT = 120.0
 
@@ -258,7 +260,10 @@ class HarborRunner:
     cpu_shares: The task container's CPU weight.
     pids: The task container's process limit.
     sidecar: The egress sidecar's limits.
-    timeout: How long Harbor may run, over all its runs of one trial.
+    timeout: How long Harbor may run, over all its runs of one trial; a
+      trial that ran past it gives an exception that starts with
+      `TimeoutError: Harbor ran past`, and then names what Harbor recorded,
+      such as the CancelledError of being stopped.
     mounts: Go to the task's container.
     env: Go to the task's container and to Harbor, whose agents read some
       variables from their own environment. The overlay names the variables
@@ -539,7 +544,7 @@ class HarborRunner:
         code = stopping.wait(process, max(0.0, deadline - time.monotonic()))
       except subprocess.TimeoutExpired:
         _stop(process)
-        return f"TimeoutError: Harbor ran past {self.timeout:g} s"
+        return f"{TIMED_OUT}: Harbor ran past {self.timeout:g} s"
       except BaseException:
         # Interrupted (a SIGTERM made SystemExit, Ctrl-C, a stopped fan_out):
         # Harbor could still start a container or write after the cleanup
@@ -946,7 +951,12 @@ def _read(
   agent = cast(dict[str, object], result.get("agent_result") or {})
   exception = error
   if info:
-    exception = f"{info.get('exception_type')}: {info.get('exception_message')}"
+    recorded = f"{info.get('exception_type')}: {info.get('exception_message')}"
+    # Harbor records the cancellation that stopping it caused.
+    timed_out = error is not None and error.startswith(f"{TIMED_OUT}:")
+    exception = (
+      f"{error}; Harbor recorded {recorded}" if timed_out else recorded
+    )
   elif exception is None and not rewards:
     exception = "NoReward: the verifier gave no reward"
   seconds = elapsed

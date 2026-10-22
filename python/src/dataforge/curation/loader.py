@@ -24,6 +24,8 @@ The schema, version 1:
       outputs: <mount>
       cpus, memory_gb, memory_swap_gb: <number>
       cpu_shares, pids: <integer>
+      write_limit: {bps, iops: <integer>,   # bytes and writes per second;
+                    root: <path>}           # each left out is not capped
       network: <boolean>
       labels: {<name>: <string>}
       security, cap_drop: [<string>]
@@ -112,6 +114,7 @@ from dataforge.curation.actions import (
   Mount,
   ScriptSpec,
   TrialAgent,
+  WriteLimit,
 )
 from dataforge.curation.deliverables import check as check_deliverables
 from dataforge.curation.deliverables import (
@@ -188,6 +191,7 @@ def load(
   guard: Guard | None = None,
   on_step: Callable[[Attempt], None] | None = None,
   stack: ExitStack | None = None,
+  spent_usd: Callable[[Attempt], float] | None = None,
 ) -> Machine:
   """Read a declaration into a machine, checking it strictly.
 
@@ -209,6 +213,8 @@ def load(
     on_step: The machine's on_step, if any.
     stack: Where the Docker environments are entered; needed when the
       declaration has any.
+    spent_usd: The machine's measure of what an attempt has spent, if not
+      what its actions report (Machine).
 
   Returns:
     The machine, its start state first.
@@ -229,7 +235,7 @@ def load(
   except yaml.YAMLError as error:
     raise SpecError("", f"not valid YAML: {error}") from error
   loader = _Loader(dict(bindings or {}), actions, root)
-  machine = loader.machine(data, inputs, guard, on_step)
+  machine = loader.machine(data, inputs, guard, on_step, spent_usd)
   if loader.environments and stack is None:
     raise SpecError("environments", "load needs a stack to enter them in")
   for docker in loader.environments.values():
@@ -301,6 +307,7 @@ class _Loader:
     inputs: Mapping[str, object],
     guard: Guard | None,
     on_step: Callable[[Attempt], None] | None,
+    spent_usd: Callable[[Attempt], float] | None,
   ) -> Machine:
     top = _fields(
       data,
@@ -362,6 +369,7 @@ class _Loader:
       on_step=on_step,
       max_cost_usd=cap,
       deliverables=deliverables,
+      spent_usd=spent_usd,
     )
 
   def deliverables(
@@ -606,6 +614,10 @@ class _Loader:
       self.mount(v, f"{at}[{i}]") for i, v in enumerate(_list(value, at))
     )
 
+  def write_limit(self, value: object, at: str) -> WriteLimit:
+    fields = _fields(value, at, required=set(), optional=set(_WRITE_LIMIT))
+    return WriteLimit(**_read(self, fields, _WRITE_LIMIT, at))  # pyright: ignore[reportArgumentType]
+
   def env_vars(self, fields: Mapping[str, object], at: str) -> dict[str, str]:
     # A variable's value comes from this process's environment (pass_env) or
     # a mapping the dataset registers (env), never from the declaration.
@@ -831,6 +843,7 @@ class _Loader:
       optional_inputs=self.input_refs(
         fields.get("optional_inputs", []), f"{at}.optional_inputs"
       ),
+      build=self.boolean(fields.get("build", False), f"{at}.build"),
     )
 
   def judge(self, value: object, at: str) -> Judge:
@@ -854,7 +867,7 @@ class _Loader:
     return self.string(value, at)
 
 
-_SCRIPT = {"inputs", "outputs", "memory_gb", "optional_inputs"}
+_SCRIPT = {"inputs", "outputs", "memory_gb", "optional_inputs", "build"}
 
 _PROTOCOLS = {
   "env": ("an Env", ("start", "stop", "stage", "exec", "collect")),
@@ -1088,6 +1101,7 @@ _DOCKER: dict[str, _Read] = {
   "memory_gb": lambda r, v, at: r.number(v, at, minimum=0),
   "memory_swap_gb": lambda r, v, at: r.number(v, at, minimum=0),
   "pids": lambda r, v, at: r.integer(v, at, minimum=1),
+  "write_limit": _Loader.write_limit,
   "network": _Loader.boolean,
   "labels": lambda r, v, at: r.renames(v, at),
   "security": _Loader.strings,
@@ -1099,6 +1113,12 @@ _DOCKER: dict[str, _Read] = {
   "cli": _Loader.callable_hook,
 }
 """The Docker fields read as data or hooks; env and pass_env are read apart."""
+
+_WRITE_LIMIT: dict[str, _Read] = {
+  "bps": lambda r, v, at: r.integer(v, at, minimum=1),
+  "iops": lambda r, v, at: r.integer(v, at, minimum=1),
+  "root": _Loader.path,
+}
 
 
 def _claude_code(

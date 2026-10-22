@@ -151,6 +151,7 @@ def test_projects_leave_out_where_the_files_are(
     "deliverables": [],
     "trials": None,
     "definition": None,
+    "task": None,
     "monitor": False,
     "actions": [],
     "tabs": [],
@@ -228,6 +229,16 @@ def test_projects_carry_the_definition_s_path(tree: Tree, static: Path) -> None:
   )
 
   assert project["definition"] == "run/definition.json"
+
+
+def test_projects_carry_the_task_s_path(tree: Tree, static: Path) -> None:
+  _ = tree.project.write_text(PROJECT + "task: task/task.toml\n")
+
+  [project] = cast(
+    list[dict[str, object]], client(tree, static).get("/api/projects").json()
+  )
+
+  assert project["task"] == "task/task.toml"
 
 
 def test_attempts_are_newest_first_with_their_values(
