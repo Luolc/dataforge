@@ -562,28 +562,58 @@ def rereview_prompt(
   return "\n\n".join(parts)
 
 
-def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
+def judge_review(
+  name: str,
+  rubric: Rubric,
+  result: ActionResult,
+  *,
+  earlier: ActionResult | None = None,
+  unretried: str | None = None,
+) -> Judgment:
   """Read a review's verdicts against its rubric.
+
+  A review that gave no verdicts has the finding `<name> returned no
+  verdicts (<how its run ended>).`, where how it ended is its ending, and
+  its fault and error when it has them; after a retry, it names how both
+  runs ended, and without one it says why there was none.
 
   Args:
     name: The review's name.
     rubric: The rubric.
-    result: The review's agent action.
+    result: The review's agent action, its retry's when it was retried.
+    earlier: The action whose run gave no verdicts, when result is its
+      retry.
+    unretried: Why a review that gave no verdicts was not retried, if it
+      was not.
 
   Returns:
-    How it ended; a criterion with no verdict counts as failed.
+    How it ended; a criterion with no verdict counts as failed. Its data's
+    cost_usd is what its actions cost, None when one did not report it.
   """
   run = result.run
   ending = None if run is None else run.ending
   verdicts = _verdicts(result.value)
+  actions = [result] if earlier is None else [earlier, result]
+  cost = (
+    sum(action.cost_usd for action in actions)
+    if all(action.cost_known for action in actions)
+    else None
+  )
   given = {} if verdicts is None else {v["id"]: v for v in verdicts}
   failed = [
     c.id
     for c in rubric.criteria
     if c.id not in given or given[c.id]["verdict"] != "pass"
   ]
-  if verdicts is None:
-    findings = f"{name} returned no verdicts ({ending})."
+  if verdicts is None and earlier is not None:
+    findings = (
+      f"{name} returned no verdicts twice: first ({_ended(earlier)}), then"
+      + f" on a retry ({_ended(result)})."
+    )
+  elif verdicts is None:
+    findings = f"{name} returned no verdicts ({_ended(result)})."
+    if unretried is not None:
+      findings += f" It was not retried: {unretried}."
   else:
     findings = "\n\n".join(
       f"{cid}: no verdict."
@@ -610,13 +640,30 @@ def judge_review(name: str, rubric: Rubric, result: ActionResult) -> Judgment:
     findings,
     {
       "ending": ending,
-      "cost_usd": result.cost_usd,
+      "cost_usd": cost,
       "passed": passed,
       "failed": failed,
       "verdicts": result.value if verdicts is not None else None,
+      "fault": None if run is None else run.fault,
+      "error": None if run is None else run.error,
+      "retried": earlier is not None,
     },
     scores,
   )
+
+
+def _ended(result: ActionResult) -> str:
+  # How a review's run ended, for a finding: its ending, then its fault and
+  # the error it ended on, when it has them.
+  run = result.run
+  if run is None:
+    return "no run"
+  parts = [str(run.ending)]
+  if run.fault is not None:
+    parts.append(
+      run.fault if run.error is None else f"{run.fault}: {run.error}"
+    )
+  return "; ".join(parts)
 
 
 def rubric_table(judgments: Sequence[Judgment]) -> Data:
@@ -699,7 +746,8 @@ def _row(score: Score) -> str:
 
 def _summary(judgment: Judgment) -> str:
   if judgment.data.get("verdicts") is None:
-    return f"The review gave no verdicts ({judgment.data.get('ending')})."
+    # The finding holds the error a run ended on, which is not ours.
+    return _cell(judgment.findings)
   scores = judgment.scores
   bad = [s.criterion for s in scores if not s.passed]
   if not bad:
