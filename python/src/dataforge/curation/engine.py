@@ -47,6 +47,12 @@ such as a caller makes of SIGTERM, a KeyboardInterrupt or stopping.Stopped."""
 ENDING = (RAISED, INTERRUPTED)
 """The outcomes of a visit that end its attempt without a transition."""
 
+BY_VISIT = ("artifacts", "logs", "records", "summaries", "validators")
+"""The directories under an attempt's root that keep a visit's files, each
+under <state>/<visit>, but records, which keeps <state>/<visit>.json: its
+outputs, the actions' logs (actions.log_path), the record a judge read, the
+summaries (actions.summary_path) and the validators an agent got."""
+
 
 class RecordError(ValueError):
   """A record that Attempt.from_json cannot read back."""
@@ -938,9 +944,9 @@ class Machine:
     visits included, in order: what a session did is done.
 
     The cap is this machine's max_cost_usd. The attempt's directory is the
-    record's root; the caller moves the left-out visits' outputs, under
-    root/artifacts/<state>/<visit>, out of the way if it keeps them, since the
-    visits run again under the same numbers.
+    record's root; the caller moves the left-out visits' files, under each of
+    BY_VISIT, out of the way if it keeps them, since the visits run again
+    under the same numbers and write there again.
 
     Args:
       record: The attempt, as Attempt.from_json reads it back.

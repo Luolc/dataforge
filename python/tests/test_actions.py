@@ -21,6 +21,7 @@ from dataforge.curation import (
   AgentRun,
   AgentSpec,
   AgentTask,
+  BY_VISIT,
   CommandResult,
   Context,
   Docker,
@@ -159,6 +160,28 @@ def test_a_script_s_stdout_and_stderr_are_its_log_in_the_record(
   visits = cast(list[dict[str, object]], attempt.to_json()["visits"])
   actions = cast(list[dict[str, object]], visits[0]["actions"])
   assert actions[0]["logs"] == ["logs/a/1/1.log"]
+
+
+def test_a_visit_s_files_are_all_under_by_visit(tmp_path: Path) -> None:
+  root = tmp_path / "attempt"
+  out = '"$DATAFORGE_OUTPUTS"'
+  write = f'echo hi > "$DATAFORGE_SUMMARY"; touch {out}/a'
+  verdict = f'echo \'{{"outcome": "ok"}}\' > {out}/verdict.json'
+
+  def body(ctx: Context) -> Outcome:
+    _ = Actions().script(ctx, ScriptSpec(["sh", "-c", write], outputs=["a"]))
+    _ = Actions().judge(ctx, Judge(ScriptSpec(["sh", "-c", verdict])))
+    return Outcome("ok")
+
+  _ = Machine([Once(body)]).run(root)
+  files = sorted(
+    str(path.relative_to(root)) for path in root.rglob("*") if path.is_file()
+  )
+  assert files
+  for name in files:
+    top, rest = name.split("/", 1)
+    assert top in BY_VISIT, name
+    assert rest.startswith("a/1/") or rest == "a/1.json", name
 
 
 def test_an_output_named_twice_in_a_visit_is_an_error(tmp_path: Path) -> None:
