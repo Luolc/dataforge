@@ -30,6 +30,7 @@ from dataforge.queue import (
   submit,
 )
 from dataforge.queue import scheduler as scheduler_module
+from dataforge.queue import store as queue_store
 from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
 from dataforge.queue.store import row as read_row
@@ -739,13 +740,21 @@ def test_pauses_reads_without_making_the_database_or_its_table(
   assert cli.main(["queue", "paused", "--config", path, "--json"]) == 0
   assert json.loads(out.getvalue()) == []
   assert not config.database.exists()
-  # A database made before queues could be paused has none.
+
+
+def test_a_database_made_before_pauses_gets_their_table_once_opened(
+  config: Config,
+):
+  schema = queue_store._SCHEMA  # pyright: ignore[reportPrivateUsage]
+  before, _, _ = schema.partition("CREATE TABLE IF NOT EXISTS pauses")
   with closing(sqlite3.connect(config.database)) as conn:
-    _ = conn.execute("CREATE TABLE jobs (id INTEGER PRIMARY KEY)")
+    _ = conn.executescript(before)
   assert pauses(config) == []
   with closing(sqlite3.connect(config.database)) as conn:
     tables = conn.execute("SELECT name FROM sqlite_master").fetchall()
-  assert tables == [("jobs",)]
+  assert ("pauses",) not in tables
+  assert pause(config, "alpha").queue == "alpha"
+  assert [found.queue for found in pauses(config)] == ["alpha"]
 
 
 # An attempt's process: it takes the item's row in the store given, ignores
