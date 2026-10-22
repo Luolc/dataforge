@@ -1,0 +1,787 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 60.0,
+    "cost_usd": 2.2,
+    "stopped": null
+  },
+  "final": {},
+  "visits": [
+    {
+      "state": "outline",
+      "visit": 1,
+      "round": 1,
+      "outcome": "invalid",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:00:00+00:00",
+          "ended_at": "2026-03-12T09:02:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "outline",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:02:30+00:00",
+          "ended_at": "2026-03-12T09:11:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "scaffold",
+      "visit": 1,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:12:00+00:00",
+          "ended_at": "2026-03-12T09:17:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "compile",
+      "visit": 1,
+      "round": 1,
+      "outcome": "flaky",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:17:30+00:00",
+          "ended_at": "2026-03-12T09:29:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "compile",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:30:00+00:00",
+          "ended_at": "2026-03-12T09:38:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "unit",
+      "visit": 1,
+      "round": 1,
+      "outcome": "fail",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:38:30+00:00",
+          "ended_at": "2026-03-12T09:42:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "outline",
+      "visit": 3,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:43:00+00:00",
+          "ended_at": "2026-03-12T09:54:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "scaffold",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T09:54:30+00:00",
+          "ended_at": "2026-03-12T10:01:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "compile",
+      "visit": 3,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:02:00+00:00",
+          "ended_at": "2026-03-12T10:05:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "unit",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:05:30+00:00",
+          "ended_at": "2026-03-12T10:15:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "integrate",
+      "visit": 1,
+      "round": 1,
+      "outcome": "fail",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:16:00+00:00",
+          "ended_at": "2026-03-12T10:22:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "compile",
+      "visit": 4,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:22:30+00:00",
+          "ended_at": "2026-03-12T10:24:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "unit",
+      "visit": 3,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:25:00+00:00",
+          "ended_at": "2026-03-12T10:34:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "integrate",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:34:30+00:00",
+          "ended_at": "2026-03-12T10:39:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "stage",
+      "visit": 1,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:40:00+00:00",
+          "ended_at": "2026-03-12T10:52:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "canary",
+      "visit": 1,
+      "round": 1,
+      "outcome": "noisy",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T10:52:30+00:00",
+          "ended_at": "2026-03-12T11:00:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "canary",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T11:01:00+00:00",
+          "ended_at": "2026-03-12T11:05:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "promote",
+      "visit": 1,
+      "round": 1,
+      "outcome": "conflict",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T11:05:30+00:00",
+          "ended_at": "2026-03-12T11:16:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "stage",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T11:17:00+00:00",
+          "ended_at": "2026-03-12T11:24:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "canary",
+      "visit": 3,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T11:24:30+00:00",
+          "ended_at": "2026-03-12T11:27:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "promote",
+      "visit": 2,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T11:28:00+00:00",
+          "ended_at": "2026-03-12T11:38:00+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "verify",
+      "visit": 1,
+      "round": 1,
+      "outcome": "ok",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-12T11:38:30+00:00",
+          "ended_at": "2026-03-12T11:44:30+00:00",
+          "cost_usd": 0.1,
+          "summary": null
+        }
+      ]
+    }
+  ],
+  "deliverables": [],
+  "graph": {
+    "start": "outline",
+    "states": [
+      {
+        "name": "outline",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "scaffold",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "compile",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "unit",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "integrate",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "stage",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "canary",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "promote",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "verify",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "rollback",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "archive",
+        "kind": "AgentState",
+        "max_visits": 6,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      }
+    ],
+    "edges": [
+      {
+        "from": "outline",
+        "outcome": "ok",
+        "to": "scaffold",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "outline",
+        "outcome": "invalid",
+        "to": "outline",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "outline",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "scaffold",
+        "outcome": "ok",
+        "to": "compile",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "scaffold",
+        "outcome": "invalid",
+        "to": "scaffold",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "scaffold",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "compile",
+        "outcome": "ok",
+        "to": "unit",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "compile",
+        "outcome": "broken",
+        "to": "scaffold",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "compile",
+        "outcome": "flaky",
+        "to": "compile",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "unit",
+        "outcome": "ok",
+        "to": "integrate",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "unit",
+        "outcome": "fail",
+        "to": "outline",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "unit",
+        "outcome": "skip",
+        "to": "stage",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "integrate",
+        "outcome": "ok",
+        "to": "stage",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "integrate",
+        "outcome": "fail",
+        "to": "compile",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "integrate",
+        "outcome": "timeout",
+        "to": null,
+        "end": "exhausted",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "stage",
+        "outcome": "ok",
+        "to": "canary",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "stage",
+        "outcome": "revert",
+        "to": "rollback",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "stage",
+        "outcome": "fail",
+        "to": "unit",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "canary",
+        "outcome": "ok",
+        "to": "promote",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "canary",
+        "outcome": "degrade",
+        "to": "rollback",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "canary",
+        "outcome": "noisy",
+        "to": "canary",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "promote",
+        "outcome": "ok",
+        "to": "verify",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "promote",
+        "outcome": "conflict",
+        "to": "stage",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "verify",
+        "outcome": "ok",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "verify",
+        "outcome": "drift",
+        "to": "canary",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "verify",
+        "outcome": "lost",
+        "to": "archive",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "rollback",
+        "outcome": "done",
+        "to": "outline",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "rollback",
+        "outcome": "fail",
+        "to": null,
+        "end": "exhausted",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "archive",
+        "outcome": "done",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "archive",
+        "outcome": "retry",
+        "to": "verify",
+        "end": null,
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  }
+}

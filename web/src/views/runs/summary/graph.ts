@@ -1,9 +1,13 @@
 // The layout of the machine's graph and the transitions an attempt took. The
-// states, then the end, are cards in layers from left to right (layered.ts),
+// states, then the end, are cards in layers from top to bottom (layered.ts),
 // in the graph's order where the transitions allow; an edge against that
-// order runs right to left. Each edge leaves and reaches a card at a port of
-// its own on the card's side, its label beside the card it leaves; an edge
-// to its own state is a loop over the card, its label beside the loop.
+// order runs bottom to top. Each edge leaves and reaches a card at a port of
+// its own: an edge ahead from the bottom of the card it leaves to the top of
+// the one it goes to, an edge back from the top to the bottom; its label is
+// beside the card it leaves. An edge to its own state is a loop beside the
+// card's right side, its label right of the loop. A transition not taken
+// back or to the end, between two states that both ran, is a stub out of
+// the card it leaves, its label naming where it goes.
 
 import type { AttemptRecord, Current, Project, Tone } from "../../../api/types";
 import { duration, visitSeconds } from "../../../ui/format";
@@ -17,15 +21,25 @@ import {
   statusOf,
 } from "../../../ui/status";
 import { layered } from "./layered";
+import { type Font, type Measure, widest } from "./measure";
 
 export const END = "\0end";
 
-const W = 168;
-const H = 56;
+/**
+ * A card's least width, and the room its text has beside the icon; more
+ * ports on its top or bottom than that holds make it wider.
+ */
+export const CARD_WIDTH = 176;
+export const TEXT_WIDTH = CARD_WIDTH - 36 - 12;
+/**
+ * The padding above and below a card's text, the height of a line of its
+ * title and of a line under it.
+ */
+const PAD = 10;
+export const TITLE_LINE = 18;
+export const SUB_LINE = 16;
 /** The radius of an edge's corners. */
 const R = 8;
-/** The width of a character of a card's title, for its card's width. */
-const CHAR = 8.2;
 /**
  * The height of a line of an edge's label, how far its baseline sits above
  * the line's bottom, and the most a character of it is wide.
@@ -33,10 +47,9 @@ const CHAR = 8.2;
 export const LINE = 14;
 const DESCENT = 4;
 const LABEL_CHAR = 7;
-/** How high a loop rises, how wide it is, and where it sits on the card. */
+/** How far a loop reaches out of its card, and how tall it is. */
 const LOOP = 30;
-const LOOP_WIDTH = 28;
-const LOOP_RIGHT = 16;
+export const LOOP_WIDTH = 28;
 /** How far a loop's label keeps from the loop. */
 const LOOP_GAP = 6;
 
@@ -49,9 +62,17 @@ interface Node {
   /** Where its edges leave it, from its top left. */
   ports: [number, number][];
   title: string;
+  /** The title's lines, broken to fit the card's width. */
+  lines: string[];
   /** Runs and their total time, or the end's status; Not run when none. */
   sub: string;
   time: string | null;
+  /**
+   * The lines under the title, each broken to fit the card's width: sub and
+   * time, on one line where they fit. A running state's time, which grows,
+   * is drawn on a line of its own after them.
+   */
+  under: string[];
   /**
    * The word the node's icon and accessible name show: its last visit's
    * outcome, or the attempt's status at the end; null for none.
@@ -74,6 +95,8 @@ interface Node {
 interface LabelPart {
   outcome: string;
   taken: number;
+  /** The title of the state a stub's transition goes to; null for none. */
+  to: string | null;
 }
 
 export interface Edge {
@@ -82,11 +105,12 @@ export interface Edge {
   to: string;
   path: string;
   taken: boolean;
-  /** The parts one a line, the last line's baseline at y. */
+  /** Whether it is drawn as a stub, its label naming where it goes. */
+  stub: boolean;
+  /** The parts one a line from x, the last line's baseline at y. */
   label: {
     x: number;
     y: number;
-    anchor: "start" | "end";
     parts: LabelPart[];
   };
 }
@@ -158,6 +182,7 @@ export function layout(
   record: AttemptRecord,
   project: Project,
   current: Current | null = null,
+  measure: Measure = widest,
 ): Layout | null {
   const graph = record.graph;
   if (!graph) return null;
@@ -170,8 +195,8 @@ export function layout(
       key,
       x: 0,
       y: 0,
-      width: W,
-      height: H,
+      width: CARD_WIDTH,
+      height: 0,
       ports: [] as [number, number][],
     };
     if (key === END) {
@@ -181,8 +206,10 @@ export function layout(
       return {
         ...box,
         title: "End",
+        lines: wrap("End", "title", measure),
         sub: ended ? status.label : NOT_RUN,
         time: null,
+        under: below(ended ? status.label : NOT_RUN, null, measure),
         word: end,
         ended: true,
         status: ended ? status : null,
@@ -194,14 +221,22 @@ export function layout(
     const mine = record.visits.filter((v) => v.state === key);
     const last = mine.at(-1);
     const seconds = mine.reduce((sum, v) => sum + (visitSeconds(v) ?? 0), 0);
+    const sub =
+      mine.length === 0
+        ? NOT_RUN
+        : `${mine.length} run${mine.length > 1 ? "s" : ""}`;
+    const time = mine.length === 0 ? null : duration(seconds);
     if (current?.state === key) {
       const done = current.recorded ? mine.slice(0, -1) : mine;
       const runs = done.length + 1;
+      const runsNow = `${runs.toString()} run${runs > 1 ? "s" : ""} · ${liveStatus.running.label}`;
       return {
         ...box,
         title: stateTitle(project, key),
-        sub: `${runs.toString()} run${runs > 1 ? "s" : ""} · ${liveStatus.running.label}`,
+        lines: wrap(stateTitle(project, key), "title", measure),
+        sub: runsNow,
         time: null,
+        under: wrap(runsNow, "sub", measure),
         word: null,
         ended: false,
         status: liveStatus.running,
@@ -220,11 +255,10 @@ export function layout(
     return {
       ...box,
       title: stateTitle(project, key),
-      sub:
-        mine.length === 0
-          ? NOT_RUN
-          : `${mine.length} run${mine.length > 1 ? "s" : ""}`,
-      time: mine.length === 0 ? null : duration(seconds),
+      lines: wrap(stateTitle(project, key), "title", measure),
+      sub,
+      time,
+      under: below(sub, time, measure),
       word: last?.outcome ?? null,
       ended: attemptEnded,
       status: last ? outcomeOf(project, last.outcome, attemptEnded) : null,
@@ -245,12 +279,35 @@ export function layout(
     group.parts.push({
       outcome: e.outcome,
       taken: taken.get(`${e.from}\0${e.outcome}`) ?? 0,
+      to: null,
     });
     groups.set(key, group);
   }
+  // The transitions not taken back against the graph's order or to the
+  // end, as stubs; a state that never ran keeps every line it has, so that
+  // it stays joined to the rest of the graph.
+  const ran = (key: string) =>
+    key === END || nodes.some((n) => n.key === key && !n.idle);
+  const stubbed = new Set(
+    [...groups.entries()]
+      .filter(
+        ([, g]) =>
+          g.from !== g.to &&
+          g.parts.every((p) => p.taken === 0) &&
+          (g.to === END || order.indexOf(g.to) < order.indexOf(g.from)) &&
+          ran(g.from) &&
+          ran(g.to),
+      )
+      .map(([key]) => key),
+  );
+  for (const key of stubbed) {
+    const g = must(groups.get(key));
+    const title = g.to === END ? "End" : stateTitle(project, g.to);
+    g.parts = g.parts.map((p) => ({ ...p, to: title }));
+  }
 
-  // A card is wide enough for its title, and for its loop's label beside
-  // the loop over it.
+  // A card is tall enough for its title's lines and those under them, and
+  // for its loop's label.
   const loops = new Map(
     [...groups.values()]
       .filter((g) => g.from === g.to)
@@ -258,10 +315,9 @@ export function layout(
   );
   for (const node of nodes) {
     const loop = loops.get(node.key);
-    node.width = Math.max(
-      W,
-      Math.ceil(56 + node.title.length * CHAR + 48),
-      loop ? labelWidth(loop) + LOOP_WIDTH + LOOP_RIGHT + LOOP_GAP + 8 : 0,
+    node.height = Math.max(
+      textHeight(node),
+      loop ? loop.length * LINE + LOOP_WIDTH : 0,
     );
   }
 
@@ -270,15 +326,16 @@ export function layout(
     nodes.map((n) => ({
       key: n.key,
       width: n.width,
-      height: H,
-      above: loops.has(n.key)
-        ? Math.max(LOOP, must(loops.get(n.key)).length * LINE + 6)
+      height: n.height,
+      beside: loops.has(n.key)
+        ? LOOP + LOOP_GAP + labelWidth(must(loops.get(n.key)))
         : 0,
     })),
     others.map(([key, g]) => ({
       key,
       from: g.from,
       to: g.to,
+      stub: stubbed.has(key),
       label: { width: labelWidth(g.parts), height: g.parts.length * LINE },
     })),
   );
@@ -286,26 +343,31 @@ export function layout(
     const at = must(drawn.boxes.get(node.key));
     node.x = at.x;
     node.y = at.y;
-    node.height = at.height;
+    node.width = at.width;
   }
   const box = (key: string) => must(nodes.find((n) => n.key === key));
 
   const edges = [...groups.entries()].map(([key, g]): Edge => {
     const on = g.parts.some((p) => p.taken > 0);
-    const common = { key, from: g.from, to: g.to, taken: on };
+    const common = {
+      key,
+      from: g.from,
+      to: g.to,
+      taken: on,
+      stub: stubbed.has(key),
+    };
     if (g.from === g.to) {
-      // A loop over the card's right end, its label left of it.
+      // A loop beside the card's right side, its label right of it.
       const node = box(g.from);
-      const b = node.x + node.width - LOOP_RIGHT;
-      const a = b - LOOP_WIDTH;
-      const y = node.y;
+      const x = node.x + node.width;
+      const a = node.y + (node.height - LOOP_WIDTH) / 2;
+      const b = a + LOOP_WIDTH;
       return {
         ...common,
-        path: `M${a} ${y} C ${a} ${y - LOOP}, ${b} ${y - LOOP}, ${b} ${y - 3}`,
+        path: `M${x} ${a} C ${x + LOOP} ${a}, ${x + LOOP} ${b}, ${x + 3} ${b}`,
         label: {
-          x: a - LOOP_GAP,
-          y: y - 6,
-          anchor: "end",
+          x: x + LOOP + LOOP_GAP,
+          y: node.y + (node.height + g.parts.length * LINE) / 2 - DESCENT,
           parts: g.parts,
         },
       };
@@ -319,10 +381,9 @@ export function layout(
       ...common,
       path: rounded(r.points),
       label: {
-        x: r.back ? r.label.x + r.label.width : r.label.x,
+        x: r.label.x,
         // The baseline of the label's last line.
         y: r.label.y + r.label.height - DESCENT,
-        anchor: r.back ? "end" : "start",
         parts: g.parts,
       },
     };
@@ -331,13 +392,71 @@ export function layout(
   return { width: drawn.width, height: drawn.height, nodes, edges };
 }
 
+/** The height of a card's text: its title's lines and those under it. */
+export function textHeight(node: Pick<Node, "lines" | "under" | "running">) {
+  const clock = node.running?.since != null ? 1 : 0;
+  return (
+    2 * PAD +
+    node.lines.length * TITLE_LINE +
+    (node.under.length + clock) * SUB_LINE
+  );
+}
+
+/** Where a card's text starts, so that it sits in the card's middle. */
+export function textTop(
+  node: Pick<Node, "height" | "lines" | "under" | "running">,
+): number {
+  return PAD + (node.height - textHeight(node)) / 2;
+}
+
+/** Splits a word into the characters a reader sees, accents and all. */
+const graphemes = new Intl.Segmenter();
+
+/**
+ * A text's lines in a font: its words, as many to a line as fit the card's
+ * width, and a word too wide for a line of its own broken between its
+ * characters, so that none is cut.
+ */
+function wrap(text: string, font: Font, measure: Measure): string[] {
+  const fits = (line: string) => measure(line, font) <= TEXT_WIDTH;
+  const lines: string[] = [];
+  for (const word of text.split(/\s+/).filter((w) => w !== "")) {
+    const last = lines.at(-1);
+    if (last !== undefined && fits(`${last} ${word}`)) {
+      lines[lines.length - 1] = `${last} ${word}`;
+      continue;
+    }
+    let rest = Array.from(graphemes.segment(word), (g) => g.segment);
+    while (rest.length > 1 && !fits(rest.join(""))) {
+      let n = 1;
+      while (n < rest.length - 1 && fits(rest.slice(0, n + 1).join(""))) n++;
+      lines.push(rest.slice(0, n).join(""));
+      rest = rest.slice(n);
+    }
+    lines.push(rest.join(""));
+  }
+  return lines.length > 0 ? lines : [""];
+}
+
+/** The lines under a title: sub and time, on one line where they fit. */
+function below(sub: string, time: string | null, measure: Measure): string[] {
+  const one = time === null ? sub : `${sub} · ${time}`;
+  if (measure(one, "sub") <= TEXT_WIDTH) return [one];
+  return [
+    ...wrap(sub, "sub", measure),
+    ...(time === null ? [] : wrap(time, "sub", measure)),
+  ];
+}
+
 /** How wide a label of these parts is, a part to a line. */
 function labelWidth(parts: LabelPart[]): number {
   return Math.max(
     0,
     ...parts.map((p) =>
       Math.ceil(
-        (p.outcome.length + (p.taken > 0 ? 3 + String(p.taken).length : 0)) *
+        (p.outcome.length +
+          (p.taken > 0 ? 3 + String(p.taken).length : 0) +
+          (p.to === null ? 0 : 3 + p.to.length)) *
           LABEL_CHAR,
       ),
     ),

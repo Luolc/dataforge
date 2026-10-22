@@ -43,7 +43,8 @@ The schema, version 1:
         #   continue_session, min_fix_usd, serve, spent
         # harbor: harbor, cpus, cpu_shares, pids, sidecar {cpus, memory_mb},
         #   timeout, mounts, env, pass_env, compose_overlay [<path> | <hook>],
-        #   setup, docker; not verifier, which only Python sets
+        #   setup, docker; not verifier or environment, which only Python
+        #   sets
   states:
     <name>:
       uses: agent | script | judge | trial | pass-at-k | trials | rubric
@@ -69,6 +70,8 @@ The schema, version 1:
                visit: kept | last | <integer>}     # kept by default
       table: <source>                 # report only
       value: {field: [<string>], output: <string>} # trials only
+      match: <glob>                   # trials only: list only the trials
+                                      # whose output name matches it
 
 In the fields the engine renders as string.Template (feedback, prompt and
 report_prompt, a prompt file and its vars), an input's value has each $
@@ -371,7 +374,7 @@ class _Loader:
         spec,
         at,
         required={"kind", "title", "source"},
-        optional={"table", "value"},
+        optional={"table", "value", "match"},
       )
       table, data = fields.get("table"), fields.get("value")
       item = Deliverable(
@@ -380,6 +383,7 @@ class _Loader:
         self.source(fields["source"], f"{at}.source"),
         table=None if table is None else self.source(table, f"{at}.table"),
         value=None if data is None else self.value(data, f"{at}.value"),
+        match=self.optional_string(fields.get("match"), f"{at}.match"),
       )
       try:
         check_deliverables({name: item}, states)
@@ -1214,10 +1218,10 @@ _HARBOR: dict[str, _Read] = {
   "setup": _Loader.callable_hook,
   "docker": _Loader.string,
 }
-"""HarborRunner's fields besides harbor, env, pass_env and verifier.
+"""HarborRunner's fields that a declaration sets besides harbor, env, pass_env.
 
-Only Python sets verifier; a declaration that names it is refused as an
-unknown field.
+Only Python sets verifier and environment; a declaration that names either is
+refused as an unknown field.
 """
 
 

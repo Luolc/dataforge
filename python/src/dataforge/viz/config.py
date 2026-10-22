@@ -5,7 +5,7 @@ ConfigError naming the file and the key that is wrong.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 import ipaddress
 import os
@@ -285,6 +285,23 @@ class Deliverable:
 
 
 @dataclass(frozen=True, slots=True)
+class Trials:
+  """What the trials view reads in a trial's directory besides its record.
+
+  Attributes:
+    diff: The path of a trial's diff in its directory; None when the
+      dataset names none.
+    tests: The path of a trial's test results, a CTRF report, in its
+      directory; None when the dataset names none.
+    kinds: Each test kind's label, by the kind a test's labels give.
+  """
+
+  diff: tuple[str, ...] | None = None
+  tests: tuple[str, ...] | None = None
+  kinds: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class Project:
   """A dataset's project file, as loaded.
 
@@ -308,8 +325,8 @@ class Project:
     lock: The path of the lock file in an item's directory; None when the
       dataset names none.
     deliverables: The deliverables an attempt has once it ends, in order.
-    trial_diff: The path of a trial's diff in its directory; None when the
-      dataset names none.
+    trials: What the trials view reads in a trial's directory; None when
+      the dataset names nothing.
     definition: The path of the definition snapshot in an attempt's
       directory; None when the dataset names none.
     monitor: The resource monitor's SQLite database; None when the dataset
@@ -336,7 +353,7 @@ class Project:
   resumable: tuple[str, ...] = ()
   lock: tuple[str, ...] | None = None
   deliverables: tuple[Deliverable, ...] = ()
-  trial_diff: tuple[str, ...] | None = None
+  trials: Trials | None = None
   definition: tuple[str, ...] | None = None
   monitor: Path | None = None
   monitor_shown: str | None = None
@@ -387,9 +404,7 @@ class Project:
         {"name": d.name, "kind": d.kind, "title": d.title}
         for d in self.deliverables
       ],
-      "trials": None
-      if self.trial_diff is None
-      else {"diff": "/".join(self.trial_diff)},
+      "trials": None if self.trials is None else _public_trials(self.trials),
       "definition": None
       if self.definition is None
       else "/".join(self.definition),
@@ -546,7 +561,7 @@ def load_project(path: Path) -> Project:
     resumable=_resumable(path, data.get("resumable"), statuses, not_ended),
     lock=lock,
     deliverables=deliverables,
-    trial_diff=_trial_diff(path, data.get("trials")),
+    trials=_trials(path, data.get("trials")),
     definition=None
     if data.get("definition") is None
     else _relative(
@@ -913,14 +928,36 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
   return tuple(found)
 
 
-def _trial_diff(path: Path, value: object) -> tuple[str, ...] | None:
+def _trials(path: Path, value: object) -> Trials | None:
   if value is None:
     return None
   mapping = _mapping(path, "trials", value)
-  _keys(path, "trials", mapping, required={"diff"}, optional=set())
-  return _relative(
-    path, "trials.diff", _str(path, "trials.diff", mapping["diff"])
+  _keys(
+    path, "trials", mapping, required=set(), optional={"diff", "tests", "kinds"}
   )
+  paths = {
+    key: _relative(path, f"trials.{key}", _str(path, f"trials.{key}", given))
+    for key in ("diff", "tests")
+    if (given := mapping.get(key)) is not None
+  }
+  if not paths:
+    raise ConfigError(f"{path}: trials: names neither diff nor tests")
+  kinds = mapping.get("kinds")
+  if kinds is not None and "tests" not in paths:
+    raise ConfigError(f"{path}: trials.kinds: without trials.tests")
+  return Trials(
+    diff=paths.get("diff"),
+    tests=paths.get("tests"),
+    kinds=_entries(path, "trials.kinds", kinds, {"label"}),
+  )
+
+
+def _public_trials(trials: Trials) -> dict[str, object]:
+  return {
+    "diff": None if trials.diff is None else "/".join(trials.diff),
+    "tests": None if trials.tests is None else "/".join(trials.tests),
+    "kinds": trials.kinds,
+  }
 
 
 def _monitor(

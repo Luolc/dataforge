@@ -32,6 +32,7 @@ import {
   toneGlyph,
   toneText,
 } from "../../ui/status";
+import { Chip, control } from "../../ui/chip";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
@@ -313,9 +314,6 @@ function AttemptLink({ href, children }: { href: string; children: string }) {
     </Link>
   );
 }
-
-const control =
-  "target inline-flex items-center gap-1.5 rounded-row border border-chip-line px-2 text-xs font-medium hover:bg-hover";
 
 /** A project's items in their groups, with search, status chips and refresh. */
 export function HomeTable({
@@ -700,34 +698,5 @@ export function HomeTable({
         )}
       </div>
     </Tooltip.Provider>
-  );
-}
-
-function Chip({
-  pressed,
-  onClick,
-  icon,
-  label,
-  count,
-}: {
-  pressed: boolean;
-  onClick: () => void;
-  icon?: ReactNode;
-  label: string;
-  count: number;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={`${control} group bg-chip aria-pressed:border-chip-on aria-pressed:bg-chip-on aria-pressed:text-chip-on-fg`}
-    >
-      {icon}
-      {label}
-      <span className="font-normal text-fg-2 tabular-nums group-aria-pressed:text-chip-on-count">
-        {count}
-      </span>
-    </button>
   );
 }

@@ -135,6 +135,143 @@ describe("the deliverables a project declares", () => {
   });
 });
 
+describe("a tab of several deliverables of one kind", () => {
+  // Two trials, the first declared reached only by some attempts.
+  const twice: Project = {
+    ...sampleProject,
+    deliverables: [
+      { name: "regrade", kind: "trials", title: "Regrade" },
+      { name: "pass_at_k", kind: "trials", title: "Pass@k" },
+    ],
+  };
+  // The record of an attempt that ended, with a regrade declared before its
+  // pass@k: reached or not, and pass@k reached or not.
+  const withRegrade = (regraded: boolean, solved = true): unknown => {
+    const record = structuredClone(passed);
+    const pass = record.deliverables.find((d) => d.name === "pass_at_k");
+    if (pass === undefined) throw new Error("no pass_at_k");
+    const unreached = (state: string) => ({
+      visit: null,
+      visit_index: null,
+      path: null,
+      reason: `${state} was never visited`,
+    });
+    const regrade = {
+      ...pass,
+      name: "regrade",
+      title: "Regrade",
+      state: "regrade",
+      value: { ...pass.value, value: 1 },
+      ...(regraded ? {} : unreached("regrade")),
+    };
+    const kept = { ...pass, ...(solved ? {} : unreached("solve")) };
+    return {
+      ...record,
+      deliverables: record.deliverables.flatMap((d) =>
+        d === pass ? [regrade, kept] : [d],
+      ),
+    };
+  };
+
+  it("is titled and counted by the first the attempt reached", async () => {
+    show(withRegrade(false), "", twice);
+
+    expect(await tabs()).toContain("Pass@k2 / 4");
+  });
+
+  it("is titled and counted by the first declared, when it was reached", async () => {
+    show(withRegrade(true), "", twice);
+
+    expect(await tabs()).toContain("Regrade1 / 4");
+  });
+
+  it("is titled by the first declared when none was reached", async () => {
+    show(withRegrade(false, false), "", twice);
+
+    expect(await tabs()).toContain("RegradeNot run");
+  });
+
+  it("opens on the deliverable it is titled by, the others in its menu", async () => {
+    show(withRegrade(false), "&tab=trials", twice);
+
+    const menu = await screen.findByRole("button", { name: /Pass@k/ });
+    expect(menu).toHaveTextContent(/^Pass@k$/);
+    expect(await screen.findByText(/2 \/ 4 solved/)).toBeVisible();
+    expect(screen.queryByText("regrade was never visited")).toBeNull();
+  });
+
+  it("opens on the first declared when none was reached", async () => {
+    show(withRegrade(false, false), "&tab=trials", twice);
+
+    expect(await screen.findByText("regrade was never visited")).toBeVisible();
+  });
+
+  // Two reports, the first declared reached only by some attempts: the rule
+  // holds for every kind, a stacked one too.
+  const reviews: Project = {
+    ...sampleProject,
+    deliverables: [
+      { name: "tightened", kind: "report", title: "Tightened review" },
+      { name: "review", kind: "report", title: "Review" },
+    ],
+  };
+  const withTightened = (reached: boolean): unknown => {
+    const record = structuredClone(passed);
+    const review = record.deliverables.find((d) => d.name === "review");
+    if (review === undefined) throw new Error("no review");
+    const tightened = {
+      ...review,
+      name: "tightened",
+      title: "Tightened review",
+      ...(reached
+        ? {}
+        : {
+            visit: null,
+            visit_index: null,
+            path: null,
+            reason: "tighten was never visited",
+          }),
+    };
+    return {
+      ...record,
+      deliverables: record.deliverables.flatMap((d) =>
+        d === review ? [tightened, review] : [d],
+      ),
+    };
+  };
+
+  it("of reports is titled by the first reached, counting each reached", async () => {
+    show(withTightened(false), "", reviews);
+
+    expect(await tabs()).toContain("Review1");
+  });
+
+  it("of reports is titled by the first declared, when it was reached", async () => {
+    show(withTightened(true), "", reviews);
+
+    expect(await tabs()).toContain("Tightened review2");
+  });
+
+  it("of reports stacks the reached ones first, then the others", async () => {
+    show(withTightened(false), "&tab=report", reviews);
+
+    await screen.findByText("Not run: tighten was never visited");
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual(["Review", "Tightened review"]);
+  });
+
+  it("of reports keeps the declared order when all were reached", async () => {
+    show(withTightened(true), "&tab=report", reviews);
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+      ).toEqual(["Tightened review", "Review"]);
+    });
+  });
+});
+
 describe("a running attempt's record", () => {
   // As the engine writes it while its pass@4 runs: the task and the reviews
   // made, the trials started.
