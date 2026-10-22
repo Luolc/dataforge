@@ -60,6 +60,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("the tab bar", () => {
+  // What sticks under it, as the session's totals do, sits `top-tabs` down,
+  // so its height is that token's too.
+  it("is as tall as the token that what sticks under it is offset by", async () => {
+    show(older);
+    await screen.findByText("Passed");
+    expect(screen.getByRole("navigation", { name: "Attempt" })).toHaveClass(
+      "sticky",
+      "top-0",
+      "h-tabs",
+    );
+  });
+});
+
 describe("a data item's actions", () => {
   it("show under the heading only when the project names any", async () => {
     show(older);

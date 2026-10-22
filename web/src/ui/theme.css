@@ -35,6 +35,9 @@
   --spacing: 4px;
   --spacing-sidebar: 244px;
   --spacing-header: 44px;
+  /* The height of the tab bar that sticks at the top of an attempt's page and
+     of a share item's; what sticks under it sits that far down. */
+  --spacing-tabs: 44px;
   --spacing-row: 28px;
   --spacing-inset: 8px;
   --spacing-runs: 208px;

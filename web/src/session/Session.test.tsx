@@ -84,6 +84,17 @@ const toolLine = (name: string | RegExp) =>
   screen.getByRole("button", { name });
 
 describe("the session view", () => {
+  // The page's tab bar sticks at the top of the scroll, so the totals stick
+  // below it, as far down as its height token; jsdom lays nothing out, so the
+  // test reads the class that sets the offset.
+  it("sticks its totals below the page's tab bar, not over it", () => {
+    show(solved);
+
+    const header = screen.getByText("the badge").closest("header");
+    expect(header).toHaveClass("sticky", "top-tabs");
+    expect(header).not.toHaveClass("top-0");
+  });
+
   it("opens a failed call from the start and the others on a click", () => {
     show(solved);
 

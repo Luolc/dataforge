@@ -65,7 +65,7 @@ export function SessionBody({
   return (
     <FoldContext value={fold}>
       <section className="flex flex-col rounded-panel border border-line bg-panel">
-        <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
+        <header className="sticky top-tabs z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
           {badge}
           {shownTotals === "all" && (
             <>
