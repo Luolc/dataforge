@@ -12,13 +12,14 @@ build slots each.
 
 import codecs
 from collections.abc import Callable, Generator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import errno
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import shlex
@@ -30,6 +31,7 @@ import threading
 from types import TracebackType
 from typing import cast, Protocol, Self
 
+from dataforge import stopping
 from dataforge.curation.engine import (
   ActionRecord,
   Context,
@@ -39,6 +41,8 @@ from dataforge.curation.engine import (
 )
 from dataforge.leases import Lease, Leases
 from dataforge.statedir import state_dir
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -427,13 +431,18 @@ class Host:
 
     Returns:
       Its result.
-    """
+
+    Raises:
+      subprocess.TimeoutExpired: It ran past what is left of the budget of a
+        stopped `fan_out` (`dataforge.stopping`); it is killed.
+    """  # noqa: DOC502
     done = subprocess.run(
       list(argv),
       capture_output=True,
       text=True,
       check=False,
       env={**os.environ, **env},
+      timeout=stopping.left(None),
     )
     return CommandResult(done.returncode, done.stdout + done.stderr)
 
@@ -477,9 +486,17 @@ def run_docker(args: Sequence[str]) -> CommandResult:
 
   Returns:
     Its result.
-  """
+
+  Raises:
+    subprocess.TimeoutExpired: It ran past what is left of the budget of a
+      stopped `fan_out` (`dataforge.stopping`); it is killed.
+  """  # noqa: DOC502
   done = subprocess.run(
-    ["docker", *args], capture_output=True, text=True, check=False
+    ["docker", *args],
+    capture_output=True,
+    text=True,
+    check=False,
+    timeout=stopping.left(None),
   )
   return CommandResult(done.returncode, done.stdout + done.stderr)
 
@@ -733,7 +750,9 @@ class Docker:
     Raises:
       BaseException: Whatever creating, starting or post_start raised; the
         memory is given back, and after a failed post_start the container is
-        stopped.
+        stopped. Stopped, with the memory given back, when the stop of the
+        call this thread runs is set before the container is created or
+        started.
     """
     with self._lock:
       if self._users == 0:
@@ -741,6 +760,8 @@ class Docker:
           pool.acquire(self.memory_gb)
           self._pool = pool
         try:
+          # Also once the memory came, which may be long after the call began.
+          stopping.check()
           if self._id is None:
             self._id = self._docker(self.create_args()).strip()
           if self.pre_start is not None:
@@ -1541,17 +1562,42 @@ def fan_out[T](calls: Sequence[Callable[[], T]]) -> list[T]:
   """Run every call at once, each in its own thread.
 
   How many actually run at a time is up to the pool their actions reserve from.
+  The calls run under a stop (`dataforge.stopping`), the one of the call that
+  runs this fan_out, if any, else one of their own. When this thread is
+  interrupted while it waits for them, by the SystemExit of a SIGTERM or a
+  KeyboardInterrupt say, it sets the stop, so that the calls stop the children
+  they wait for and start no more, and raises the interrupt once they ended.
 
   Args:
     calls: The calls.
 
   Returns:
     Their results, in order.
-  """
+
+  Raises:
+    Exception: The error of the first call, in order, that failed, once the
+      calls ended.
+    BaseException: The interrupt, once the calls ended.
+  """  # noqa: DOC503
   if not calls:
     return []
+  stop = stopping.current() or stopping.Stop()
   with ThreadPoolExecutor(max_workers=len(calls)) as executor:
-    futures = [executor.submit(call) for call in calls]
+    futures: list[Future[T]] = []
+    try:
+      for call in calls:
+        futures.append(executor.submit(stopping.under(stop, call)))
+      _ = wait(futures)
+    except BaseException:
+      stop.set()
+      executor.shutdown(cancel_futures=True)
+      for future in futures:
+        error = None if future.cancelled() else future.exception()
+        # What a stopped call could not do on its way out, the interrupt
+        # would hide.
+        if error is not None and not isinstance(error, stopping.Stopped):
+          _log.warning("a call of a stopped fan_out raised %r", error)
+      raise
     return [future.result() for future in futures]
 
 

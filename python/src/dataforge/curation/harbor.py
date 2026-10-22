@@ -70,6 +70,7 @@ from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -80,6 +81,7 @@ import tomllib
 from typing import cast
 import uuid
 
+from dataforge import stopping
 from dataforge.curation.actions import (
   drop_escaping_links,
   drop_special_files,
@@ -90,6 +92,8 @@ from dataforge.curation.actions import (
 )
 from dataforge.runtime import claude, codex, pi
 
+_log = logging.getLogger(__name__)
+
 LABEL = "dataforge.trial"
 CPUS = 2.0
 CPU_SHARES = 1024
@@ -97,6 +101,12 @@ PIDS = 512
 # A bound on one trial past the timeouts Harbor enforces itself (the agent's and
 # the verifier's in task.toml), for a Harbor that hangs.
 TIMEOUT = 3600.0
+# How long a stopped Harbor gets after SIGTERM before SIGKILL, and STOPPED_S,
+# how long one gets when its fan_out was stopped, within the stop's budget.
+STOP_S = 30.0
+STOPPED_S = 10.0
+# What `cleanup` removes, in its order.
+KINDS = ("container", "image", "network", "volume")
 SIDECAR = "harbor-docker-egress-control-sidecar"
 SIDECAR_PIDS = 64
 # The phases whose network_mode, besides the environment's, can make Harbor
@@ -335,6 +345,9 @@ class HarborRunner:
         runs past DOCKER_TIMEOUT (300 s for the chown) or leaves a container
         that mounts from under outdir or something with the trial's label; no
         run follows it.
+      stopping.Stopped: The stop of the call this thread runs is set; a run
+        then starts nothing, or stops Harbor and cleans up within the stop's
+        budget, and no run follows it.
     """  # noqa: DOC502
     deadline = time.monotonic() + self.timeout
     number = 1
@@ -360,6 +373,8 @@ class HarborRunner:
     deadline: float,
     number: int,
   ) -> TrialResult:
+    # Before anything that the cleanup would have to undo, on every run.
+    stopping.check()
     context = (
       nullcontext(TrialSetup())
       if self.setup is None
@@ -411,16 +426,7 @@ class HarborRunner:
     try:
       error = self._harbor(args, log, deadline)
     finally:
-      try:
-        held = release(outdir, self.docker)
-      finally:
-        try:
-          stray = remove_projects(outdir, self.docker)
-        finally:
-          try:
-            self._chown(outdir, label)
-          finally:
-            left = cleanup(f"{LABEL}={label}", self.docker)
+      held, stray, left = self._clean_up(outdir, label)
     if held:
       raise DockerError(f"containers still mount {outdir}: {held}")
     if any(stray.values()):
@@ -520,7 +526,8 @@ class HarborRunner:
 
     Raises:
       BaseException: Whatever interrupted the wait, such as the SystemExit of a
-        SIGTERM or a KeyboardInterrupt, once Harbor is stopped.
+        SIGTERM, a KeyboardInterrupt or the Stopped of a stopped `fan_out`,
+        once Harbor is stopped; Stopped also before Harbor starts.
     """
     env = {
       **_passed(),
@@ -529,6 +536,7 @@ class HarborRunner:
       SIDECAR_CPUS_VAR: str(self.sidecar.cpus),
       SIDECAR_MEMORY_VAR: str(self.sidecar.memory_mb),
     }
+    stopping.check()
     with log.open("w") as out:
       process = subprocess.Popen(
         args,
@@ -539,16 +547,94 @@ class HarborRunner:
         start_new_session=True,
       )
       try:
-        code = process.wait(max(0.0, deadline - time.monotonic()))
+        code = stopping.wait(process, max(0.0, deadline - time.monotonic()))
       except subprocess.TimeoutExpired:
         _stop(process)
         return f"{TIMED_OUT}: Harbor ran past {self.timeout:g} s"
       except BaseException:
-        # Interrupted (a SIGTERM made SystemExit, Ctrl-C): Harbor could still
-        # start a container or write after the cleanup gave its files back.
+        # Interrupted (a SIGTERM made SystemExit, Ctrl-C, a stopped fan_out):
+        # Harbor could still start a container or write after the cleanup
+        # gave its files back.
         _stop(process)
         raise
     return None if code == 0 else f"HarborError: harbor exited {code}"
+
+  def _clean_up(
+    self, outdir: Path, label: str
+  ) -> tuple[list[str], dict[str, int], dict[str, int]]:
+    # What still mounts the trial, what its compose projects hold and what has
+    # its label, once removed.
+    if stopping.stopped():
+      self._clean_up_stopped(outdir, label)
+      raise stopping.Stopped
+    try:
+      held = release(outdir, self.docker)
+    finally:
+      try:
+        stray = remove_projects(outdir, self.docker)
+      finally:
+        try:
+          self._chown(outdir, label)
+        finally:
+          left = cleanup(f"{LABEL}={label}", self.docker)
+    return held, stray, left
+
+  def _clean_up_stopped(self, outdir: Path, label: str) -> None:
+    # For a stopped fan_out, within its budget: what may still run, and cost,
+    # goes first, the containers that mount the trial, have its label or are
+    # in its compose projects; giving the files back and removing the rest
+    # take what is left. What the budget does not reach is logged, not waited
+    # for.
+    selector = f"{LABEL}={label}"
+    seen: dict[str, int] = {}
+    held: list[str] = []
+
+    def mounting() -> None:
+      held[:] = release(outdir, self.docker)
+
+    def projects() -> None:
+      for kind, n in remove_projects(outdir, self.docker).items():
+        seen[f"project {kind}"] = n
+
+    steps: list[tuple[str, Callable[[], object]]] = [
+      ("its mounting containers", mounting),
+      (
+        "its containers",
+        lambda: cleanup(selector, self.docker, KINDS[:1], seen),
+      ),
+      ("its compose projects", projects),
+      ("its files", lambda: self._chown(outdir, label)),
+      ("the rest", lambda: cleanup(selector, self.docker, KINDS, seen)),
+    ]
+    for i, (what, step) in enumerate(steps):
+      try:
+        _ = step()
+      except Exception as error:  # noqa: BLE001
+        # The other steps still run while time is left; what one could not
+        # do is logged.
+        if stopping.left(1.0) > 0:
+          _log.warning(
+            "stopped: the cleanup of %s failed at %s: %s", selector, what, error
+          )
+          continue
+        _log.warning(
+          "stopped: out of time cleaning up %s at %s; not done: %s; seen: %s;"
+          + " still mounting it: %s",
+          selector,
+          what,
+          ", ".join(name for name, _ in steps[i + 1 :]) or "nothing",
+          seen,
+          held,
+        )
+        return
+    left = {kind: n for kind, n in seen.items() if n}
+    if left or held:
+      _log.warning(
+        "stopped: left after the cleanup of %s: %s; still mounting it: %s",
+        selector,
+        left,
+        held,
+      )
 
   def _chown(self, outdir: Path, label: str) -> None:
     _ = _docker(
@@ -567,12 +653,19 @@ class HarborRunner:
     )  # fmt: skip
 
 
-def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
+def cleanup(
+  selector: str,
+  docker: str = "docker",
+  kinds: Sequence[str] = KINDS,
+  seen: dict[str, int] | None = None,
+) -> dict[str, int]:
   """Remove the containers, images, networks and volumes a label selects.
 
   Args:
     selector: A docker label filter, such as "dataforge.trial=<id>".
     docker: The docker command.
+    kinds: Which of KINDS to remove, in KINDS's order whatever theirs.
+    seen: Gets, by kind, how many each listing found, the last one's.
 
   Returns:
     How many of each kind are left.
@@ -589,7 +682,10 @@ def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
       docker, kind, "ls", "-q", *extra, "--filter", f"label={selector}",
       check=True,
     ).stdout  # fmt: skip
-    return sorted(set(out.split()))
+    found = sorted(set(out.split()))
+    if seen is not None:
+      seen[kind] = len(found)
+    return found
 
   # An image whose child is still there is not removed, so images take as many
   # rounds as the deepest chain of them.
@@ -599,13 +695,13 @@ def cleanup(selector: str, docker: str = "docker") -> dict[str, int]:
     ("network", ["rm"], 1),
     ("volume", ["rm", "-f"], 1),
   ):
+    if kind not in kinds:
+      continue
     for _ in range(rounds):
       if not (found := ids(kind)):
         break
       _ = _docker(docker, kind, *remove, *found)
-  return {
-    kind: len(ids(kind)) for kind in ("container", "image", "network", "volume")
-  }
+  return {kind: len(ids(kind)) for kind in kinds}
 
 
 def release(path: Path, docker: str = "docker") -> list[str]:
@@ -758,7 +854,8 @@ def _docker(
   Args:
     docker: The docker command.
     *args: Its arguments.
-    timeout: How long it may run, in seconds; DOCKER_TIMEOUT when None.
+    timeout: How long it may run, in seconds; DOCKER_TIMEOUT when None; at
+      most what is left of the budget of a stopped `fan_out`.
     check: Whether a status other than 0 is an error.
 
   Returns:
@@ -767,7 +864,7 @@ def _docker(
   Raises:
     DockerError: When it ran past timeout, or, with check, exited non-zero.
   """
-  timeout = DOCKER_TIMEOUT if timeout is None else timeout
+  timeout = stopping.left(DOCKER_TIMEOUT if timeout is None else timeout)
   try:
     done = subprocess.run(
       [docker, *args],
@@ -816,7 +913,7 @@ def _task_main(task_dir: Path, docker: str) -> Mapping[str, object]:
     env=_passed(),
     capture_output=True,
     text=True,
-    timeout=120,
+    timeout=stopping.left(120),
     check=True,
   ).stdout  # fmt: skip
   config = cast(Mapping[str, object], json.loads(out))
@@ -864,7 +961,8 @@ def _agent_args(agent: TrialAgent) -> list[str]:
 
 def _stop(process: subprocess.Popen[bytes]) -> None:
   # Harbor's children (docker compose) are in its session; stop them all.
-  for sig, wait in ((signal.SIGTERM, 30.0), (signal.SIGKILL, None)):
+  grace = min(STOP_S, STOPPED_S) if stopping.stopped() else STOP_S
+  for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, None)):
     try:
       os.killpg(process.pid, sig)
     except ProcessLookupError:

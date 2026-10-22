@@ -16,6 +16,7 @@ of `codex.env` beside it (`CODEX`), read as the claude shim reads them.
 
 from collections.abc import Generator
 import contextlib
+import contextvars
 import http.server
 import os
 from pathlib import Path
@@ -28,6 +29,7 @@ import threading
 import time
 from typing import final, IO, override
 
+from dataforge import stopping
 from dataforge.gateway.channels import Channel, DRAINED, MAX_BODY
 from dataforge.gateway.pause import (
   active,
@@ -230,6 +232,7 @@ class _Launch:
 
   def start(self, timeout: float) -> None:
     while True:
+      stopping.check()
       if self.pause is not None:
         _ = self.pause.wait()
         if (why := self.pause.stopped()) is not None:
@@ -242,7 +245,13 @@ class _Launch:
         self.end()
         raise
       if listening:
-        self._watch = threading.Thread(target=self._watching, daemon=True)
+        # In this context, so that the watch's `_stop` sees the stop of the
+        # call it serves, as `end` does.
+        self._watch = threading.Thread(
+          target=self._watching,
+          daemon=True,
+          context=contextvars.copy_context(),
+        )
         self._watch.start()
         return
       self.end()
@@ -319,7 +328,7 @@ class _Launch:
       return
     self._stop()
     if self.stderr is not None:
-      self.stderr.join(5)
+      self.stderr.join(stopping.left(5))
     self.socket.unlink(missing_ok=True)
     if left := holders(self.socket):
       for pid in left:
@@ -331,10 +340,11 @@ class _Launch:
     process = self.process
     if process is None or process.poll() is not None:
       return
-    # The launcher passes SIGTERM to its client and then ends the session.
+    # The launcher passes SIGTERM to its client and then ends the session; a
+    # stopped fan_out's call gives it only what is left of the stop's budget.
     process.send_signal(signal.SIGTERM)
     try:
-      _ = process.wait(timeout=END_S)
+      _ = process.wait(timeout=stopping.left(END_S))
     except subprocess.TimeoutExpired:
       os.killpg(process.pid, signal.SIGKILL)
       _ = process.wait()
@@ -443,12 +453,14 @@ def _connectable(path: Path) -> bool:
 def _listening(
   process: subprocess.Popen[bytes], socket: Path, timeout: float
 ) -> bool:
-  # True once the proxy listens, False once the launcher exited first.
+  # True once the proxy listens, False once the launcher exited first;
+  # Stopped once the stop of the call this thread runs is set.
   deadline = time.monotonic() + timeout
   while not _connectable(socket):
     if process.poll() is not None:
       return False
     if time.monotonic() > deadline:
       raise RuntimeError(f"model proxy not listening after {timeout}s")
+    stopping.check()
     time.sleep(0.2)
   return True

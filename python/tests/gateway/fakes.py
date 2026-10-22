@@ -160,10 +160,11 @@ def serving(server: Any) -> threading.Thread:
 # the log, refuses the first `refuse` launches by printing `line` and exiting
 # with `code`, and then runs its client with the session in its environment,
 # in its own process. With `straggler`, it first starts a process that names
-# the socket on its command line and ignores SIGTERM.
+# the socket on its command line and ignores SIGTERM; with `deaf`, it ignores
+# SIGTERM itself and runs its client as a child.
 LAUNCHER = """\
 #!{python}
-import json, os, pathlib, subprocess, sys, time
+import json, os, pathlib, signal, subprocess, sys, time
 cfg = json.loads({cfg!r})
 log = pathlib.Path(cfg["log"])
 with log.open("a") as f:
@@ -196,6 +197,9 @@ if cfg["straggler"]:
         "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN);"
         " time.sleep(600)", socket], start_new_session=True,
         stderr=subprocess.DEVNULL)
+if cfg["deaf"]:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    sys.exit(subprocess.call([exe, *args], env=env))
 os.execve(exe, [exe, *args], env)
 """
 QUOTA = " ".join(
@@ -239,6 +243,7 @@ class Launcher:
     line: str = QUOTA,
     code: int = 3,
     straggler: bool = False,
+    deaf: bool = False,
   ) -> None:
     """Write the launcher.
 
@@ -248,6 +253,7 @@ class Launcher:
       line: What it prints when it refuses.
       code: Its exit status when it refuses.
       straggler: Whether it leaves a process behind.
+      deaf: Whether it ignores SIGTERM.
     """
     cfg = {
       "log": str(self.log),
@@ -258,6 +264,7 @@ class Launcher:
       "line": line,
       "code": code,
       "straggler": straggler,
+      "deaf": deaf,
     }
     _ = self.path.write_text(
       LAUNCHER.format(python=sys.executable, cfg=json.dumps(cfg))

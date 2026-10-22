@@ -9,6 +9,7 @@ The fakes are written here as scripts.
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import replace
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -20,8 +21,9 @@ from typing import cast
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation import harbor
-from dataforge.curation.actions import Limits, Mount, TrialAgent
+from dataforge.curation.actions import fan_out, Limits, Mount, TrialAgent
 from dataforge.curation.faults import trial_fault, trial_judged
 from dataforge.curation.harbor import (
   DockerError,
@@ -32,13 +34,15 @@ from dataforge.curation.harbor import (
   Sidecar,
   TrialSetup,
 )
+from tests.sigterm import sigterm_once
 
 # The fake harbor writes what it got to <jobs-dir>/fake.json, starts the trial
 # (writes its config.json, in a directory named FAKE_TRIAL, task__abc by
 # default) and then does what FAKE_MODE says: "ok", "exception", "no-reward",
 # "exit" (exit 3 with no result) or "hang" (start a child, write its own and the
-# child's pid, sleep); "interrupt" also sends its parent SIGUSR1 before it
-# sleeps, and "stubborn" does too, and again on SIGTERM instead of exiting;
+# child's pid, sleep); "deaf" does the same, ignoring SIGTERM from before it
+# writes the pids; "interrupt" also sends its parent SIGUSR1 before it sleeps,
+# and "stubborn" does too, and again on SIGTERM instead of exiting;
 # "cancelled" sleeps, and on SIGTERM writes a result whose exception is
 # CancelledError, as Harbor does, and exits 1. With FAKE_NOT_STARTED, it prints
 # that many lines, each padded with FAKE_PAD x's, and then the text of
@@ -83,17 +87,19 @@ if mode == "cancelled":
     signal.signal(signal.SIGTERM, cancelled)
     (jobs / "pids").write_text(str(os.getpid()))
     time.sleep(60)
-if mode in ("hang", "interrupt", "stubborn"):
+if mode in ("hang", "deaf", "interrupt", "stubborn"):
     if "FAKE_STRAGGLER" in os.environ:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     child = subprocess.Popen(["sleep", "60"])
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    if mode == "deaf":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     (jobs / "pids").write_text(f"{os.getpid()} {child.pid}")
     if mode == "stubborn":
         signal.signal(
             signal.SIGTERM, lambda *_: os.kill(os.getppid(), signal.SIGUSR1)
         )
-    if mode != "hang":
+    if mode not in ("hang", "deaf"):
         os.kill(os.getppid(), signal.SIGUSR1)
     time.sleep(60)
 (trial / "agent").mkdir()
@@ -139,7 +145,8 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 """
 
 # The fake docker appends its argv to calls.jsonl next to it, and first sleeps
-# 10 s when a file "slow-<argv[0]>-<argv[1]>" is there. `<kind> ls` with a label
+# 10 s when a file "slow-<argv[0]>-<argv[1]>" is there, and 600 s when a file
+# "hang" is. `<kind> ls` with a label
 # filter prints the ids in <kind>.ids; `rm` and `rmi` remove them unless a file
 # "stuck" is there. mounts.json maps the ids of containers without the label to
 # their mounts' sources: `container ls` without a filter prints each as JSON,
@@ -161,6 +168,8 @@ with (here / "calls.jsonl").open("a") as f:
     f.write(json.dumps(argv) + "\\n")
 if (here / f"slow-{argv[0]}-{argv[1]}").exists():
     time.sleep(10)
+if (here / "hang").exists():
+    time.sleep(600)
 def running(pid):
     try:
         stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
@@ -927,6 +936,184 @@ def test_a_child_that_outlives_a_stopped_harbor_is_killed_before_the_chown(
     _ = signal.signal(signal.SIGUSR1, previous)
     for pid in alive(out):
       os.kill(pid, signal.SIGKILL)
+
+
+@pytest.mark.parametrize("interrupt", [SystemExit(143), KeyboardInterrupt()])
+@pytest.mark.parametrize(
+  ("mode", "env"), [("hang", {"FAKE_STRAGGLER": "1"}), ("deaf", {})]
+)
+def test_a_sigterm_during_a_fan_out_stops_every_harbor_at_once(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+  mode: str,
+  env: dict[str, str],
+  interrupt: BaseException,
+) -> None:
+  # A deaf Harbor takes STOP_S to stop: four, one after another, take 4 times
+  # that.
+  monkeypatch.setattr(harbor, "STOP_S", 3.0)
+  base, task_dir = runner(fakes, mode, env), task(tmp_path)
+  outs = [outdir(tmp_path, f"trial-{i}") for i in range(4)]
+  calls = [partial(base.run, task_dir, "nop", Limits(2), out) for out in outs]
+  try:
+    with sigterm_once(
+      lambda: all((o / "pids").exists() for o in outs),
+      lambda: type(interrupt)(*interrupt.args),
+    ) as sent:
+      with pytest.raises(type(interrupt)) as caught:
+        _ = fan_out(calls)
+      ended = time.monotonic()
+    assert caught.value.args == interrupt.args
+    assert ended - sent[0] < 2 * harbor.STOP_S
+    for out in outs:
+      for pid in alive(out):
+        pytest.fail(f"process {pid} of the fake harbor is still running")
+  finally:
+    for out in outs:
+      for pid in alive(out) if (out / "pids").exists() else []:
+        os.kill(pid, signal.SIGKILL)
+
+
+def test_a_stopped_fan_out_raises_within_its_budget_whatever_hangs(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+) -> None:
+  # Harbor ignores SIGTERM and every docker command hangs: what is not done
+  # within the budget is logged, not waited for.
+  monkeypatch.setattr(stopping, "BUDGET_S", 4.0)
+  monkeypatch.setattr(harbor, "STOPPED_S", 1.0)
+  base, task_dir = runner(fakes, "deaf"), task(tmp_path)
+  outs = [outdir(tmp_path, f"trial-{i}") for i in range(2)]
+  calls = [partial(base.run, task_dir, "nop", Limits(2), out) for out in outs]
+  _ = (fakes[1].parent / "hang").write_text("")
+  try:
+    with sigterm_once(lambda: all((o / "pids").exists() for o in outs)) as sent:
+      with pytest.raises(SystemExit):
+        _ = fan_out(calls)
+      ended = time.monotonic()
+    assert ended - sent[0] < stopping.BUDGET_S + 1
+    for out in outs:
+      for pid in alive(out):
+        pytest.fail(f"process {pid} of the fake harbor is still running")
+    skipped = [
+      r.getMessage() for r in caplog.records if "out of time" in r.getMessage()
+    ]
+    assert len(skipped) == 2
+    assert all(f"{LABEL}=" in message for message in skipped)
+  finally:
+    for out in outs:
+      for pid in alive(out) if (out / "pids").exists() else []:
+        os.kill(pid, signal.SIGKILL)
+
+
+def test_a_stopped_trial_removes_its_containers_before_its_files_are_given_back(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  trial = runner(fakes, "hang")
+  run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
+  with sigterm_once((out / "pids").exists), pytest.raises(SystemExit):
+    _ = fan_out([run])
+  calls = docker_calls(fakes)
+  by_label = next(
+    i
+    for i, args in enumerate(calls)
+    if args[:2] == ["container", "ls"] and "--filter" in args
+  )
+  chown = next(i for i, args in enumerate(calls) if args[0] == "run")
+  assert by_label < chown
+
+
+def test_a_stopped_trial_removes_its_compose_projects_before_its_files(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  projects = {
+    kind: {f"{kind[0]}0": "task__abc__env"}
+    for kind in ("container", "network", "volume")
+  }
+  file = fakes[1].parent / "projects.json"
+  _ = file.write_text(json.dumps(projects))
+  out = outdir(tmp_path)
+  trial = runner(fakes, "hang")
+  run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
+  with sigterm_once((out / "pids").exists), pytest.raises(SystemExit):
+    _ = fan_out([run])
+  left = json.loads(file.read_text())
+  assert all(not left[kind] for kind in ("container", "network", "volume"))
+  calls = docker_calls(fakes)
+  removed = calls.index(["container", "rm", "-f", "c0"])
+  chown = next(i for i, args in enumerate(calls) if args[0] == "run")
+  assert removed < chown
+
+
+def test_a_stopped_trial_logs_a_container_that_still_mounts_it(
+  tmp_path: Path, fakes: tuple[Path, Path], caplog: pytest.LogCaptureFixture
+) -> None:
+  # A container without the label that docker does not remove.
+  out = outdir(tmp_path)
+  here = fakes[1].parent
+  _ = (here / "mounts.json").write_text(
+    json.dumps({"c-held": [str((out / "job").resolve())]})
+  )
+  _ = (here / "stuck").write_text("")
+  trial = runner(fakes, "hang")
+  run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
+  with sigterm_once((out / "pids").exists), pytest.raises(SystemExit):
+    _ = fan_out([run])
+  messages = [record.getMessage() for record in caplog.records]
+  assert any("still mounting it: ['c-held']" in m for m in messages)
+
+
+def test_a_trial_harbor_did_not_start_is_not_run_again_once_stopped(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  # The stop comes as the first run's setup is left, before a second run.
+  out, stop = outdir(tmp_path), stopping.Stop()
+  entered: list[int] = []
+
+  @contextmanager
+  def setup(*_: object) -> Generator[TrialSetup]:
+    entered.append(1)
+    yield TrialSetup()
+    stop.set()
+
+  env = {"FAKE_NOT_STARTED": "1"}
+  trial = replace(runner(fakes, "exit", env), setup=setup)
+  run = partial(trial.run, task(tmp_path), "nop", Limits(2), out)
+  with pytest.raises(stopping.Stopped):
+    _ = stopping.under(stop, run)()
+  # No second run began, not even its setup; each run of Harbor writes a
+  # harbor.log, and the first run's was moved aside.
+  assert len(entered) == 1
+  assert (out / "not-started-1" / "harbor.log").exists()
+  assert not (out / "harbor.log").exists()
+
+
+def test_a_trial_of_a_stopped_fan_out_starts_nothing(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out, stop = outdir(tmp_path), stopping.Stop()
+  entered: list[Path] = []
+
+  @contextmanager
+  def setup(*_: object) -> Generator[TrialSetup]:
+    entered.append(out)
+    yield TrialSetup()
+
+  trial = replace(runner(fakes), setup=setup)
+
+  def stopped_then_run() -> object:
+    stop.set()
+    return trial.run(task(tmp_path), "nop", Limits(2), out)
+
+  with pytest.raises(stopping.Stopped):
+    _ = stopping.under(stop, stopped_then_run)()
+  assert entered == []
+  assert not (fakes[1].parent / "calls.jsonl").exists()
+  assert not (out / "fake.json").exists()
 
 
 def alive(out: Path) -> list[int]:

@@ -9,13 +9,16 @@ Invariant 29, for what a trial and a declaration get.
 import base64
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, ExitStack
+import fcntl
 import json
 from pathlib import Path
 import threading
+import time
 from typing import cast
 
 import pytest
 
+from dataforge import stopping
 from dataforge.curation import (
   Actions,
   AgentState,
@@ -334,3 +337,47 @@ def test_start_forwarder_starts_it_and_waits_until_it_listens():
     "/opt/dataforge/forward.py",
   ]
   assert len(calls) == 4
+
+
+def test_start_forwarder_stops_waiting_once_its_calls_stop_is_set():
+  # A forwarder that never listens: the wait would last FORWARDER_TIMEOUT.
+  def cli(args: Sequence[str]) -> CommandResult:
+    return CommandResult(1 if "-c" in args else 0, "")
+
+  env = Docker("agent:1", cli=cli)
+  env._id = "c1"
+  stop = stopping.Stop()
+  threading.Timer(0.3, stop.set).start()
+  started = time.monotonic()
+  with pytest.raises(stopping.Stopped):
+    stopping.under(stop, lambda: start_forwarder(env))()
+  assert time.monotonic() - started < 2
+
+
+def test_a_serve_that_waits_for_another_ends_once_its_calls_stop_is_set(
+  launcher: Launcher, tmp_path: Path
+):
+  serve = cast(Serve, bindings(tmp_path / "root", clients={})["serve"])
+  lock = tmp_path / "root" / "dataforge-gateway" / "serve.lock"
+  stop = stopping.Stop()
+
+  def enter() -> None:
+    with serve(channel="CLAUDE")():
+      pass
+
+  with lock.open("a") as other:
+    # Another serve holds the lock; were the wait not stopped, it would get
+    # the lock after 5 s.
+    fcntl.flock(other, fcntl.LOCK_EX)
+    unlock = threading.Timer(5, fcntl.flock, (other, fcntl.LOCK_UN))
+    unlock.start()
+    threading.Timer(0.3, stop.set).start()
+    started = time.monotonic()
+    try:
+      with pytest.raises(stopping.Stopped):
+        stopping.under(stop, enter)()
+      assert time.monotonic() - started < 2
+    finally:
+      unlock.cancel()
+      unlock.join()
+  assert launcher.launches() == []

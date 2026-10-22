@@ -48,6 +48,7 @@ import subprocess
 import threading
 from typing import cast
 
+from dataforge import stopping
 from dataforge.curation.actions import (
   AgentRun,
   AgentSpec,
@@ -461,7 +462,12 @@ class Session:
 
     Returns:
       How the session ended.
-    """
+
+    Raises:
+      stopping.Stopped: The stop of the call this thread runs was set, before
+        the session started or, once it is killed, while it ran.
+    """  # noqa: DOC502
+    stopping.check()
     paths = [run_dir / f"{name}.{ext}" for ext in ("prompt.md", "trace.jsonl")]
     paths += [run_dir / f"{name}.stderr.log", run_dir / f"{name}.usage.json"]
     prompt_path, trace_path, stderr_path, usage_path = paths
@@ -483,7 +489,7 @@ class Session:
         env=None if self.env is None else dict(self.env),
       )
       try:
-        _ = proc.communicate(prompt.encode(), timeout=self.timeout)
+        _ = stopping.wait(proc, self.timeout, prompt.encode())
       except subprocess.TimeoutExpired:
         timed_out = True
       finally:
@@ -740,8 +746,9 @@ class Runner:
   `files` gives for its start, without suffixes. `last` is how the runner's
   last run ended, and each `Conversation` keeps its own.
 
-  A timeout kills only what runs on this machine: in `Docker`, the `docker
-  exec`, while `claude` in the container goes on until the container stops.
+  A timeout, or the stop of a stopped `fan_out` (`dataforge.stopping`), kills
+  only what runs on this machine: in `Docker`, the `docker exec`, while
+  `claude` in the container goes on until the container stops.
 
   With `continue_session`, the runner drives one session at a time: each
   start after the first resumes the session of the one before when that
