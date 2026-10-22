@@ -1,6 +1,6 @@
 """The scheduler: it starts queued jobs when they fit, and notes how they end.
 
-Each look at the table (a tick) does three things:
+Each look at the table (a tick) does four things:
 
 - A running job whose wrapper is gone without writing its end (killed, or the
   machine restarted) is recorded canceled when its cancellation was asked
@@ -17,6 +17,12 @@ Each look at the table (a tick) does three things:
   Within a queue the oldest goes first, and a queue whose oldest does not fit
   starts none this tick; across queues the oldest of their first jobs goes
   first.
+- Each store of attempts the queue file lists under runs is reconciled with
+  no hooks (dataforge.runs.reconcile): an attempt whose process is gone, such
+  as one killed with SIGKILL, is made interrupted. It runs no dataset code.
+  Whatever a store's reconcile raises, short of SystemExit and
+  KeyboardInterrupt, is logged with its traceback, once until it changes,
+  and the tick goes on with the next store.
 
 A job runs as `python -m dataforge.queue.wrapper <database> <id>
 <cancel_grace_s>`, in a session of its own: the wrapper runs the command and
@@ -47,6 +53,7 @@ from dataforge.queue.proc import (
   signal_group,
 )
 from dataforge.queue.store import connect, Job, select, write
+from dataforge.runs import reconcile, Store
 
 _LOST = """
 UPDATE jobs SET state = ?, ended_at = ?
@@ -87,6 +94,7 @@ class Scheduler:
     self.clock: Callable[[], float] = clock
     self._children: list[subprocess.Popen[bytes]] = []
     self._waiting: set[int] = set()
+    self._failing: dict[Path, str] = {}
 
   def tick(self) -> None:
     """Look at the table once: settle the ended jobs, then start what fits."""
@@ -97,6 +105,8 @@ class Scheduler:
         self._settle(conn, job)
       with write(conn):
         self._admit(conn)
+    for store in self.config.runs:
+      self._reconcile(store)
 
   def serve(self, stop: threading.Event) -> None:
     """Tick every poll_s until stop is set.
@@ -142,6 +152,21 @@ class Scheduler:
       and signal_group(started, signal.SIGKILL)
     ):
       _log.warning("job %d: SIGKILL after the grace period", job.id)
+
+  def _reconcile(self, path: Path) -> None:
+    try:
+      done = reconcile(Store(path))
+    # The scheduler is the machine's; a store's reconcile goes with it, and
+    # nothing it raises may stop the scheduler.
+    except Exception as error:  # noqa: BLE001
+      said = f"{type(error).__name__}: {error}"
+      if self._failing.get(path) != said:
+        self._failing[path] = said
+        _log.exception("runs %s: not reconciled", path)
+      return
+    _ = self._failing.pop(path, None)
+    for line in done:
+      _log.info("runs %s: %s", path, line)
 
   def _admit(self, conn: sqlite3.Connection) -> None:
     running = select(conn, "state = 'running'")
