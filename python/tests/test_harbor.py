@@ -1292,7 +1292,13 @@ def test_a_cleanup_past_its_timeout_raises_what_callers_caught_before(
     (
       "x__1",
       ["x__1__env", "x__1__verifier__trial"],
-      ["x__10__env", "x__10__verifier__trial", "x__env", "x__1__verifier"],
+      [
+        "x__10__env",
+        "x__10__verifier__trial",
+        "x__env",
+        "x__1__verifier",
+        "x__1__envoy",
+      ],
     ),
     # Harbor's names are lower case, with "-" for "."; a long step's name is
     # cut and hashed.
@@ -1300,6 +1306,13 @@ def test_a_cleanup_past_its_timeout_raises_what_callers_caught_before(
       "Task.A__AbC1234",
       ["task-a__abc1234__env", "task-a__abc1234__verifier__x-y__0123abcd"],
       ["task-a__abc12345__env", "task.a__abc1234__env"],
+    ),
+    # A verifier's session has "_" for what is not a letter, a digit or "-._",
+    # before the project's "-".
+    (
+      "a+b__abc1234",
+      ["a-b__abc1234__env", "a_b__abc1234__verifier__trial"],
+      ["a-b__abc1234__verifier__trial"],
     ),
   ],
 )
