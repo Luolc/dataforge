@@ -14,10 +14,8 @@ import { Link } from "react-router";
 import type { Project } from "../../../api/types";
 import { Elapsed, RunningIcon } from "../../../ui/running";
 import { StatusIcon } from "../../../ui/status-mark";
-import type { Edge, Layout } from "./graph";
+import { type Edge, type Layout, LINE } from "./graph";
 
-/** The height of a line of an edge's label, in the graph's units. */
-const LINE = 14;
 /** The scales the buttons step through, and the bounds of every zoom. */
 const MIN = 0.25;
 const MAX = 2;
@@ -260,7 +258,7 @@ export function Graph({
     <div
       ref={frameRef}
       style={height === undefined ? undefined : { height }}
-      className={`relative touch-pan-y overflow-hidden bg-app select-none ${full ? "h-full w-full" : "rounded-b-panel"}`}
+      className={`relative touch-pan-y overflow-hidden bg-card select-none ${full ? "h-full w-full" : "rounded-b-panel"}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -431,11 +429,7 @@ function EdgeView({
       data-lit={lit}
       className={dim ? "opacity-[var(--opacity-idle)]" : ""}
     >
-      <path
-        d={edge.path}
-        {...(edge.back ? { markerStart: head } : { markerEnd: head })}
-        className={`fill-none ${stroke}`}
-      />
+      <path d={edge.path} markerEnd={head} className={`fill-none ${stroke}`} />
       <text
         x={label.x}
         y={label.y}
@@ -445,9 +439,8 @@ function EdgeView({
         {label.parts.map((part, i, all) => (
           <tspan
             key={part.outcome}
-            {...(label.stack
-              ? { x: label.x, y: label.y - (all.length - 1 - i) * LINE }
-              : {})}
+            x={label.x}
+            y={label.y - (all.length - 1 - i) * LINE}
             className={
               part.taken > 0
                 ? "fill-fg font-semibold"
@@ -456,7 +449,6 @@ function EdgeView({
                   : "fill-fg-3"
             }
           >
-            {!label.stack && i > 0 && ", "}
             {part.outcome}
             {part.taken > 0 && ` ×${part.taken}`}
           </tspan>
@@ -499,13 +491,13 @@ function NodeCard({
       <rect
         width={node.width}
         height={node.height}
-        className={`${node.idle ? "fill-app" : "fill-panel"} ${border} [rx:var(--radius-panel)]`}
+        className={`${node.idle ? "fill-app" : "fill-card"} ${border} [rx:var(--radius-panel)]`}
       />
-      {[0, node.width].map((cx) => (
+      {node.ports.map(([cx, cy]) => (
         <circle
-          key={cx}
+          key={`${String(cx)} ${String(cy)}`}
           cx={cx}
-          cy={node.height / 2}
+          cy={cy}
           r="3.5"
           className="fill-app stroke-icon"
         />

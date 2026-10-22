@@ -1,0 +1,1287 @@
+{
+  "about": "Two synthetic machines, made by a seeded generator and run nowhere, in whose layout two edges once swapped heights between two layers and ran along each other.",
+  "graphs": [
+    {
+      "start": "q0",
+      "states": [
+        {
+          "name": "q0",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q1",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q2",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q3",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q4",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q5",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q6",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q7",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q8",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q9",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q10",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q11",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        }
+      ],
+      "edges": [
+        {
+          "from": "q0",
+          "outcome": "ok",
+          "to": "q0",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q1",
+          "outcome": "error",
+          "to": "q7",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q1",
+          "outcome": "fail",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "held",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "needs_more_work",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "pass",
+          "to": "q2",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "x",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "retry_later",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "pass",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "retry_later3",
+          "to": "q3",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q4",
+          "outcome": "fail",
+          "to": "q1",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q5",
+          "outcome": "held",
+          "to": "q5",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "done",
+          "to": "q3",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "pass",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "pass2",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "retry_later",
+          "to": "q8",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "no",
+          "to": "q10",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "a_very_long_outcome",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "fail",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "fail3",
+          "to": "q3",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "needs_more_work",
+          "to": "q9",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q8",
+          "outcome": "held",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q8",
+          "outcome": "fail",
+          "to": "q1",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q8",
+          "outcome": "pass",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q8",
+          "outcome": "pass3",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "no",
+          "to": "q4",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "no1",
+          "to": "q0",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "x",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "fail",
+          "to": "q9",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "error",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "a_very_long_outcome",
+          "to": "q0",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "fail",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "error",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "fail3",
+          "to": "q3",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "needs_more_work",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "a_very_long_outcome",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "no",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "a_very_long_outcome3",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "in_range",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        }
+      ]
+    },
+    {
+      "start": "q0",
+      "states": [
+        {
+          "name": "q0",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q1",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q2",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q3",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q4",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q5",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q6",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q7",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q8",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q9",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q10",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q11",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q12",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q13",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q14",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q15",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q16",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q17",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q18",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        },
+        {
+          "name": "q19",
+          "kind": "AgentState",
+          "max_visits": 3,
+          "on_exhausted": "exhausted",
+          "max_cost_usd": null
+        }
+      ],
+      "edges": [
+        {
+          "from": "q0",
+          "outcome": "ok",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q1",
+          "outcome": "no",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q1",
+          "outcome": "ok",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q1",
+          "outcome": "ok2",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q1",
+          "outcome": "done",
+          "to": "q18",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q1",
+          "outcome": "needs_more_work",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "needs_more_work",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "fail",
+          "to": "q16",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "needs_more_work2",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "held",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q2",
+          "outcome": "fail4",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "held",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "done",
+          "to": "q8",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "ok",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q3",
+          "outcome": "ok3",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q4",
+          "outcome": "pass",
+          "to": "q15",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q4",
+          "outcome": "fail",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q4",
+          "outcome": "a_very_long_outcome",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q4",
+          "outcome": "a_very_long_outcome3",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q4",
+          "outcome": "a_very_long_outcome4",
+          "to": "q2",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q5",
+          "outcome": "ok",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "a_very_long_outcome",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "retry_later",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "x",
+          "to": "q12",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "error",
+          "to": "q13",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "needs_more_work",
+          "to": "q18",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q6",
+          "outcome": "error5",
+          "to": "q8",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "needs_more_work",
+          "to": "q9",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "in_range",
+          "to": "q18",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "fail",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q7",
+          "outcome": "done",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q8",
+          "outcome": "done",
+          "to": "q1",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q8",
+          "outcome": "x",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "a_very_long_outcome",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "no",
+          "to": "q10",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "fail",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "in_range",
+          "to": "q7",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "x",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q9",
+          "outcome": "a_very_long_outcome5",
+          "to": "q5",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "done",
+          "to": "q4",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "fail",
+          "to": "q0",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "a_very_long_outcome",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "a_very_long_outcome3",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "error",
+          "to": "q10",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q10",
+          "outcome": "retry_later",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "retry_later",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "retry_later1",
+          "to": "q6",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q11",
+          "outcome": "done",
+          "to": "q13",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q12",
+          "outcome": "in_range",
+          "to": "q0",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q13",
+          "outcome": "ok",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q13",
+          "outcome": "in_range",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q13",
+          "outcome": "no",
+          "to": "q13",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q13",
+          "outcome": "fail",
+          "to": "q0",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q13",
+          "outcome": "needs_more_work",
+          "to": "q10",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q13",
+          "outcome": "no5",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q14",
+          "outcome": "error",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q14",
+          "outcome": "needs_more_work",
+          "to": "q14",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q14",
+          "outcome": "no",
+          "to": "q9",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q14",
+          "outcome": "no3",
+          "to": "q14",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q14",
+          "outcome": "a_very_long_outcome",
+          "to": "q11",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q14",
+          "outcome": "fail",
+          "to": "q2",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q15",
+          "outcome": "ok",
+          "to": "q15",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q16",
+          "outcome": "needs_more_work",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q16",
+          "outcome": "retry_later",
+          "to": "q0",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q16",
+          "outcome": "in_range",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q16",
+          "outcome": "pass",
+          "to": "q8",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q16",
+          "outcome": "retry_later4",
+          "to": "q16",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q17",
+          "outcome": "no",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q17",
+          "outcome": "x",
+          "to": "q17",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q17",
+          "outcome": "pass",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q17",
+          "outcome": "ok",
+          "to": "q19",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q17",
+          "outcome": "retry_later",
+          "to": "q19",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q18",
+          "outcome": "no",
+          "to": "q4",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q18",
+          "outcome": "no1",
+          "to": "q18",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q18",
+          "outcome": "in_range",
+          "to": null,
+          "end": "passed",
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q18",
+          "outcome": "ok",
+          "to": "q3",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        },
+        {
+          "from": "q19",
+          "outcome": "needs_more_work",
+          "to": "q8",
+          "end": null,
+          "report": false,
+          "mark": null,
+          "end_on_last_visit": false
+        }
+      ]
+    }
+  ]
+}
