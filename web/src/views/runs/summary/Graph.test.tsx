@@ -219,6 +219,72 @@ describe("the machine's graph", () => {
   });
 });
 
+describe("the pulses along a hovered state's edges", () => {
+  const pulses = (el: Element) => el.querySelectorAll(".pulse").length;
+
+  it("run only along the lit edges taken once the attempt has ended", () => {
+    const { edge, node } = show(busy);
+    expect(pulses(edge("regrade", "recheck"))).toBe(0);
+
+    fireEvent.pointerEnter(node("recheck"));
+
+    expect(pulses(edge("regrade", "recheck"))).toBeGreaterThan(0);
+    expect(pulses(edge("recheck", "draft"))).toBeGreaterThan(0);
+    expect(pulses(edge("recheck", "review"))).toBe(0);
+    expect(pulses(edge("check", "review"))).toBe(0);
+  });
+
+  it("run along lit edges not taken too while it runs, but not a stub's", () => {
+    const { edge, node } = show(early);
+
+    fireEvent.pointerEnter(node("smoke"));
+
+    expect(
+      edge("build", "smoke").querySelector(".stroke-pulse .pulse"),
+    ).not.toBeNull();
+    expect(
+      edge("smoke", "check").querySelector(".stroke-pulse-not-taken .pulse"),
+    ).not.toBeNull();
+    expect(edge("smoke", "draft").getAttribute("data-stub")).toBe("true");
+    expect(pulses(edge("smoke", "draft"))).toBe(0);
+  });
+
+  it("go when the hover ends", () => {
+    const { edge, node } = show(busy);
+    fireEvent.pointerEnter(node("recheck"));
+    expect(pulses(edge("regrade", "recheck"))).toBeGreaterThan(0);
+
+    fireEvent.pointerLeave(node("recheck"));
+
+    expect(pulses(edge("regrade", "recheck"))).toBe(0);
+  });
+
+  it("glow along the edges taken only", () => {
+    const { edge, node } = show(early);
+
+    fireEvent.pointerEnter(node("smoke"));
+
+    expect(edge("build", "smoke").querySelector(".pulse-glow")).not.toBeNull();
+    expect(edge("smoke", "check").querySelector(".pulse-glow")).toBeNull();
+  });
+
+  it("stand still and stay in sight for reduced motion", () => {
+    const css = readFileSync("src/ui/theme.css", "utf8");
+    const reduced =
+      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n {2}\}/.exec(
+        css,
+      )?.[1];
+
+    expect(reduced).toMatch(
+      /\.pulse \{\s*animation: none;\s*stroke-dashoffset: calc\(var\(--pulse-dash\) - var\(--pulse-spacing\) \/ 2\);/,
+    );
+    expect(reduced).not.toMatch(/display: none|visibility: hidden|opacity: 0/);
+    expect(reduced).toMatch(
+      /\.pulse-open \{\s*animation: none;\s*stroke-dashoffset: 0;/,
+    );
+  });
+});
+
 describe("edges not taken", () => {
   it("are drawn under the taken ones, lit or not", () => {
     const { graph, edge, node } = show(busy);
