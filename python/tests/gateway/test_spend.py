@@ -26,7 +26,7 @@ import pytest
 from dataforge.gateway import Channel, Price, proxy, read_ledger, serve, Spend
 from dataforge.gateway.channels import DRAINED
 from dataforge.gateway.session import _Refuser, _Refusing, holders
-from dataforge.gateway.spend import Meter
+from dataforge.gateway.spend import Meter, Total, total
 from tests.gateway.fakes import (
   call,
   Launcher,
@@ -637,7 +637,7 @@ def test_a_reply_it_cannot_price_caps_the_session(
   assert "could not price" in str(capped["capped"])
 
 
-def broken_price(*_: object) -> tuple[float | None, str | None]:
+def broken_price(*_: object) -> tuple[float | None, str | None, str | None]:
   raise ValueError("unexpected usage")
 
 
@@ -729,8 +729,210 @@ def test_a_reply_under_way_when_the_cap_comes_is_passed_on_whole(
   assert slow == [(200, b"".join(parts))]
   assert len(seen.requests) == 2
   lines = read_ledger(ledger)
+  reply = [
+    "at",
+    "channel",
+    "model",
+    "requested_model",
+    "usage",
+    "cost_usd",
+    "priced_as",
+    "reason",
+  ]
   assert [sorted(line) for line in lines] == [
-    sorted(["at", "channel", "model", "usage", "cost_usd", "reason"]),
+    sorted(reply),
     sorted(["at", "channel", "capped"]),
-    sorted(["at", "channel", "model", "usage", "cost_usd", "reason"]),
+    sorted(reply),
+  ]
+
+
+def renamed(channel: Channel) -> list[bytes]:
+  # A reply's event stream that names a model no price is given for.
+  return [
+    e.replace(MODEL[channel].encode(), b"renamed") for e in events(channel)
+  ]
+
+
+JSON = {"Content-Type": "application/json"}
+FALLBACK_PRICE = Price(
+  input=10.0,
+  output=10.0,
+  cache_read=10.0,
+  cache_write_5m=10.0,
+  cache_write_1h=10.0,
+)
+
+
+def priced_line(
+  socket_dir: Path,
+  respond: Callable[[BaseHTTPRequestHandler, int], None],
+  spend: Spend | None,
+  body: bytes,
+  headers: dict[str, str],
+) -> tuple[dict[str, object], bytes, str | None]:
+  # The ledger line of one model call, what the gateway got of its body and
+  # whether the cap ended the session.
+  path = socket_dir / "model.sock"
+  ledger = socket_dir / "ledger.jsonl"
+  with (
+    upstream(respond) as (base, seen),
+    proxy.make_server(
+      Channel.CLAUDE, path, base, "t", ledger=ledger, spend=spend
+    ) as server,
+  ):
+    _ = serving(server)
+    assert call(path, "/v1/messages", body, headers)[0] == 200
+    assert wait_for(lambda: bool(read_ledger(ledger)))
+    server.shutdown()
+  [line] = [found for found in read_ledger(ledger) if "capped" not in found]
+  return line, seen.requests[0][3], server.capped
+
+
+def test_a_reply_under_another_name_is_priced_by_the_model_requested(
+  socket_dir: Path,
+):
+  line, _, capped = priced_line(
+    socket_dir,
+    stream(*renamed(Channel.CLAUDE)),
+    Spend(prices=PRICES, max_usd=10.0),
+    b'{"model": "claude-model", "messages": []}',
+    JSON,
+  )
+  assert capped is None
+  assert (line["model"], line["requested_model"]) == ("renamed", "claude-model")
+  assert line["cost_usd"] == pytest.approx(COST[Channel.CLAUDE])
+  assert (line["priced_as"], line["reason"]) == ("requested", None)
+
+
+def test_a_reply_no_price_fits_is_priced_at_the_fallback(socket_dir: Path):
+  spend = Spend(prices=PRICES, max_usd=10.0, fallback=FALLBACK_PRICE)
+  assert Spend.from_json(spend.to_json()) == spend
+  line, _, capped = priced_line(
+    socket_dir,
+    stream(*renamed(Channel.CLAUDE)),
+    spend,
+    b'{"model": "unknown"}',
+    JSON,
+  )
+  assert capped is None
+  # 3800 tokens in all at $10 per million.
+  assert line["cost_usd"] == pytest.approx(0.038)
+  assert line["priced_as"] == "fallback"
+
+
+@pytest.mark.parametrize(
+  ("body", "headers"),
+  [
+    pytest.param(b"not json", JSON, id="not-json"),
+    pytest.param(b'{"model": "claude-model"}', {}, id="no-json-type"),
+    pytest.param(
+      gzip.compress(b'{"model": "claude-model"}'),
+      JSON | {"Content-Encoding": "gzip"},
+      id="compressed",
+    ),
+    pytest.param(b'["claude-model"]', JSON, id="not-an-object"),
+    pytest.param(b'{"model": 1}', JSON, id="not-a-name"),
+  ],
+)
+def test_a_request_whose_model_it_cannot_read_is_forwarded_as_it_came(
+  socket_dir: Path, body: bytes, headers: dict[str, str]
+):
+  line, got, _ = priced_line(
+    socket_dir, stream(*events(Channel.CLAUDE)), None, body, headers
+  )
+  assert got == body
+  assert line["requested_model"] is None
+  assert line["model"] == MODEL[Channel.CLAUDE]
+
+
+def test_a_request_larger_than_it_reads_names_no_model(
+  socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+  body = b'{"model": "claude-model"}'
+  monkeypatch.setattr(proxy, "REQUEST_READ", len(body) - 1)
+  line, got, _ = priced_line(
+    socket_dir, stream(*events(Channel.CLAUDE)), None, body, JSON
+  )
+  assert got == body
+  assert line["requested_model"] is None
+
+
+def ledger_of(path: Path, *lines: object) -> Path:
+  _ = path.write_text(
+    "".join(
+      (line if isinstance(line, str) else json.dumps(line)) + "\n"
+      for line in lines
+    )
+  )
+  return path
+
+
+def test_total_prices_each_line_as_its_ledger_has_it(tmp_path: Path):
+  fast = CLAUDE_USAGE | {"speed": "fast"}
+  searched = CLAUDE_USAGE | {"server_tool_use": {"web_search_requests": 2}}
+  ledger = ledger_of(
+    tmp_path / "spend.jsonl",
+    # An earlier proxy's lines: their own cost, one at its highest price.
+    {"at": "t", "model": "claude-model", "usage": CLAUDE_USAGE, "usd": 1.0},
+    {"at": "t", "model": "x", "priced_as": "highest", "usage": {}, "usd": 2.0},
+    # A line the cap priced keeps its cost.
+    {"channel": "CLAUDE", "model": "claude-model", "usage": CLAUDE_USAGE,
+     "cost_usd": 0.5, "priced_as": None, "reason": None},
+    # Lines without prices are priced by their reply's model, else by the
+    # model requested, else at the fallback, as is a reply at another speed.
+    {"channel": "CLAUDE", "model": "claude-model", "usage": CLAUDE_USAGE,
+     "cost_usd": None, "reason": "no prices"},
+    {"channel": "CODEX", "model": "codex-model", "usage": CODEX_USAGE,
+     "cost_usd": None, "reason": "no prices"},
+    {"channel": "CLAUDE", "model": "renamed", "requested_model": "claude-model",
+     "usage": CLAUDE_USAGE, "cost_usd": None, "reason": "no prices"},
+    {"model": "renamed", "requested_model": None, "usage": CLAUDE_USAGE},
+    {"channel": "CLAUDE", "model": "claude-model", "usage": fast},
+    {"channel": "CLAUDE", "model": "claude-model", "usage": searched},
+    # Nothing to count.
+    {"channel": "CLAUDE", "model": None, "usage": {}, "cost_usd": None,
+     "reason": "a reply without usage"},
+    {"at": "t", "channel": "CLAUDE", "capped": "spent"},
+    '{"at": "t", "chan',
+  )  # fmt: skip
+  found = total(ledger, prices=PRICES, fallback=FALLBACK_PRICE)
+  claude, codex = COST[Channel.CLAUDE], COST[Channel.CODEX]
+  at_fallback = 2.0 + 0.038 * 2
+  assert found.usd == pytest.approx(
+    1.0 + 0.5 + claude * 3 + codex + 0.02 + at_fallback
+  )
+  assert found.fallback_usd == pytest.approx(at_fallback)
+  without = total(ledger, prices=PRICES, fallback=None)
+  assert without.usd == pytest.approx(found.usd - 0.038 * 2)
+
+
+def test_total_prices_by_the_default_prices_the_reply_first(tmp_path: Path):
+  # A renamed reply takes the requested model's cache reads at $0.10, and
+  # one that names `claude-sonnet-5` its own, at $0.20.
+  usage = {"cache_read_input_tokens": 1_000_000}
+  ledger = ledger_of(
+    tmp_path / "spend.jsonl",
+    {"channel": "CLAUDE", "model": "renamed", "usage": usage,
+     "requested_model": "claude-sonnet-5-5", "cost_usd": None},
+    {"channel": "CLAUDE", "model": "claude-sonnet-5", "usage": usage,
+     "requested_model": "claude-sonnet-5-5", "cost_usd": None},
+  )  # fmt: skip
+  assert total(ledger).usd == pytest.approx(0.3)
+  assert total(ledger).fallback_usd == 0.0
+  assert total(tmp_path / "none.jsonl") == Total(0.0, 0.0)
+
+
+def test_total_warns_of_a_ledgers_lines_once_as_they_come(
+  tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+  path = tmp_path / "spend.jsonl"
+  line = {"channel": "CLAUDE", "model": "renamed", "usage": CLAUDE_USAGE}
+  _ = ledger_of(path, line)
+  for _ in range(3):
+    _ = total(path, prices=PRICES, fallback=FALLBACK_PRICE)
+  _ = ledger_of(path, line, line)
+  _ = total(path, prices=PRICES, fallback=FALLBACK_PRICE)
+  assert [r.getMessage() for r in caplog.records] == [
+    f"{path}: 1 lines priced at the fallback, $0.0380",
+    f"{path}: 2 lines priced at the fallback, $0.0760",
   ]

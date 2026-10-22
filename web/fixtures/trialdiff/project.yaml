@@ -3,6 +3,10 @@
 # nowhere, with a made-up `verifier/patch.diff` in trials 1, 2 and 5 (3 and 4
 # left none) and a made-up CTRF `verifier/ctrf.json` in trials 1, 2 and 5,
 # the most tests in trial 1; trial 3 left none and trial 4's is not CTRF.
+# Each attempt's made-up `task/task.toml`, for the Summary's Task card:
+# pass-at-k's of the format of dataforge.task, with the most counts and
+# principles, legacy's of the format before `tests`, unreadable's with a
+# principle of a type dataforge.task does not know; no-task has none.
 id: trialdiff
 name: Trial diff and test samples
 color: "#7fb5f5"
@@ -17,9 +21,11 @@ statuses:
 item: { depth: 1, title: Task }
 columns: []
 session: { thinking: collapsed }
+task: task/task.toml
 trials:
   diff: verifier/patch.diff
   tests: verifier/ctrf.json
   kinds:
     security: { label: Security }
     behavior: { label: Behavior }
+    alignment: { label: Alignment }

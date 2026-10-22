@@ -329,6 +329,8 @@ class Project:
       the dataset names nothing.
     definition: The path of the definition snapshot in an attempt's
       directory; None when the dataset names none.
+    task: The path of the task.toml of an attempt's task in its directory,
+      whose metadata the Summary shows; None when the dataset names none.
     monitor: The resource monitor's SQLite database; None when the dataset
       names none.
     monitor_shown: The database as a page may show it: monitor.db as the
@@ -355,6 +357,7 @@ class Project:
   deliverables: tuple[Deliverable, ...] = ()
   trials: Trials | None = None
   definition: tuple[str, ...] | None = None
+  task: tuple[str, ...] | None = None
   monitor: Path | None = None
   monitor_shown: str | None = None
   actions: tuple[Action, ...] = ()
@@ -408,6 +411,7 @@ class Project:
       "definition": None
       if self.definition is None
       else "/".join(self.definition),
+      "task": None if self.task is None else "/".join(self.task),
       "monitor": self.monitor is not None,
       "actions": [
         {"name": a.name, "label": a.label, "queue": a.queue}
@@ -517,6 +521,7 @@ def load_project(path: Path) -> Project:
       "deliverables",
       "trials",
       "definition",
+      "task",
       "monitor",
       "actions",
       "tabs",
@@ -567,6 +572,9 @@ def load_project(path: Path) -> Project:
     else _relative(
       path, "definition", _str(path, "definition", data["definition"])
     ),
+    task=None
+    if data.get("task") is None
+    else _relative(path, "task", _str(path, "task", data["task"])),
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
     actions=actions,
