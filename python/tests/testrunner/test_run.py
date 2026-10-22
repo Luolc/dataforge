@@ -8,11 +8,12 @@ from typing import cast
 import pytest
 
 from dataforge.testrunner import ctrf, files
+from dataforge.testrunner.adapter import PREFIX
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.manifest import File, load
 from dataforge.testrunner.manifest import Test as Listed
 from dataforge.testrunner.run import match, place, run
-from dataforge.testrunner.runners import PREFIX, Pytest
+from dataforge.testrunner.runners import Pytest
 from tests.testrunner.projects import commit, write
 
 BASE = {
@@ -244,6 +245,7 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     _ = path.write_bytes(data)
   assert "testrunner/__main__.py" in files()
+  assert "testrunner/jasmine_reporter.cjs" in files()
   assert not [n for n in files() if not n.startswith("testrunner/")]
   write(
     app,

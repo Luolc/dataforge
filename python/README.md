@@ -40,22 +40,24 @@ scheduler's environment, not the submitter's; one that needs a PATH or a credent
 itself. A systemd unit that runs the scheduler needs `KillMode=process`, so that stopping or
 restarting it leaves the jobs running.
 
-`dataforge.testrunner` runs a Harbor task's tests with the project's own runner (pytest, Maven
-Surefire, PHPUnit) and writes them as CTRF to `/logs/verifier/ctrf.json`. It uses only Python
-3.12's standard library, so that a task runs on its own: a dataset writes `testrunner.files()`
-into each task's `tests/` and its harness imports `testrunner` there. `tests/manifest.toml`
-lists the tests (`[[test]]`: `suite`, `runner`, `id`, and optionally `dir`, `kind` and
-`principle`), the files to copy into the project before they run (`[[file]]`: `source`, `dest`)
-and why a suite has none (`[no_tests]`); `testrunner.run` runs them, a listed test the runner
-did not report counting as an error, and `testrunner.ctrf.suite_counts` gives each suite's
-passed and total counts, from which the dataset writes its `reward.json`. `testrunner` restores
-nothing: the harness checks back to the base the files only a runner loads
-(`testrunner.runners.RUNNER_FILES`) and those that define the listed tests
-(`testrunner.runners.restore_paths`) before it runs them. A dataset with no harness of its own
-runs `python -m testrunner` in `/tests`, and its result holds only once those files are the
-base's. Maven cannot take its test configuration from the base: a changed `pom.xml` can replace
-what runs under a listed name and what is reported, so a dataset that runs Maven tests checks
-`pom.xml` itself.
+`dataforge.testrunner` runs a Harbor task's tests with the project's own runner (pytest, jest,
+vitest, Jasmine, node:test, Maven Surefire, PHPUnit) and writes them as CTRF to
+`/logs/verifier/ctrf.json`. It uses only Python 3.12's standard library, so that a task runs on its
+own: a dataset writes `testrunner.files()` into each task's `tests/` and its harness imports
+`testrunner` there. `tests/manifest.toml` lists the tests (`[[test]]`: `suite`, `runner`, `id`, and
+optionally `dir`, `kind` and `principle`), the files to copy into the project before they run
+(`[[file]]`: `source`, `dest`) and why a suite has none (`[no_tests]`); `testrunner.run` runs them,
+a listed test the runner did not report counting as an error, and `testrunner.ctrf.suite_counts`
+gives each suite's passed and total counts, from which the dataset writes its `reward.json`.
+`testrunner` restores nothing: the harness checks back to the base the files only a runner loads
+(`testrunner.runners.RUNNER_FILES`), those that define the listed tests
+(`testrunner.runners.restore_paths`) and the project files the base's test configuration names to
+run in the test process (pytest's `-p` plugins, jest's and vitest's setup files, Jasmine's helpers)
+before it runs them. A dataset with no harness of its own runs `python -m testrunner` in `/tests`,
+and its result holds only once those files are the base's. Maven cannot take its test configuration
+from the base: a changed `pom.xml` can replace what runs under a listed name and what is reported,
+so a dataset that runs Maven tests checks `pom.xml` itself; nor jest the Babel configuration in
+`package.json`'s `babel` key, which a dataset checks too.
 
 A dataset repository depends on it at a commit of main:
 
