@@ -241,6 +241,11 @@ def outcomes(
     ({"backend/pytest.py": FAKE_PYTEST}, "backend", None),
     ({"pytest.py": FAKE_PYTEST}, "{out}:", None),
     ({"src/plugin.py": FAKE_PYTEST}, "{out}", PLUGIN_CONFIG),
+    (
+      {"broken.py": FAKE_PYTEST},
+      "{out}",
+      '[tool.pytest.ini_options]\naddopts = "-p broken"\n',
+    ),
   ],
 )
 def test_pytest_and_its_plugins_are_not_loaded_from_the_project(
@@ -254,7 +259,8 @@ def test_pytest_and_its_plugins_are_not_loaded_from_the_project(
   # the directory pytest starts in, in one on PYTHONPATH or in one of the
   # configuration's pythonpath, is not what runs the tests.
   out = tmp_path / "out"
-  write(out, {"plugin.py": ""})
+  # A plugin outside the project, and one there that fails to import.
+  write(out, {"plugin.py": "", "broken.py": "import missing_module\n"})
   if pythonpath is not None:
     app = str((tmp_path / "app").resolve())
     value = pythonpath.format(app=app, out=out)
