@@ -47,6 +47,27 @@ QUEUE_DB_ENV = "DATAFORGE_QUEUE_DB"
 """The variable that gives a command its job's database, an absolute path."""
 
 
+def command(database: Path, job_id: int, grace: float) -> list[str]:
+  """Give the command that runs a job's wrapper, as the scheduler starts it.
+
+  Args:
+    database: The queue's database, an absolute path.
+    job_id: The job.
+    grace: cancel_grace_s.
+
+  Returns:
+    The command: this Python, the wrapper's module and its arguments.
+  """
+  return [
+    sys.executable,
+    "-m",
+    "dataforge.queue.wrapper",
+    str(database),
+    str(job_id),
+    str(grace),
+  ]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
   """Run a claimed job.
 
