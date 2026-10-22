@@ -175,10 +175,12 @@ def _record() -> Fingerprint:
       format="format",
       rewards={"reward": 1.0},
       exception="exception",
+      source=root / "source",
     ),
     session={"session": "id"},
     trace=root / "trace",
     trace_format="format",
+    logs=[root / "log"],
   )
   visit = Visit(
     state="state",
@@ -268,7 +270,7 @@ FORMATS: tuple[Format, ...] = (
   ),
   Format(
     "dataforge.curation.record",
-    1,
+    3,
     _record,
     (
       "an attempt's record, Attempt.to_json, in the store's rows and the"

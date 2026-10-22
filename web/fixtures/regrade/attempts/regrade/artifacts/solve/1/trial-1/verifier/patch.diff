@@ -1,0 +1,41 @@
+diff --git a/tinyparse/parser.py b/tinyparse/parser.py
+index 3b1c2d4..8e9f0a1 100644
+--- a/tinyparse/parser.py
++++ b/tinyparse/parser.py
+@@ -12,9 +12,12 @@ def _split_line(line):
+     """Split a header line into its name and value."""
+     name, sep, value = line.partition(":")
+     if not sep:
+         raise ParseError(f"no colon in {line!r}")
+-    return name.strip(), value.strip()
++    name = name.strip()
++    if not name:
++        raise ParseError("empty header name")
++    return name, value.strip()
+ 
+ 
+ def parse(stream):
+     """Parse a header block, folding continuation lines."""
+@@ -24,6 +27,6 @@ def parse(stream):
+     for line in stream:
+         if line[:1] in (" ", "\t"):
+-            headers[-1] = (headers[-1][0], headers[-1][1] + line)
++            headers[-1] = (headers[-1][0], headers[-1][1] + " " + line.strip())
+             continue
+         headers.append(_split_line(line))
+     return headers
+diff --git a/tests/test_parser.py b/tests/test_parser.py
+index 51a0b7c..c4d2e19 100644
+--- a/tests/test_parser.py
++++ b/tests/test_parser.py
+@@ -8,1 +8,10 @@ def test_simple():
+     assert parse(["a: 1", "b: 2"]) == [("a", "1"), ("b", "2")]
++
++
++def test_folded_line_is_joined_with_one_space():
++    assert parse(["a: 1", "   2"]) == [("a", "1 2")]
++
++
++def test_empty_name_is_refused():
++    with pytest.raises(ParseError):
++        parse([": 1"])

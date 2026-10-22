@@ -1,0 +1,32 @@
+# A synthetic attempt, made up and run nowhere, whose regrade trials run no
+# agent: each runs the task's tests on the diff of a trial of its pass@k
+# (regrade-1 on trial-1's, regrade-2 on trial-2's), one names a trial no
+# deliverable lists (regrade-3), and one names none (regrade-4). The pass@k
+# trials are p3's trials 1 to 3, with their traces, diffs and test results.
+id: regrade
+name: Regrade samples
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*"
+record: record.json
+states:
+  solve: { title: Pass@k }
+  regrade: { title: Regrade }
+statuses:
+  passed: { label: Passed, tone: good }
+  in_range: { label: In range, tone: good }
+  ok: { label: Ok, tone: good }
+item: { depth: 1, title: Task }
+columns: []
+session: { thinking: collapsed }
+deliverables:
+  - { name: pass_at_k, kind: trials, title: Pass@k }
+  - name: regrade
+    kind: trials
+    title: Regrade
+    no_trace: >-
+      A regrade runs no agent: it applies another trial's diff and runs the
+      task's tests on it.
+trials:
+  diff: verifier/patch.diff
+  tests: verifier/ctrf.json

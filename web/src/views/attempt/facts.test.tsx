@@ -48,9 +48,9 @@ describe("an attempt's cost", () => {
 });
 
 describe("an attempt's status", () => {
-  it("is raised when a state raised, else Not ended until it ends", () => {
+  it("is Exception when a state raised, else Not ended until it ends", () => {
     const { unmount, item } = show(records.raised);
-    expect(item("Status")).toHaveTextContent(/^raised$/);
+    expect(item("Status")).toHaveTextContent(/^Exception$/);
     unmount();
 
     expect(show(records.running).item("Status")).toHaveTextContent(

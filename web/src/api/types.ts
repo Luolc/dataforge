@@ -44,9 +44,16 @@ export const project = z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
   }),
   not_ended: z.array(z.string()).nullable().optional(),
+  // no_trace: for a deliverable of trials, why a trial of it with no trace
+  // has none, in the project's words.
   deliverables: z
     .array(
-      z.looseObject({ name: z.string(), kind: z.string(), title: z.string() }),
+      z.looseObject({
+        name: z.string(),
+        kind: z.string(),
+        title: z.string(),
+        no_trace: z.string().nullable().optional(),
+      }),
     )
     .optional(),
   // A trial's diff and its CTRF test results, each relative to its
@@ -358,7 +365,8 @@ const source = {
 };
 
 // A trial that has started and not been recorded yet has no id, trace or
-// result (design.md section 5, "The record").
+// result (design.md section 5, "The record"). source is the path of the
+// trial whose output it judged again; a record written before it has none.
 const trial = z.looseObject({
   id: z.string().nullable(),
   output: z.string(),
@@ -366,6 +374,7 @@ const trial = z.looseObject({
   trace: z
     .looseObject({ path: z.string(), format: z.string().nullable() })
     .nullable(),
+  source: z.string().nullable().optional(),
   result: z
     .looseObject({
       reward: z.number().nullable(),
