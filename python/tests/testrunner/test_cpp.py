@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from dataforge.testrunner import cpp
+from dataforge.testrunner import cpp, junit
 from dataforge.testrunner.adapter import Call, Context
 from dataforge.testrunner.cpp import CTest, GTest
 from dataforge.testrunner.manifest import Test as Listed
@@ -117,7 +117,7 @@ def test_a_test_not_run_or_skipped_by_attribute_is_skipped(
   attributes: dict[str, str], status: str
 ):
   case = ET.Element("testcase", {"name": "t", **attributes})
-  assert cpp._status(case).status == status  # pyright: ignore[reportPrivateUsage]
+  assert junit.marked_outcome(case).status == status
 
 
 def test_cpp_tests_restore_nothing():

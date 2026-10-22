@@ -10,9 +10,10 @@ from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from datetime import datetime, UTC
 import json
+import os
 from pathlib import Path
 import string
-from typing import ClassVar, override
+from typing import cast, ClassVar, override
 
 from dataforge.curation.actions import (
   ActionResult,
@@ -36,6 +37,7 @@ from dataforge.curation.engine import (
   End,
   Goto,
   Outcome,
+  read_json,
   State,
 )
 from dataforge.curation.faults import trial_fault, trial_judged
@@ -646,7 +648,9 @@ class TrialsState(_ActionState):
   Outputs: "<name>-<i>" for the i-th trial of the agent named name, from 0.
   With each_task, task_dir is a directory of tasks and every agent runs on
   each of its subdirectories: "<name>-<subdir>", or "<name>-<subdir>-<i>"
-  when the agent runs more than once.
+  when the agent runs more than once. A subdirectory that holds SOURCE names
+  the trial whose output its task judges again, and its trials record it as
+  their source.
 
   Outcomes: "ok" when no trial reports an exception, else "error". Data: each
   trial's {"rewards", "exception"}, by output name. With a judge, the judge
@@ -749,11 +753,19 @@ class TrialsState(_ActionState):
   @override
   def run(self, ctx: Context) -> Outcome:
     trials = self.trials(ctx)
+    # Every source is read before any trial starts, so that a task that
+    # names its source wrongly costs nothing.
+    sources = {
+      task_dir: _source(ctx.attempt.root, task_dir) if self.each_task else None
+      for _, task_dir, _ in trials
+    }
 
     def one(
       name: str, task_dir: Path, agent: TrialAgent
     ) -> Callable[[], TrialResult]:
-      return lambda: self.actions.trial(ctx, name, task_dir, agent, self.limits)
+      return lambda: self.actions.trial(
+        ctx, name, task_dir, agent, self.limits, sources[task_dir]
+      )
 
     results = fan_out([one(*trial) for trial in trials])
     if self.judge is not None:
@@ -1217,6 +1229,33 @@ def _write_rubric(
   ctx.record(
     ActionRecord("report", "ok", outputs, started, datetime.now(UTC), 0.0)
   )
+
+
+SOURCE = "source.json"
+"""The file of a task, in a TrialsState's directory of tasks, that names the
+trial whose output the task judges again: {"trial": <path>}, the path of the
+trial's directory relative to the attempt's, as its record gives it."""
+
+
+def _source(root: Path, task_dir: Path) -> Path | None:
+  file = task_dir / SOURCE
+  if not os.path.lexists(file):
+    return None
+  try:
+    data = read_json(file)
+  except (OSError, ValueError) as error:
+    raise ValueError(f"{file}: {error}") from error
+  if not isinstance(data, dict) or list(cast(dict[str, object], data)) != [
+    "trial"
+  ]:
+    raise ValueError(f'{file}: not {{"trial": <path>}}')
+  value = cast(dict[str, object], data)["trial"]
+  if not isinstance(value, str):
+    raise ValueError(f"{file}: trial is not a string")
+  path = Path(value)
+  if not path.parts or path.is_absolute() or ".." in path.parts:
+    raise ValueError(f"{file}: {value!r} is not inside the attempt")
+  return root / path
 
 
 def _task_dir(

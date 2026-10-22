@@ -175,6 +175,7 @@ def _record() -> Fingerprint:
       format="format",
       rewards={"reward": 1.0},
       exception="exception",
+      source=root / "source",
     ),
     session={"session": "id"},
     trace=root / "trace",

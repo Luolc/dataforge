@@ -65,6 +65,22 @@ image configured and built, configured again and built before the tests run, and
 configuration in `CMakeLists.txt` runs as a fix leaves it, which a dataset checks too; their IDs
 name no source file, so a dataset restores the files that define their tests itself.
 
+A task may also choose its own framework: a `[[run]]` table is a run group, either a `preset` (one of
+the runners above) or a `run` argv, run once in its `dir` with `TESTRUNNER_OUT`, a new empty
+directory outside the project for its report, and `TESTRUNNER_DIR`, and a `parse`: `junit` or `ctrf`,
+which testrunner reads from `TESTRUNNER_OUT` itself, or an argv that writes CTRF to
+`TESTRUNNER_CTRF` after the run. An argument of either argv that names a regular file under `tests/`
+is given as that file's absolute path, and the globs of `outputs`, reports a framework writes only
+inside the project, are deleted before the run. A `[[test]]` names its group with `run`; a listed
+name its report lacks, a report that cannot be read, `skipped` and a name with any case not `passed`
+do not pass. A test with `expect = "failed"` is its group's canary: it counts in no suite, and
+`results.extra.canary_broken` lists it when it is not a failure of an assertion; the names a group
+reported that the manifest does not list are in `results.extra.unlisted`. `testrunner.restore`
+checks back to the base the files that globs match (`[restore]`'s `paths`, with the runners' files
+from `testrunner.restore.globs`) from git's objects, running no filter or hook of the project.
+`python -m testrunner parse <format> <report> <out>` writes a format's CTRF, for a session that tries
+its group.
+
 A dataset repository depends on it at a commit of main:
 
 ```toml

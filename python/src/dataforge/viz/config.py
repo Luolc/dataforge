@@ -277,11 +277,14 @@ class Deliverable:
     name: The name of its entry in a record's deliverables.
     kind: Its kind, which picks its view.
     title: Its title.
+    no_trace: For a deliverable of trials, why a trial of it that has no
+      trace has none, shown in its place; None for the viewer's own words.
   """
 
   name: str
   kind: str
   title: str
+  no_trace: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,7 +407,12 @@ class Project:
       "session": {"thinking": self.thinking},
       "not_ended": None if self.not_ended is None else list(self.not_ended),
       "deliverables": [
-        {"name": d.name, "kind": d.kind, "title": d.title}
+        {
+          "name": d.name,
+          "kind": d.kind,
+          "title": d.title,
+          "no_trace": d.no_trace,
+        }
         for d in self.deliverables
       ],
       "trials": None if self.trials is None else _public_trials(self.trials),
@@ -926,13 +934,18 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
     where = f"deliverables[{i}]"
     entry = _mapping(path, where, item)
     fields = {"name", "kind", "title"}
-    _keys(path, where, entry, required=fields, optional=set())
+    _keys(path, where, entry, required=fields, optional={"no_trace"})
     name, kind, title = (
       _str(path, f"{where}.{f}", entry[f]) for f in ("name", "kind", "title")
     )
     if any(d.name == name for d in found):
       raise ConfigError(f"{path}: {where}.name: {name!r} repeated")
-    found.append(Deliverable(name, kind, title))
+    no_trace = entry.get("no_trace")
+    if no_trace is not None:
+      no_trace = _str(path, f"{where}.no_trace", no_trace)
+      if kind != "trials":
+        raise ConfigError(f"{path}: {where}.no_trace: for kind trials only")
+    found.append(Deliverable(name, kind, title, no_trace))
   return tuple(found)
 
 

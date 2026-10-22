@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="attr" time="0.005871" disabled="0" errors="0" tests="3" failures="1" skipped="1" timestamp="2026-10-22T00:00:00.000Z" hostname="host">
+		<testsuite name="nested" time="0.000951" disabled="0" errors="0" tests="1" failures="0" skipped="0" timestamp="2026-10-22T00:00:00.000Z" hostname="host">
+			<testcase name="parses" time="0.000404" classname="attr.nested" file="/w/app/test/a.test.js"/>
+		</testsuite>
+		<testcase name="fails" time="0.000692" classname="attr" file="/w/app/test/a.test.js" failure="Expected values to be strictly equal:&#10;&#10;1 !== 2&#10;">
+			<failure type="testCodeFailure" message="Expected values to be strictly equal:&#10;&#10;1 !== 2">
+Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:
+
+1 !== 2
+
+    at async Promise.all (index 0) {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 2
+  
+      at TestContext.&lt;anonymous> (/w/app/test/a.test.js:8:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Suite.postRun (node:internal/test_runner/test:1542:19)
+      at Suite.run (node:internal/test_runner/test:1921:10)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1905:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+}
+			</failure>
+		</testcase>
+		<testcase name="waits" time="0.000140" classname="attr" file="/w/app/test/a.test.js">
+			<skipped type="skipped" message="true"/>
+		</testcase>
+	</testsuite>
+	<testsuite name="with sub" time="0.000395" disabled="0" errors="0" tests="1" failures="0" skipped="0" timestamp="2026-10-22T00:00:00.000Z" hostname="host">
+		<testcase name="one" time="0.000113" classname="with sub" file="/w/app/test/a.test.js"/>
+	</testsuite>
+	<testcase name="unlisted" time="0.000074" classname="test" file="/w/app/test/a.test.js"/>
+	<!-- tests 6 -->
+	<!-- suites 2 -->
+	<!-- pass 4 -->
+	<!-- fail 1 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 1 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 52.774325 -->
+</testsuites>

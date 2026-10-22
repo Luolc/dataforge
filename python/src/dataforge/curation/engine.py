@@ -286,6 +286,8 @@ class TrialRecord:
     format: The trace's format, such as "claude-code-stream-json".
     rewards: The verifier's rewards, by name.
     exception: What ended the trial early, if anything did.
+    source: The path of the trial whose output this trial judged again, such
+      as one whose diff it applied, if its task names one.
   """
 
   id: str
@@ -294,6 +296,7 @@ class TrialRecord:
   format: str | None
   rewards: Mapping[str, float]
   exception: str | None
+  source: Path | None = None
 
 
 @dataclass
@@ -568,6 +571,7 @@ class Attempt:
         "trace": _trace_json(trial.trace, trial.format, self.root),
         "rewards": dict(trial.rewards),
         "exception": trial.exception,
+        "source": _relative(trial.source, self.root),
       },
     }
 
@@ -1388,6 +1392,7 @@ def _trials(
           "output": output,
           "path": str(trial.path.relative_to(root)),
           "trace": trace,
+          "source": _relative(trial.source, root),
           "result": {
             "reward": trial.rewards.get("reward"),
             "rewards": dict(trial.rewards),
@@ -1406,6 +1411,7 @@ def _trials(
           "output": output,
           "path": str(path.relative_to(root)),
           "trace": None,
+          "source": None,
           "result": None,
         },
       )
@@ -1419,6 +1425,10 @@ def _trace_json(
   if trace is None:
     return None
   return {"path": str(trace.relative_to(root)), "format": format_}
+
+
+def _relative(path: Path | None, root: Path) -> str | None:
+  return None if path is None else str(path.relative_to(root))
 
 
 def _order(output: str) -> tuple[str, int]:
@@ -1443,7 +1453,7 @@ def _value(value: Value, visit: Visit | None) -> dict[str, object]:
       why = f"{visit.state} visit {visit.visit} has no output {value.output}"
       return found | {"value": None, "reason": why}
     try:
-      current = _read_json(path)
+      current = read_json(path)
     except RecursionError:
       return found | {
         "value": None,
@@ -1463,7 +1473,20 @@ VALUE_LIMIT = 1024 * 1024
 """The most bytes of a JSON output a deliverable's value is read from."""
 
 
-def _read_json(path: Path) -> object:
+def read_json(path: Path) -> object:
+  """Read a JSON file an action wrote, never through a symlink.
+
+  Args:
+    path: The file.
+
+  Returns:
+    What it holds.
+
+  Raises:
+    OSError: When it cannot be opened, as a symlink cannot.
+    ValueError: When it is not a regular file, is over VALUE_LIMIT bytes or
+      does not hold JSON.
+  """  # noqa: DOC503
   # An output may come from a container running untrusted code: never follow
   # a symlink, which could bring a host file into the record.
   fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -1607,6 +1630,10 @@ def _read_trial(
     None if trace is None else trace[1],
     {name: _number(rewards, name, f"{where}.rewards") for name in rewards},
     _maybe_text(data, "exception", where),
+    # A record written before a trial had a source has no key.
+    None
+    if data.get("source") is None
+    else _inside(root, data["source"], f"{where}.source"),
   )
 
 

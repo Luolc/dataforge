@@ -1,0 +1,93 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.1.0",
+  "results": {
+    "tool": {
+      "name": "testrunner"
+    },
+    "summary": {
+      "tests": 6,
+      "passed": 3,
+      "failed": 3,
+      "skipped": 0,
+      "pending": 0,
+      "other": 0,
+      "start": 1772442000000,
+      "stop": 1772442004210
+    },
+    "tests": [
+      {
+        "name": "tests/test_fold_deep.py::test_fold_rejects_a_nesting_past_the_limit",
+        "status": "failed",
+        "duration": 2210,
+        "suite": ["f2p"],
+        "labels": {
+          "id": "f2p::tests/test_fold_deep.py::test_fold_rejects_a_nesting_past_the_limit",
+          "runner": "pytest",
+          "kind": "security",
+          "principle": "p1"
+        },
+        "message": "AssertionError: expected FoldError, got a tree 4096 levels deep",
+        "trace": "tests/test_fold_deep.py:18: in test_fold_rejects_a_nesting_past_the_limit\n    with pytest.raises(FoldError):\nE   Failed: DID NOT RAISE <class 'tinyparse.FoldError'>"
+      },
+      {
+        "name": "tests/test_fold_deep.py::test_fold_keeps_a_nesting_at_the_limit",
+        "status": "passed",
+        "duration": 40,
+        "suite": ["f2p"],
+        "labels": {
+          "id": "f2p::tests/test_fold_deep.py::test_fold_keeps_a_nesting_at_the_limit",
+          "runner": "pytest",
+          "kind": "behavior",
+          "principle": "p1"
+        }
+      },
+      {
+        "name": "tests/test_fold_deep.py::test_fold_reports_where_it_stopped",
+        "status": "failed",
+        "duration": 0,
+        "suite": ["f2p"],
+        "labels": {
+          "id": "f2p::tests/test_fold_deep.py::test_fold_reports_where_it_stopped",
+          "runner": "pytest",
+          "kind": "behavior"
+        },
+        "rawStatus": "error",
+        "message": "listed in the manifest but not in the runner's report"
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_1",
+        "status": "passed",
+        "duration": 9,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_1",
+          "runner": "pytest"
+        }
+      },
+      {
+        "name": "tests/test_fold.py::test_fold_case_2",
+        "status": "failed",
+        "duration": 15,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_fold.py::test_fold_case_2",
+          "runner": "pytest"
+        },
+        "rawStatus": "error",
+        "message": "fixture 'deep_doc' not found",
+        "trace": "file tests/test_fold.py, line 22\n  def test_fold_case_2(deep_doc):\nE       fixture 'deep_doc' not found"
+      },
+      {
+        "name": "tests/test_scan.py::test_scan_case_1",
+        "status": "passed",
+        "duration": 12,
+        "suite": ["p2p"],
+        "labels": {
+          "id": "p2p::tests/test_scan.py::test_scan_case_1",
+          "runner": "pytest"
+        }
+      }
+    ]
+  }
+}
