@@ -245,6 +245,7 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     _ = path.write_bytes(data)
   assert "testrunner/__main__.py" in files()
+  assert "testrunner/jasmine_reporter.cjs" in files()
   assert not [n for n in files() if not n.startswith("testrunner/")]
   write(
     app,

@@ -5,9 +5,12 @@ manifest that name it there, and writes its report outside the project. A
 file that only the runner loads by itself (RUNNER_FILES) is for the dataset
 to check back to the project's base before the tests run. A build file that
 also holds the runner's configuration, which a fix may need to change, is
-not: its configuration is taken from the base and given to the runner on
-the command line, where the runner allows it; and a test the runner then
-leaves out is an error all the same (ctrf.missing).
+not: its configuration is taken from the base and given to the runner on the
+command line, where the runner allows it; and a test the runner then leaves
+out is an error all the same (ctrf.missing). A project file that the base's
+configuration names to run in the test process (pytest's `-p` plugins, jest's
+and vitest's setup files, Jasmine's helpers) is neither: it is the dataset's
+to restore, as it restores conftest.py.
 """
 
 from __future__ import annotations
@@ -41,7 +44,7 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
     "usercustomize.py",
     "*.pth",
   ),
-  "jest": ("jest.config.*",),
+  "jest": ("jest.config.*", "babel.config.*", ".babelrc", ".babelrc.*"),
   "vitest": ("vitest.config.*", "vitest.workspace.*"),
   "jasmine": (
     "spec/support/jasmine.json",
@@ -58,7 +61,8 @@ RUNNER_FILES: dict[str, tuple[str, ...]] = {
   "phpunit": ("phpunit.xml", "phpunit.dist.xml", "phpunit.xml.dist"),
 }
 """For each runner, the files it loads by itself that hold only its own
-configuration: a pattern without `/` matches a file's name, one with `/`
+configuration, or, for jest, that of Babel, which jest's default transform
+reads by itself: a pattern without `/` matches a file's name, one with `/`
 the end of its path."""
 
 
