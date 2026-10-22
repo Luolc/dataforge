@@ -378,6 +378,40 @@ describe("the home page", () => {
     }
   });
 
+  it("sorts a column's values by their labels, as they show", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Verdict",
+          field: ["verdict"],
+          format: "text",
+          labels: {
+            aa_reject: "Rejected",
+            zz_accept: "Accepted",
+            true: "Kept",
+          },
+        },
+      ],
+    };
+    const rows = [
+      row("a/1", { started_at: at(5), ended_at: at(6), values: ["aa_reject"] }),
+      row("b/1", { started_at: at(6), ended_at: at(7), values: ["zz_accept"] }),
+      row("c/1", { started_at: at(7), ended_at: at(8), values: [true] }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show("/sample?sort=column-0", withColumns);
+    await screen.findByText("a");
+
+    // A to Z by Accepted, Kept, Rejected, not by the values themselves.
+    expect(itemsOf("Ended")).toEqual(["b", "c", "a"]);
+  });
+
   it("says what a column holds on its heading's focus", async () => {
     const withColumns: Project = {
       ...project,

@@ -73,14 +73,24 @@ export function usd(value: number): string {
 type Shown = Pick<Column, "format" | "labels">;
 
 /**
- * A value a project's column or tab field reads, as its format says, or as
- * its labels name it: a string by itself, a boolean or a number by its JSON
- * text; "—" when there is none.
+ * A value's label among a column's or a tab field's labels: a string's by
+ * itself, a boolean's or a number's by its JSON text; undefined for none.
+ */
+export function labelOf(
+  value: unknown,
+  labels: Column["labels"],
+): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  return labels?.[typeof value === "string" ? value : JSON.stringify(value)];
+}
+
+/**
+ * A value a project's column or tab field reads, as its labels name it
+ * (labelOf), else as its format says; "—" when there is none.
  */
 export function formatValue(value: unknown, { format, labels }: Shown): string {
   if (value === null || value === undefined) return "—";
-  const label =
-    labels?.[typeof value === "string" ? value : JSON.stringify(value)];
+  const label = labelOf(value, labels);
   if (label !== undefined) return label;
   if (typeof value === "number") {
     if (format === "usd") return usd(value);

@@ -864,20 +864,22 @@ def _field_keys(path: Path, where: str, value: object) -> tuple[str, ...]:
 
 def _labels(
   path: Path, where: str, entry: Mapping[str, object], format_: str
-) -> dict[str, str]:
+) -> Mapping[str, str]:
   # A value's label: the value as a string, or a boolean's or a number's JSON
   # text, mapped to the words a page shows for it.
   if "labels" not in entry:
-    return {}
+    return NO_LABELS
   if format_ != "text":
     raise ConfigError(f"{path}: {where}.labels: only with format text")
   labels = _mapping(path, f"{where}.labels", entry["labels"])
   if not labels:
     raise ConfigError(f"{path}: {where}.labels: not a non-empty mapping")
-  return {
-    value: _str(path, f"{where}.labels.{value}", label)
-    for value, label in labels.items()
-  }
+  return MappingProxyType(
+    {
+      value: _str(path, f"{where}.labels.{value}", label)
+      for value, label in labels.items()
+    }
+  )
 
 
 def _format(path: Path, where: str, entry: Mapping[str, object]) -> str:

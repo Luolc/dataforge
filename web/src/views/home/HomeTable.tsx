@@ -24,7 +24,14 @@ import { type MouseEvent, type ReactNode, useId, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import type { AttemptRow, Project } from "../../api/types";
-import { duration, formatValue, readValue, time, usd } from "../../ui/format";
+import {
+  duration,
+  formatValue,
+  labelOf,
+  readValue,
+  time,
+  usd,
+} from "../../ui/format";
 import {
   outcomeOf,
   stateTitle,
@@ -207,6 +214,9 @@ function specs(project: Project): Spec[] {
         const v = raw(l);
         if (column.format === "time" && typeof v === "string")
           return timeValue(v);
+        // A value with a label sorts by it, as it shows.
+        const label = labelOf(v, column.labels);
+        if (label !== undefined) return label;
         return typeof v === "number" || typeof v === "string" ? v : undefined;
       },
       cell: (l) => {
