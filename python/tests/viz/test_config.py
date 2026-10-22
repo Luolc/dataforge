@@ -206,7 +206,28 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
       ("name: Example", "name: Example\ntrials: {diff: /x.diff}"),
       r"trials\.diff: '/x\.diff' is not",
     ),
-    (("name: Example", "name: Example\ntrials: {}"), r"trials\.diff: missing"),
+    (
+      ("name: Example", "name: Example\ntrials: {}"),
+      "trials: names neither diff nor tests",
+    ),
+    (
+      ("name: Example", "name: Example\ntrials: {tests: ../ctrf.json}"),
+      r"trials\.tests: '\.\./ctrf\.json' is not",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ntrials: {diff: x, kinds: {a: {label: A}}}",
+      ),
+      r"trials\.kinds: without trials\.tests",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ntrials: {tests: x, kinds: {a: {title: A}}}",
+      ),
+      r"trials\.kinds\.a\.title: unknown key",
+    ),
     (
       ("name: Example", "name: Example\ntrials: {diff: x, glob: y}"),
       r"trials\.glob: unknown key",

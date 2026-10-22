@@ -2,7 +2,10 @@
 # task-0301 went round it many times and passed, task-0302 is still in its
 # third state. task-0303 runs on a machine of its own, with two ways in that
 # each loop on themselves, a fork, many long edges back and states not run,
-# and ended too easy. They were made up and ran nowhere.
+# and ended too easy. task-0304 runs on a third machine, of eleven states,
+# three that loop on themselves, one with a long title, and two that never
+# ran with edges back out of them, and passed. They were made up and ran
+# nowhere.
 id: graph-sample
 name: Graph sample
 color: "#7fb5f5"
@@ -29,6 +32,17 @@ states:
   critique: { title: Critique }
   recritique: { title: Recritique }
   trial: { title: Trial }
+  outline: { title: Outline }
+  scaffold: { title: Scaffold }
+  compile: { title: Compile }
+  unit: { title: Unit tests }
+  integrate: { title: Integration test suite }
+  stage: { title: Stage }
+  canary: { title: Canary }
+  promote: { title: Promote }
+  verify: { title: Verify }
+  rollback: { title: Roll back }
+  archive: { title: Archive }
 statuses:
   passed: { label: Passed, tone: good }
   exhausted: { label: Exhausted, tone: bad }
