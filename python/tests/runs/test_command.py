@@ -77,6 +77,7 @@ def test_reconcile_with_hooks_ends_a_row_whose_machine_ended(
   assert capsys.readouterr().out.splitlines() == [
     f"{row.id}: interrupted -> ended, passed",
     f"{row.id}: settled",
+    f"{row.id}: cleaned up",
   ]
 
 

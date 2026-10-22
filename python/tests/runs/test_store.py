@@ -224,14 +224,20 @@ def test_cleaned_adds_an_event_and_changes_no_row(
 ) -> None:
   attempt_id = _in(store, "ended", me)
   before = store.get(attempt_id)
-  store.cleaned(attempt_id, {"containers": 1}, "TimeoutExpired: docker")
+  assert store.cleaned(
+    attempt_id, {"containers": 1}, "TimeoutExpired: docker", by="runner"
+  )
   assert store.get(attempt_id) == before
-  last = store.events(attempt_id)[-1]
+  events = store.events(attempt_id)
+  last = events[-1]
   assert (last.from_state, last.to_state, last.detail) == (
     "ended",
     "ended",
     {"cleanup_left": {"containers": 1}, "raised": "TimeoutExpired: docker"},
   )
+  # A second cleanup, such as one of two reconciles, adds no event.
+  assert not store.cleaned(attempt_id, {}, None, by="reconcile")
+  assert store.events(attempt_id) == events
 
 
 def _kept(state: str, holder: Leader) -> AttemptRow:

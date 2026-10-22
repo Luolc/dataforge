@@ -4,11 +4,12 @@ It is one function, safe to run again and in several processes at once. With
 no hooks it runs no dataset code: it makes each running row whose holder is
 gone interrupted. With the dataset's hooks it also ends each interrupted row
 whose machine has ended, after it claims the row, calls on_ended again for
-each ended row that has no settled_at, and checks again whether the other
-interrupted rows may go on and what they spent.
+each ended row that has no settled_at, cleans up each settled row whose
+holder is gone or is this process and that has no cleanup event, and checks
+again whether the other interrupted rows may go on and what they spent.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from contextlib import closing
 import dataclasses
 import logging
@@ -45,8 +46,10 @@ def reconcile(
   written into it; an interrupted row whose machine_status is set is claimed,
   running under this process, and only when the claim changed it, finalized
   and ended with the word hooks.outcome gives; on_ended is called for each
-  ended row with no settled_at, which is then set; each other interrupted row
-  of an item in recheck, or of any item, gets resumable and cost_usd again.
+  ended row with no settled_at, which is then set; hooks.cleanup is called
+  for each settled row that has a holder, not alive or this process, and no
+  cleanup event, which is then added once; each other interrupted row of an
+  item in recheck, or of any item, gets resumable and cost_usd again.
 
   Args:
     store: The store.
@@ -102,6 +105,13 @@ def _with_hooks(
   for row in store.rows(states=("ended",)):
     if row.settled_at is None and _settled(hooks, store, row):
       done.append(f"{row.id}: settled")
+  for row in store.uncleaned():
+    holder = row.holder
+    # A holder that is alive may still be cleaning the row up itself.
+    if holder is None or (holder != me and alive(holder)):
+      continue
+    if clean_up(store, hooks, row, by="reconcile"):
+      done.append(f"{row.id}: cleaned up")
   return done
 
 
@@ -248,6 +258,32 @@ def _end_claimed(
   if ended is not None and _settled(hooks, store, ended):
     done.append(f"{row.id}: settled")
   return done
+
+
+def clean_up(store: Store, hooks: Hooks, row: AttemptRow, *, by: str) -> bool:
+  """Call the dataset's cleanup for an ended row, then add its event.
+
+  What the cleanup raises is logged and written into the event; it changes
+  no outcome.
+
+  Args:
+    store: The store.
+    hooks: The dataset's hooks.
+    row: The row, ended.
+    by: "runner" or "reconcile".
+
+  Returns:
+    Whether this call added the event: False when the row has one already.
+  """
+  left: Mapping[str, object] = {}
+  raised = None
+  try:
+    left = hooks.cleanup(row)
+  # The dataset's code may raise anything; the event says what it raised.
+  except Exception as error:  # noqa: BLE001
+    raised = f"{type(error).__name__}: {error}"
+    _log.warning("%s: the cleanup raised %s", row.id, raised)
+  return store.cleaned(row.id, left, raised, by=by)
 
 
 def _check(store: Store, hooks: Hooks, row: AttemptRow) -> list[str]:
