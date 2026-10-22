@@ -2,7 +2,7 @@
 # The fakes implement protocols and take parameters they do not need.
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 import json
 import os
 from pathlib import Path
@@ -188,6 +188,48 @@ def test_a_pool_counts_another_processs_reservation_as_available(
       _ = ResourcePool(1.5)
 
 
+def build(pool: ResourcePool) -> None:
+  with pool.build(0.25):
+    pass
+
+
+def test_pool_build_slots_cap_the_builds_held() -> None:
+  pool = ResourcePool(1.0, builds=1)
+  with ExitStack() as held:
+    held.enter_context(pool.build(0.25))
+
+    def release() -> None:
+      # A build waiting for its slot holds no memory meanwhile.
+      assert pool.reserved_gb == 0.25
+      held.close()
+
+    blocked(lambda: build(pool), release)
+  assert pool.reserved_gb == 0.0
+
+
+def test_a_pool_lets_one_build_run_at_a_time_by_default() -> None:
+  pool = ResourcePool(1.0)
+  with ExitStack() as held:
+    held.enter_context(pool.build(0.25))
+    blocked(lambda: build(pool), held.close)
+
+
+BUILD = """
+import sys
+from dataforge.curation import ResourcePool
+build = ResourcePool(1.0, builds=1).build(0.25)
+build.__enter__()
+print("held", flush=True)
+sys.stdin.read()
+"""
+
+
+def test_pool_counts_another_processs_build_until_it_is_killed() -> None:
+  with holding(BUILD) as other:
+    pool = ResourcePool(1.0, builds=1)
+    blocked(lambda: build(pool), lambda: kill(other))
+
+
 def test_a_host_script_reserves_its_memory(tmp_path: Path) -> None:
   pool = ResourcePool(0.5)
   pool.acquire(0.5)
@@ -201,6 +243,39 @@ def test_a_host_script_reserves_its_memory(tmp_path: Path) -> None:
 
   once(tmp_path, body)
   assert pool.reserved_gb == 0.0
+
+
+def test_a_host_script_that_builds_takes_a_slot_before_its_memory(
+  tmp_path: Path,
+) -> None:
+  pool = ResourcePool(1.0, builds=1)
+
+  def body(ctx: Context) -> Outcome:
+    spec = ScriptSpec(["true"], memory_gb=0.5, build=True)
+    with ExitStack() as held:
+      held.enter_context(pool.build(None))
+
+      def release() -> None:
+        # Waiting for its slot, the script holds no memory.
+        assert pool.reserved_gb == 0.0
+        held.close()
+
+      blocked(lambda: Actions(pool=pool).script(ctx, spec), release)
+    return Outcome("ok")
+
+  once(tmp_path, body)
+  assert pool.reserved_gb == 0.0
+
+
+def test_a_script_that_builds_runs_only_on_the_host(tmp_path: Path) -> None:
+  def body(ctx: Context) -> Outcome:
+    spec = ScriptSpec(["true"], build=True)
+    env = Docker("solver:1", cli=FakeDocker(tmp_path / "container"))
+    with pytest.raises(ValueError, match="builds an image runs on the host"):
+      _ = Actions(pool=ResourcePool(1.0)).script(ctx, spec, env)
+    return Outcome("ok")
+
+  once(tmp_path, body)
 
 
 class Trials:

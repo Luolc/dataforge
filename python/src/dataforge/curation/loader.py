@@ -188,6 +188,7 @@ def load(
   guard: Guard | None = None,
   on_step: Callable[[Attempt], None] | None = None,
   stack: ExitStack | None = None,
+  spent_usd: Callable[[Attempt], float] | None = None,
 ) -> Machine:
   """Read a declaration into a machine, checking it strictly.
 
@@ -209,6 +210,8 @@ def load(
     on_step: The machine's on_step, if any.
     stack: Where the Docker environments are entered; needed when the
       declaration has any.
+    spent_usd: The machine's measure of what an attempt has spent, if not
+      what its actions report (Machine).
 
   Returns:
     The machine, its start state first.
@@ -229,7 +232,7 @@ def load(
   except yaml.YAMLError as error:
     raise SpecError("", f"not valid YAML: {error}") from error
   loader = _Loader(dict(bindings or {}), actions, root)
-  machine = loader.machine(data, inputs, guard, on_step)
+  machine = loader.machine(data, inputs, guard, on_step, spent_usd)
   if loader.environments and stack is None:
     raise SpecError("environments", "load needs a stack to enter them in")
   for docker in loader.environments.values():
@@ -301,6 +304,7 @@ class _Loader:
     inputs: Mapping[str, object],
     guard: Guard | None,
     on_step: Callable[[Attempt], None] | None,
+    spent_usd: Callable[[Attempt], float] | None,
   ) -> Machine:
     top = _fields(
       data,
@@ -362,6 +366,7 @@ class _Loader:
       on_step=on_step,
       max_cost_usd=cap,
       deliverables=deliverables,
+      spent_usd=spent_usd,
     )
 
   def deliverables(
@@ -831,6 +836,7 @@ class _Loader:
       optional_inputs=self.input_refs(
         fields.get("optional_inputs", []), f"{at}.optional_inputs"
       ),
+      build=self.boolean(fields.get("build", False), f"{at}.build"),
     )
 
   def judge(self, value: object, at: str) -> Judge:
@@ -854,7 +860,7 @@ class _Loader:
     return self.string(value, at)
 
 
-_SCRIPT = {"inputs", "outputs", "memory_gb", "optional_inputs"}
+_SCRIPT = {"inputs", "outputs", "memory_gb", "optional_inputs", "build"}
 
 _PROTOCOLS = {
   "env": ("an Env", ("start", "stop", "stage", "exec", "collect")),

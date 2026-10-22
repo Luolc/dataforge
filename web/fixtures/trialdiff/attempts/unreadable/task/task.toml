@@ -1,0 +1,14 @@
+# A made-up task.toml whose principle has a type dataforge.task does not
+# know.
+version = "1.0"
+
+[metadata]
+language = "Rust"
+
+[metadata.tests.f2p]
+security = 1
+
+[[metadata.principles]]
+id = "p1"
+text = "A path from the request is joined only after it is checked."
+type = "guideline"

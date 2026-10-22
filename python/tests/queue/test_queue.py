@@ -28,6 +28,8 @@ from dataforge.queue import (
 )
 from dataforge.queue.proc import alive, group_alive, Leader, leader
 from dataforge.queue.scheduler import Scheduler
+from dataforge.queue.store import row as read_row
+from dataforge.queue.wrapper import _wait  # pyright: ignore[reportPrivateUsage]
 from dataforge.queue.wrapper import main as wrapper
 
 QUEUE_FILE = """
@@ -265,9 +267,69 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill(
   assert state(config, job).state == "running"
   until(ended(config, job), scheduler)
   done = state(config, job)
-  # The SIGKILL took the wrapper too: the scheduler wrote the end.
+  # The SIGKILL took the wrapper too: the end has no exit code.
   assert (done.state, done.exit_code) == ("canceled", None)
   assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
+
+
+def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
+  config: Config, scheduler: Scheduler
+):
+  job = put(config, "alpha", "sh", "-c", "trap '' TERM; echo ready; sleep 30")
+  until(lambda: "ready" in log(config, job), scheduler)
+  started = state(config, job).leader()
+  assert started is not None
+  # No tick from here on, as with the scheduler stopped.
+  _ = cancel(config, job.id)
+  deadline = time.monotonic() + 20
+  while state(config, job).ended_at is None:
+    assert time.monotonic() < deadline, "timed out"
+    time.sleep(0.05)
+  done = state(config, job)
+  assert (done.state, done.exit_code) == ("canceled", None)
+  assert cast_float(done.ended_at) - cast_float(done.cancel_requested_at) >= 0.5
+  assert not group_alive(started)
+  # A scheduler that runs again changes nothing of the ended job.
+  scheduler.tick()
+  assert state(config, job) == done
+
+
+def test_the_wrapper_waits_on_when_a_read_of_the_row_fails(
+  config: Config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+  job = put(config, "alpha", "true")
+  go = tmp_path / "go"
+  reads = 0
+
+  def flaky(conn: sqlite3.Connection, job_id: int) -> Job | None:
+    nonlocal reads
+    reads += 1
+    if reads == 1:
+      # The command ends only after this read.
+      go.touch()
+      raise sqlite3.OperationalError("database is locked")
+    return read_row(conn, job_id)
+
+  monkeypatch.setattr("dataforge.queue.wrapper.row", flaky)
+  # The command gives up with 99 after about 10 s, when no read comes.
+  script = f"""
+    i=0
+    until [ -e {go} ]; do
+      [ $i -lt 200 ] || exit 99
+      i=$((i + 1))
+      sleep 0.05
+    done
+    exit 3
+  """
+  child = subprocess.Popen(["sh", "-c", script])
+  try:
+    # As after a SIGTERM that was no cancellation, with a short grace period:
+    # the row is read each time it passes.
+    assert _wait(child, config.database, job.id, 0.1, lambda: True) == 3
+  finally:
+    child.kill()
+    _ = child.wait()
+  assert reads >= 1
 
 
 def log(config: Config, job: Job) -> str:

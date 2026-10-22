@@ -11,9 +11,10 @@ import subprocess
 import tempfile
 
 from . import ctrf
+from .adapter import Context, Runner
 from .ctrf import Case, TestObject
 from .manifest import File, Manifest, Test
-from .runners import ADAPTERS, Context, Runner
+from .runners import ADAPTERS
 
 # What the runners must not take from the environment of whoever runs this.
 _DROPPED_ENV = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")
@@ -85,14 +86,19 @@ def run_group(
   written = runner.prepare(ctx, tests)
   try:
     env = {k: v for k, v in os.environ.items() if k not in _DROPPED_ENV}
-    argv = runner.command(ctx, tests)
-    if argv is None:
+    calls = runner.commands(ctx, tests)
+    if not calls:
       return [ctrf.missing(t, "none of its files is there") for t in tests]
-    try:
-      done = subprocess.run(argv, cwd=ctx.dir, env=env, check=False)
-      why = f"the runner exited {done.returncode}"
-    except OSError as e:  # the runner is not there
-      why = f"the runner did not start: {e.strerror}"
+    ends: list[str] = []
+    for call in calls:
+      try:
+        done = subprocess.run(
+          call.argv, cwd=ctx.dir, env={**env, **call.env}, check=False
+        )
+        ends.append(f"exited {done.returncode}")
+      except OSError as e:  # the runner is not there
+        ends.append(f"did not start: {e.strerror}")
+    why = "the runner " + ", ".join(dict.fromkeys(ends))
     cases = runner.cases(ctx)
   finally:
     for path in written:

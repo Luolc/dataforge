@@ -402,6 +402,10 @@ def edit(path: str, value: object) -> Callable[[Doc], None]:
       "environments.session.cpus: expected a number, got a string",
     ),
     (
+      edit("environments.session.write_limit", {"bps": 1}),
+      "environments.session.write_limit: unknown field",
+    ),
+    (
       edit("environments.session.volumes", []),
       "environments.session.volumes: unknown field",
     ),

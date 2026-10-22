@@ -68,6 +68,10 @@ CODEX_CONFIG: dict[str, Any] = {
   "feedback": {"enabled": False},
   "cli_auth_credentials_store": "file",
 }
+# Codex CLI 0.159.3 declares the hosted `web_search` tool by default for some
+# models, which the proxy refuses (`screen`); a dataset that asks for it is
+# refused.
+CODEX_OFFLINE: dict[str, Any] = {"web_search": "disabled"}
 
 
 async def _check_version(
@@ -162,8 +166,9 @@ class Codex(HarborCodex):
 
   @override
   def _load_base_config(self) -> dict[str, Any]:
-    # The dataset's configuration, with redcoast-client's settings over it.
-    return _merged(super()._load_base_config(), CODEX_CONFIG)
+    # The dataset's configuration, with redcoast-client's settings over it;
+    # without the dataset's own `web_search`, none.
+    return _merged(CODEX_OFFLINE | super()._load_base_config(), CODEX_CONFIG)
 
   @override
   async def install(self, environment: BaseEnvironment) -> None:

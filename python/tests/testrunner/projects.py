@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from dataforge.testrunner.runners import Context
+from dataforge.testrunner.adapter import Context
 
 GIT_ENV = {
   **os.environ,
@@ -44,7 +44,7 @@ def context(
   tmp_path: Path, where: str = ".", base: str | None = None
 ) -> Context:
   app = (tmp_path / "app").resolve()
-  app.mkdir(exist_ok=True)
+  app.mkdir(parents=True, exist_ok=True)
   work = tmp_path / "work"
   work.mkdir(exist_ok=True)
   return Context(app, app / where, work, base)
