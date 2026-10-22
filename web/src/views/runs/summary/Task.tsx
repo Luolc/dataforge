@@ -54,7 +54,7 @@ export function TaskCard({
     source?.deliverable == null
       ? undefined
       : record.deliverables?.find((d) => d.name === source.deliverable);
-  const unmade = entry !== undefined && entry.path === null;
+  const unmade = entry?.path === null;
   const url = source === null || unmade ? null : urls.task(project.id, attempt);
   // Read again when the record names another directory for it.
   const loaded = useLoaded(
@@ -80,7 +80,7 @@ export function TaskCard({
   return (
     <Card title="Task" aside={aside}>
       {unmade ? (
-        <NotThere why={entry?.reason ?? ""} />
+        <NotThere why={entry.reason ?? ""} />
       ) : loaded.state === "loading" ? (
         <p className="text-fg-3">Loading…</p>
       ) : loaded.state === "error" ? (
