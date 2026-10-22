@@ -66,7 +66,12 @@ class _UnwrittenError(Exception):
 
 
 def run_attempt(
-  store: Store, item: str, hooks: Hooks, *, go_on: GoOn = "when_it_can"
+  store: Store,
+  item: str,
+  hooks: Hooks,
+  *,
+  go_on: GoOn = "when_it_can",
+  extra: Mapping[str, object] | None = None,
 ) -> AttemptRow:
   """Run one attempt of an item, going on with an interrupted one or not.
 
@@ -80,7 +85,8 @@ def run_attempt(
   not resumable. Every other interrupted row of the item, and the one it
   could not go on with when it starts a new one, is ended with
   hooks.given_up, settled and cleaned up. After the cleanup it reconciles the
-  whole store.
+  whole store. A new attempt's row is inserted with extra; one it goes on
+  with keeps the extra it has.
 
   The end is written in one transaction, retried after each wait of
   END_RETRIES_S; when it still fails, the process exits EXIT_UNWRITTEN with
@@ -92,6 +98,7 @@ def run_attempt(
     item: The data item.
     hooks: The dataset's hooks.
     go_on: Whether it goes on with an interrupted attempt.
+    extra: The dataset's own fields of a new attempt's row; None for none.
 
   Returns:
     The attempt's row, ended.
@@ -105,7 +112,7 @@ def run_attempt(
   """  # noqa: DOC502
   _ = reconcile(store, hooks, recheck=[item])
   with _sigterm_raises():
-    ended = _Runner(store, hooks).run(item, go_on)
+    ended = _Runner(store, hooks, extra).run(item, go_on)
   # The attempt has ended and is written; a store that cannot be reconciled
   # now is reconciled by the next attempt or the command.
   try:
@@ -116,9 +123,12 @@ def run_attempt(
 
 
 class _Runner:
-  def __init__(self, store: Store, hooks: Hooks) -> None:
+  def __init__(
+    self, store: Store, hooks: Hooks, extra: Mapping[str, object] | None
+  ) -> None:
     self.store: Store = store
     self.hooks: Hooks = hooks
+    self.extra: Mapping[str, object] | None = extra
     self.me: Leader = this_process()
     self.job: QueueJob | None = job_from_env()
     # The row this process holds, as it last wrote it, once it holds one.
@@ -193,7 +203,9 @@ class _Runner:
   def _insert(self, item: str) -> None:
     attempt_id = _new_id(self.store, item)
     root = self.hooks.root(attempt_id)
-    if not self.store.insert(attempt_id, item, root, self.me, self.job):
+    if not self.store.insert(
+      attempt_id, item, root, self.me, self.job, self.extra
+    ):
       raise StartError(f"{item}: another attempt of it runs")
     self.row = self.store.get(attempt_id)
 

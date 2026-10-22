@@ -78,6 +78,15 @@ def test_insert_makes_a_running_row_held_by_its_process(
   assert _states(store) == [(None, "running", "runner")]
 
 
+def test_insert_writes_the_extra_given_with_the_row(
+  store: Store, me: Leader
+) -> None:
+  extra = {"stage": "x", "fields": {"n": 1}}
+  assert store.insert(f"{ITEM}/a", ITEM, Path("/r/a"), me, None, extra)
+  [row] = store.rows()
+  assert row.extra == extra
+
+
 def test_a_step_writes_the_record_of_a_running_row(
   store: Store, me: Leader
 ) -> None:

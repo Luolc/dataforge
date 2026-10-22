@@ -58,7 +58,6 @@ from dataforge.curation.graph import (
   Graph,
   GraphEdge,
   GraphState,
-  least_cap_usd,
   mermaid,
 )
 from dataforge.curation.harbor import HarborRunner, TrialSetup
@@ -135,7 +134,6 @@ __all__ = [
   "Version",
   "Visit",
   "fan_out",
-  "least_cap_usd",
   "load",
   "measure",
   "mermaid",
