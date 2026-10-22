@@ -297,11 +297,15 @@ def test_add_of_a_taken_id_changes_nothing(store: Store, me: Leader) -> None:
   [
     ("ended", {"state": "running"}),
     ("ended", {"outcome": None}),
+    ("ended", {"ended_at": None}),
     ("interrupted", {"stopped_by": None}),
     ("interrupted", {"stopped_by": "nobody"}),
+    ("interrupted", {"outcome": "passed"}),
+    ("interrupted", {"ended_at": "2025-01-01T03:00:00+00:00"}),
+    ("interrupted", {"settled_at": "2025-01-01T03:00:01+00:00"}),
   ],
 )
-def test_add_refuses_a_row_no_write_could_have_left(
+def test_add_refuses_a_running_row_or_one_its_fields_contradict(
   store: Store, me: Leader, state: str, change: dict[str, str | None]
 ) -> None:
   row = replace(_kept(state, me), **change)

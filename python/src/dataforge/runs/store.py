@@ -498,16 +498,25 @@ class Store:
       Whether it was added: False when the ID is taken.
 
     Raises:
-      ValueError: When the row is running, ended with no outcome, or
-        interrupted with no stopped_by of STOPPED_BY.
+      ValueError: When the row is running; ended with no outcome or no
+        ended_at; or interrupted with no stopped_by of STOPPED_BY, or with
+        an outcome, an ended_at or a settled_at.
       NewerSchemaError: When the store's schema_major is newer.
     """  # noqa: DOC503
     if row.state not in ("ended", "interrupted"):
       raise ValueError(f"{row.id}: only an ended or interrupted row is added")
     if row.state == "ended" and row.outcome is None:
       raise ValueError(f"{row.id}: an ended row needs an outcome")
+    if row.state == "ended" and row.ended_at is None:
+      raise ValueError(f"{row.id}: an ended row needs an ended_at")
     if row.state == "interrupted" and row.stopped_by not in STOPPED_BY:
       raise ValueError(f"{row.id}: an interrupted row needs a stopped_by")
+    if row.state == "interrupted" and row.outcome is not None:
+      raise ValueError(f"{row.id}: an interrupted row has no outcome")
+    if row.state == "interrupted" and row.ended_at is not None:
+      raise ValueError(f"{row.id}: an interrupted row has no ended_at")
+    if row.state == "interrupted" and row.settled_at is not None:
+      raise ValueError(f"{row.id}: an interrupted row has no settled_at")
     with self._write() as conn:
       try:
         _ = conn.execute(
