@@ -10,13 +10,13 @@ import {
 } from "./status";
 
 describe("status words", () => {
-  it("the engine's raised and interrupted read as Exception and Interrupted, any other unmapped word as itself", () => {
+  it("the engine's raised and interrupted read as Exception and Run interrupted, any other unmapped word as itself", () => {
     expect(statusOf(sampleProject, "raised")).toEqual({
       label: "Exception",
       tone: "bad",
     });
     expect(statusOf(sampleProject, "interrupted")).toEqual({
-      label: "Interrupted",
+      label: "Run interrupted",
       tone: "warn",
     });
     expect(statusOf(sampleProject, "skipped")).toEqual({

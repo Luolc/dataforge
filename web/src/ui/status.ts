@@ -35,7 +35,7 @@ const INTERRUPTED = "interrupted";
  */
 const ENGINE_WORDS: Partial<Record<string, { label: string; tone: Tone }>> = {
   [RAISED]: { label: "Exception", tone: "bad" },
-  [INTERRUPTED]: { label: "Interrupted", tone: "warn" },
+  [INTERRUPTED]: { label: "Run interrupted", tone: "warn" },
 };
 
 /** Whether a visit's outcome is one the engine ends an attempt with. */
@@ -45,7 +45,7 @@ export const isEnding = (outcome: string | null | undefined): boolean =>
 /**
  * A word's label and tone. A word the project file has no entry for is
  * itself, neutral; but the engine's own words, raised and interrupted, read
- * as Exception, bad, and Interrupted, warn; and no status (null) is Not
+ * as Exception, bad, and Run interrupted, warn; and no status (null) is Not
  * ended, neutral.
  */
 export function statusOf(

@@ -416,7 +416,7 @@ describe("a run's files, logs and words", () => {
     expect(within(step(/^Output/)).getByText("retry")).toBeVisible();
   });
 
-  it("shows an interrupted run as Interrupted", () => {
+  it("shows an interrupted run as Run interrupted", () => {
     const rec = structuredClone(records.raised);
     const last = must(rec.visits.at(-1));
     last.outcome = "interrupted";
@@ -424,7 +424,7 @@ describe("a run's files, logs and words", () => {
 
     expect(
       within(screen.getByRole("heading", { level: 2 })).getByText(
-        "Interrupted",
+        "Run interrupted",
       ),
     ).toBeVisible();
   });
