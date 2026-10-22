@@ -218,7 +218,17 @@ class _Runner:
       why += f": {row.resume_problem}"
     if self.store.abandon(row.id, self.hooks.given_up, why):
       ended = self.store.get(row.id)
-      if ended is not None and settle(self.store, self.hooks, ended):
+      if ended is None:
+        return
+      try:
+        clean = settle(self.store, self.hooks, ended)
+      # The new attempt goes on; reconcile calls the dataset's on_ended again.
+      except Exception:  # noqa: BLE001
+        _log.exception(
+          "%s: on_ended failed; reconcile calls it again", ended.id
+        )
+        clean = True
+      if clean:
         _ = clean_up(self.store, self.hooks, ended, by="runner")
 
   def _machine(

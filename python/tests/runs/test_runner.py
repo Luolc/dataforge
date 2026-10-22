@@ -287,6 +287,51 @@ def test_never_gives_up_each_interrupted_row_and_starts_anew(
   )
 
 
+def test_an_on_ended_that_raises_for_a_given_up_row_leaves_the_new_attempt_be(
+  store: Store, hooks: FakeHooks, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  stopped = _stopped(store, hooks)
+  hooks.fail_in = "on_ended"
+  # The reconcile after the end would settle the row at once.
+  calls = 0
+
+  def reconcile_once(
+    store: Store, hooks: FakeHooks, recheck: Sequence[str] | None = None
+  ) -> list[str]:
+    nonlocal calls
+    calls += 1
+    return reconcile(store, hooks, recheck) if calls == 1 else []
+
+  monkeypatch.setattr(runner, "reconcile", reconcile_once)
+  ended = run_attempt(store, ITEM, hooks, go_on="never")
+  assert (ended.state, ended.outcome) == ("ended", "passed")
+  old = store.get(stopped.id)
+  assert old is not None
+  assert (old.state, old.outcome, old.settled_at) == (
+    "ended",
+    hooks.given_up,
+    None,
+  )
+  assert f"cleanup {stopped.id}" in hooks.hook_calls("cleanup")
+  _ = reconcile(store, hooks)
+  old = store.get(stopped.id)
+  assert old is not None
+  assert old.settled_at is not None
+  assert hooks.hook_calls("on_ended").count(f"on_ended {stopped.id}") == 2
+
+
+def test_an_exit_in_on_ended_for_a_given_up_row_is_not_swallowed(
+  store: Store, hooks: FakeHooks
+) -> None:
+  stopped = _stopped(store, hooks)
+  hooks.stop_in = "on_ended"
+  with pytest.raises(SystemExit):
+    _ = run_attempt(store, ITEM, hooks, go_on="never")
+  old = store.get(stopped.id)
+  assert old is not None
+  assert (old.state, old.settled_at) == ("ended", None)
+
+
 def test_an_attempt_does_not_start_while_its_item_runs(
   store: Store, hooks: FakeHooks, me: Leader
 ) -> None:
