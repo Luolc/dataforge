@@ -1,4 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render as plain, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { records, sampleProject } from "../../fixtures/sample";
@@ -7,6 +9,9 @@ import type { Deliverable } from "../api/types";
 import { fakeFiles } from "./files/fake-api";
 import type { DeliverableProps } from "./kind";
 import { KindCount, KindTab } from "./registry";
+
+// The views read the page's query.
+const render = (ui: ReactElement) => plain(ui, { wrapper: MemoryRouter });
 
 afterEach(() => {
   vi.unstubAllGlobals();

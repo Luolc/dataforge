@@ -46,12 +46,15 @@ export const project = z.looseObject({
   not_ended: z.array(z.string()).nullable().optional(),
   // Each deliverable a dataset's declaration names; the one marked default
   // names its kind's tab while the attempt has reached none of the kind.
+  // no_trace: for a deliverable of trials, why a trial of it with no trace
+  // has none, in the project's words.
   deliverables: z
     .array(
       z.looseObject({
         name: z.string(),
         kind: z.string(),
         title: z.string(),
+        no_trace: z.string().nullable().optional(),
         default: z.boolean().optional(),
       }),
     )
@@ -363,7 +366,8 @@ const source = {
 };
 
 // A trial that has started and not been recorded yet has no id, trace or
-// result (design.md section 5, "The record").
+// result (design.md section 5, "The record"). source is the path of the
+// trial whose output it judged again; a record written before it has none.
 const trial = z.looseObject({
   id: z.string().nullable(),
   output: z.string(),
@@ -371,6 +375,7 @@ const trial = z.looseObject({
   trace: z
     .looseObject({ path: z.string(), format: z.string().nullable() })
     .nullable(),
+  source: z.string().nullable().optional(),
   result: z
     .looseObject({
       reward: z.number().nullable(),

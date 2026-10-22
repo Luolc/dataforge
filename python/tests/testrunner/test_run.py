@@ -109,7 +109,7 @@ def test_run_runs_each_suite_with_the_bases_configuration(tmp_path: Path):
   _ = toml.write_text(
     toml.read_text().replace("--strict-markers", "-k 'not two'")
   )
-  found = run(load(MANIFEST), tests=tests, app=app, base=base)
+  found = run(load(MANIFEST), tests=tests, app=app, base=base).tests
   missing = f"{ctrf.MISSING} (the runner exited 0)"
   assert outcomes(found) == [
     (["p2p"], "tests/test_parse.py::test_two", "passed", None, None),
@@ -166,7 +166,7 @@ def test_a_runner_that_is_not_there_errs_each_test(tmp_path: Path):
   path = os.environ["PATH"]
   try:
     os.environ["PATH"] = str(tmp_path / "nothing")
-    found = run(manifest, tests=tests, app=app)
+    found = run(manifest, tests=tests, app=app).tests
   finally:
     os.environ["PATH"] = path
   assert outcomes(found)[0][:4] == (["p2p"], "a.B#c", "failed", "error")
@@ -182,7 +182,7 @@ def test_a_dir_outside_the_project_errs_its_tests(tmp_path: Path):
   manifest = load(
     '[[test]]\nsuite = "p2p"\nrunner = "pytest"\nid = "sub/t.py"\ndir = "sub"\n'
   )
-  found = run(manifest, tests=tests, app=app)
+  found = run(manifest, tests=tests, app=app).tests
   assert "its dir is not a directory of the project" in str(found[0]["message"])
 
 

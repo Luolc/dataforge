@@ -175,6 +175,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
     + "deliverables:\n"
     + "  - {name: task, kind: files, title: Task}\n"
     + "  - {name: review, kind: report, title: Review}\n"
+    + "  - {name: regrade, kind: trials, title: Regrade, no_trace: No agent.}\n"
   )
 
   [project] = cast(
@@ -182,9 +183,32 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
   )
 
   assert project["deliverables"] == [
-    {"name": "task", "kind": "files", "title": "Task", "default": False},
-    {"name": "review", "kind": "report", "title": "Review", "default": False},
+    {
+      "name": "task",
+      "kind": "files",
+      "title": "Task",
+      "no_trace": None,
+      "default": False,
+    },
+    {
+      "name": "review",
+      "kind": "report",
+      "title": "Review",
+      "no_trace": None,
+      "default": False,
+    },
+    {
+      "name": "regrade",
+      "kind": "trials",
+      "title": "Regrade",
+      "no_trace": "No agent.",
+      "default": False,
+    },
   ]
+
+
+def project_deliverables(project: dict[str, object]) -> list[dict[str, object]]:
+  return cast(list[dict[str, object]], project["deliverables"])
 
 
 def test_projects_carry_a_kind_s_title_and_its_default(
@@ -203,10 +227,10 @@ def test_projects_carry_a_kind_s_title_and_its_default(
     list[dict[str, object]], client(tree, static).get("/api/projects").json()
   )
 
-  assert project["deliverables"] == [
-    {"name": "regrade", "kind": "trials", "title": "Regrade", "default": False},
-    {"name": "pass_at_k", "kind": "trials", "title": "Pass@k", "default": True},
-    {"name": "review", "kind": "report", "title": "Review", "default": False},
+  assert [(d["name"], d["default"]) for d in project_deliverables(project)] == [
+    ("regrade", False),
+    ("pass_at_k", True),
+    ("review", False),
   ]
   assert project["kinds"] == {"report": {"title": "Reviews"}}
 

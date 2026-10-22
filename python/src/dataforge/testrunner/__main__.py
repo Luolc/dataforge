@@ -20,7 +20,7 @@ import sys
 import time
 from typing import cast
 
-from . import ctrf
+from . import ctrf, parse
 from .manifest import read
 from .run import run
 
@@ -31,19 +31,23 @@ def main(argv: list[str] | None = None) -> None:
   Args:
     argv: The arguments; None takes the command line's.
   """
+  given = sys.argv[1:] if argv is None else argv
+  if given[:1] == ["parse"]:
+    sys.exit(parse.main(given[1:]))
   parser = argparse.ArgumentParser(prog="testrunner")
   _ = parser.add_argument("--tests", type=Path, default=Path("/tests"))
   _ = parser.add_argument("--app", type=Path, default=Path("/app"))
   _ = parser.add_argument("--out", type=Path, default=Path("/logs/verifier"))
   _ = parser.add_argument("--base", help="the project's base commit")
-  args = parser.parse_args(argv)
+  args = parser.parse_args(given)
   tests_dir, app = cast(Path, args.tests), cast(Path, args.app)
   manifest = read(tests_dir)
   start = int(time.time() * 1000)
   found = run(
     manifest, tests=tests_dir, app=app, base=cast(str | None, args.base)
   )
-  report = ctrf.report(found, start, int(time.time() * 1000))
+  stop = int(time.time() * 1000)
+  report = ctrf.report(found.tests, start, stop, unlisted=found.unlisted)
   out_dir = cast(Path, args.out)
   out_dir.mkdir(parents=True, exist_ok=True)
   out = out_dir / ctrf.FILE

@@ -231,6 +231,22 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
       r"kinds\.k\.label: unknown key",
     ),
     (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: files, title: T, "
+        + "no_trace: Why}]",
+      ),
+      r"deliverables\[0\]\.no_trace: for kind trials only",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: trials, title: T, "
+        + "no_trace: [Why]}]",
+      ),
+      r"deliverables\[0\]\.no_trace: not a non-empty string",
+    ),
+    (
       ("name: Example", "name: Example\ntrials: {diff: ../x.diff}"),
       r"trials\.diff: '\.\./x\.diff' is not",
     ),
