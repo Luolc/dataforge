@@ -195,6 +195,19 @@
   --color-pulse-not-taken: #5f6b59;
 }
 
+/* The file tree's width beside a file's preview, as a reader sets it
+   (ui/split.tsx): where it starts, its least, its most, unless half the
+   files view is less, so that the preview keeps at least as much, and how
+   far a key moves it, one level of the tree's indent. Only script reads
+   them: `static` keeps them in the page's CSS, which leaves out a token
+   that no utility names. */
+@theme static {
+  --spacing-tree: 256px;
+  --spacing-tree-min: 192px;
+  --spacing-tree-max: 640px;
+  --spacing-tree-step: 16px;
+}
+
 /* The other templates: every colour token again, so that none falls back
    to the value of contrast, which the root draws without a template. */
 html[data-template="ac"] {
