@@ -110,7 +110,9 @@ def test_the_parse_command_writes_ctrf_on_python_3_12(tmp_path: Path):
   python = shutil.which("python3.12")
   assert python is not None, "the tests need python3.12 on the PATH"
   tests = tmp_path / "tests"
-  write(tests, {name: data.decode() for name, data in files().items()})
+  write(
+    tests, {name: data.decode() for name, data in files((), ("junit",)).items()}
+  )
   write(tmp_path, {"r.xml": JUNIT})
   out = tmp_path / "out.json"
   _ = subprocess.run(

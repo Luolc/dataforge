@@ -21,7 +21,7 @@ import subprocess
 from . import globs as glob
 from .globs import matches
 from .manifest import Manifest
-from .runners import restore_paths, RUNNER_FILES
+from .runners import restore_paths, runner_files
 
 __all__ = ["globs", "matches", "remove", "restore"]
 
@@ -46,13 +46,13 @@ def globs(manifest: Manifest, base_files: Collection[str]) -> list[str]:
 
   Returns:
     Its [restore] paths, then for each runner its tests name, the files of
-    RUNNER_FILES anywhere in the project, then the files restore_paths
+    runner_files anywhere in the project, then the files restore_paths
     gives for its tests, each once.
   """
   found = list(manifest.restore)
   runners = dict.fromkeys(t.runner for t in manifest.tests if t.runner)
   for runner in runners:
-    found += [f"{glob.ANY}/{p}" for p in RUNNER_FILES[runner]]
+    found += [f"{glob.ANY}/{p}" for p in runner_files(runner)]
   for test in manifest.tests:
     if test.runner:
       found += [glob.escape(p) for p in restore_paths(test, base_files)]

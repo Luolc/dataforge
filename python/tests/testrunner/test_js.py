@@ -6,10 +6,11 @@ from typing import cast
 
 import pytest
 
-from dataforge.testrunner.adapter import Call, Context, find_bin, PREFIX
+from dataforge.testrunner.adapter import Call, Context, PREFIX
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.js import (
   covers,
+  find_bin,
   Jasmine,
   JASMINE_REPORT_ENV,
   JASMINE_REPORTER,

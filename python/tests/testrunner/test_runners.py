@@ -1,6 +1,8 @@
+import importlib
 import os
 from pathlib import Path
 import re
+from typing import cast
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -9,16 +11,18 @@ from dataforge.testrunner.adapter import Call, PREFIX
 from dataforge.testrunner.ctrf import Case
 from dataforge.testrunner.manifest import RUNNERS
 from dataforge.testrunner.manifest import Test as Listed
+from dataforge.testrunner.maven import Maven
+from dataforge.testrunner.phpunit import PHPUnit
+from dataforge.testrunner.python import Pytest
+from dataforge.testrunner.registry import MODULES
 from dataforge.testrunner.run import run_group
 from dataforge.testrunner.runners import (
-  ADAPTERS,
   dependency_overrides,
+  id_file,
+  is_build_config,
   loaded_by_runner,
-  Maven,
-  PHPUnit,
-  Pytest,
   restore_paths,
-  RUNNER_FILES,
+  spec,
 )
 from tests.testrunner.projects import commit, context, write
 
@@ -71,8 +75,18 @@ def only(calls: list[Call]) -> list[str]:
   return calls[0].argv
 
 
-def test_every_runner_has_an_adapter_and_its_files():
-  assert set(RUNNERS) == set(ADAPTERS) == set(RUNNER_FILES)
+def test_each_module_gives_the_specs_of_the_runners_it_is_named_for():
+  assert tuple(MODULES) == RUNNERS
+  for module in set(MODULES.values()):
+    named = {r for r, m in MODULES.items() if m == module}
+    specs = cast(
+      "dict[str, object]",
+      importlib.import_module(f"dataforge.testrunner.{module}").SPECS,
+    )
+    assert set(specs) == named
+  assert {r: spec(r).adapter.__module__ for r in RUNNERS} == {
+    r: f"dataforge.testrunner.{m}" for r, m in MODULES.items()
+  }
 
 
 def test_pytest_reads_node_ids_from_its_report(tmp_path: Path):
@@ -517,6 +531,50 @@ def test_phpunit_without_a_configuration_runs_the_listed_classes_files(
 )
 def test_loaded_by_runner(runner: str, path: str, loaded: bool):
   assert loaded_by_runner(runner, path) is loaded
+
+
+@pytest.mark.parametrize(
+  ("runner", "path", "kept"),
+  [
+    ("maven", "pom.xml", True),
+    ("maven", "core/pom.xml", True),
+    ("maven", ".mvn/maven.config", False),
+    ("ctest", "CMakeLists.txt", True),
+    ("ctest", "cmake/deps.cmake", True),
+    ("gtest", "CMakePresets.json", True),
+    ("gtest", "CMakeUserPresets.json", True),
+    ("gtest", "CMakeCache.txt", False),
+    ("pytest", "pyproject.toml", False),
+    ("cargo", "Cargo.toml", False),
+  ],
+)
+def test_is_build_config(runner: str, path: str, kept: bool):
+  assert is_build_config(runner, path) is kept
+
+
+@pytest.mark.parametrize(
+  ("runner", "id_", "file"),
+  [
+    ("pytest", "tests/t.py::TestA::test_b[x::y]", "tests/t.py"),
+    ("cargo", "tests/a.rs::m::x", "tests/a.rs"),
+    ("jest", "src/a.test.js > a > b", "src/a.test.js"),
+    ("vitest", "a.test.ts > b", "a.test.ts"),
+    ("jasmine", "spec/a_spec.js > a", "spec/a_spec.js"),
+    ("node", "test/a.js > b", "test/a.js"),
+    ("go", "example.com/m/p::TestA", None),
+    ("ctest", "parser", None),
+    ("gtest", "build/t::S.T", None),
+    ("maven", "a.B#c", None),
+    ("phpunit", "A\\B::c", None),
+  ],
+)
+def test_id_file(runner: str, id_: str, file: str | None):
+  assert id_file(runner, id_) == file
+
+
+def test_an_unknown_runner_is_a_value_error():
+  with pytest.raises(ValueError, match="unknown runner: rspec"):
+    _ = id_file("rspec", "a")
 
 
 BASE_FILES = {
