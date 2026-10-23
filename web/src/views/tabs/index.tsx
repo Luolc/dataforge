@@ -89,7 +89,9 @@ export function TabView({
     v.title?.read === "found" && v.title.value !== null;
   const titleOf = (v: TabVersion) =>
     titled(v)
-      ? readValue("found", v.title?.value, tab.version_title?.format ?? "text")
+      ? readValue("found", v.title?.value, {
+          format: tab.version_title?.format ?? "text",
+        })
       : v.dir;
   const choices = versions.map((v) => ({ key: v.dir, title: titleOf(v) }));
   const view = (
@@ -233,7 +235,7 @@ function Fields({ part, version }: { part: TabPart; version: TabVersion }) {
               <dt className="text-fg-3">{field.title}</dt>
               <dd className="wrap-anywhere">
                 {found?.read === "found" ? (
-                  readValue(found.read, found.value, field.format)
+                  readValue(found.read, found.value, field)
                 ) : (
                   <span className="text-fg-3">
                     {found?.read === "not run"
