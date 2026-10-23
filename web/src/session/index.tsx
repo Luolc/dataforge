@@ -32,6 +32,7 @@ export function SessionView({
   badge,
   startOpen,
   totals,
+  above,
 }: {
   /** The project's ID and how its sessions show thinking. */
   project: Pick<Project, "id" | "session">;
@@ -45,6 +46,8 @@ export function SessionView({
   startOpen?: boolean;
   /** Which totals the header shows, as in SessionBody. */
   totals?: SessionTotals;
+  /** What goes above whatever the view shows, given why the trace could not be read, or null. */
+  above?: (failure: string | null) => ReactNode;
 }) {
   const source = useFileSource();
   const loaded = useLoaded(
@@ -56,44 +59,57 @@ export function SessionView({
     () => (text !== null && format === STREAM_JSON ? parseTrace(text) : null),
     [text, format],
   );
+  const lead = above?.(loaded.state === "error" ? loaded.message : null);
   if (loaded.state === "loading")
     return (
-      <p className="p-5 text-fg-3">
-        Loading the trace <code className="font-mono text-xs">{path}</code>…
-      </p>
+      <>
+        {lead}
+        <p className="p-5 text-fg-3">
+          Loading the trace <code className="font-mono text-xs">{path}</code>…
+        </p>
+      </>
     );
   if (loaded.state === "error") {
     return (
-      <p className="rounded-panel border border-line p-5 text-fg-2">
-        The trace <code className="font-mono text-xs">{path}</code> could not be
-        read: {loaded.message}
-      </p>
+      <>
+        {lead}
+        <p className="rounded-panel border border-line p-5 text-fg-2">
+          The trace <code className="font-mono text-xs">{path}</code> could not
+          be read: {loaded.message}
+        </p>
+      </>
     );
   }
   if (session !== null) {
     return (
-      <SessionBody
-        session={session}
-        thinking={project.session.thinking}
-        badge={badge}
-        {...(startOpen === undefined ? {} : { startOpen })}
-        {...(totals === undefined ? {} : { totals })}
-      />
+      <>
+        {lead}
+        <SessionBody
+          session={session}
+          thinking={project.session.thinking}
+          badge={badge}
+          {...(startOpen === undefined ? {} : { startOpen })}
+          {...(totals === undefined ? {} : { totals })}
+        />
+      </>
     );
   }
   return (
-    <section className="rounded-panel border border-line bg-panel">
-      <header className="flex flex-wrap items-center gap-x-4 border-b border-line px-5 py-3 text-xs text-fg-2">
-        {badge}
-        <span>
-          <span className="text-fg-3">format </span>
-          <span className="font-mono">{format ?? "not given"}</span>, shown as
-          text
-        </span>
-      </header>
-      <pre className="overflow-x-auto px-5 py-3 font-mono text-code whitespace-pre-wrap">
-        {loaded.data}
-      </pre>
-    </section>
+    <>
+      {lead}
+      <section className="rounded-panel border border-line bg-panel">
+        <header className="flex flex-wrap items-center gap-x-4 border-b border-line px-5 py-3 text-xs text-fg-2">
+          {badge}
+          <span>
+            <span className="text-fg-3">format </span>
+            <span className="font-mono">{format ?? "not given"}</span>, shown as
+            text
+          </span>
+        </header>
+        <pre className="overflow-x-auto px-5 py-3 font-mono text-code whitespace-pre-wrap">
+          {loaded.data}
+        </pre>
+      </section>
+    </>
   );
 }

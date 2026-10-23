@@ -487,45 +487,45 @@ function NoTrace({
   noTrace: string | null;
 }) {
   const sourceTrace = source?.listed?.trial.trace ?? null;
+  const shown = source?.listed != null && sourceTrace !== null;
+  const words = (failure: string | null) => (
+    <div className={`flex flex-col gap-2 p-6 text-fg-3 ${shown ? "pb-0" : ""}`}>
+      <p>
+        {source === undefined
+          ? "This trial recorded no trace."
+          : "This trial recorded no trace of its own."}
+      </p>
+      {noTrace !== null && <p>{noTrace}</p>}
+      {source !== undefined && (
+        <p>
+          It judged again the output of{" "}
+          <SourceName project={project.id} attempt={attempt} source={source} />
+          {source.listed === null
+            ? ", so its trace is not known."
+            : sourceTrace === null
+              ? ", which recorded no trace either."
+              : failure === null
+                ? ", whose trace is shown below."
+                : `, whose trace could not be read: ${failure}`}
+        </p>
+      )}
+    </div>
+  );
+  if (source?.listed == null || sourceTrace === null) return words(null);
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2 p-6 pb-0 text-fg-3">
-        <p>
-          {source === undefined
-            ? "This trial recorded no trace."
-            : "This trial recorded no trace of its own."}
-        </p>
-        {noTrace !== null && <p>{noTrace}</p>}
-        {source !== undefined && (
-          <p>
-            It judged again the output of{" "}
-            <SourceName
-              project={project.id}
-              attempt={attempt}
-              source={source}
-            />
-            {source.listed === null
-              ? ", so its trace is not known."
-              : sourceTrace === null
-                ? ", which recorded no trace either."
-                : ", whose trace is shown below."}
-          </p>
-        )}
-      </div>
-      {source?.listed != null && sourceTrace !== null && (
-        <SessionView
-          project={project}
-          attempt={attempt}
-          path={sourceTrace.path}
-          format={sourceTrace.format}
-          badge={
-            <span className="text-sm font-medium text-fg">
-              {source.listed.deliverable.title} ·{" "}
-              {trialName(source.listed.index)}
-            </span>
-          }
-        />
-      )}
+      <SessionView
+        project={project}
+        attempt={attempt}
+        path={sourceTrace.path}
+        format={sourceTrace.format}
+        above={words}
+        badge={
+          <span className="text-sm font-medium text-fg">
+            {source.listed.deliverable.title} · {trialName(source.listed.index)}
+          </span>
+        }
+      />
     </div>
   );
 }

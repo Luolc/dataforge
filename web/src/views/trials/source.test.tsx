@@ -146,9 +146,14 @@ describe("a trial that judged another trial's output again", () => {
     show("&tab=trials&deliverable=regrade&trial=regrade-2");
 
     const trace = await screen.findByRole("tabpanel", { name: "Trace" });
-    expect(
-      await within(trace).findByText(/could not be read/),
-    ).toHaveTextContent("artifacts/solve/1/trial-2/trace.jsonl");
+    expect(await within(trace).findByText(/^The trace/)).toHaveTextContent(
+      "artifacts/solve/1/trial-2/trace.jsonl",
+    );
+    // The words above do not say the trace is shown when it is not.
+    expect(trace).not.toHaveTextContent("shown below");
+    expect(trace).toHaveTextContent(
+      "whose trace could not be read: 404: artifacts/solve/1/trial-2/trace.jsonl does not exist",
+    );
     expect(
       within(trace).getByRole("link", { name: "Pass@k · Trial 2" }),
     ).toBeVisible();
