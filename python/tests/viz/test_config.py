@@ -349,7 +349,31 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
         "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
         + "default: 1}]",
       ),
-      r"deliverables\[0\]\.default: not true or false",
+      r"deliverables\[0\]\.default: not true, false or a condition",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "default: {field: [settings]}}]",
+      ),
+      r"deliverables\[0\]\.default\.equals: missing",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "default: {field: [], equals: 1}}]",
+      ),
+      r"deliverables\[0\]\.default\.field: not a non-empty list",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "default: {field: [at], equals: 2026-10-22}}]",
+      ),
+      r"deliverables\[0\]\.default\.equals: not JSON data",
     ),
     (
       (
