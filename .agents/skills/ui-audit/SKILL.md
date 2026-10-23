@@ -9,9 +9,9 @@ How to walk the viz of a project that uses dataforge, record what is wrong, fix 
 
 ## 1. Pick what to walk
 
-- List the attempts of the project by outcome (each terminal status the project's viz shows). Pick at least one attempt per outcome; prefer one that has several deliverables, one that has none, and the one with the most items (L47).
+- List the attempts of the project by outcome (each terminal status the project's viz shows). Pick at least one attempt per outcome; prefer one that has several deliverables, one that has none, and the one with the most items.
 - For each attempt, open every tab, and inside each tab every sub-panel and every folded group. Write the walk down as a list of (attempt, tab, panel) so that a skipped panel is visible.
-- Use the viz of a test server or the project's running one, read-only. Start no server on a shared port, and touch no queue, no viz service and no data of the project (R335, R336).
+- Only the data is read-only: read the project's data and change none of it, and touch no queue. Do not start, stop or change the project's running viz service; to look at the viz, start a test server of your own on a free port, never a shared one, and stop it by its recorded PID (section 4) (R335, R336).
 
 ## 2. Look for five kinds of problem
 
@@ -54,7 +54,7 @@ Headless Chrome through the DevTools protocol, so the shot is of the page after 
 
 ## 5. Fix and review
 
-- A component fix goes in a dataforge pull request, a data fix in the project's repository, each with its own pull request; a change to this repository follows its rules for design, tests and frontend (R241–R248, R89, L5).
+- A component fix goes in a dataforge pull request, a data fix in the project's repository, each with its own pull request; a change to this repository follows its rules for design, tests and frontend (R241, R243–R248, R89, L5).
 - Attach the before and after screenshots to the pull request (R244, L47). Where the PR is on a public repository, run the pre-push review on the diff, the commit messages and the PR text, with the screenshots' content included (R52), push exactly the head that passed, and only then post screenshots in comments.
 - Another agent reviews the pull request; the implementer never merges it (R62).
 - A fix counts only if the screenshot shows it. When the change cannot be seen (a value in an attribute, a link target), read the DOM and quote the node you read; do not claim `fixed` from the diff.
