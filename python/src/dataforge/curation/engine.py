@@ -364,6 +364,11 @@ class Visit:
     round: How many times the attempt's first state had been entered when
       this visit began, this visit included.
     last: Whether the outcome had last=True.
+    started_at: When it was entered; None in a record from before visits
+      kept it.
+    ended_at: When its outcome was recorded, whether its run returned,
+      raised or was interrupted; None while it runs, and in a record from
+      before visits kept it.
     running: The outputs of its trials that have started and are not recorded
       yet; not part of the record's visit.
   """
@@ -376,6 +381,8 @@ class Visit:
   actions: list[ActionRecord] = field(default_factory=list[ActionRecord])
   round: int = 1
   last: bool = False
+  started_at: datetime | None = None
+  ended_at: datetime | None = None
   running: list[str] = field(default_factory=list[str])
 
   @property
@@ -433,7 +440,8 @@ class Attempt:
     graph: The machine's graph when the attempt began.
     deliverables: The machine's deliverables, one entry each, in their order,
       as the attempt's end resolved them, or while it runs as it would end
-      then. Empty before the first step, and when a state's run raised.
+      then; after a visit whose outcome is one of ENDING, from the visits
+      before it. Empty before the first step.
     resumptions: Each time Machine.resume went on with it, in order.
   """
 
@@ -550,6 +558,8 @@ class Attempt:
       "data": dict(visit.data),
       "mark": visit.mark,
       "last": visit.last,
+      "started_at": _iso(visit.started_at),
+      "ended_at": _iso(visit.ended_at),
       "actions": [self._action_json(action) for action in visit.actions],
     }
 
@@ -888,9 +898,9 @@ class Machine:
     """Resolve this machine's deliverables in an attempt that has ended.
 
     The result is what the attempt's end would have recorded had the machine
-    declared these deliverables then: [] when its last visit raised or was
-    interrupted (ENDING). It reads
-    the record and the outputs the record names, and runs nothing.
+    declared these deliverables then: after a last visit that raised or was
+    interrupted (ENDING), from the visits before it. It reads the record and
+    the outputs the record names, and runs nothing.
 
     Args:
       attempt: The attempt, as Attempt.from_json reads its record back.
@@ -902,15 +912,9 @@ class Machine:
       ValueError: When the attempt's last visit has no outcome, as while it
         runs.
     """
-    if attempt.visits:
-      last = attempt.visits[-1].outcome
-      if last is None:
-        raise ValueError("its last visit has no outcome, so it has not ended")
-      if last in ENDING:
-        return []
-    return [
-      _entry(name, item, attempt) for name, item in self.deliverables.items()
-    ]
+    if attempt.visits and attempt.visits[-1].outcome is None:
+      raise ValueError("its last visit has no outcome, so it has not ended")
+    return self._resolved(attempt)
 
   def run(self, root: Path) -> Attempt:
     """Run one attempt until an End, a cap or the guard ends it.
@@ -1107,9 +1111,8 @@ class Machine:
 
     # A visit's actions call it one at a time (Context); the loop calls it
     # only while none runs.
-    def step(*, resolve: bool = True) -> None:
-      if resolve:
-        self._resolve(attempt)
+    def step() -> None:
+      attempt.deliverables = self._resolved(attempt)
       measure(attempt, self.spent_usd)
       self.on_step(attempt)
 
@@ -1123,6 +1126,7 @@ class Machine:
         step()
         return attempt
       visits[state.name] = visit
+      record.started_at = datetime.now(UTC)
       attempt.visits.append(record)
       try:
         step()
@@ -1137,10 +1141,11 @@ class Machine:
         )
         record.outcome = INTERRUPTED if interrupted else RAISED
         record.data = {"error": f"{type(error).__name__}: {error}"}
-        attempt.deliverables = []
-        step(resolve=False)
+        record.ended_at = datetime.now(UTC)
+        step()
         raise
       record.outcome, record.data = outcome.name, outcome.data
+      record.ended_at = datetime.now(UTC)
       record.last = outcome.last
       if outcome.last:
         closed.add(state.name)
@@ -1150,20 +1155,29 @@ class Machine:
         return attempt
       state, report = next_
 
-  def _resolve(self, attempt: Attempt) -> None:
+  def _resolved(self, attempt: Attempt) -> list[dict[str, object]]:
     # While a visit runs, deliverables are taken from the visits before it,
     # as an attempt that ended now would leave them, but trials, which list
-    # those of the running visit that have started.
-    running = bool(attempt.visits) and attempt.visits[-1].outcome is None
+    # those of the running visit that have started. After a visit that
+    # raised or was interrupted, all are taken from the visits before it:
+    # what the attempt made up to the visit that did not finish.
+    last = attempt.visits[-1].outcome if attempt.visits else ""
+    running = last is None
     whole = (
       dataclasses.replace(attempt, visits=attempt.visits[:-1])
-      if running
+      if running or last in ENDING
       else attempt
     )
-    attempt.deliverables = [
-      _entry(name, item, attempt if item.kind == "trials" else whole)
+    entries = [
+      _entry(
+        name, item, attempt if running and item.kind == "trials" else whole
+      )
       for name, item in self.deliverables.items()
     ]
+    if last in ENDING:
+      sources = [item.source for item in self.deliverables.values()]
+      _not_finished(entries, sources, attempt.visits[-1], whole)
+    return entries
 
   def _blocked(
     self, ctx: Context, state: State, closed: set[str]
@@ -1345,6 +1359,29 @@ def _entry(name: str, item: Deliverable, attempt: Attempt) -> dict[str, object]:
     entry["verdicts"] = _verdicts(item.verdicts, visit, trials)
     entry["trials"] = trials
   return entry
+
+
+def _not_finished(
+  entries: list[dict[str, object]],
+  sources: list[Source],
+  ending: Visit,
+  whole: Attempt,
+) -> None:
+  # A deliverable that only the visit that did not finish could have made,
+  # no visit before it being one its source takes (of a source of several
+  # states, one with the output): why is that visit, which it names.
+  for entry, source in zip(entries, sources, strict=True):
+    if entry["visit_index"] is not None or ending.state not in source.states:
+      continue
+    several = isinstance(source.state, tuple)
+    if any(
+      visit.state in source.states
+      and (not several or source.output in visit.outputs)
+      for visit in whole.visits
+    ):
+      continue
+    entry["state"] = ending.state
+    entry["reason"] = f"{ending.state} visit {ending.visit} {ending.outcome}"
 
 
 def _source(source: Source, attempt: Attempt) -> dict[str, object]:
@@ -1636,6 +1673,8 @@ def _read_visit(root: Path, data: Mapping[str, object], where: str) -> Visit:
     ],
     round=_integer(data, "round", where),
     last=_flag(data, "last", where),
+    started_at=_maybe_time(data, "started_at", where),
+    ended_at=_maybe_time(data, "ended_at", where),
   )
 
 
@@ -1770,6 +1809,19 @@ def _flag(data: Mapping[str, object], key: str, where: str) -> bool:
   if not isinstance(value, bool):
     raise RecordError(f"{where}: {key} is not a boolean")
   return value
+
+
+def _maybe_time(
+  data: Mapping[str, object], key: str, where: str
+) -> datetime | None:
+  # Absent as well as null: a record from before the key was written.
+  if data.get(key) is None:
+    return None
+  return _time(data, key, where)
+
+
+def _iso(value: datetime | None) -> str | None:
+  return None if value is None else value.isoformat()
 
 
 def _time(data: Mapping[str, object], key: str, where: str) -> datetime:

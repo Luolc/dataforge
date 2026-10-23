@@ -13,7 +13,7 @@ import sqlite3
 from dataforge.queue.proc import alive
 from dataforge.runs.store import AttemptRow, SCHEMA_MAJOR, Store
 from dataforge.viz import live
-from dataforge.viz.config import Project, Runs
+from dataforge.viz.config import Action, Project, Runs
 
 INTERRUPTED = "interrupted"
 """The status word of an interrupted attempt whose way of being stopped the
@@ -170,11 +170,15 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
     )
 
 
-def unavailable(when: str | None, found: Found) -> str | None:
+def unavailable(
+  project: Project, action: Action, item: str, found: Found
+) -> str | None:
   """Say why an action may not be submitted for an item, by its rows.
 
   Args:
-    when: The action's when.
+    project: The project, whose statuses label how a row ended.
+    action: The action, whose when decides.
+    item: The item's ID.
     found: The item's rows in the store, the oldest first.
 
   Returns:
@@ -182,6 +186,7 @@ def unavailable(when: str | None, found: Found) -> str | None:
     when "idle", no row of the item is running; with "stopped", the item's
     newest row is interrupted, its machine_status null and resumable true.
   """
+  when = action.when
   if when is None:
     return None
   if found.error is not None:
@@ -192,15 +197,17 @@ def unavailable(when: str | None, found: Found) -> str | None:
     return None
   if not found.rows:
     return "The store has no attempt of this item."
-  return _not_going_on(found.rows[-1])
+  return _not_going_on(project, action, item, found.rows[-1])
 
 
-def _not_going_on(newest: AttemptRow) -> str | None:
+def _not_going_on(
+  project: Project, action: Action, item: str, newest: AttemptRow
+) -> str | None:
   # Why the item's newest row may not go on, or None when it may.
   if newest.state == "running":
     return "The newest attempt of this item is running."
   if newest.state == "ended":
-    return "The newest attempt of this item has ended."
+    return _ended(project, action, item, newest)
   if newest.machine_status is not None:
     return _sentence(note(newest, False) or "")
   if newest.resumable is None:
@@ -208,6 +215,25 @@ def _not_going_on(newest: AttemptRow) -> str | None:
   if not newest.resumable:
     return newest.resume_problem or "It cannot go on."
   return None
+
+
+def _ended(
+  project: Project, action: Action, item: str, newest: AttemptRow
+) -> str:
+  # Why an action with when "stopped" may not go on with the item's newest
+  # row, which has ended: what it needs, and how that one ended and why.
+  word = newest.outcome
+  label = (
+    "with no status"
+    if word is None
+    else project.statuses.get(word, {}).get("label", word)
+  )
+  why = "" if not newest.reason else f": {newest.reason.rstrip('.')}"
+  stamp = newest.id.removeprefix(f"{item}/")
+  return (
+    f"{action.label} needs an attempt that was interrupted and can go on;"
+    + f" the newest, {stamp}, ended {label}{why}."
+  )
 
 
 def _sentence(words: str) -> str:

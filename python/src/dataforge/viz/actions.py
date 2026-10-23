@@ -191,7 +191,7 @@ def unavailable(
   if holder is not None:
     return f"Job {holder.id} for this item is {holder.state} in {holder.queue}."
   if found is not None:
-    return runs.unavailable(action.when, found)
+    return runs.unavailable(project, action, item, found)
   if action.when in ("idle", "stopped") and any(
     r["held"] is True for r in rows
   ):
