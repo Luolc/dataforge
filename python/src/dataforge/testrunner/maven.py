@@ -102,11 +102,11 @@ class Maven(Runner):
     for report in reports:
       for tc in junit.testcases(report) or []:
         cls, name = tc.get("classname") or "", tc.get("name") or ""
-        node = cls if name in ("", cls) else f"{cls}#{name}"
+        case_id = cls if name in ("", cls) else f"{cls}#{name}"
         end = junit.outcome(tc)
         found.append(
           Case(
-            node, end.status, end.duration, end.error, end.message, end.trace
+            case_id, end.status, end.duration, end.error, end.message, end.trace
           )
         )
     return found

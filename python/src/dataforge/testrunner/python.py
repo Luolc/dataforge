@@ -1,6 +1,7 @@
 """The adapter of pytest.
 
-An ID is a node ID relative to the project; restore_paths gives its file.
+An ID is a pytest `nodeid` relative to the project; restore_paths gives its
+file.
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ class Pytest(Runner):
   `python -m pytest` gives them. So a file a fix adds, such as a pytest.py,
   cannot stand in for pytest or a plugin.
 
-  An ID is a node ID relative to the project; a parameter's case, `[...]`,
+  An ID is a `nodeid` relative to the project; a parameter's case, `[...]`,
   and the tests of a directory, file or class belong to the ID that names
   them. The configuration is the first file pytest itself would pick at the
   base, from the common ancestor of the tests' paths up,
@@ -116,7 +117,7 @@ class Pytest(Runner):
 
   @override
   def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
-    # Files, not node IDs: pytest runs nothing when one ID is not found.
+    # Files, not nodeids: pytest runs nothing when one ID is not found.
     paths: list[str] = []
     for path in _paths(ctx, tests):
       arg = os.path.relpath(path, ctx.dir)
@@ -158,22 +159,22 @@ class Pytest(Runner):
   def _case(self, ctx: Context, tc: ET.Element) -> Case:
     classname, name = tc.get("classname") or "", tc.get("name") or ""
     if classname:
-      node = _node_id(self._rootdir, classname, name)
+      case_id = _nodeid(self._rootdir, classname, name)
     else:  # an error of a file's collection, named as its module
-      node = _node_id(self._rootdir, name, "")
-    if node is None:
-      node = _from_file(tc.get("file") or "", classname, name)
-    path, sep, rest = node.partition("::")
-    node = rel(ctx, self._rootdir / path) + sep + rest
+      case_id = _nodeid(self._rootdir, name, "")
+    if case_id is None:
+      case_id = _from_file(tc.get("file") or "", classname, name)
+    path, sep, rest = case_id.partition("::")
+    case_id = rel(ctx, self._rootdir / path) + sep + rest
     end = junit.outcome(tc)
     return Case(
-      node,
+      case_id,
       end.status,
       end.duration,
       end.error,
       end.message,
       end.trace,
-      node.split("::", 1)[0],
+      case_id.split("::", 1)[0],
     )
 
   @override
@@ -206,8 +207,8 @@ def _pythonpath(ctx: Context) -> tuple[list[str], list[str]]:
   ]
 
 
-def _node_id(rootdir: Path, dotted: str, name: str) -> str | None:
-  # pytest's JUnit classname is the node ID's file, `/` made `.` and `.py`
+def _nodeid(rootdir: Path, dotted: str, name: str) -> str | None:
+  # pytest's JUnit classname is the nodeid's file, `/` made `.` and `.py`
   # cut, then its classes; the file is the longest prefix that exists.
   parts = dotted.split(".")
   for n in range(len(parts), 0, -1):
@@ -223,7 +224,7 @@ def _paths(ctx: Context, tests: list[Test]) -> list[Path]:
 
 
 def _from_file(file: str, classname: str, name: str) -> str:
-  # The node ID from xunit1's file attribute, when the classname's file is
+  # The nodeid from xunit1's file attribute, when the classname's file is
   # not found by its dotted name, as in a directory with a `.` in its name:
   # the classes are what the classname has beyond the file's module.
   if not classname:

@@ -70,13 +70,13 @@ class PHPUnit(Runner):
     for tc in found:
       cls = tc.get("class") or (tc.get("classname") or "").replace(".", "\\")
       name = tc.get("name") or ""
-      node = f"{cls}::{name}" if cls else name
+      case_id = f"{cls}::{name}" if cls else name
       file = tc.get("file")
       inside = file and ctx.app in Path(file).parents
       end = junit.outcome(tc)
       cases.append(
         Case(
-          node,
+          case_id,
           end.status,
           end.duration,
           end.error,

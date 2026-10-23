@@ -9,7 +9,7 @@ was not set, which the tests' own processes get back. So pytest, its
 plugins and what they import come from the interpreter's installation and
 the entries outside the project, never from a file of the project of the
 same name. When pytest starts loading the project's conftest files, the
-paths go back where `python -m pytest` would have had them, after the
+paths are put back where `python -m pytest` would have had them, after the
 configuration's pythonpath, which pytest itself would otherwise add before
 loading its plugins. A plugin named with -p that cannot be found outside the
 project, such as one of the project's own that its configuration names, is
@@ -116,7 +116,7 @@ def main() -> int:
     os.environ["PYTHONPATH"] = pythonpath
   args = sys.argv[2:]
   sys.argv[1:] = args
-  # Where the paths go: before what came after PYTHONPATH's entries.
+  # Where the paths are put: before what came after PYTHONPATH's entries.
   anchor = next((p for p in sys.path if p not in paths), None)
   add = cast("Callable[..., None] | None", getattr(pytest.Config, _ADD, None))
   if add is not None:
