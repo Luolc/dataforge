@@ -150,6 +150,8 @@ def test_projects_leave_out_where_the_files_are(
         "description": None,
         "hints": {},
         "none": None,
+        "cases": [],
+        "filter": False,
       },
       {
         "title": "Cost",
@@ -159,6 +161,8 @@ def test_projects_leave_out_where_the_files_are(
         "description": None,
         "hints": {},
         "none": None,
+        "cases": [],
+        "filter": False,
       },
       {
         "title": "Missing",
@@ -168,6 +172,8 @@ def test_projects_leave_out_where_the_files_are(
         "description": None,
         "hints": {},
         "none": None,
+        "cases": [],
+        "filter": False,
       },
     ],
     "session": {"thinking": "hidden"},
@@ -398,6 +404,79 @@ def test_attempts_are_newest_first_with_their_values(
   }
   assert rows[3]["modified"] is None
   assert "No such file" in str(rows[3]["error"])
+
+
+CASES = """\
+  - title: Kind
+    cases:
+      - value: both
+        when:
+          - {field: [status], equals: passed}
+          - {field: [principle], given: true}
+          - {field: [final, x, settings], equals: [a, b]}
+      - value: given
+        when:
+          - {field: [status], equals: passed}
+          - {field: [principle], given: true}
+      - value: flagged
+        when:
+          - {field: [status], equals: passed}
+          - {field: [flag], equals: true}
+      - value: nulled
+        when:
+          - {field: [status], equals: passed}
+          - {field: [principle], equals: null}
+      - value: plain
+        when:
+          - {field: [status], equals: passed}
+          - {field: [principle], given: false}
+"""
+
+
+def test_a_column_of_cases_takes_the_first_case_whose_conditions_hold(
+  tree: Tree, static: Path
+) -> None:
+  _ = tree.project.write_text(PROJECT + CASES)
+  records = {
+    "both": {
+      "status": "passed",
+      "principle": "p",
+      "final": {"x": {"settings": ["a", "b"]}},
+    },
+    "other-order": {
+      "status": "passed",
+      "principle": "p",
+      "final": {"x": {"settings": ["b", "a"]}},
+    },
+    "flag-true": {"status": "passed", "principle": None, "flag": True},
+    "flag-one": {"status": "passed", "principle": None, "flag": 1},
+    # Written before the dataset recorded a principle: no key, not null.
+    "old": {"status": "passed"},
+    "failed": {"status": "failed", "principle": "p"},
+  }
+  for name, record in records.items():
+    found = tree.root / "batch-9" / name
+    found.mkdir(parents=True)
+    _ = (found / "record.json").write_text(json.dumps(record))
+
+  rows = cast(
+    list[dict[str, object]],
+    client(tree, static).get(f"{API}/attempts").json(),
+  )
+
+  kinds = {
+    str(r["id"]).removeprefix("batch-9/"): cast(list[object], r["values"])[3]
+    for r in rows
+    if str(r["id"]).startswith("batch-9/")
+  }
+  assert kinds == {
+    "both": "both",
+    "other-order": "given",
+    "flag-true": "flagged",
+    "flag-one": "nulled",
+    "old": "plain",
+    "failed": None,
+  }
 
 
 def test_a_record_with_no_budget_costs_what_its_actions_cost(

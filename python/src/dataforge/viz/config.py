@@ -93,12 +93,42 @@ class Listen:
 
 
 @dataclass(frozen=True, slots=True)
+class Condition:
+  """A condition on a value of an attempt's record.
+
+  Attributes:
+    field: The keys of the value in the record, from the outside in.
+    equals: What the value must equal, JSON data; None with given.
+    given: Whether the value must be there and not null (True) or not
+      (False); None with equals.
+  """
+
+  field: tuple[str, ...]
+  equals: object = None
+  given: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Case:
+  """A value a column of cases takes, and when it takes it.
+
+  Attributes:
+    value: The value.
+    when: The conditions that must all hold of the record.
+  """
+
+  value: str
+  when: tuple[Condition, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Column:
   """A column of the attempt table.
 
   Attributes:
     title: Its heading.
-    field: The keys its value is at, into the record or into file.
+    field: The keys its value is at, into the record or into file; empty
+      for a column of cases.
     format: One of FORMATS.
     file: A JSON file to read field from in place of the record, relative to
       the attempt's directory, or with tab to the tab's first version; None
@@ -113,6 +143,10 @@ class Column:
       person shown on its cell, of format text alone.
     none: What a cell with no value stands for, a sentence for a person
       shown on it in place of the viewer's own words; None for none.
+    cases: In place of field, the value of the first of them whose
+      conditions all hold of the record, else none; empty for a column
+      with field.
+    filter: Whether the page filters the items by the column's value.
   """
 
   title: str
@@ -124,6 +158,8 @@ class Column:
   description: str | None = None
   hints: Mapping[str, str] = NO_LABELS
   none: str | None = None
+  cases: tuple[Case, ...] = ()
+  filter: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,6 +539,8 @@ class Project:
           "description": c.description,
           "hints": dict(c.hints),
           "none": c.none,
+          "cases": [case.value for case in c.cases],
+          "filter": c.filter,
         }
         for c in self.columns
       ],
@@ -900,6 +938,63 @@ def _statuses(path: Path, value: object) -> dict[str, dict[str, str]]:
   return statuses
 
 
+_ABSENT = object()
+
+
+def case_value(
+  record: dict[str, object], cases: tuple[Case, ...]
+) -> str | None:
+  """Return the value a column of cases takes for a record.
+
+  Args:
+    record: The attempt's record.
+    cases: The column's cases.
+
+  Returns:
+    The value of the first case whose conditions all hold of the record;
+    None when none holds.
+  """
+  for case in cases:
+    if all(_holds(record, c) for c in case.when):
+      return case.value
+  return None
+
+
+def _holds(record: dict[str, object], condition: Condition) -> bool:
+  found = _at(record, condition.field)
+  if condition.given is not None:
+    return (found is not _ABSENT and found is not None) == condition.given
+  return found is not _ABSENT and _same(found, condition.equals)
+
+
+def _at(record: object, field: tuple[str, ...]) -> object:
+  # The value at field, or _ABSENT where a key is not there, as _field
+  # gives None.
+  current = record
+  for key in field:
+    if not isinstance(current, dict) or key not in current:
+      return _ABSENT
+    current = cast(dict[str, object], current)[key]
+  return current
+
+
+def _same(a: object, b: object) -> bool:
+  # JSON equality: true is not 1, as it is in Python.
+  if isinstance(a, bool) or isinstance(b, bool):
+    return type(a) is type(b) and a == b
+  if isinstance(a, list) and isinstance(b, list):
+    x, y = cast(list[object], a), cast(list[object], b)
+    return len(x) == len(y) and all(
+      _same(i, j) for i, j in zip(x, y, strict=True)
+    )
+  if isinstance(a, dict) and isinstance(b, dict):
+    x, y = cast(dict[str, object], a), cast(dict[str, object], b)
+    return x.keys() == y.keys() and all(_same(x[k], y[k]) for k in x)
+  if isinstance(a, list | dict) or isinstance(b, list | dict):
+    return False
+  return a == b
+
+
 def _columns(
   path: Path, value: object, tabs: tuple[Tab, ...]
 ) -> tuple[Column, ...]:
@@ -915,8 +1010,10 @@ def _columns(
       path,
       where,
       entry,
-      required={"title", "field"},
+      required={"title"},
       optional={
+        "field",
+        "cases",
         "format",
         "file",
         "tab",
@@ -924,25 +1021,31 @@ def _columns(
         "description",
         "hints",
         "none",
+        "filter",
       },
     )
-    file = None
-    if "file" in entry:
-      file = _relative(
-        path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
-      )
-    tab = None
-    if "tab" in entry:
-      tab = _str(path, f"{where}.tab", entry["tab"])
-      if file is None:
-        raise ConfigError(f"{path}: {where}.file: missing, and tab names one")
-      if not any(t.name == tab for t in tabs):
-        raise ConfigError(f"{path}: {where}.tab: {tab!r} is not a tab's name")
+    if ("field" in entry) == ("cases" in entry):
+      raise ConfigError(f"{path}: {where}: needs one of field and cases")
+    file, tab = _column_file(path, where, entry, tabs)
     format_ = _format(path, where, entry)
+    cases = ()
+    if "cases" in entry:
+      if file is not None:
+        raise ConfigError(f"{path}: {where}.cases: not with file")
+      if format_ != "text":
+        raise ConfigError(f"{path}: {where}.cases: only with format text")
+      cases = _cases(path, f"{where}.cases", entry["cases"])
+    filter_ = entry.get("filter", False)
+    if not isinstance(filter_, bool):
+      raise ConfigError(f"{path}: {where}.filter: not true or false")
+    if filter_ and format_ != "text":
+      raise ConfigError(f"{path}: {where}.filter: only with format text")
     columns.append(
       Column(
         _str(path, f"{where}.title", entry["title"]),
-        _field_keys(path, where, entry["field"]),
+        ()
+        if "field" not in entry
+        else _field_keys(path, where, entry["field"]),
         format_,
         file,
         tab,
@@ -950,9 +1053,69 @@ def _columns(
         _optional_str(path, where, entry, "description"),
         _labels(path, where, entry, format_, "hints"),
         _optional_str(path, where, entry, "none"),
+        cases,
+        filter_,
       )
     )
   return tuple(columns)
+
+
+def _column_file(
+  path: Path, where: str, entry: Mapping[str, object], tabs: tuple[Tab, ...]
+) -> tuple[tuple[str, ...] | None, str | None]:
+  # The JSON file a column reads in place of the record, and its tab.
+  file = None
+  if "file" in entry:
+    file = _relative(
+      path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
+    )
+  tab = None
+  if "tab" in entry:
+    tab = _str(path, f"{where}.tab", entry["tab"])
+    if file is None:
+      raise ConfigError(f"{path}: {where}.file: missing, and tab names one")
+    if not any(t.name == tab for t in tabs):
+      raise ConfigError(f"{path}: {where}.tab: {tab!r} is not a tab's name")
+  return file, tab
+
+
+def _cases(path: Path, where: str, value: object) -> tuple[Case, ...]:
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: {where}: not a non-empty list")
+  cases: list[Case] = []
+  for i, item in enumerate(cast(list[object], value)):
+    at = f"{where}[{i}]"
+    entry = _mapping(path, at, item)
+    _keys(path, at, entry, required={"value", "when"}, optional=set())
+    when = entry["when"]
+    if not isinstance(when, list) or not when:
+      raise ConfigError(f"{path}: {at}.when: not a non-empty list")
+    cases.append(
+      Case(
+        _str(path, f"{at}.value", entry["value"]),
+        tuple(
+          _condition(path, f"{at}.when[{j}]", c)
+          for j, c in enumerate(cast(list[object], when))
+        ),
+      )
+    )
+  return tuple(cases)
+
+
+def _condition(path: Path, where: str, value: object) -> Condition:
+  entry = _mapping(path, where, value)
+  _keys(path, where, entry, required={"field"}, optional={"equals", "given"})
+  field = _field_keys(path, where, entry["field"])
+  if ("equals" in entry) == ("given" in entry):
+    raise ConfigError(f"{path}: {where}: needs one of equals and given")
+  if "equals" in entry:
+    if not _is_json(entry["equals"]):
+      raise ConfigError(f"{path}: {where}.equals: not JSON data")
+    return Condition(field, equals=entry["equals"])
+  given = entry["given"]
+  if not isinstance(given, bool):
+    raise ConfigError(f"{path}: {where}.given: not true or false")
+  return Condition(field, given=given)
 
 
 def _optional_str(

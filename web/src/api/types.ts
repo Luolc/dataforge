@@ -50,6 +50,11 @@ export const project = z.looseObject({
       hints: LABELS,
       // What a cell with no value stands for, shown on it.
       none: z.string().nullable().optional(),
+      // The values its cases may give, in their order; empty for a column
+      // with a field.
+      cases: z.array(z.string()).optional(),
+      // Whether the page filters the items by its value.
+      filter: z.boolean().optional(),
     }),
   ),
   session: z.looseObject({
