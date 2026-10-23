@@ -1,6 +1,6 @@
 {
   "format": "dataforge.curation.record",
-  "version": 4,
+  "version": 5,
   "facts": {
     "budget": "object",
     "budget/cost_usd": "float",
@@ -28,6 +28,7 @@
     "final/*/actions/[]/trial": "object",
     "final/*/actions/[]/trial/exception": "str",
     "final/*/actions/[]/trial/id": "str",
+    "final/*/actions/[]/trial/log": "str",
     "final/*/actions/[]/trial/path": "str",
     "final/*/actions/[]/trial/rewards": "object",
     "final/*/actions/[]/trial/source": "str",
@@ -74,6 +75,7 @@
     "visits/[]/actions/[]/trial": "object",
     "visits/[]/actions/[]/trial/exception": "str",
     "visits/[]/actions/[]/trial/id": "str",
+    "visits/[]/actions/[]/trial/log": "str",
     "visits/[]/actions/[]/trial/path": "str",
     "visits/[]/actions/[]/trial/rewards": "object",
     "visits/[]/actions/[]/trial/source": "str",

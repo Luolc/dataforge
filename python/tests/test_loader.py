@@ -188,6 +188,7 @@ def test_deliverables_load_in_their_order() -> None:
       "title": "Regrade",
       "source": {"state": "make"},
       "match": "regrade-[0-9]*",
+      "verdicts": {"field": ["verdicts"]},
     },
     "task": {
       "kind": "files",
@@ -218,7 +219,11 @@ def test_deliverables_load_in_their_order() -> None:
       value=Value(("data", "solved"), "verdict.json"),
     ),
     "regrade": Deliverable(
-      "trials", "Regrade", Source("make"), match="regrade-[0-9]*"
+      "trials",
+      "Regrade",
+      Source("make"),
+      match="regrade-[0-9]*",
+      verdicts=Value(("verdicts",)),
     ),
     "task": Deliverable("files", "Task", Source(("make", "check"), "out")),
   }
@@ -442,6 +447,20 @@ def drop(path: str) -> Callable[[Doc], None]:
         },
       ),
       "deliverables.made: only trials have a match",
+    ),
+    (
+      put(
+        "deliverables",
+        {
+          "made": {
+            "kind": "files",
+            "title": "Made",
+            "source": {"state": "make", "output": "out"},
+            "verdicts": {"field": ["verdicts"]},
+          }
+        },
+      ),
+      "deliverables.made: only trials have verdicts",
     ),
     (
       put(

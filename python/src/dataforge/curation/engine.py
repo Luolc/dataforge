@@ -292,6 +292,7 @@ class TrialRecord:
     exception: What ended the trial early, if anything did.
     source: The path of the trial whose output this trial judged again, such
       as one whose diff it applied, if its task names one.
+    log: The log of the trial's runner, if it keeps one.
   """
 
   id: str
@@ -301,6 +302,7 @@ class TrialRecord:
   rewards: Mapping[str, float]
   exception: str | None
   source: Path | None = None
+  log: Path | None = None
 
 
 @dataclass
@@ -577,6 +579,7 @@ class Attempt:
         "rewards": dict(trial.rewards),
         "exception": trial.exception,
         "source": _relative(trial.source, self.root),
+        "log": _relative(trial.log, self.root),
       },
     }
 
@@ -1339,6 +1342,7 @@ def _entry(name: str, item: Deliverable, attempt: Attempt) -> dict[str, object]:
     entry["match"] = item.match
     entry["k"] = len(trials)
     entry["value"] = None if item.value is None else _value(item.value, visit)
+    entry["verdicts"] = _verdicts(item.verdicts, visit, trials)
     entry["trials"] = trials
   return entry
 
@@ -1419,6 +1423,8 @@ def _trials(
           "path": str(trial.path.relative_to(root)),
           "trace": trace,
           "source": _relative(trial.source, root),
+          "log": _relative(trial.log, root),
+          "verdict": None,
           "result": {
             "reward": trial.rewards.get("reward"),
             "rewards": dict(trial.rewards),
@@ -1438,6 +1444,8 @@ def _trials(
           "path": str(path.relative_to(root)),
           "trace": None,
           "source": None,
+          "log": None,
+          "verdict": None,
           "result": None,
         },
       )
@@ -1493,6 +1501,27 @@ def _value(value: Value, visit: Visit | None) -> dict[str, object]:
       return found | {"value": None, "reason": f"{where} has no key {key}"}
     current = cast(dict[str, object], current)[key]
   return found | {"value": current, "reason": None}
+
+
+def _verdicts(
+  verdicts: Value | None, visit: Visit | None, trials: list[dict[str, object]]
+) -> dict[str, object] | None:
+  # Each trial takes its verdict from the object the value finds, by its
+  # output's name; one with no word there has none.
+  if verdicts is None:
+    return None
+  found = _value(verdicts, visit)
+  by_output = found.pop("value")
+  if found["reason"] is None and not isinstance(by_output, dict):
+    where = verdicts.output or "the outcome data"
+    found["reason"] = f"{where} at {'.'.join(verdicts.field)} is not an object"
+  if isinstance(by_output, dict):
+    words = cast(dict[str, object], by_output)
+    for trial in trials:
+      if trial["result"] is not None:
+        word = words.get(cast(str, trial["output"]))
+        trial["verdict"] = word if isinstance(word, str) else None
+  return found
 
 
 VALUE_LIMIT = 1024 * 1024
@@ -1656,10 +1685,13 @@ def _read_trial(
     None if trace is None else trace[1],
     {name: _number(rewards, name, f"{where}.rewards") for name in rewards},
     _maybe_text(data, "exception", where),
-    # A record written before a trial had a source has no key.
-    None
-    if data.get("source") is None
-    else _inside(root, data["source"], f"{where}.source"),
+    # A record written before a trial had a source or a log has no key.
+    *(
+      None
+      if data.get(key) is None
+      else _inside(root, data[key], f"{where}.{key}")
+      for key in ("source", "log")
+    ),
   )
 
 

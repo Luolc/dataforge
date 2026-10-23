@@ -348,6 +348,28 @@ describe("a TaskCard whose task is in a deliverable", () => {
       within(section).getByText("Not run: Author · run 3 made no task.toml."),
     ).toBeVisible();
   });
+
+  it("names a deliverable the record lacks by the project's title", async () => {
+    const section = await card(
+      {
+        read: "not run",
+        reason: null,
+        path: null,
+        legacy: false,
+        tests: null,
+        principles: null,
+      },
+      {
+        ...inTask,
+        deliverables: [{ name: "task", kind: "files", title: "Harbor task" }],
+      },
+      { ...records.passed, deliverables: [] },
+    );
+
+    expect(
+      within(section).getByText("Not run: this record has no Harbor task."),
+    ).toBeVisible();
+  });
 });
 
 describe("cutAt", () => {

@@ -106,10 +106,14 @@ function notThere(
   entry: Deliverable | undefined,
   from: string | null,
 ): string {
-  if (source.deliverable !== null)
-    return entry === undefined
-      ? `this record has no deliverable ${source.deliverable}.`
-      : `${from ?? entry.title} made no ${source.file}.`;
+  if (source.deliverable !== null) {
+    if (entry !== undefined)
+      return `${from ?? entry.title} made no ${source.file}.`;
+    const declared = project.deliverables?.find(
+      (d) => d.name === source.deliverable,
+    );
+    return `this record has no ${declared?.title ?? source.deliverable}.`;
+  }
   return attemptStatus(project, record) === null
     ? `the attempt has no ${source.file} yet.`
     : `the attempt left no ${source.file}.`;
