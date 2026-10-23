@@ -39,15 +39,13 @@ function leads(
   record: AttemptRecord,
   item: Deliverable,
 ): boolean {
-  const when = (project.deliverables ?? []).find(
-    (d) => d.name === item.name,
-  )?.default;
+  const when = declared(project, item.name)?.default;
   if (typeof when !== "object" || item.path === null) return false;
   const visit =
     item.visit_index === null ? undefined : record.visits[item.visit_index];
   let value: unknown = visit?.data;
   for (const key of when.field) {
-    if (!isObject(value) || !(key in value)) return false;
+    if (!isObject(value) || !Object.hasOwn(value, key)) return false;
     value = value[key];
   }
   return sameJson(value, when.equals);
@@ -68,7 +66,7 @@ function sameJson(a: unknown, b: unknown): boolean {
     const keys = Object.keys(a);
     return (
       keys.length === Object.keys(b).length &&
-      keys.every((key) => key in b && sameJson(a[key], b[key]))
+      keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
     );
   }
   return a === b;
