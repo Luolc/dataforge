@@ -35,6 +35,7 @@ from dataforge.queue.proc import (
   alive,
   descendants,
   group_alive,
+  kill_job,
   Leader,
   leader,
   Process,
@@ -112,8 +113,8 @@ def _clean_up(config: Config, scheduler: Scheduler) -> None:
     _ = cancel(config, job.id)
   for job in jobs(config, states={"running"}):
     started = job.leader()
-    if started is not None and group_alive(started):
-      os.killpg(started.pid, signal.SIGKILL)
+    if started is not None:
+      _ = kill_job(started)
   until(lambda: not jobs(config, states={"running"}), scheduler)
   for child in scheduler._children:  # pyright: ignore[reportPrivateUsage]
     _ = child.wait(timeout=20)
@@ -278,7 +279,7 @@ def test_canceling_a_running_job_sends_its_group_sigterm(patient: Scheduler):
   # before the wrapper has written it.
   config, scheduler = patient.config, patient
   job = put(config, "alpha", "sh", "-c", "echo ready; exec sleep 30")
-  until(lambda: "ready" in log(config, job), scheduler)
+  until(lambda: ready(config, job), scheduler)
   asked = cancel(config, job.id)
   assert asked.state == "running" and asked.cancel_requested_at is not None
   until(ended(config, job), scheduler)
@@ -290,7 +291,7 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill(
   config: Config, scheduler: Scheduler
 ):
   job = put(config, "alpha", "sh", "-c", "trap '' TERM; echo ready; sleep 30")
-  until(lambda: "ready" in log(config, job), scheduler)
+  until(lambda: ready(config, job), scheduler)
   _ = cancel(config, job.id)
   scheduler.tick()
   assert state(config, job).state == "running"
@@ -305,7 +306,7 @@ def test_a_job_that_outlasts_the_grace_period_gets_sigkill_with_no_scheduler(
   config: Config, scheduler: Scheduler
 ):
   job = put(config, "alpha", "sh", "-c", "trap '' TERM; echo ready; sleep 30")
-  until(lambda: "ready" in log(config, job), scheduler)
+  until(lambda: ready(config, job), scheduler)
   started = state(config, job).leader()
   assert started is not None
   # No tick from here on, as with the scheduler stopped.
@@ -469,7 +470,7 @@ def test_a_canceled_jobs_leftovers_get_one_sigterm_and_sigkill_in_its_grace(
   """
   try:
     job = put(config, "alpha", "sh", "-c", script + end, "sh", str(terms))
-    until(lambda: "ready" in log(config, job), scheduler)
+    until(lambda: ready(config, job), scheduler)
     left = Process(*map(int, Path(f"{terms}.pid").read_text().split()))
     strays.append(left)
     # No tick from here on: the wrapper alone ends the leftover.
@@ -530,6 +531,12 @@ def log(config: Config, job: Job) -> str:
   return path.read_text() if path.exists() else ""
 
 
+def ready(config: Config, job: Job) -> bool:
+  # A line of its own: the wrapper's first line gives the command, which may
+  # hold the word too.
+  return "ready" in log(config, job).splitlines()
+
+
 def test_a_restarted_scheduler_takes_the_running_jobs_as_they_are(
   config: Config, scheduler: Scheduler, tmp_path: Path
 ):
@@ -550,7 +557,7 @@ def test_a_restarted_scheduler_takes_the_running_jobs_as_they_are(
   )
   try:
     deadline = time.monotonic() + 20
-    while "ready" not in log(config, job):
+    while not ready(config, job):
       assert time.monotonic() < deadline, "timed out"
       time.sleep(0.05)
   finally:
@@ -591,7 +598,7 @@ def test_a_restarted_scheduler_counts_the_running_jobs_in_its_caps(
   )
   try:
     deadline = time.monotonic() + 20
-    while not ("ready" in log(config, a) and "ready" in log(config, b)):
+    while not (ready(config, a) and ready(config, b)):
       assert time.monotonic() < deadline, "timed out"
       time.sleep(0.05)
   finally:
@@ -685,7 +692,7 @@ def test_a_job_whose_wrapper_alone_is_killed_ends_with_its_group(
   config: Config, scheduler: Scheduler
 ):
   job = put(config, "alpha", "sh", "-c", "echo ready; exec sleep 30")
-  until(lambda: "ready" in log(config, job), scheduler)
+  until(lambda: ready(config, job), scheduler)
   started = state(config, job).leader()
   assert started is not None
   os.kill(started.pid, signal.SIGKILL)
