@@ -81,8 +81,12 @@ export const project = z.looseObject({
     .optional(),
   // The definition snapshot's path in an attempt's directory.
   definition: z.string().nullable().optional(),
-  // The path of the task.toml of an attempt's task in its directory.
-  task: z.string().nullable().optional(),
+  // Where an attempt's task.toml is: its path in the attempt's directory,
+  // or in that of the deliverable named, as the attempt's record resolves it.
+  task: z
+    .object({ file: z.string(), deliverable: z.string().nullable() })
+    .nullable()
+    .optional(),
   // Whether the project names a resource monitor database.
   monitor: z.boolean().optional(),
   // The attempt page's tabs of Markdown files, each found in the
@@ -213,6 +217,8 @@ export type TabVersion = TabVersions["versions"][number];
 export const taskMeta = z.looseObject({
   read: z.enum(READS),
   reason: z.string().nullable(),
+  // The file read, in the attempt's directory; null when none was found.
+  path: z.string().nullable(),
   legacy: z.boolean(),
   tests: z.record(z.string(), z.record(z.string(), z.number())).nullable(),
   principles: z

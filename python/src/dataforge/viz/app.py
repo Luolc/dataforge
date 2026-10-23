@@ -220,7 +220,7 @@ class _Api:
     if project.task is None:
       raise RefusedError(404, f"the project {p!r} names no task")
     with open_attempt(project, _attempt(attempt)) as root:
-      return JSONResponse(read_task(project.task, root))
+      return JSONResponse(read_task(project, project.task, root))
 
   def actions(self, p: str, item: str | None = None) -> Response:
     project = self._project(p)

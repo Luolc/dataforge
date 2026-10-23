@@ -133,6 +133,17 @@ describe("the files view", () => {
     expect(screen.queryByText(/a directory, not a file/)).toBeNull();
   });
 
+  it("opens a file chosen in the tree at once, not asking whether it is a folder", async () => {
+    show(task);
+    expect(await preview()).toHaveTextContent("instruction.md");
+
+    fireEvent.click(await screen.findByRole("link", { name: /^data\.bin/ }));
+
+    expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent(
+      "data.bin",
+    );
+  });
+
   it("ignores a named file outside its own path", async () => {
     show(task, "artifacts/review/1/report.md");
 
