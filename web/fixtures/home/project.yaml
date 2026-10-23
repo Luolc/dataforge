@@ -28,7 +28,14 @@ columns:
   - { title: Round, field: [round], format: number }
   - { title: Kept visit, field: [kept_visit], format: number }
   - { title: Cost, field: [budget, cost_usd], format: usd }
-  - { title: Verdict, tab: notes, file: tags.json, field: [verdict, value] }
+  # A value's hint, and what a cell with no value stands for.
+  - title: Verdict
+    tab: notes
+    file: tags.json
+    field: [verdict, value]
+    labels: { sound: Sound }
+    hints: { sound: The notes found the task sound. }
+    none: No notes were written for this attempt, or they gave no verdict.
 # Notes of a few attempts, to read the Verdict column from; made up.
 tabs:
   - name: notes

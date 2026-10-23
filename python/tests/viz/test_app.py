@@ -148,6 +148,8 @@ def test_projects_leave_out_where_the_files_are(
         "format": "text",
         "labels": {},
         "description": None,
+        "hints": {},
+        "none": None,
       },
       {
         "title": "Cost",
@@ -155,6 +157,8 @@ def test_projects_leave_out_where_the_files_are(
         "format": "usd",
         "labels": {},
         "description": None,
+        "hints": {},
+        "none": None,
       },
       {
         "title": "Missing",
@@ -162,6 +166,8 @@ def test_projects_leave_out_where_the_files_are(
         "format": "text",
         "labels": {},
         "description": None,
+        "hints": {},
+        "none": None,
       },
     ],
     "session": {"thinking": "hidden"},

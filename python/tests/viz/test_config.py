@@ -55,6 +55,26 @@ def test_a_column_s_labels_and_description_reach_the_page(tree: Tree) -> None:
   assert (cost["labels"], cost["description"]) == ({}, None)
 
 
+def test_a_column_s_hints_and_none_reach_the_page(tree: Tree) -> None:
+  _ = tree.project.write_text(
+    PROJECT.replace(
+      "field: [status]}",
+      "field: [status], labels: {'': '-'}, hints: {'': Nothing found.,"
+      + " passed: It passed.}, none: No record yet.}",
+      1,
+    )
+  )
+
+  [project] = load_site(tree.site).projects
+
+  [status, cost, _missing] = cast(
+    list[dict[str, object]], project.public()["columns"]
+  )
+  assert status["hints"] == {"": "Nothing found.", "passed": "It passed."}
+  assert status["none"] == "No record yet."
+  assert (cost["hints"], cost["none"]) == ({}, None)
+
+
 def test_a_session_view_shows_thinking_as_the_project_file_says(
   tree: Tree,
 ) -> None:
@@ -300,6 +320,22 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       ("field: [status]", "field: [status], description: ''"),
       r"columns\[0\]\.description: not a non-empty string",
+    ),
+    (
+      ("format: usd", "format: usd, hints: {a: A}"),
+      r"columns\[1\]\.hints: only with format text",
+    ),
+    (
+      ("field: [status]", "field: [status], hints: {}"),
+      r"columns\[0\]\.hints: not a non-empty mapping",
+    ),
+    (
+      ("field: [status]", "field: [status], hints: {a: ''}"),
+      r"columns\[0\]\.hints\.a: not a non-empty string",
+    ),
+    (
+      ("field: [status]", "field: [status], none: ''"),
+      r"columns\[0\]\.none: not a non-empty string",
     ),
     (("name: Example", "name: Example\nextra: 1"), "extra: unknown key"),
     (("name: Example", "name: Example\nname: Again"), "key name repeated"),
