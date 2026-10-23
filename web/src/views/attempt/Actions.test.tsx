@@ -53,10 +53,20 @@ function show() {
   );
 }
 
-const states = (goOn: string | null, params: unknown[] = []) => [
-  { name: "again", label: "Run again", queue: "fast", reason: null, params },
-  { name: "go-on", label: "Go on", queue: "slow", reason: goOn, params: [] },
-];
+const states = (
+  goOn: string | null,
+  params: unknown[] = [],
+  newest = "batch-1/task-0001/a1",
+) => ({
+  newest,
+  actions: [
+    { name: "again", label: "Run again", queue: "fast", reason: null, params },
+    { name: "go-on", label: "Go on", queue: "slow", reason: goOn, params: [] },
+  ],
+});
+
+const ENDED =
+  "Go on needs an attempt that may have stopped or ended Canceled; the newest, a1, ended Error.";
 
 const params = [
   {
@@ -84,18 +94,35 @@ afterEach(() => {
 describe("a data item's actions", () => {
   it("greys an action that may not be submitted, with its reason", async () => {
     serve({
-      [ACTIONS]: [[200, states("The newest attempt of this item has ended.")]],
+      [ACTIONS]: [[200, states(ENDED)]],
     });
 
     show();
 
     const goOn = await screen.findByRole("button", { name: "Go on" });
     expect(goOn).toBeDisabled();
-    expect(goOn).toHaveAccessibleDescription(
-      "The newest attempt of this item has ended.",
-    );
+    expect(goOn).toHaveAccessibleDescription(ENDED);
     expect(screen.getByRole("button", { name: "Run again" })).toBeEnabled();
     expect(screen.getByText("batch-1/task-0001")).toBeVisible();
+    // The page is of the newest attempt: no other is named.
+    expect(screen.queryByText(/newest attempt/)).toBeNull();
+  });
+
+  it("names and links the newest attempt on an older one's page", async () => {
+    serve({
+      [ACTIONS]: [[200, states(ENDED, [], "batch-1/task-0001/a2")]],
+    });
+
+    show();
+
+    const newest = await screen.findByRole("link", { name: "a2" });
+    expect(newest).toHaveAttribute(
+      "href",
+      "/sample/attempt?id=batch-1%2Ftask-0001%2Fa2",
+    );
+    expect(newest.parentElement).toHaveTextContent(
+      "Task batch-1/task-0001, newest attempt a2",
+    );
   });
 
   it("asks before it queues, then posts the action's name and the item alone", async () => {

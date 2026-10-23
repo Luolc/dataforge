@@ -86,8 +86,8 @@ def holding(path: Path) -> Generator[None]:
 def reasons(web: TestClient) -> dict[str, str | None]:
   response = web.get(ACTIONS, params={"item": "batch-1"})
   assert response.status_code == 200
-  rows = cast(list[dict[str, str | None]], response.json())
-  return {str(r["name"]): r["reason"] for r in rows}
+  body = cast(dict[str, list[dict[str, str | None]]], response.json())
+  return {str(r["name"]): r["reason"] for r in body["actions"]}
 
 
 def test_an_action_queues_its_command_with_the_item_alone(
@@ -305,7 +305,10 @@ def test_stopped_needs_a_newest_attempt_that_may_have_stopped(
     running = reasons(web)["go-on"]
   stopped = reasons(web)["go-on"]
 
-  assert ended == "The newest attempt of this item has ended."
+  assert ended == (
+    "Go on needs an attempt that may have stopped; the newest, task-1,"
+    + " ended Passed."
+  )
   assert older == ended
   assert running == "An attempt of this item is running: its lock is held."
   assert stopped is None
@@ -343,9 +346,40 @@ def test_stopped_takes_the_attempt_that_started_last_as_the_newest(
   ended = reasons(web)["go-on"]
   write(made, "task-2", None, 3600, started="2026-01-03T00:00:00+00:00")
   stopped = reasons(web)["go-on"]
+  response = web.get(ACTIONS, params={"item": "batch-1"})
 
-  assert ended == "The newest attempt of this item has ended."
+  assert ended == (
+    "Go on needs an attempt that may have stopped; the newest, task-2,"
+    + " ended Passed."
+  )
   assert stopped is None
+  assert cast(dict[str, object], response.json())["newest"] == "batch-1/task-2"
+
+
+def test_the_actions_name_the_newest_attempt_they_go_on_with(
+  made: QueueTree, static: Path
+) -> None:
+  web = client(made, static)
+
+  def newest() -> object:
+    response = web.get(ACTIONS, params={"item": "batch-1"})
+    return cast(dict[str, object], response.json())["newest"]
+
+  write(made, "task-0", "passed", 3600)
+  first = newest()
+  write(made, "task-2", "passed", 0)
+  later = newest()
+  # A newer record that cannot be read is not the one.
+  unread = made.tree.root / "batch-1" / "task-3" / "record.json"
+  unread.parent.mkdir()
+  _ = unread.write_text("{not json")
+  past_unread = newest()
+
+  assert [first, later, past_unread] == [
+    "batch-1/task-1",
+    "batch-1/task-2",
+    "batch-1/task-2",
+  ]
 
 
 def test_stopped_goes_on_with_a_resumable_status_unless_the_lock_is_held(
@@ -369,7 +403,10 @@ def test_stopped_goes_on_with_a_resumable_status_unless_the_lock_is_held(
     running = reasons(web)["go-on"]
   canceled = reasons(web)["go-on"]
 
-  assert passed == "The newest attempt of this item has ended."
+  assert passed == (
+    "Go on needs an attempt that may have stopped or ended Canceled; the"
+    + " newest, task-1, ended Passed."
+  )
   assert running == "An attempt of this item is running: its lock is held."
   assert canceled is None
   listing = cast(
@@ -443,7 +480,10 @@ def test_a_site_with_no_queue_has_no_queue_routes(
   web = client(made, static)
 
   assert web.get("/api/queue").status_code == 404
-  assert web.get(ACTIONS, params={"item": "batch-1"}).json() == []
+  assert web.get(ACTIONS, params={"item": "batch-1"}).json() == {
+    "newest": None,
+    "actions": [],
+  }
   assert web.post("/api/queue/jobs/1/cancel", headers=WRITE).status_code == 404
   assert (
     web.post(
@@ -662,9 +702,9 @@ def test_an_action_s_parameters_go_into_its_command_as_flags(
   web = client(made, static)
 
   [shown, _] = cast(
-    list[dict[str, object]],
+    dict[str, list[dict[str, object]]],
     web.get(ACTIONS, params={"item": "batch-1"}).json(),
-  )
+  )["actions"]
   set_ = web.post(
     f"{ACTIONS}/again",
     params={"item": "batch-1", "budget": "12.50", "tries": "-0.25"},

@@ -231,23 +231,27 @@ class _Api:
   def actions(self, p: str, item: str | None = None) -> Response:
     project = self._project(p)
     if not project.actions:
-      return JSONResponse([])
+      return JSONResponse({"newest": None, "actions": []})
     item = _required("item", item)
     actions.check_item(project, item)
     rows = _item_rows(project, item)
     jobs = self._open_jobs()
     found = None if project.runs is None else runs.read(project.runs, item)
+    newest = actions.newest_attempt(rows, found)
     return JSONResponse(
-      [
-        {
-          "name": a.name,
-          "label": a.label,
-          "queue": a.queue,
-          "reason": actions.unavailable(project, a, item, rows, jobs, found),
-          "params": [param.public() for param in a.params],
-        }
-        for a in project.actions
-      ]
+      {
+        "newest": newest,
+        "actions": [
+          {
+            "name": a.name,
+            "label": a.label,
+            "queue": a.queue,
+            "reason": actions.unavailable(project, a, item, rows, jobs, found),
+            "params": [param.public() for param in a.params],
+          }
+          for a in project.actions
+        ],
+      }
     )
 
   def submit(self, request: Request, p: str, name: str) -> Response:

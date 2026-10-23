@@ -49,6 +49,7 @@ import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
 import { asShown, declaredMissing, tabKinds } from "./declared";
+import { AttemptFacts } from "./facts";
 import { attemptHref } from "./href";
 import { TabCount, TabView } from "../tabs";
 import { useTabVersions } from "../tabs/versions";
@@ -301,6 +302,7 @@ function Attempt({
       <Header attempt={attempt}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
+      <AttemptFacts project={project} record={record} live={live} />
       <Actions project={project} attempt={attempt} />
       <ReadFailed failed={failed} />
       <RowNote note={read?.note ?? null} />
