@@ -83,7 +83,7 @@ resumable: [canceled]    # optional: statuses of an ended attempt that a `when: 
 lock: .lock            # optional: the item's lock file, relative to the item's directory
 runs: {db: ../runs.sqlite, stopped_by: {person: canceled}}   # optional: the attempts' store, relative to attempts_dir, and a status word per way an attempt was stopped; in place of not_ended, resumable and lock
 deliverables: [{name: task, kind: files, title: Task}, {name: regrade, kind: trials, title: Regrade, no_trace: "No agent runs in a regrade."}, {name: pass_at_k, kind: trials, title: Pass@k, default: true}]   # optional: what an attempt delivers once it ends; default, optional, the deliverable of its kind that names its tab while none of the kind is reached
-kinds: {report: {title: Reviews}}   # optional: the title of a deliverable kind's tab
+kinds: {trials: {title: Trials}}   # optional: the title of a deliverable kind's tab
 trials: {diff: verifier/patch.diff, tests: verifier/ctrf.json, kinds: {vulnerability: {label: Vulnerability}}}   # optional: a trial's diff and test results, relative to its directory; kinds, optional, a test kind's label
 monitor: {db: ../monitor/monitor.sqlite}   # optional: relative to attempts_dir
 actions:               # optional: what a data item may be put in the queue for
