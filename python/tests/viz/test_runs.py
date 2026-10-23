@@ -331,7 +331,8 @@ def test_stopped_needs_a_newest_row_interrupted_that_may_go_on(
   steps: list[tuple[AttemptRow, str | None]] = [
     (
       kept("batch-1/a", "ended", outcome="passed", ended_at=ENDED_AT),
-      "The newest attempt of this item has ended.",
+      "Go on needs an attempt that was interrupted and can go on; the"
+      + " newest, a, ended Passed.",
     ),
     (
       kept("batch-1/b", "interrupted", stopped_by="lost"),
@@ -377,6 +378,30 @@ def test_stopped_needs_a_newest_row_interrupted_that_may_go_on(
 
 def _config(made: QueueTree) -> queue.Config:
   return queue.load_config(made.queue / "queue.yaml")
+
+
+def test_stopped_says_how_the_newest_row_ended_and_why(
+  made: QueueTree, static: Path, store: Store
+) -> None:
+  # A word the project has no label for shows as itself, and the row's
+  # reason follows it.
+  add(
+    store,
+    kept(
+      "batch-1/2026-01-02T000000Z",
+      "ended",
+      outcome="too_easy",
+      reason="solved by every trial.",
+      ended_at=ENDED_AT,
+    ),
+  )
+
+  found = reasons(client(made, static))["go-on"]
+
+  assert found == (
+    "Go on needs an attempt that was interrupted and can go on; the newest,"
+    + " 2026-01-02T000000Z, ended too_easy: solved by every trial."
+  )
 
 
 def test_stopped_and_idle_wait_while_a_row_of_the_item_runs(
