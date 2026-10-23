@@ -105,20 +105,19 @@ describe("a trial that judged another trial's output again", () => {
     ).toHaveClass("target");
   });
 
-  it("says why it has no trace, and links to the trace of the trial it judged", async () => {
+  it("shows the trace of the trial it judged as any trace shows, with no words above it", async () => {
     show("&tab=trials&deliverable=regrade&trial=regrade-1");
 
     const trace = await screen.findByRole("tabpanel", { name: "Trace" });
-    expect(
-      within(trace).getByText("This trial recorded no trace of its own."),
-    ).toBeVisible();
-    expect(within(trace).getByText(NO_TRACE)).toBeVisible();
-    const link = within(trace).getByRole("link", { name: "Pass@k · Trial 1" });
-    expect(trace).toHaveTextContent(
-      "It judged again the output of Pass@k · Trial 1, whose trace is shown below.",
-    );
+    expect(await within(trace).findByText("Expand all")).toBeVisible();
+    expect(within(trace).getByText("Pass@k · Trial 1")).toBeVisible();
+    expect(trace).not.toHaveTextContent("recorded no trace");
+    expect(trace).not.toHaveTextContent("judged again");
+    expect(trace).not.toHaveTextContent(NO_TRACE);
+    // The link to the trial it judged is in the numbers above.
+    expect(field("Source trial")).toHaveTextContent("Pass@k · Trial 1");
 
-    fireEvent.click(link);
+    fireEvent.click(numbers().getByRole("link", { name: "Pass@k · Trial 1" }));
     expect(where().get("tab")).toBe("trials");
     expect(where().get("deliverable")).toBe("pass_at_k");
     expect(where().get("trial")).toBe("trial-1");
@@ -127,36 +126,14 @@ describe("a trial that judged another trial's output again", () => {
     expect(await screen.findByText("Expand all")).toBeVisible();
   });
 
-  it("shows the trace of the trial it judged under its words", async () => {
-    show("&tab=trials&deliverable=regrade&trial=regrade-1");
-
-    const trace = await screen.findByRole("tabpanel", { name: "Trace" });
-    expect(await within(trace).findByText("Expand all")).toBeVisible();
-    // The link, and the name at the head of the trace.
-    expect(within(trace).getAllByText("Pass@k · Trial 1")).toHaveLength(2);
-    // The words come first, the trace after them.
-    const words = within(trace).getByText(/whose trace is shown below/);
-    const bar = within(trace).getByText("Expand all");
-    expect(
-      words.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it("says why the trace of the trial it judged is not shown when its file is not there", async () => {
+  it("says that the trace of the trial it judged could not be read, and why, when its file is not there", async () => {
     show("&tab=trials&deliverable=regrade&trial=regrade-2");
 
     const trace = await screen.findByRole("tabpanel", { name: "Trace" });
     expect(await within(trace).findByText(/^The trace/)).toHaveTextContent(
-      "artifacts/solve/1/trial-2/trace.jsonl",
+      "artifacts/solve/1/trial-2/trace.jsonl could not be read: 404: artifacts/solve/1/trial-2/trace.jsonl does not exist",
     );
-    // The words above do not say the trace is shown when it is not.
-    expect(trace).not.toHaveTextContent("shown below");
-    expect(trace).toHaveTextContent(
-      "whose trace could not be read: 404: artifacts/solve/1/trial-2/trace.jsonl does not exist",
-    );
-    expect(
-      within(trace).getByRole("link", { name: "Pass@k · Trial 2" }),
-    ).toBeVisible();
+    expect(trace).not.toHaveTextContent("judged again");
     expect(within(trace).queryByText("Expand all")).toBeNull();
   });
 
