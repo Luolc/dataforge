@@ -25,6 +25,7 @@ import { Confirm } from "../../ui/confirm";
 import { usd } from "../../ui/format";
 import { type Said, SaidLine } from "../../ui/said";
 import { toneGlyph, toneText } from "../../ui/status";
+import { attemptHref } from "./href";
 
 // A parameter's value as the backend takes it: a plain decimal number of at
 // most 6 decimal places and NUMBER_LIMIT characters.
@@ -96,6 +97,19 @@ export function ItemActions({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="text-xs text-fg-3">
           {project.item.title} <span className="font-mono">{item}</span>
+          {states.state === "ok" &&
+            states.data.newest !== null &&
+            states.data.newest !== attempt && (
+              <>
+                {", newest attempt "}
+                <Link
+                  to={attemptHref(project.id, states.data.newest)}
+                  className="inline-flex target items-center font-mono link hover:underline"
+                >
+                  {states.data.newest.slice(item.length + 1)}
+                </Link>
+              </>
+            )}
         </span>
         {states.state === "error" && (
           <span className={`text-xs ${toneText.bad}`}>
@@ -103,7 +117,7 @@ export function ItemActions({
           </span>
         )}
         {states.state === "ok" &&
-          states.data.map((a) => (
+          states.data.actions.map((a) => (
             <ActionButton
               key={a.name}
               action={a}
