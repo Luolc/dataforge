@@ -131,8 +131,9 @@ def note(row: AttemptRow, gone: bool) -> str | None:
 def mark(project: Project, rows: list[dict[str, object]]) -> None:
   """Set each listing row's status, reason, cost and live from the store.
 
-  An attempt with a row takes its status, reason, cost_usd, live, state,
-  note and progress_at from it, whatever its record file holds; one with
+  An attempt with a row takes its status, reason, cost_usd, live, holder,
+  state, note and progress_at from it, holder true for a running row whose
+  holder is alive, whatever its record file holds; one with
   none keeps what its record file gave and says so in its error, as does
   every attempt when the store is not read.
 
@@ -162,6 +163,7 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
       else live.MAY_HAVE_STOPPED
       if row.state == "interrupted" or gone
       else live.RUNNING,
+      holder=row.state == "running" and not gone,
       state=row.state,
       note=note(row, gone),
       progress_at=row.progress_at,
