@@ -2,8 +2,8 @@
 
 `material.tsx` holds icons copied from Material Icon Theme.
 
-- Source: the npm package `material-icon-theme`, version 5.39.0, files under `icons/`: `python.svg`, `console.svg`, `yaml.svg`, `toml.svg`, `json.svg`, `docker.svg`, `markdown.svg`, `diff.svg`, `document.svg`, `log.svg`, `file.svg`, `folder.svg` and `folder-open.svg`. Upstream: <https://github.com/material-extensions/vscode-material-icon-theme>.
-- Changes: each icon is a React component with the paths and `viewBox` of its file. Each fill colour is replaced by a theme token, a `fill-file-*` class whose colour `web/src/ui/theme.css` sets. The transparent 24 by 24 frame that `diff.svg`, `document.svg` and `log.svg` carry is left out. No path is changed.
+- Source: the npm package `material-icon-theme`, version 5.39.0, files under `icons/`: `python.svg`, `console.svg`, `yaml.svg`, `toml.svg`, `json.svg`, `docker.svg`, `markdown.svg`, `diff.svg`, `document.svg`, `log.svg`, `c.svg`, `cmake.svg`, `cpp.svg`, `csharp.svg`, `css.svg`, `dart.svg`, `database.svg`, `elixir.svg`, `gemfile.svg`, `git.svg`, `go.svg`, `go-mod.svg`, `gradle.svg`, `haskell.svg`, `html.svg`, `java.svg`, `javascript.svg`, `julia.svg`, `key.svg`, `kotlin.svg`, `lock.svg`, `lua.svg`, `makefile.svg`, `nodejs.svg`, `ocaml.svg`, `perl.svg`, `php.svg`, `r.svg`, `react.svg`, `ruby.svg`, `rust.svg`, `scala.svg`, `swift.svg`, `table.svg`, `typescript.svg`, `xml.svg`, `zip.svg`, `file.svg`, `folder.svg` and `folder-open.svg`. Upstream: <https://github.com/material-extensions/vscode-material-icon-theme>.
+- Changes: each icon is a React component with the paths and `viewBox` of its file. Each fill colour is replaced by a theme token, a `fill-file-*` class whose colour `web/src/ui/theme.css` sets. The transparent 24 by 24 frame that `diff.svg`, `document.svg` and `log.svg` carry is left out. `kotlin.svg` draws its path with a gradient; the path is filled with the gradient's first colour instead, and the gradient is left out. `ocaml.svg` has a first path without a fill, a point with no area; it is left out. No other path is changed.
 
 The original colours, by token:
 
@@ -23,6 +23,51 @@ The original colours, by token:
 | `file-log` | `#afb42b` |
 | `file-other` | `#90a4ae` |
 | `file-folder` | `#90a4ae` |
+| `file-typescript` | `#0288d1` |
+| `file-javascript` | `#ffca28` |
+| `file-react` | `#00bcd4` |
+| `file-c` | `#0288d1` |
+| `file-cpp` | `#0288d1` |
+| `file-csharp` | `#0288d1` |
+| `file-go` | `#00acc1` |
+| `file-gomod` | `#ec407a` |
+| `file-rust` | `#ff7043` |
+| `file-java` | `#f44336` |
+| `file-kotlin` | `#7c4dff` |
+| `file-swift` | `#ff6e40` |
+| `file-scala` | `#f44336` |
+| `file-dart` | `#4fc3f7` |
+| `file-dart-2` | `#01579b` |
+| `file-dart-3` | `#64b5f6` |
+| `file-haskell` | `#ef5350` |
+| `file-haskell-2` | `#ffa726` |
+| `file-haskell-3` | `#ffee58` |
+| `file-lua` | `#42a5f5` |
+| `file-perl` | `#ba68c8` |
+| `file-r` | `#1976d2` |
+| `file-julia` | `#c62828` |
+| `file-julia-2` | `#7e57c2` |
+| `file-julia-3` | `#388e3c` |
+| `file-elixir` | `#9575cd` |
+| `file-ocaml` | `#ff9800` |
+| `file-php` | `#1e88e5` |
+| `file-ruby` | `#f44336` |
+| `file-sql` | `#ffca28` |
+| `file-xml` | `#8bc34a` |
+| `file-html` | `#e65100` |
+| `file-css` | `#7e57c2` |
+| `file-csv` | `#8bc34a` |
+| `file-lock` | `#ffd54f` |
+| `file-git` | `#e64a19` |
+| `file-archive` | `#afb42b` |
+| `file-makefile` | `#ef5350` |
+| `file-cmake` | `#1e88e5` |
+| `file-cmake-2` | `#e53935` |
+| `file-cmake-3` | `#7cb342` |
+| `file-gemfile` | `#e53935` |
+| `file-npm` | `#8bc34a` |
+| `file-key` | `#26a69a` |
+| `file-gradle` | `#0097a7` |
 
 ## License
 
