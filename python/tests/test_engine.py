@@ -1801,6 +1801,55 @@ def test_a_visit_that_does_not_finish_leaves_what_the_visits_before_it_made(
   assert machine.deliverables_of(read_back) == last["deliverables"]
 
 
+@pytest.mark.parametrize(
+  ("error", "outcome"),
+  [
+    pytest.param(RuntimeError("proxy exited"), "raised", id="raised"),
+    pytest.param(KeyboardInterrupt(), "interrupted", id="interrupted"),
+  ],
+)
+def test_each_visit_records_when_it_began_and_ended(
+  tmp_path: Path, error: BaseException, outcome: str
+) -> None:
+  def fail(_: Context) -> Outcome:
+    raise error
+
+  records: list[dict[str, object]] = []
+  machine = Machine(
+    [
+      Step("build", lambda _: Outcome("done"), {"done": Goto("solve")}),
+      Step("solve", fail, {"done": End("passed")}),
+    ],
+    on_step=lambda attempt: records.append(attempt.to_json()),
+  )
+  before = datetime.now(UTC)
+  with pytest.raises(type(error)):
+    _ = machine.run(tmp_path)
+  after = datetime.now(UTC)
+
+  [running] = cast(list[dict[str, object]], records[0]["visits"])
+  assert running["started_at"] is not None
+  assert running["ended_at"] is None
+  attempt = Attempt.from_json(tmp_path, records[-1])
+  build, solve = attempt.visits
+  # The visit that did not finish ran no action, and still has its end.
+  assert (solve.outcome, solve.actions) == (outcome, [])
+  given = [build.started_at, build.ended_at, solve.started_at, solve.ended_at]
+  times = [time for time in given if time is not None]
+  assert len(times) == len(given)
+  assert [before, *times, after] == sorted([before, *times, after])
+
+
+def test_a_record_from_before_visit_times_reads_back_with_none(
+  tmp_path: Path,
+) -> None:
+  record = ended(tmp_path)
+  for key in ("started_at", "ended_at"):
+    record = broken(record, ["visits", 0, key], KeyError)
+  visit = Attempt.from_json(tmp_path, record).visits[0]
+  assert (visit.started_at, visit.ended_at) == (None, None)
+
+
 def test_a_value_from_json_nested_too_deep_has_a_reason(tmp_path: Path) -> None:
   write = (
     "import os; open(os.environ['DATAFORGE_OUTPUTS'] + '/verdict.json', 'w')"

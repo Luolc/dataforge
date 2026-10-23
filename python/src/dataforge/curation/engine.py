@@ -360,6 +360,11 @@ class Visit:
     round: How many times the attempt's first state had been entered when
       this visit began, this visit included.
     last: Whether the outcome had last=True.
+    started_at: When it was entered; None in a record from before visits
+      kept it.
+    ended_at: When its outcome was recorded, whether its run returned,
+      raised or was interrupted; None while it runs, and in a record from
+      before visits kept it.
     running: The outputs of its trials that have started and are not recorded
       yet; not part of the record's visit.
   """
@@ -372,6 +377,8 @@ class Visit:
   actions: list[ActionRecord] = field(default_factory=list[ActionRecord])
   round: int = 1
   last: bool = False
+  started_at: datetime | None = None
+  ended_at: datetime | None = None
   running: list[str] = field(default_factory=list[str])
 
   @property
@@ -546,6 +553,8 @@ class Attempt:
       "data": dict(visit.data),
       "mark": visit.mark,
       "last": visit.last,
+      "started_at": _iso(visit.started_at),
+      "ended_at": _iso(visit.ended_at),
       "actions": [self._action_json(action) for action in visit.actions],
     }
 
@@ -1112,6 +1121,7 @@ class Machine:
         step()
         return attempt
       visits[state.name] = visit
+      record.started_at = datetime.now(UTC)
       attempt.visits.append(record)
       try:
         step()
@@ -1126,9 +1136,11 @@ class Machine:
         )
         record.outcome = INTERRUPTED if interrupted else RAISED
         record.data = {"error": f"{type(error).__name__}: {error}"}
+        record.ended_at = datetime.now(UTC)
         step()
         raise
       record.outcome, record.data = outcome.name, outcome.data
+      record.ended_at = datetime.now(UTC)
       record.last = outcome.last
       if outcome.last:
         closed.add(state.name)
@@ -1623,6 +1635,8 @@ def _read_visit(root: Path, data: Mapping[str, object], where: str) -> Visit:
     ],
     round=_integer(data, "round", where),
     last=_flag(data, "last", where),
+    started_at=_maybe_time(data, "started_at", where),
+    ended_at=_maybe_time(data, "ended_at", where),
   )
 
 
@@ -1757,6 +1771,19 @@ def _flag(data: Mapping[str, object], key: str, where: str) -> bool:
   if not isinstance(value, bool):
     raise RecordError(f"{where}: {key} is not a boolean")
   return value
+
+
+def _maybe_time(
+  data: Mapping[str, object], key: str, where: str
+) -> datetime | None:
+  # Absent as well as null: a record from before the key was written.
+  if data.get(key) is None:
+    return None
+  return _time(data, key, where)
+
+
+def _iso(value: datetime | None) -> str | None:
+  return None if value is None else value.isoformat()
 
 
 def _time(data: Mapping[str, object], key: str, where: str) -> datetime:
