@@ -27,11 +27,11 @@ Click every link; compare each number with a second place that shows the same qu
 
 ## 3. Record each finding
 
-One row per finding, in a table kept in the PR description or in `$FLEET_SCRATCH` while you work (R217):
+One row per finding, in a table kept in the PR description or in a scratch directory outside the repository while you work:
 
 | id | screenshot | where (attempt, tab, panel) | kind | why it is wrong | fix site | status |
 
-- The screenshot shows the problem itself, named with the date (R217).
+- The screenshot shows the problem itself, named with the date.
 - `fix site`: a problem of the component or its logic is fixed in dataforge; a problem of the data (a missing field, a wrong status written, a wrong label in the project's configuration) is fixed in the project's repository. When it is unclear, read the DOM source of the value: if the page rendered what it was given, it is data.
 - Status words, and only these:
   - `fixed`: fixed in code and checked after the switch (section 6).
