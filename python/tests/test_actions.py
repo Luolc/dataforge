@@ -2079,4 +2079,5 @@ def test_a_judge_sees_each_trials_record_and_exception(tmp_path: Path) -> None:
     "rewards": {"reward": 0.0},
     "exception": "TimeoutError: Harbor ran past 5 s",
     "source": None,
+    "log": None,
   }

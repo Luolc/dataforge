@@ -255,7 +255,7 @@ describe("a tab of several deliverables of one kind", () => {
     show(withRegrade(false, false), "&tab=trials", twice);
 
     expect(
-      await screen.findByText("the attempt never reached regrade."),
+      await screen.findByText("Not run: the attempt never reached regrade."),
     ).toBeVisible();
   });
 

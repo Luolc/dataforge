@@ -19,6 +19,7 @@ import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
 import FilesView from "./files";
 import {
+  declared,
   type DeliverableProps,
   leadersFirst,
   leading,
@@ -26,6 +27,7 @@ import {
 } from "./kind";
 import ReportView from "./report";
 import TrialsView from "./trials";
+import { COUNTED } from "./trials/status";
 
 interface TabProps {
   project: Project;
@@ -39,6 +41,8 @@ interface ItemProps {
   project: string;
   attempt: string;
   item: Deliverable;
+  /** The word after a count, as the project file names it for the item. */
+  word?: string | null | undefined;
 }
 
 interface Kind {
@@ -98,19 +102,25 @@ function CountFailed({ message }: { message: string }) {
   );
 }
 
-/** How many of a trials deliverable's k trials solved it, short and in full. */
-function solved(item: Deliverable): { short: string; full: string } {
+/**
+ * How many of a trials deliverable's k trials it counts, as `word` says,
+ * short and in full.
+ */
+function solved(
+  item: Deliverable,
+  word: string,
+): { short: string; full: string } {
   if (item.path === null) return { short: NOT_RUN, full: NOT_RUN };
   const value = item.value?.value;
   const k = (item.k ?? 0).toString();
   if (typeof value === "number" || typeof value === "string")
     return {
       short: `${String(value)} / ${k}`,
-      full: `${String(value)} of ${k} solved`,
+      full: `${String(value)} of ${k} ${word}`,
     };
   return {
     short: `— / ${k}`,
-    full: `${counted(item.k ?? 0, "trial")}, solved not known`,
+    full: `${counted(item.k ?? 0, "trial")}, ${word} not known`,
   };
 }
 
@@ -143,11 +153,12 @@ const kinds: Partial<Record<string, Kind>> = {
   trials: {
     View: TrialsView,
     stack: false,
-    Count: ({ item, of }) => {
-      const { short, full } = solved(item);
+    Count: ({ item, of, word }) => {
+      const { short, full } = solved(item, word ?? COUNTED);
       return <TabBadge label={of + full}>{short}</TabBadge>;
     },
-    Line: ({ item }) => `${solved(item).short} solved`,
+    Line: ({ item, word }) =>
+      `${solved(item, word ?? COUNTED).short} ${word ?? COUNTED}`,
   },
   report: {
     View: ReportView,
@@ -197,7 +208,7 @@ export function KindLine({ item, ...props }: ItemProps) {
  * from a menu, the one the page's `deliverable` names, else the leading one.
  */
 export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
-  const { View, stack } = kindOf(kind);
+  const { View, stack, Count } = kindOf(kind);
   const [query, setQuery] = useSearchParams();
   const asked = props.items.find((d) => d.name === query.get("deliverable"));
   const chosen = (asked ?? leading(props.project, props.record, props.items))
@@ -220,7 +231,19 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
       {!stack && props.items.length > 1 && (
         <ChoiceMenu
           items={leadersFirst(props.project, props.record, props.items).map(
-            choice,
+            (item) => ({
+              ...choice(item),
+              aside: (
+                <Count
+                  of=""
+                  project={props.project.id}
+                  attempt={props.attempt}
+                  item={item}
+                  items={[item]}
+                  word={declared(props.project, item.name)?.count}
+                />
+              ),
+            }),
           )}
           chosen={shown[0] && choice(shown[0])}
           onChoose={setChosen}

@@ -72,6 +72,9 @@ The schema, version 1:
       value: {field: [<string>], output: <string>} # trials only
       match: <glob>                   # trials only: list only the trials
                                       # whose output name matches it
+      verdicts: {field: [<string>], output: <string>}  # trials only: an
+                                      # object of each trial's verdict by
+                                      # its output name
 
 In the fields the engine renders as string.Template (feedback, prompt and
 report_prompt, a prompt file and its vars), an input's value has each $
@@ -379,9 +382,10 @@ class _Loader:
         spec,
         at,
         required={"kind", "title", "source"},
-        optional={"table", "value", "match"},
+        optional={"table", "value", "match", "verdicts"},
       )
       table, data = fields.get("table"), fields.get("value")
+      verdicts = fields.get("verdicts")
       item = Deliverable(
         cast(Kind, self.string(fields["kind"], f"{at}.kind")),
         self.string(fields["title"], f"{at}.title"),
@@ -389,6 +393,9 @@ class _Loader:
         table=None if table is None else self.source(table, f"{at}.table"),
         value=None if data is None else self.value(data, f"{at}.value"),
         match=self.optional_string(fields.get("match"), f"{at}.match"),
+        verdicts=None
+        if verdicts is None
+        else self.value(verdicts, f"{at}.verdicts"),
       )
       try:
         check_deliverables({name: item}, states)
