@@ -162,7 +162,7 @@ describe("a trial that judged another trial's output again", () => {
 
     const trace = await screen.findByRole("tabpanel", { name: "Trace" });
     expect(trace).toHaveTextContent(
-      "This trial recorded no trace of its own, and the trial it judged again, artifacts/solve/0/trial-9 (listed by no deliverable), whose trace is not known.",
+      "This trial recorded no trace of its own, and the trace of the trial it judged again, artifacts/solve/0/trial-9 (listed by no deliverable), is not known.",
     );
     expect(within(trace).getAllByText(/./, { selector: "p" })).toHaveLength(1);
     expect(trace).not.toHaveTextContent(NO_TRACE);

@@ -508,12 +508,28 @@ function NoTrace({
     return (
       <div className="p-6 text-fg-3">
         <p>
-          This trial recorded no trace of its own, and the trial it judged
-          again,{" "}
-          <SourceName project={project.id} attempt={attempt} source={source} />
-          {source.listed === null
-            ? ", whose trace is not known."
-            : ", recorded no trace either."}
+          This trial recorded no trace of its own, and{" "}
+          {source.listed === null ? (
+            <>
+              the trace of the trial it judged again,{" "}
+              <SourceName
+                project={project.id}
+                attempt={attempt}
+                source={source}
+              />
+              , is not known.
+            </>
+          ) : (
+            <>
+              the trial it judged again,{" "}
+              <SourceName
+                project={project.id}
+                attempt={attempt}
+                source={source}
+              />
+              , recorded no trace either.
+            </>
+          )}
         </p>
       </div>
     );
