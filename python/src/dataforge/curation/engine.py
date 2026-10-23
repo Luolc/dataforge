@@ -1175,7 +1175,8 @@ class Machine:
       for name, item in self.deliverables.items()
     ]
     if last in ENDING:
-      _not_finished(entries, attempt.visits[-1], whole)
+      sources = [item.source for item in self.deliverables.values()]
+      _not_finished(entries, sources, attempt.visits[-1], whole)
     return entries
 
   def _blocked(
@@ -1361,15 +1362,26 @@ def _entry(name: str, item: Deliverable, attempt: Attempt) -> dict[str, object]:
 
 
 def _not_finished(
-  entries: list[dict[str, object]], ending: Visit, whole: Attempt
+  entries: list[dict[str, object]],
+  sources: list[Source],
+  ending: Visit,
+  whole: Attempt,
 ) -> None:
-  # A deliverable of the state whose visit did not finish, which no visit
-  # before it reached: why is that visit, not that the state was not visited.
-  if any(visit.state == ending.state for visit in whole.visits):
-    return
-  for entry in entries:
-    if entry["state"] == ending.state and entry["visit_index"] is None:
-      entry["reason"] = f"{ending.state} visit {ending.visit} {ending.outcome}"
+  # A deliverable that only the visit that did not finish could have made,
+  # no visit before it being one its source takes (of a source of several
+  # states, one with the output): why is that visit, which it names.
+  for entry, source in zip(entries, sources, strict=True):
+    if entry["visit_index"] is not None or ending.state not in source.states:
+      continue
+    several = isinstance(source.state, tuple)
+    if any(
+      visit.state in source.states
+      and (not several or source.output in visit.outputs)
+      for visit in whole.visits
+    ):
+      continue
+    entry["state"] = ending.state
+    entry["reason"] = f"{ending.state} visit {ending.visit} {ending.outcome}"
 
 
 def _source(source: Source, attempt: Attempt) -> dict[str, object]:

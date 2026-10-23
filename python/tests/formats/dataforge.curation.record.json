@@ -1,6 +1,6 @@
 {
   "format": "dataforge.curation.record",
-  "version": 5,
+  "version": 6,
   "facts": {
     "budget": "object",
     "budget/cost_usd": "float",

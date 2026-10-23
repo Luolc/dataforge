@@ -1954,6 +1954,40 @@ def test_a_visit_that_does_not_finish_leaves_what_the_visits_before_it_made(
   assert machine.deliverables_of(read_back) == last["deliverables"]
 
 
+def test_a_deliverable_of_several_states_names_the_visit_that_did_not_finish(
+  tmp_path: Path,
+) -> None:
+  def solve(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", 'echo done > "$DATAFORGE_OUTPUTS/partial"']
+    assert Actions().script(ctx, ScriptSpec(argv, outputs=["partial"])).ok
+    raise RuntimeError("proxy exited")
+
+  records: list[dict[str, object]] = []
+  machine = Machine(
+    [
+      Step("build", lambda _: Outcome("done"), {"done": Goto("solve")}),
+      Step("solve", solve, {"done": End("passed")}),
+    ],
+    deliverables={
+      "partial": Deliverable(
+        "files", "Partial", Source(("build", "solve"), "partial")
+      ),
+    },
+    on_step=lambda attempt: records.append(attempt.to_json()),
+  )
+  with pytest.raises(RuntimeError):
+    _ = machine.run(tmp_path)
+
+  # build ran before it, without the output, so only solve's visit could
+  # have made it.
+  [entry] = cast(list[dict[str, object]], records[-1]["deliverables"])
+  assert (entry["state"], entry["path"], entry["reason"]) == (
+    "solve",
+    None,
+    "solve visit 1 raised",
+  )
+
+
 @pytest.mark.parametrize(
   ("error", "outcome"),
   [
