@@ -107,6 +107,40 @@ def fill(template: str, item: str) -> str:
   return template.replace(PLACEHOLDER, item)
 
 
+def newest_row(rows: list[dict[str, object]]) -> dict[str, object] | None:
+  """Find the attempt an action with when "stopped" goes on with.
+
+  Args:
+    rows: The listing's rows of an item's attempts, newest modified first.
+
+  Returns:
+    The newest row whose record can be read; None when there is none.
+  """
+  return next((r for r in rows if r["error"] is None), None)
+
+
+def newest_attempt(
+  rows: list[dict[str, object]], found: runs.Found | None
+) -> str | None:
+  """Find the ID of the attempt an action with when "stopped" goes on with.
+
+  Args:
+    rows: The listing's rows of an item's attempts, newest modified first.
+    found: With runs, the item's rows in the store, the oldest first, which
+      then decide in place of rows.
+
+  Returns:
+    The store's newest row's, with runs; else the newest row's whose record
+    can be read; None when there is none.
+  """
+  if found is not None:
+    return (
+      None if found.error is not None or not found.rows else found.rows[-1].id
+    )
+  newest = newest_row(rows)
+  return None if newest is None else str(newest["id"])
+
+
 def unavailable(
   project: Project,
   action: Action,
@@ -140,18 +174,38 @@ def unavailable(
   if action.when == "idle" and any(r["held"] is True for r in rows):
     return "An attempt of this item is running: its lock is held."
   if action.when == "stopped":
-    newest = next((r for r in rows if r["error"] is None), None)
+    newest = newest_row(rows)
     if newest is None:
       return "No attempt of this item can be read."
     if newest["live"] is None:
       if newest["status"] not in project.resumable:
-        return "The newest attempt of this item has ended."
+        return _not_resumable(project, action, item, newest)
       if newest["held"] is True:
         return "An attempt of this item is running: its lock is held."
       return None
     if newest["live"] != live.MAY_HAVE_STOPPED:
       return "The newest attempt of this item is running."
   return None
+
+
+def _not_resumable(
+  project: Project, action: Action, item: str, newest: dict[str, object]
+) -> str:
+  # Why an action with when "stopped" may not go on with the item's newest
+  # attempt, which has ended: what it needs, and how that one ended.
+  def label(status: object) -> str:
+    if not isinstance(status, str):
+      return "with no status"
+    return project.statuses.get(status, {}).get("label", status)
+
+  needs = " or ".join(
+    ["may have stopped", *(f"ended {label(s)}" for s in project.resumable)]
+  )
+  stamp = str(newest["id"]).removeprefix(f"{item}/")
+  return (
+    f"{action.label} needs an attempt that {needs}; the newest, {stamp},"
+    + f" ended {label(newest['status'])}."
+  )
 
 
 def submit(

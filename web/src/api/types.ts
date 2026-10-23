@@ -59,7 +59,10 @@ export const project = z.looseObject({
     .nullable()
     .optional(),
   // Each deliverable a dataset's declaration names; the one marked default
-  // names its kind's tab while the attempt has reached none of the kind.
+  // names its kind's tab while the attempt has reached none of the kind,
+  // and one whose default is a condition leads its kind, the first of them,
+  // in an attempt whose visit it came from has `equals` at `field` of its
+  // outcome data.
   // no_trace: for a deliverable of trials, why a trial of it with no trace
   // has none, in the project's words.
   deliverables: z
@@ -70,7 +73,12 @@ export const project = z.looseObject({
         title: z.string(),
         no_trace: z.string().nullable().optional(),
         count: z.string().nullable().optional(),
-        default: z.boolean().optional(),
+        default: z
+          .union([
+            z.boolean(),
+            z.looseObject({ field: z.array(z.string()), equals: z.unknown() }),
+          ])
+          .optional(),
       }),
     )
     .optional(),
@@ -326,18 +334,22 @@ const actionParam = z.looseObject({
 });
 export type ActionParam = z.infer<typeof actionParam>;
 
-// Each of a data item's actions, why it may not be submitted now (null when
-// it may) and the numbers a person may set for it.
-export const actionStates = z.array(
-  z.looseObject({
-    name: z.string(),
-    label: z.string(),
-    queue: z.string(),
-    reason: z.string().nullable(),
-    params: z.array(actionParam),
-  }),
-);
-export type ActionState = z.infer<typeof actionStates>[number];
+// A data item's newest attempt that can be read, the one an action that goes
+// on with a stopped attempt takes, and each of its actions, why it may not be
+// submitted now (null when it may) and the numbers a person may set for it.
+export const actionStates = z.looseObject({
+  newest: z.string().nullable(),
+  actions: z.array(
+    z.looseObject({
+      name: z.string(),
+      label: z.string(),
+      queue: z.string(),
+      reason: z.string().nullable(),
+      params: z.array(actionParam),
+    }),
+  ),
+});
+export type ActionState = z.infer<typeof actionStates>["actions"][number];
 
 /** What a write answers: the job it queued or canceled. */
 export const written = z.looseObject({ job });
