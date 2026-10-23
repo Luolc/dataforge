@@ -170,6 +170,13 @@ def test_an_attempt_s_status_reason_cost_and_live_come_from_its_row(
     lost: ("interrupted", None, None, "may have stopped", "interrupted"),
     running: (None, None, None, "running", "running"),
   }
+  # Only a running row whose holder is alive holds its item.
+  assert {i: r["holder"] for i, r in rows.items()} == {
+    ended: False,
+    person: False,
+    lost: False,
+    running: True,
+  }
   assert rows[ended]["progress_at"] == "2026-01-02T03:00:00+00:00"
   assert all(r["error"] is None and r["note"] is None for r in rows.values())
   assert all(r["held"] is None for r in rows.values())
@@ -185,14 +192,17 @@ def test_a_running_row_whose_holder_is_gone_says_so(
   row = listing(web)[running]
   live = cast(object, web.get(LIVE, params={"attempt": running}).json())
 
-  assert (row["live"], row["state"], row["note"]) == (
+  assert (row["live"], row["state"], row["note"], row["holder"]) == (
     "may have stopped",
     "running",
     HOLDER_GONE,
+    False,
   )
   assert live == {
     "live": "may have stopped",
     "held": None,
+    "holder": False,
+    "stopped": None,
     "current": None,
     "state": "running",
     "status": None,
@@ -238,7 +248,7 @@ def test_a_directory_with_no_row_is_read_from_its_record_and_says_so(
     0.42,
     NO_ROW,
   )
-  assert alone["state"] is None
+  assert (alone["state"], alone["holder"]) == (None, None)
   assert rows[other]["status"] == "failed"
 
 

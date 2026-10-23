@@ -24,9 +24,14 @@ const STATES = ["queued", "running", "done", "failed", "canceled"] as const;
 export function jobLabel(job: Job): { label: string; tone: Tone } {
   if (job.state === "running" && job.cancel_requested_at !== null)
     return jobStatus.canceling;
-  const state = STATES.find((s) => s === job.state);
+  return stateLabel(job.state);
+}
+
+/** A job state's label and tone; one this viewer does not know is itself, neutral. */
+export function stateLabel(word: string): { label: string; tone: Tone } {
+  const state = STATES.find((s) => s === word);
   return state === undefined
-    ? { label: job.state, tone: "neutral" }
+    ? { label: word, tone: "neutral" }
     : jobStatus[state];
 }
 

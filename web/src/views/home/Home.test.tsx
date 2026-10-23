@@ -274,6 +274,48 @@ describe("the home page", () => {
     ).toBeVisible();
   });
 
+  it("says Stopped, with its job, for an attempt that may have stopped and whose job has ended", async () => {
+    const rows = [
+      row("t-gone/1", {
+        status: null,
+        live: "may have stopped",
+        held: false,
+        stopped: { job: 12, state: "failed" },
+      }),
+      row("t-maybe/1", {
+        status: null,
+        live: "may have stopped",
+        held: false,
+        stopped: null,
+      }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show();
+    const gone = (await screen.findByText("t-gone")).closest("tr");
+    if (!gone) throw new Error("no row");
+
+    expect(within(gone).getByRole("img", { name: "Stopped" })).toHaveClass(
+      "text-warn",
+    );
+    const label = within(gone).getByText("Stopped").closest("[tabindex]");
+    if (!(label instanceof HTMLElement)) throw new Error("no focusable label");
+    fireEvent.focus(label);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Job 12, which ran this attempt, ended Failed; nothing runs it now.",
+    );
+    expect(screen.getByText("t-maybe").closest("tr")).toHaveTextContent(
+      "May have stopped",
+    );
+    expect(screen.getByRole("button", { name: /^Stopped/ })).toHaveTextContent(
+      "Stopped1",
+    );
+  });
+
   it("with the store of runs, shows an interrupted attempt's word, what a reconcile has yet to do and when its cost was read, on focus", async () => {
     const note = "its machine ended passed; a reconcile has not ended it yet";
     const rows: AttemptRow[] = [
@@ -787,9 +829,10 @@ describe("the home page's empty attempts", () => {
     // Items with older records only.
     row("t-empty/1", empty),
     unreadable("t-gone/1"),
-    // An unreadable attempt of an item whose lock is held: it may have just
-    // started.
-    { ...unreadable("t-started/1"), held: true },
+    // An unreadable attempt its item's held lock is for: it may have just
+    // started; and an older one of that item, which stays hidden.
+    { ...unreadable("t-started/2"), held: true, holder: true },
+    { ...unreadable("t-started/1"), held: true, holder: false },
   ];
 
   beforeEach(() => {
@@ -812,7 +855,7 @@ describe("the home page's empty attempts", () => {
     await screen.findByText("t-new");
 
     expect(ids()).toEqual(["t-new", "t-mixed", "t-started"]);
-    expect(screen.getByText("4 older attempts hidden (3 Tasks)")).toBeVisible();
+    expect(screen.getByText("5 older attempts hidden (4 Tasks)")).toBeVisible();
     expect(screen.getByRole("button", { name: "Show" })).toHaveAttribute(
       "aria-pressed",
       "false",
@@ -832,7 +875,7 @@ describe("the home page's empty attempts", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByLabelText("where")).toHaveTextContent("/sample?older=1");
-    expect(screen.getByText("4 older attempts shown (3 Tasks)")).toBeVisible();
+    expect(screen.getByText("5 older attempts shown (4 Tasks)")).toBeVisible();
     expect(ids()).toEqual(
       expect.arrayContaining(["t-mixed", "t-empty", "t-gone", "t-started"]),
     );
@@ -844,7 +887,7 @@ describe("the home page's empty attempts", () => {
 
   it("counts only what it shows in the chips, a chosen one at 0", async () => {
     show("/sample?status=~no-status");
-    await screen.findByText("4 older attempts hidden (3 Tasks)");
+    await screen.findByText("5 older attempts hidden (4 Tasks)");
 
     expect(
       screen.getByText("Nothing matches the search and the status filter."),
