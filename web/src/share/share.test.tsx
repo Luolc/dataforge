@@ -220,7 +220,7 @@ describe("the share site's Pass@K tab", () => {
     ).toEqual([
       "Trial 1solved",
       "Trial 2solved",
-      "Trial 3exception",
+      "Trial 3not solved",
       "Trial 4solved",
     ]);
 
