@@ -70,6 +70,48 @@ describe("fileTypeOf", () => {
     expect(languageOf(name)).toBe(language);
   });
 
+  it.each([
+    ["a.mts", "typescript"],
+    ["a.cts", "typescript"],
+    ["a.cjs", "javascript"],
+    ["a.jsx", "react"],
+    ["a.hh", "cpp"],
+    ["a.hpp", "cpp"],
+    ["a.hxx", "cpp"],
+    ["a.cxx", "cpp"],
+    ["a.kts", "kotlin"],
+    ["a.sc", "scala"],
+    ["a.pm", "perl"],
+    ["a.exs", "elixir"],
+    ["a.mli", "ocaml"],
+    ["a.phtml", "php"],
+    ["a.rake", "ruby"],
+    ["a.gemspec", "ruby"],
+    ["a.scss", "css"],
+    ["a.less", "css"],
+    ["a.htm", "html"],
+    ["a.tsv", "csv"],
+    ["a.tgz", "archive"],
+    ["a.zip", "archive"],
+    ["a.tar", "archive"],
+    ["a.bz2", "archive"],
+    ["a.xz", "archive"],
+    ["a.zst", "archive"],
+    ["a.jar", "archive"],
+    ["a.whl", "archive"],
+    ["a.cmake", "cmake"],
+    ["a.pem", "key"],
+    ["GNUmakefile", "makefile"],
+    ["Rakefile", "ruby"],
+    ["go.work", "gomod"],
+    ["pnpm-lock.yaml", "lock"],
+    ["settings.gradle.kts", "gradle"],
+    [".gitattributes", "git"],
+    [".gitmodules", "git"],
+  ])("takes %s as %s", (name, kind) => {
+    expect(fileTypeOf(name).kind).toBe(kind);
+  });
+
   it("ignores case", () => {
     expect(fileTypeOf("Main.PY").kind).toBe("python");
     expect(fileTypeOf("DOCKERFILE").kind).toBe("docker");
