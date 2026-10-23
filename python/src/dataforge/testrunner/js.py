@@ -201,7 +201,7 @@ class Jest(Runner):
   so that what a fix adds to package.json or a new jest.config.* is not
   read. Babel's configuration, which jest's default transform reads, is a
   file of RUNNER_FILES, but for package.json's `babel`, which no command
-  line replaces: a dataset checks it itself, as Maven's pom.xml.
+  line replaces: a dataset checks it itself.
   """
 
   _CONFIGS = tuple(

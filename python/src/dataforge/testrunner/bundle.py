@@ -178,29 +178,41 @@ def guards_of(data: bytes) -> list[str]:
     Its GUARDS, in their order.
 
   Raises:
-    ValueError: When it names one that is not of GUARDS.
+    ValueError: When it names one that is not of GUARDS, or names no
+      GUARDS, as a copy of the old layout, written before a copy held the
+      checks of a fix's files, does not.
   """
-  found = cast("tuple[str, ...]", ast.literal_eval(_value(data, "GUARDS")))
+  value = _value(data, "GUARDS")
+  if value is None:
+    raise ValueError(
+      "registry.py names no GUARDS: a copy of the old layout, written"
+      + " before a copy held the checks of a fix's files"
+    )
+  found = cast("tuple[str, ...]", ast.literal_eval(value))
   if unknown := sorted(set(found) - set(GUARDS)):
     raise ValueError(f"unknown guards: {', '.join(unknown)}")
   return list(found)
 
 
-def _value(data: bytes, name: str) -> ast.expr:
-  # The value of registry.py's annotated assignment to name.
+def _value(data: bytes, name: str) -> ast.expr | None:
+  # The value of registry.py's annotated assignment to name, if it has one.
   return next(
-    n.value
-    for n in ast.parse(data).body
-    if isinstance(n, ast.AnnAssign)
-    and isinstance(n.target, ast.Name)
-    and n.target.id == name
-    and n.value is not None
+    (
+      n.value
+      for n in ast.parse(data).body
+      if isinstance(n, ast.AnnAssign)
+      and isinstance(n.target, ast.Name)
+      and n.target.id == name
+      and n.value is not None
+    ),
+    None,
   )
 
 
 def _replace(data: bytes, name: str, literal: str) -> bytes:
   # registry.py with the value of its annotated assignment to name replaced.
   value = _value(data, name)
+  assert value is not None, f"the package's registry.py names no {name}"
   lines = data.splitlines(keepends=True)
   start = sum(map(len, lines[: value.lineno - 1])) + value.col_offset
   end = sum(map(len, lines[: (value.end_lineno or 0) - 1]))
