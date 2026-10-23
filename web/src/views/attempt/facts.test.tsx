@@ -104,6 +104,44 @@ describe("an attempt's total duration", () => {
 
     expect(show(ended).item("Total duration")).toHaveTextContent("1h 10m");
   });
+
+  it("ends where a last run with no action ended, by its own times", () => {
+    const last = must(records.passed.visits.at(-1));
+    const end = Date.parse(must(last.actions.at(-1)).ended_at);
+    const at = (minutes: number) =>
+      new Date(end + minutes * 60_000).toISOString();
+    const raised = {
+      ...last,
+      outcome: "raised",
+      actions: [],
+      started_at: at(0),
+      ended_at: at(10),
+    };
+    const ended = {
+      ...records.passed,
+      visits: [...records.passed.visits, raised],
+    };
+
+    expect(show(ended).item("Total duration")).toHaveTextContent("1h 20m");
+  });
+
+  it("ends where the last run that ended did, after one entered and never ended", () => {
+    const last = must(records.passed.visits.at(-1));
+    const end = must(last.actions.at(-1)).ended_at;
+    const entered = {
+      ...last,
+      outcome: null,
+      actions: [],
+      started_at: end,
+      ended_at: null,
+    };
+    const ended = {
+      ...records.passed,
+      visits: [...records.passed.visits, entered],
+    };
+
+    expect(show(ended).item("Total duration")).toHaveTextContent("1h 10m");
+  });
 });
 
 describe("a running attempt's facts", () => {

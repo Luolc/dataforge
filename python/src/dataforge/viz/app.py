@@ -699,12 +699,8 @@ def _row(project: Project, attempt: str) -> _Read:
     for v in _list(_field(data, ("visits",)))
     if isinstance(v, dict)
   ]
-  actions = [
-    cast(dict[str, object], a)
-    for v in visits
-    for a in _list(v.get("actions"))
-    if isinstance(a, dict)
-  ]
+  starts = [_visit_time(v, 0, "started_at") for v in visits]
+  ends = [_visit_time(v, -1, "ended_at") for v in visits]
   status = _str(_field(data, ("status",)))
   outcome = _str(visits[-1].get("outcome")) if visits else None
   ended = live.has_ended(project, status, outcome)
@@ -714,8 +710,8 @@ def _row(project: Project, attempt: str) -> _Read:
       "status": status,
       "reason": _str(_field(data, ("reason",))),
       "cost_usd": _number(_field(data, ("budget", "cost_usd"))),
-      "started_at": _str(actions[0].get("started_at")) if actions else None,
-      "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
+      "started_at": next((t for t in starts if t is not None), None),
+      "ended_at": next((t for t in reversed(ends) if t is not None), None),
       "rounds": _rounds(visits),
       "values": [
         _field(data, c.field) if found is None else found["value"]
@@ -729,6 +725,21 @@ def _row(project: Project, attempt: str) -> _Read:
     data,
     None if ended else read.mtime,
   )
+
+
+def _actions(visit: dict[str, object]) -> list[dict[str, object]]:
+  return [
+    cast(dict[str, object], a)
+    for a in _list(visit.get("actions"))
+    if isinstance(a, dict)
+  ]
+
+
+def _visit_time(visit: dict[str, object], which: int, key: str) -> str | None:
+  # A visit's start or end: its first or last action's, else its own, which a
+  # visit that raised before any action has alone.
+  actions = _actions(visit)
+  return _str((actions[which] if actions else visit).get(key))
 
 
 def _rounds(visits: list[dict[str, object]]) -> list[dict[str, object]]:

@@ -118,28 +118,31 @@ export function span(from: string, to: string): number | null {
   return Number.isNaN(seconds) ? null : seconds;
 }
 
-const visitStart = (v: Visit): string | undefined => v.actions[0]?.started_at;
-const visitEnd = (v: Visit): string | undefined => v.actions.at(-1)?.ended_at;
+// A visit's start and end: its first action's start and its last's end, else
+// its own, which a visit that raised before any action has alone.
+const visitStart = (v: Visit): string | undefined =>
+  v.actions[0]?.started_at ?? v.started_at ?? undefined;
+const visitEnd = (v: Visit): string | undefined =>
+  v.actions.at(-1)?.ended_at ?? v.ended_at ?? undefined;
 
 /**
  * When an attempt started and ended, as the home page's listing takes them:
- * its first action's start and its last action's end, whichever visits they
- * are in.
+ * the first start of its visits and the last end, a visit's times being its
+ * actions', else its own.
  */
 export function attemptTimes(record: AttemptRecord): {
   started: string | undefined;
   ended: string | undefined;
 } {
-  const actions = record.visits.flatMap((v) => v.actions);
   return {
-    started: actions[0]?.started_at,
-    ended: actions.at(-1)?.ended_at ?? undefined,
+    started: record.visits.map(visitStart).find((t) => t !== undefined),
+    ended: record.visits.map(visitEnd).findLast((t) => t !== undefined),
   };
 }
 
 /**
- * A visit's seconds, from its first action's start to its last's end; null
- * for a visit that recorded no action, or whose actions' times do not read.
+ * A visit's seconds, from its start to its end, its actions' or else its
+ * own; null when it has neither, or when they do not read.
  */
 export function visitSeconds(v: Visit): number | null {
   const from = visitStart(v);
@@ -152,7 +155,7 @@ export const NO_ACTION = "no action recorded";
 
 /**
  * A visit's time: its duration (visitSeconds), NO_ACTION when it recorded no
- * action, "—" when its actions' times do not read.
+ * action and has no time of its own, "—" when its times do not read.
  */
 export function visitTime(v: Visit): string {
   const seconds = visitSeconds(v);

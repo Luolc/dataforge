@@ -422,6 +422,76 @@ def test_other_paths_serve_the_frontend(tree: Tree, static: Path) -> None:
   assert outside.text.startswith("<!doctype html>")
 
 
+def test_an_attempt_ends_when_its_last_visit_did_even_without_an_action(
+  tree: Tree, static: Path
+) -> None:
+  action = {
+    "started_at": "2026-01-02T03:04:05+00:00",
+    "ended_at": "2026-01-02T03:14:05+00:00",
+  }
+  visits: list[dict[str, object]] = [
+    {"state": "write", "outcome": "done", "actions": [action]},
+    {
+      "state": "check",
+      "outcome": "raised",
+      "started_at": "2026-01-02T03:14:06+00:00",
+      "ended_at": "2026-01-02T03:20:00+00:00",
+      "actions": [],
+    },
+  ]
+  _ = (tree.attempt / "record.json").write_text(
+    json.dumps({"status": None, "visits": visits})
+  )
+
+  [row] = cast(
+    list[dict[str, object]],
+    client(tree, static).get(f"{API}/attempts").json(),
+  )
+
+  assert (row["started_at"], row["ended_at"]) == (
+    "2026-01-02T03:04:05+00:00",
+    "2026-01-02T03:20:00+00:00",
+  )
+
+
+def test_an_attempt_ends_where_its_last_visit_with_an_end_did(
+  tree: Tree, static: Path
+) -> None:
+  # A visit entered and never ended, as one the process was killed in.
+  visits: list[dict[str, object]] = [
+    {
+      "state": "write",
+      "outcome": "done",
+      "actions": [
+        {
+          "started_at": "2026-01-02T03:04:05+00:00",
+          "ended_at": "2026-01-02T03:14:05+00:00",
+        }
+      ],
+    },
+    {
+      "state": "check",
+      "outcome": None,
+      "started_at": "2026-01-02T03:14:06+00:00",
+      "ended_at": None,
+      "actions": [],
+    },
+  ]
+  _ = (tree.attempt / "record.json").write_text(
+    json.dumps({"status": "passed", "visits": visits})
+  )
+
+  [row] = cast(
+    list[dict[str, object]],
+    client(tree, static).get(f"{API}/attempts").json(),
+  )
+
+  assert (row["started_at"], row["ended_at"]) == (
+    "2026-01-02T03:04:05+00:00",
+    "2026-01-02T03:14:05+00:00",
+  )
+
+
 def test_rounds_are_the_last_visit_of_each_round(
   tree: Tree, static: Path
 ) -> None:
