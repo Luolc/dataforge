@@ -200,9 +200,14 @@ def _not_going_on(newest: AttemptRow) -> str | None:
   if newest.state == "ended":
     return "The newest attempt of this item has ended."
   if newest.machine_status is not None:
-    return f"{note(newest, False)}."
+    return _sentence(note(newest, False) or "")
   if newest.resumable is None:
-    return f"{NOT_CHECKED[0].upper()}{NOT_CHECKED[1:]}."
+    return _sentence(NOT_CHECKED)
   if not newest.resumable:
     return newest.resume_problem or "It cannot go on."
   return None
+
+
+def _sentence(words: str) -> str:
+  # The viewer's own words as a reason: a sentence, as the other reasons are.
+  return f"{words[:1].upper()}{words[1:]}."

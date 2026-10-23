@@ -77,8 +77,9 @@ function endStatus(project: Project, record: AttemptRecord): string | null {
 
 /**
  * The record as a page shows it: with the project's runs and a row of the
- * attempt in the store, as /live gives it, its status is the row's (null while
- * it runs), not the record file's own (design-viz.md section 4).
+ * attempt in the store, as /live gives it, its status and reason are the row's
+ * (the status null while it runs), not the record file's own (design-viz.md
+ * section 4).
  */
 export function withRowStatus(
   project: Project,
@@ -86,7 +87,11 @@ export function withRowStatus(
   live: LiveInfo | null,
 ): AttemptRecord {
   if (project.runs == null || live?.state == null) return record;
-  return { ...record, status: live.status ?? null };
+  return {
+    ...record,
+    status: live.status ?? null,
+    reason: live.reason ?? null,
+  };
 }
 
 /**

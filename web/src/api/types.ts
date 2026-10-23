@@ -282,9 +282,10 @@ export const liveInfo = z.looseObject({
   live: z.enum(LIVE).nullable(),
   held: z.boolean().nullable(),
   // As the listing's row has them: with runs, the row's state, its status
-  // word and what a reconcile has yet to do with it.
+  // word, its reason and what a reconcile has yet to do with it.
   state: z.enum(ROW_STATES).nullable().optional(),
   status: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
   note: z.string().nullable().optional(),
   current: z
     .looseObject({

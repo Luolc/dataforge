@@ -155,6 +155,7 @@ class _Api:
         "current": current,
         "state": row["state"],
         "status": row["status"],
+        "reason": row["reason"],
         "note": row["note"],
       }
     )

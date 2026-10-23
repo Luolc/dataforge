@@ -138,10 +138,20 @@ describe("an attempt with a row in the store of runs", () => {
     status,
   });
 
-  it("takes its status from its row, not from its record file", () => {
+  it("takes its status and reason from its row, not from its record file", () => {
     expect(withRowStatus(runs, shown, live("ended", "passed")).status).toBe(
       "passed",
     );
+    expect(
+      withRowStatus(
+        runs,
+        { ...shown, reason: "the file's" },
+        {
+          ...live("ended", "passed"),
+          reason: "the row's",
+        },
+      ).reason,
+    ).toBe("the row's");
     expect(
       attemptStatus(runs, withRowStatus(runs, shown, live("running", null))),
     ).toBeNull();

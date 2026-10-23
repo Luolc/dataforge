@@ -196,6 +196,7 @@ def test_a_running_row_whose_holder_is_gone_says_so(
     "current": None,
     "state": "running",
     "status": None,
+    "reason": None,
     "note": HOLDER_GONE,
   }
 
@@ -218,7 +219,7 @@ def test_an_interrupted_row_whose_machine_ended_says_so(
     "its machine ended passed; a reconcile has not ended it yet",
   )
   assert reasons(web)["go-on"] == (
-    "its machine ended passed; a reconcile has not ended it yet."
+    "Its machine ended passed; a reconcile has not ended it yet."
   )
 
 
