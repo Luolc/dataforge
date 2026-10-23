@@ -150,8 +150,10 @@ describe("a trial that judged another trial's output again", () => {
 
     const trace = await screen.findByRole("tabpanel", { name: "Trace" });
     expect(trace).toHaveTextContent(
-      "It judged again the output of Pass@k · Trial 3, which recorded no trace either.",
+      "This trial recorded no trace of its own, and the trial it judged again, Pass@k · Trial 3, recorded no trace either.",
     );
+    expect(within(trace).getAllByText(/./, { selector: "p" })).toHaveLength(1);
+    expect(trace).not.toHaveTextContent(NO_TRACE);
     expect(within(trace).queryByText("Expand all")).toBeNull();
   });
 
@@ -160,8 +162,10 @@ describe("a trial that judged another trial's output again", () => {
 
     const trace = await screen.findByRole("tabpanel", { name: "Trace" });
     expect(trace).toHaveTextContent(
-      "It judged again the output of artifacts/solve/0/trial-9 (listed by no deliverable), so its trace is not known.",
+      "This trial recorded no trace of its own, and the trial it judged again, artifacts/solve/0/trial-9 (listed by no deliverable), whose trace is not known.",
     );
+    expect(within(trace).getAllByText(/./, { selector: "p" })).toHaveLength(1);
+    expect(trace).not.toHaveTextContent(NO_TRACE);
     expect(within(trace).queryByRole("link")).toBeNull();
     expect(field("Source trial")).toHaveTextContent(
       "artifacts/solve/0/trial-9 (listed by no deliverable)",
@@ -176,7 +180,7 @@ describe("a trial that judged another trial's output again", () => {
       within(trace).getByText("This trial recorded no trace."),
     ).toBeVisible();
     expect(within(trace).getByText(NO_TRACE)).toBeVisible();
-    expect(trace).not.toHaveTextContent("It judged again");
+    expect(trace).not.toHaveTextContent("judged again");
     expect(numbers().queryByText("Source trial")).toBeNull();
   });
 
