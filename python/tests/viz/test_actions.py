@@ -56,10 +56,19 @@ def jobs(made: QueueTree) -> list[queue.Job]:
     return []
 
 
-def write(made: QueueTree, name: str, status: str | None, age: int) -> None:
+def write(
+  made: QueueTree,
+  name: str,
+  status: str | None,
+  age: int,
+  started: str | None = None,
+) -> None:
   record = cast(
     dict[str, object], json.loads((FIXTURES / "record.json").read_text())
   )
+  if started is not None:
+    visits = cast(list[dict[str, list[dict[str, object]]]], record["visits"])
+    visits[0]["actions"][0]["started_at"] = started
   path = made.tree.root / "batch-1" / name / "record.json"
   path.parent.mkdir(exist_ok=True)
   _ = path.write_text(json.dumps(record | {"status": status}))
@@ -298,13 +307,45 @@ def test_stopped_needs_a_newest_attempt_that_may_have_stopped(
 
   assert ended == "The newest attempt of this item has ended."
   assert older == ended
-  assert running == "The newest attempt of this item is running."
+  assert running == "An attempt of this item is running: its lock is held."
   assert stopped is None
   response = web.post(
     f"{ACTIONS}/go-on", params={"item": "batch-1"}, headers=WRITE
   )
   assert response.status_code == 201
   assert [j.argv for j in jobs(made)] == [("run-item", "--go-on", "batch-1")]
+
+
+def test_stopped_is_refused_while_a_new_attempt_with_no_record_holds_the_lock(
+  made: QueueTree, static: Path
+) -> None:
+  web = client(made, static)
+  write(made, "task-2", None, 0)
+  # Newer than task-2, it has not written its record yet.
+  fresh = made.tree.root / "batch-1" / "task-9"
+  fresh.mkdir()
+  then = time.time() + 10
+  os.utime(fresh, (then, then))
+
+  with holding(made.tree.root / "batch-1" / ".lock"):
+    held = reasons(web)["go-on"]
+
+  assert held == "An attempt of this item is running: its lock is held."
+
+
+def test_stopped_takes_the_attempt_that_started_last_as_the_newest(
+  made: QueueTree, static: Path
+) -> None:
+  web = client(made, static)
+  # task-0 started first and was written last; task-2 started last and ended.
+  write(made, "task-0", None, 0, started="2026-01-01T00:00:00+00:00")
+  write(made, "task-2", "passed", 3600, started="2026-01-03T00:00:00+00:00")
+  ended = reasons(web)["go-on"]
+  write(made, "task-2", None, 3600, started="2026-01-03T00:00:00+00:00")
+  stopped = reasons(web)["go-on"]
+
+  assert ended == "The newest attempt of this item has ended."
+  assert stopped is None
 
 
 def test_stopped_goes_on_with_a_resumable_status_unless_the_lock_is_held(

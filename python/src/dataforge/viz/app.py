@@ -452,10 +452,12 @@ class _Api:
       row["queued"] = found
 
   def _stopped(self, project: Project, rows: list[dict[str, object]]) -> None:
-    # Which job ran each attempt that may have stopped, once it has ended;
-    # nothing when the site names no queue or it cannot be read.
+    # Which job ran each attempt that may have stopped, its item's lock free,
+    # once it has ended; nothing when the site names no queue or it cannot be
+    # read, and the queue is read only when some row may have stopped so.
     if self._site.queue is None or not any(
-      row["live"] == live.MAY_HAVE_STOPPED for row in rows
+      row["live"] == live.MAY_HAVE_STOPPED and row["held"] is False
+      for row in rows
     ):
       return
     try:

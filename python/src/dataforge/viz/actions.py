@@ -8,6 +8,8 @@ declares goes into the job.
 """
 
 from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime
+import math
 
 from dataforge import queue
 from dataforge.viz import live
@@ -132,21 +134,50 @@ def unavailable(
   holder = next((j for j in open_jobs if j.dedup_key == key), None)
   if holder is not None:
     return f"Job {holder.id} for this item is {holder.state} in {holder.queue}."
-  if action.when == "idle" and any(r["held"] is True for r in rows):
+  if action.when in ("idle", "stopped") and any(
+    r["held"] is True for r in rows
+  ):
     return "An attempt of this item is running: its lock is held."
   if action.when == "stopped":
-    newest = next((r for r in rows if r["error"] is None), None)
+    newest = _newest_attempt(rows)
     if newest is None:
       return "No attempt of this item can be read."
     if newest["live"] is None:
       if newest["status"] not in project.resumable:
         return "The newest attempt of this item has ended."
-      if newest["held"] is True:
-        return "An attempt of this item is running: its lock is held."
       return None
     if newest["live"] != live.MAY_HAVE_STOPPED:
       return "The newest attempt of this item is running."
   return None
+
+
+def _newest_attempt(rows: list[dict[str, object]]) -> dict[str, object] | None:
+  """Find an item's newest attempt, as the home page finds it.
+
+  Args:
+    rows: The listing's rows of the item's attempts, newest modified first,
+      with live marked.
+
+  Returns:
+    Of the rows that can be read, the one that started last: one that has
+    not ended and has no started_at yet is newer than any that has one, and
+    one that has ended with none, or one that does not parse, is the oldest;
+    of two that started at once, the first, as byNewestStart in the home
+    page's web/src/views/home/items.ts orders them. None when none can be
+    read.
+  """
+
+  def started(row: dict[str, object]) -> float:
+    at = row["started_at"]
+    if at is None:
+      return math.inf if row["live"] is not None else -math.inf
+    try:
+      return datetime.fromisoformat(str(at)).timestamp()
+    except ValueError:
+      return -math.inf
+
+  readable = [r for r in rows if r["error"] is None]
+  return max(readable, key=started, default=None)
 
 
 def submit(
