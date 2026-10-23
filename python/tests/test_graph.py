@@ -217,7 +217,7 @@ states:
     with: {argv: [judge], outcomes: [pass, fail]}
     on_exhausted: rejected
     transitions:
-      pass: {end: passed}
+      pass: {end: passed, keep_mark: kept}
       fail: {goto: make, mark: kept, end_on_last_visit: true}
 """
 
@@ -256,7 +256,7 @@ DECLARED_GRAPH = {
   "edges": [
     edge("make", "ok", to="check", report=False),
     edge("make", "failed", to="make"),
-    edge("check", "pass", end="passed", report=False),
+    edge("check", "pass", end="passed", report=False, keep_mark="kept"),
     edge("check", "fail", to="make", mark="kept", end_on_last_visit=True),
   ],
 }
@@ -269,7 +269,7 @@ flowchart TD
   e0(["end: passed"])
   s0 -->|"ok, no report"| s1
   s0 -->|"failed"| s0
-  s1 -->|"pass"| e0
+  s1 -->|"pass, keeps mark kept"| e0
   s1 -->|"fail, mark kept, ends on last visit"| s0
 """
 
