@@ -471,9 +471,10 @@ function SourceName({
 }
 
 /**
- * Why a finished trial shows no trace of its own: the project's words, when
- * it has them, and the trial whose output it judged again, when it judged
- * one, with that trial's trace under them when it has one.
+ * What a finished trial shows when it has no trace of its own: the trace of
+ * the trial whose output it judged again, as any trace shows, when that trial
+ * has one; otherwise the project's words, and the trial it judged, when it
+ * judged one, to say why there is none.
  */
 function NoTrace({
   project,
@@ -487,9 +488,23 @@ function NoTrace({
   noTrace: string | null;
 }) {
   const sourceTrace = source?.listed?.trial.trace ?? null;
-  const shown = source?.listed != null && sourceTrace !== null;
-  const words = (failure: string | null) => (
-    <div className={`flex flex-col gap-2 p-6 text-fg-3 ${shown ? "pb-0" : ""}`}>
+  if (source?.listed != null && sourceTrace !== null) {
+    return (
+      <SessionView
+        project={project}
+        attempt={attempt}
+        path={sourceTrace.path}
+        format={sourceTrace.format}
+        badge={
+          <span className="text-sm font-medium text-fg">
+            {source.listed.deliverable.title} · {trialName(source.listed.index)}
+          </span>
+        }
+      />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 p-6 text-fg-3">
       <p>
         {source === undefined
           ? "This trial recorded no trace."
@@ -502,30 +517,9 @@ function NoTrace({
           <SourceName project={project.id} attempt={attempt} source={source} />
           {source.listed === null
             ? ", so its trace is not known."
-            : sourceTrace === null
-              ? ", which recorded no trace either."
-              : failure === null
-                ? ", whose trace is shown below."
-                : `, whose trace could not be read: ${failure}`}
+            : ", which recorded no trace either."}
         </p>
       )}
-    </div>
-  );
-  if (source?.listed == null || sourceTrace === null) return words(null);
-  return (
-    <div className="flex flex-col gap-4">
-      <SessionView
-        project={project}
-        attempt={attempt}
-        path={sourceTrace.path}
-        format={sourceTrace.format}
-        above={words}
-        badge={
-          <span className="text-sm font-medium text-fg">
-            {source.listed.deliverable.title} · {trialName(source.listed.index)}
-          </span>
-        }
-      />
     </div>
   );
 }
