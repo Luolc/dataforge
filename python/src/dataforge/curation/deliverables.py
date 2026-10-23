@@ -26,9 +26,11 @@ class Source:
   """Where a deliverable comes from.
 
   Attributes:
-    state: The state, or several: of their visits, the source is the last
-      that has the output, under the same visit rule; several take an
-      output, and a visit "kept" or "last".
+    state: The state, or a tuple of states, even of one: of their visits,
+      the source is the last that has the output, under the same visit
+      rule, where a single state's last visit is the source whether it has
+      the output or not; a tuple takes an output, and a visit "kept" or
+      "last".
     output: The output's name; None for a "trials" deliverable, which takes
       the visit's trials.
     visit: Which visit of the state: "kept" for its last one up to the visit

@@ -72,9 +72,12 @@ The schema, version 1:
       title: <string>
       source: {state: <state>, output: <string>,   # no output for trials
                visit: kept | last | <integer>}     # kept by default
-                                      # state may list states: the last of
-                                      # their visits that has the output,
-                                      # with an output and visit kept or last
+                                      # state may be a list, even of one:
+                                      # the last of their visits that has
+                                      # the output, where a string takes
+                                      # its state's visit with it or not;
+                                      # a list takes an output and visit
+                                      # kept or last
       table: <source>                 # report only
       value: {field: [<string>], output: <string>} # trials only
       match: <glob>                   # trials only: list only the trials
@@ -416,6 +419,7 @@ class _Loader:
       )
     state, where = fields["state"], f"{at}.state"
     return Source(
+      # isinstance leaves the list's items unknown; strings checks each.
       self.strings(cast(object, state), where)
       if isinstance(state, list)
       else self.string(state, where),

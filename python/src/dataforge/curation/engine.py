@@ -1381,8 +1381,8 @@ def _deliverable_visit(
     indices = [i for i in indices if i <= end]
     if not indices:
       return None, f"{named} has no visit up to the kept one"
-  if several:
-    output = cast(str, source.output)
+  output = source.output
+  if several and output is not None:
     indices = [i for i in indices if output in attempt.visits[i].outputs]
     if not indices:
       upto = " up to the kept one" if source.visit == "kept" else ""

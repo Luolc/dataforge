@@ -957,7 +957,7 @@ def judged_agent(
     {
       "failed": again,
       "asked": again,
-      "done": again,
+      "done": Goto("tighten"),
       "tied": End("too_easy"),
       "error": End("error"),
     },
@@ -973,6 +973,7 @@ def judged_agent(
     judge=Judge(
       ScriptSpec([sys.executable, "-I", str(script)]), ["done", "tied"]
     ),
+    feedback="The judge read: ${details}",
   )
   return Machine([state]).run(tmp_path / "a")
 
@@ -990,7 +991,7 @@ def test_an_agent_state_with_a_judge_takes_its_verdict_after_ok(
   ]
   assert [[a.kind for a in visit.actions] for visit in attempt.visits] == [
     ["agent"],
-    ["agent", "judge"],
+    ["agent", "judge", "report"],
     ["agent", "judge"],
   ]
   assert attempt.visits[2].data == {
@@ -1002,6 +1003,8 @@ def test_an_agent_state_with_a_judge_takes_its_verdict_after_ok(
     "error": None,
     "args": ["out"],
   }
+  feedback = attempt.visits[1].outputs["feedback"]
+  assert feedback.read_text() == "The judge read: good"
   state = AgentState(
     "s",
     {},
