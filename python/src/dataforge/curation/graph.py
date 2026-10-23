@@ -4,7 +4,7 @@ Machine.graph returns a Graph, and mermaid renders one. A Graph is plain data
 that json.dumps takes as is.
 """
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class GraphState(TypedDict):
@@ -36,6 +36,7 @@ GraphEdge = TypedDict(
     "report": bool,
     "mark": str | None,
     "end_on_last_visit": bool,
+    "keep_mark": NotRequired[str],
   },
 )
 """One transition of a Graph.
@@ -43,7 +44,10 @@ GraphEdge = TypedDict(
 "from" is the state and "outcome" the outcome the transition maps. A Goto has
 "to" (the state it goes to), "report", "mark" and "end_on_last_visit" as the
 Goto has them, and "end" None; an End has "end" (its status), "to" None,
-"report" and "end_on_last_visit" False and "mark" None.
+"report" and "end_on_last_visit" False and "mark" None, and "keep_mark" only
+when it has one (End.keep_mark): Machine.resume compares a record's graph
+with the machine's, and a record may come from a dataforge whose edges have
+no "keep_mark".
 """
 
 
@@ -122,6 +126,8 @@ def _edge_label(edge: GraphEdge) -> str:
   parts = [edge["outcome"]]
   if edge["mark"] is not None:
     parts.append(f"mark {edge['mark']}")
+  if "keep_mark" in edge:
+    parts.append(f"keeps mark {edge['keep_mark']}")
   if edge["to"] is not None and not edge["report"]:
     parts.append("no report")
   if edge["end_on_last_visit"]:

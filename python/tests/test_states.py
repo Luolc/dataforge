@@ -2,11 +2,12 @@
 # The fakes implement protocols and take parameters they do not need.
 
 from collections.abc import Sequence
+import dataclasses
 import json
 from pathlib import Path
 import re
 import sys
-from typing import cast, override
+from typing import cast, ClassVar, override
 
 import pytest
 
@@ -901,6 +902,136 @@ def test_a_judge_state_takes_its_verdict_on_earlier_outputs(
   assert attempt.visits[1].data == {"log": "broken"}
   feedback = attempt.visits[1].outputs["feedback"]
   assert feedback.read_text() == "The build: broken"
+
+
+TIED_JUDGE = """\
+import json, os, pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+verdict = {
+  "outcome": "tied" if "same" in text else "done",
+  "data": {"args": [pathlib.Path(arg).name for arg in sys.argv[1:]]},
+  "feedback": {"details": text},
+}
+out = pathlib.Path(os.environ["DATAFORGE_OUTPUTS"])
+(out / "verdict.json").write_text(json.dumps(verdict))
+"""
+
+
+class Asks(AgentState):
+  """An agent state that gives "asked" for a good run that asks for more.
+
+  Attributes:
+    OUTCOMES: The outcomes it gives, before rename and without a judge.
+  """
+
+  OUTCOMES: ClassVar[frozenset[str] | None] = frozenset(
+    {"ok", "failed", "error", "asked"}
+  )
+
+  @override
+  def outcome(self, ctx: Context, result: ActionResult) -> Outcome:
+    found = super().outcome(ctx, result)
+    if found.name == "ok" and "ask" in (ctx.outdir / "out").read_text():
+      return dataclasses.replace(found, name="asked")
+    return found
+
+
+def judged_agent(
+  tmp_path: Path, cls: type[AgentState], runs: list[tuple[str, str]]
+) -> Attempt:
+  """Run an agent state with a judge, back to itself until it is tied.
+
+  Args:
+    tmp_path: The test's directory.
+    cls: The state's class.
+    runs: How each run of the agent ends, as Agent takes them.
+
+  Returns:
+    The attempt.
+  """
+  script = tmp_path / "judge.py"
+  _ = script.write_text(TIED_JUDGE)
+  again = Goto("tighten", report=False)
+  state = cls(
+    "tighten",
+    {
+      "failed": again,
+      "asked": again,
+      "done": Goto("tighten"),
+      "tied": End("too_easy"),
+      "error": End("error"),
+    },
+    len(runs),
+    actions=Actions(agent_runner=Agent(runs)),
+    spec=AgentSpec(
+      "Tighten.",
+      tmp_path,
+      outputs=["out"],
+      validator=checker(tmp_path),
+      max_fixes=0,
+    ),
+    judge=Judge(
+      ScriptSpec([sys.executable, "-I", str(script)]), ["done", "tied"]
+    ),
+    feedback="The judge read: ${details}",
+  )
+  return Machine([state]).run(tmp_path / "a")
+
+
+def test_an_agent_state_with_a_judge_takes_its_verdict_after_ok(
+  tmp_path: Path,
+) -> None:
+  runs = [("ok", "bad"), ("ok", "good"), ("ok", "good, same")]
+  attempt = judged_agent(tmp_path, AgentState, runs)
+  assert attempt.status == "too_easy"
+  assert [visit.outcome for visit in attempt.visits] == [
+    "failed",
+    "done",
+    "tied",
+  ]
+  assert [[a.kind for a in visit.actions] for visit in attempt.visits] == [
+    ["agent"],
+    ["agent", "judge", "report"],
+    ["agent", "judge"],
+  ]
+  assert attempt.visits[2].data == {
+    "ending": "success",
+    "fixes": 0,
+    "cost_usd": 0.5,
+    "fault": None,
+    "stop_reason": None,
+    "error": None,
+    "args": ["out"],
+  }
+  feedback = attempt.visits[1].outputs["feedback"]
+  assert feedback.read_text() == "The judge read: good"
+  state = AgentState(
+    "s",
+    {},
+    actions=Actions(),
+    judge=Judge(ScriptSpec(["judge"]), ["done", "tied"]),
+    rename={"tied": "same"},
+  )
+  assert state.possible_outcomes() == {"failed", "error", "done", "same"}
+  any_ = AgentState("s", {}, actions=Actions(), judge=Judge(ScriptSpec(["j"])))
+  assert any_.possible_outcomes() is None
+
+
+def test_a_subclass_of_agent_state_takes_a_judge_after_its_own_ok(
+  tmp_path: Path,
+) -> None:
+  runs = [("ok", "good, ask"), ("ok", "good, same")]
+  attempt = judged_agent(tmp_path, Asks, runs)
+  assert attempt.status == "too_easy"
+  assert [visit.outcome for visit in attempt.visits] == ["asked", "tied"]
+  assert [[a.kind for a in visit.actions] for visit in attempt.visits] == [
+    ["agent"],
+    ["agent", "judge"],
+  ]
+  state = Asks(
+    "s", {}, actions=Actions(), judge=Judge(ScriptSpec(["j"]), ["done"])
+  )
+  assert state.possible_outcomes() == {"failed", "error", "asked", "done"}
 
 
 def test_each_state_names_the_outcomes_it_gives() -> None:
