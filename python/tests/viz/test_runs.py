@@ -166,7 +166,7 @@ def test_an_attempt_s_status_reason_cost_and_live_come_from_its_row(
   }
   assert found == {
     ended: ("too_easy", "solved by every trial", 3.5, None, "ended"),
-    person: ("canceled", None, 1.25, "may have stopped", "interrupted"),
+    person: ("canceled", None, 1.25, None, "interrupted"),
     lost: ("interrupted", None, None, "may have stopped", "interrupted"),
     running: (None, None, None, "running", "running"),
   }
@@ -186,6 +186,56 @@ def test_an_attempt_s_status_reason_cost_and_live_come_from_its_row(
   assert rows[ended]["progress_at"] == "2026-01-02T03:00:00+00:00"
   assert all(r["error"] is None and r["note"] is None for r in rows.values())
   assert all(r["held"] is None for r in rows.values())
+
+
+def test_a_row_a_person_stopped_has_ended_at_its_newest_stop(
+  made: QueueTree, static: Path, store: Store, me: Leader
+) -> None:
+  # A row a person stopped, gone on with and stopped again; then one lost.
+  person = attempt(made, "task-1", {"status": "running"})
+  lost = attempt(made, "task-2", {"status": "running"})
+  assert store.insert(person, "batch-1", Path("/r"), me, None)
+  assert store.interrupt(person, me, by="runner", stopped_by="person")
+  assert store.take(person, me, None, by="runner")
+  assert store.interrupt(person, me, by="runner", stopped_by="person")
+  assert store.insert(lost, "batch-1", Path("/r"), me, None)
+  assert store.interrupt(lost, me, by="reconcile", stopped_by="lost")
+  stops = [e.at for e in store.events(person) if e.to_state == "interrupted"]
+  web = client(made, static)
+
+  rows = listing(web)
+  live = cast(
+    dict[str, object], web.get(LIVE, params={"attempt": person}).json()
+  )
+
+  assert len(stops) == 2 and stops[0] < stops[1]
+  assert (
+    rows[person]["status"],
+    rows[person]["live"],
+    rows[person]["state"],
+    rows[person]["ended_at"],
+  ) == ("canceled", None, "interrupted", stops[1])
+  assert live["live"] is None
+  # One lost may have stopped, and its end is its record's, as before.
+  assert (rows[lost]["status"], rows[lost]["live"]) == (
+    "interrupted",
+    "may have stopped",
+  )
+  assert rows[lost]["ended_at"] not in stops
+
+
+def test_a_row_a_person_stopped_before_its_first_visit_starts_with_its_row(
+  made: QueueTree, static: Path, store: Store, me: Leader
+) -> None:
+  stopped = attempt(made, "task-1", {"status": "running", "visits": []})
+  assert store.insert(stopped, "batch-1", Path("/r"), me, None)
+  assert store.interrupt(stopped, me, by="runner", stopped_by="person")
+  row = store.get(stopped)
+  assert row is not None
+
+  listed = listing(client(made, static))[stopped]
+
+  assert (listed["live"], listed["started_at"]) == (None, row.created_at)
 
 
 def test_a_running_row_whose_holder_is_gone_says_so(
@@ -231,7 +281,7 @@ def test_an_interrupted_row_whose_machine_ended_says_so(
 
   assert (row["status"], row["live"], row["note"]) == (
     "canceled",
-    "may have stopped",
+    None,
     "its machine ended passed; a reconcile has not ended it yet",
   )
   assert reasons(web)["go-on"] == (
@@ -362,6 +412,10 @@ def test_the_store_is_opened_read_only_and_never_written(
   me: Leader,
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+  # A row a person stopped, whose events are read too, and one running.
+  stopped = attempt(made, "task-1", {"status": "running"})
+  assert store.insert(stopped, "batch-1", Path("/r"), me, None)
+  assert store.interrupt(stopped, me, by="runner", stopped_by="person")
   running = attempt(made, "task-2", {"status": "running"})
   assert store.insert(running, "batch-1", Path("/r"), me, None)
   web = client(made, static)
