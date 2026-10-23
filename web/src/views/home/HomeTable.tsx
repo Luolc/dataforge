@@ -47,7 +47,7 @@ import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
-import { queuedShort, stateLabel } from "../queue/status";
+import { queuedShort, stoppedWhy } from "../queue/status";
 import {
   counted,
   filterItems,
@@ -338,10 +338,6 @@ function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   if (why === null) return label;
   return <Hint hint={why}>{label}</Hint>;
 }
-
-/** Why an attempt that may have stopped has: its job has ended. */
-const stoppedWhy = (stopped: { job: number; state: string }) =>
-  `Job ${stopped.job.toString()}, which ran this attempt, ended ${stateLabel(stopped.state).label}; nothing runs it now.`;
 
 /** The row's status as an icon: a spinner while it runs. */
 function RowIcon({ project, row }: { project: Project; row: AttemptRow }) {
