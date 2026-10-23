@@ -6,7 +6,7 @@ import { must, records, sampleProject } from "../../../fixtures/sample";
 import { RefreshContext } from "../../api/client";
 import type { Deliverable } from "../../api/types";
 import { type FakeEntry, fakeFiles } from "./fake-api";
-import FilesView from "./index";
+import FilesView, { WIDTH_KEY } from "./index";
 
 const root = "artifacts/author/1/task";
 
@@ -55,6 +55,10 @@ const preview = () => screen.findByRole("heading", { level: 3 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  for (const name of ["", "-min", "-max"]) {
+    document.documentElement.style.removeProperty(`--spacing-tree${name}`);
+  }
+  localStorage.clear();
 });
 
 describe("the files view", () => {
@@ -168,6 +172,42 @@ describe("the files view", () => {
 
     fireEvent.click(folder);
     expect(part).not.toBeVisible();
+  });
+
+  it("keeps a long name deep in the tree on one line, the tree scrolling sideways", async () => {
+    const deep = `${root}/a/b/c/d/e/f/g/h/i/j`;
+    const name = "AVeryLongNameOfAFileDeepInTheTreeTest.java";
+    show({ [`${deep}/${name}`]: "class Test {}\n" }, `${deep}/${name}`);
+
+    const link = await screen.findByRole("link", { name });
+    expect(link).toHaveClass("whitespace-nowrap", "w-max", "min-w-full");
+    expect(link).not.toHaveClass("break-all");
+    const folder = screen.getByRole("button", { name: "j" });
+    expect(folder).toHaveClass("whitespace-nowrap");
+    expect(folder).not.toHaveClass("break-all");
+    expect(screen.getByRole("navigation", { name: "Files" })).toHaveClass(
+      "overflow-x-auto",
+    );
+  });
+
+  it("sizes the tree with a divider beside it, kept as the tree's width", async () => {
+    localStorage.setItem(WIDTH_KEY, "300");
+    document.documentElement.style.setProperty("--spacing-tree", "256px");
+    document.documentElement.style.setProperty("--spacing-tree-min", "192px");
+    document.documentElement.style.setProperty("--spacing-tree-max", "640px");
+    show(task);
+
+    expect(await preview()).toHaveTextContent("instruction.md");
+    const divider = screen.getByRole("separator", {
+      name: "Resize the file tree",
+    });
+    expect(divider).toHaveAttribute("aria-valuenow", "300");
+    const column = must(
+      document.getElementById(must(divider.getAttribute("aria-controls"))),
+    );
+    expect(column).toContainElement(
+      screen.getByRole("navigation", { name: "Files" }),
+    );
   });
 
   it("marks each file with the icon of its kind, and a folder as open or closed", async () => {

@@ -21,7 +21,7 @@ interface TreeProps {
 /** The entries under root, as a tree of links that choose a file. */
 export function Tree({ root, ...props }: TreeProps & { root: string }) {
   return (
-    <nav aria-label="Files" className="py-2">
+    <nav aria-label="Files" className="overflow-x-auto py-2">
       <Entries dir={root} depth={0} {...props} />
     </nav>
   );
@@ -72,8 +72,10 @@ function Entries({
   );
 }
 
+// A row keeps its name on one line, and one wider than the tree scrolls the
+// tree sideways, so that no name is cut.
 const row =
-  "target flex w-full items-center gap-2 py-1 pr-3 text-left break-all";
+  "target flex w-max min-w-full items-center gap-2 py-1 pr-3 text-left whitespace-nowrap";
 
 function EntryRow({
   entry,

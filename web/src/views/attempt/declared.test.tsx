@@ -627,6 +627,17 @@ describe("why a deliverable has no path, in the viewer's words", () => {
     );
   });
 
+  it("names the run of a state that did not finish, and how it ended", () => {
+    // passed's Pass@k, run 6, raised or was interrupted.
+    for (const [outcome, how] of [
+      ["raised", "Exception"],
+      ["interrupted", "Run interrupted"],
+    ] as const)
+      expect(
+        why({ ...before(5, outcome), status: null }, entry({ state: "solve" })),
+      ).toBe(`Pass@k · run 6 did not finish (${how}).`);
+  });
+
   it("says a state ran only after the run the attempt kept", () => {
     const kept = { ...ended, kept_visit: 1 };
 
