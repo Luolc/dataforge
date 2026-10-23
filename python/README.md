@@ -43,18 +43,20 @@ restarting it leaves the jobs running.
 `dataforge.testrunner` runs a Harbor task's tests with the project's own runner (pytest, jest,
 vitest, Jasmine, node:test, go test, cargo test, CTest, GoogleTest, Maven Surefire, PHPUnit) and
 writes them as CTRF to `/logs/verifier/ctrf.json`. It uses only Python 3.12's standard library, so
-that a task runs on its own: a dataset writes `testrunner.files()` into each task's `tests/` and its
-harness imports `testrunner` there. `tests/manifest.toml` lists the tests (`[[test]]`: `suite`,
+that a task runs on its own: a dataset writes `testrunner.bundle.files_for(manifest)` into each
+task's `tests/` (`core.py`, `deps.py`, a `registry.py` of the task's runners, and the modules of its
+runners and formats) and its harness imports `testrunner` there. `tests/manifest.toml` lists the tests (`[[test]]`: `suite`,
 `runner`, `id`, and optionally `dir`, `kind` and `principle`), the files to copy into the project
 before they run (`[[file]]`: `source`, `dest`) and why a suite has none (`[no_tests]`);
-`testrunner.run` runs them, a listed test the runner did not report counting as an error, and
-`testrunner.ctrf.suite_counts` gives each suite's passed and total counts, from which the dataset
+`testrunner.core.run` runs them, a listed test the runner did not report counting as an error, and
+`testrunner.core.suite_counts` gives each suite's passed and total counts, from which the dataset
 writes its `reward.json`. `testrunner` restores nothing: the harness checks back to the base the
-files only a runner loads (`testrunner.runners.RUNNER_FILES`), those that define the listed tests
-(`testrunner.runners.restore_paths`) and the project files the base's test configuration names to
+files only a runner loads (`testrunner.core.runner_files`), those that define the listed tests
+(`testrunner.core.restore_paths`) and the project files the base's test configuration names to
 run in the test process (pytest's `-p` plugins, jest's and vitest's setup files, Jasmine's helpers)
-before it runs them. A dataset with no harness of its own runs `python -m testrunner` in `/tests`,
-and its result holds only once those files are the base's. Maven cannot take its test configuration
+before it runs them. A dataset with no harness of its own also copies `__main__.py`
+(`files(runners, formats, main=True)`) and runs `python -m testrunner` in `/tests`, and its result
+holds only once those files are the base's. Maven cannot take its test configuration
 from the base: a changed `pom.xml` can replace what runs under a listed name and what is reported,
 so a dataset that runs Maven tests checks `pom.xml` itself; nor jest the Babel configuration in
 `package.json`'s `babel` key, which a dataset checks too, nor cargo the test configuration in
@@ -75,9 +77,9 @@ inside the project, are deleted before the run. A `[[test]]` names its group wit
 name its report lacks, a report that cannot be read, `skipped` and a name with any case not `passed`
 do not pass. A test with `expect = "failed"` is its group's canary: it counts in no suite, and
 `results.extra.canary_broken` lists it when it is not a failure of an assertion; the names a group
-reported that the manifest does not list are in `results.extra.unlisted`. `testrunner.restore`
+reported that the manifest does not list are in `results.extra.unlisted`. `testrunner.core.restore`
 checks back to the base the files that globs match (`[restore]`'s `paths`, with the runners' files
-from `testrunner.restore.globs`) from git's objects, running no filter or hook of the project.
+from `testrunner.core.globs`) from git's objects, running no filter or hook of the project.
 `python -m testrunner parse <format> <report> <out>` writes a format's CTRF, for a session that tries
 its group.
 

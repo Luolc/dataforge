@@ -15,9 +15,17 @@ from typing import final, override
 import xml.etree.ElementTree as ET
 
 from . import junit
-from .adapter import Call, Context, PREFIX, rel, Runner, Spec, write_new
-from .ctrf import Case
-from .manifest import Test
+from .core import (
+  Call,
+  Case,
+  Context,
+  PREFIX,
+  rel,
+  Runner,
+  Spec,
+  Test,
+  write_new,
+)
 
 RUNNER_FILES = (
   "conftest.py",

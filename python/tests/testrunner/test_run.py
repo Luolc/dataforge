@@ -7,13 +7,25 @@ from typing import cast, final, override
 
 import pytest
 
-from dataforge.testrunner import ctrf, files
-from dataforge.testrunner.adapter import Call, Context, PREFIX, Runner
-from dataforge.testrunner.ctrf import Case
-from dataforge.testrunner.manifest import File, FORMATS, load, RUNNERS
-from dataforge.testrunner.manifest import Test as Listed
+from dataforge.testrunner import core
+from dataforge.testrunner.bundle import files
+from dataforge.testrunner.core import (
+  Call,
+  Case,
+  Context,
+  File,
+  FORMATS,
+  load,
+  match,
+  place,
+  PREFIX,
+  run,
+  run_group,
+  Runner,
+  RUNNERS,
+)
+from dataforge.testrunner.core import Test as Listed
 from dataforge.testrunner.python import Pytest
-from dataforge.testrunner.run import match, place, run, run_group
 from tests.testrunner.projects import commit, context, write
 
 BASE = {
@@ -88,7 +100,7 @@ def test_strict():
 """
 
 
-def outcomes(found: list[ctrf.TestObject]) -> list[tuple[object, ...]]:
+def outcomes(found: list[core.TestObject]) -> list[tuple[object, ...]]:
   return [
     (t["suite"], t["name"], t["status"], t.get("rawStatus"), t.get("message"))
     for t in found
@@ -110,7 +122,7 @@ def test_run_runs_each_suite_with_the_bases_configuration(tmp_path: Path):
     toml.read_text().replace("--strict-markers", "-k 'not two'")
   )
   found = run(load(MANIFEST), tests=tests, app=app, base=base).tests
-  missing = f"{ctrf.MISSING} (the runner exited 0)"
+  missing = f"{core.MISSING} (the runner exited 0)"
   assert outcomes(found) == [
     (["p2p"], "tests/test_parse.py::test_two", "passed", None, None),
     (["p2p"], "tests/test_parse.py::test_some[a]", "passed", None, None),
@@ -240,15 +252,14 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
   python = shutil.which("python3.12")
   assert python is not None, "the tests need python3.12 on the PATH"
   tests, app, out = tmp_path / "tests", tmp_path / "app", tmp_path / "out"
-  for name, data in files(RUNNERS, FORMATS).items():
+  copied = files(RUNNERS, FORMATS, main=True)
+  for name, data in copied.items():
     path = tests / name
     path.parent.mkdir(parents=True, exist_ok=True)
     _ = path.write_bytes(data)
-  assert "testrunner/__main__.py" in files(RUNNERS, FORMATS)
-  assert "testrunner/jasmine_reporter.cjs" in files(RUNNERS, FORMATS)
-  assert not [
-    n for n in files(RUNNERS, FORMATS) if not n.startswith("testrunner/")
-  ]
+  assert "testrunner/__main__.py" in copied
+  assert "testrunner/jasmine_reporter.cjs" in copied
+  assert not [n for n in copied if not n.startswith("testrunner/")]
   write(
     app,
     {
@@ -269,7 +280,7 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
     env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
   )
   assert json.loads(done.stdout.splitlines()[-1]) == {"p2p": [1, 2]}
-  report = cast("dict[str, object]", json.loads((out / ctrf.FILE).read_text()))
+  report = cast("dict[str, object]", json.loads((out / core.FILE).read_text()))
   found = cast(
     "list[dict[str, object]]",
     cast("dict[str, object]", report["results"])["tests"],

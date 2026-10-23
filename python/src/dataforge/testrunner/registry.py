@@ -16,4 +16,4 @@ MODULES: dict[str, str] = {
   "phpunit": "phpunit",
 }
 """The module of each runner, whose SPECS gives the runner's Spec
-(runners.spec)."""
+(core.spec)."""

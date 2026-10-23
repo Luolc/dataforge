@@ -24,9 +24,7 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import final, override
 
-from .adapter import Call, Context, rel, Runner, Spec
-from .ctrf import Case
-from .manifest import Test
+from .core import Call, Case, Context, rel, Runner, Spec, Test
 
 SEP = "::"
 """What joins a test's file and name in its ID."""

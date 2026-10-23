@@ -10,14 +10,29 @@ from typing import cast
 
 import pytest
 
-from dataforge.testrunner import ctrf, files, files_for
-from dataforge.testrunner.bundle import COMMON, FORMAT_FILES
-from dataforge.testrunner.manifest import FORMATS, load, RUNNERS
+from dataforge.testrunner import core
+from dataforge.testrunner.bundle import (
+  COMMON,
+  files,
+  files_for,
+  FORMAT_FILES,
+  MAIN,
+  registry,
+)
+from dataforge.testrunner.core import (
+  build_config,
+  FORMATS,
+  id_file,
+  load,
+  RUNNERS,
+  spec,
+)
 from dataforge.testrunner.registry import MODULES
-from dataforge.testrunner.runners import build_config, id_file, spec
 from tests.testrunner.projects import write
 
-PACKAGE = Path(ctrf.__file__).parent
+PACKAGE = Path(core.__file__).parent
+# The files only the host has.
+HOST = {"bundle.py", MAIN}
 
 # An ID of each runner, for id_file.
 IDS = {
@@ -42,35 +57,38 @@ import json
 import sys
 
 sys.path.insert(0, sys.argv[1])
-import testrunner.restore
-import testrunner.run
-from testrunner import runners
+import testrunner
+from testrunner import core, deps
 
 runner, id_ = sys.argv[2], sys.argv[3]
 print(json.dumps({
   "dataforge": importlib.util.find_spec("dataforge") is not None,
   "others": [p for p in sys.path[1:] if not p.startswith(sys.base_prefix)],
   "testrunner": testrunner.__file__,
-  "adapter": runners.load_adapter(runner).__name__,
-  "build_config": list(runners.build_config(runner)),
-  "id_file": runners.id_file(runner, id_),
+  "adapter": core.load_adapter(runner).__name__,
+  "build_config": list(core.build_config(runner)),
+  "id_file": core.id_file(runner, id_),
 }))
 """
-MAIN = """
+# Runs a task's tests as a dataset's own harness does, from a copy's tests/.
+HARNESS = """
+from pathlib import Path
 import sys
 
 sys.path.insert(0, sys.argv[1])
-from testrunner.__main__ import main
+from testrunner import core
 
-main(sys.argv[2:])
+tests, app, out = (Path(a) for a in sys.argv[1:])
+found = core.run(core.read(tests), tests=tests, app=app)
+core.write(core.report(found.tests, 0, 0, unlisted=found.unlisted), out)
 """
 DEPS = """
 import sys
 
 sys.path.insert(0, sys.argv[1])
-from testrunner import runners
+from testrunner import deps
 
-print(runners.dependency_overrides("cargo", sys.argv[2], sys.argv[3]))
+print(deps.dependency_overrides("cargo", sys.argv[2], sys.argv[3]))
 """
 
 FAKE_JASMINE = """#!/usr/bin/env node
@@ -128,15 +146,14 @@ RUNS: dict[
 }
 
 # What the check of the common files lets through, and why:
-# - registry.py's MODULES, the one map of runners to their modules;
-# - run.py's _DROPPED_ENV, which keeps the caller's environment from
+# - core.py's _DROPPED_ENV, which keeps the caller's environment from
 #   changing what every runner and run group runs, a group whose own argv
 #   runs pytest among them, so it is no one runner's;
 # - deps.py, the dependency overrides check, which a dataset runs on each
 #   go.mod and Cargo.toml a fix changes or adds, whatever the task's runner,
 #   so every task needs it.
 EXEMPT_LINES = {
-  "run.py": ['_DROPPED_ENV = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")'],
+  "core.py": ['_DROPPED_ENV = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")'],
 }
 EXEMPT_FILES = {"deps.py"}
 LANGUAGE_FILES = (
@@ -207,16 +224,20 @@ def _code_words(text: str) -> set[str]:
   return words
 
 
-def _common_source(name: str) -> str:
-  # A common file's source, its exemptions cut out.
-  text = (PACKAGE / name).read_text()
-  if name == "registry.py":
-    tree = ast.parse(text)
-    for node in tree.body:
-      if isinstance(node, ast.AnnAssign) and ast.unparse(node.target) == (
-        "MODULES"
-      ):
-        text = text.replace(ast.get_source_segment(text, node) or "", "")
+def _modules(copied: dict[str, bytes]) -> dict[str, str]:
+  # The MODULES of a copy's registry.py.
+  tree = ast.parse(copied["testrunner/registry.py"])
+  for node in tree.body:
+    if isinstance(node, ast.AnnAssign) and ast.unparse(node.target) == (
+      "MODULES"
+    ):
+      return cast("dict[str, str]", ast.literal_eval(node.value or ast.Dict()))
+  raise AssertionError("registry.py has no MODULES")
+
+
+def _common_source(copied: dict[str, bytes], name: str) -> str:
+  # A common file's source in a copy, its exemptions cut out.
+  text = copied[f"testrunner/{name}"].decode()
   for line in EXEMPT_LINES.get(name, []):
     assert line in text
     text = text.replace(line, "")
@@ -224,34 +245,66 @@ def _common_source(name: str) -> str:
 
 
 def test_maven_gets_no_other_runners_files():
-  found = set(files_for(load(_manifest("maven"))))
-  assert found == {f"testrunner/{n}" for n in (*COMMON, "maven.py", "junit.py")}
-  for name in (
-    "cargo.py",
-    "cpp.py",
-    "gotest.py",
-    "js.py",
-    "jasmine_reporter.cjs",
-    "python.py",
-    "pytest_main.py",
-    "phpunit.py",
-  ):
-    assert f"testrunner/{name}" not in found
+  copied = files_for(load(_manifest("maven")))
+  assert set(copied) == {
+    f"testrunner/{n}"
+    for n in (
+      "__init__.py",
+      "core.py",
+      "deps.py",
+      "registry.py",
+      "junit.py",
+      "maven.py",
+    )
+  }
+  assert _modules(copied) == {"maven": "maven"}
 
 
 def test_two_runners_get_both_their_files():
   both = files({"maven", "jasmine"}, ())
-  assert both == files({"maven"}, ()) | files({"jasmine"}, ())
+  maven, jasmine = files({"maven"}, ()), files({"jasmine"}, ())
+  assert set(both) == set(maven) | set(jasmine)
   assert "testrunner/jasmine_reporter.cjs" in both
   assert "testrunner/junit.py" in both
+  assert _modules(both) == _modules(maven) | _modules(jasmine)
+  assert _modules(both) == {"jasmine": "js", "maven": "maven"}
 
 
 def test_a_run_group_gets_the_files_of_its_parse_format():
   junit = files_for(load(OWN_GROUP))
-  assert set(junit) == {f"testrunner/{n}" for n in (*COMMON, "junit.py")}
+  common = {"__init__.py", "core.py", "deps.py", "registry.py"}
+  assert set(junit) == {f"testrunner/{n}" for n in (*common, "junit.py")}
+  assert _modules(junit) == {}
   argv = OWN_GROUP.replace('parse = "junit"', 'parse = ["sh", "parse.sh"]')
   for other in (OWN_GROUP.replace("junit", "ctrf"), argv):
-    assert set(files_for(load(other))) == {f"testrunner/{n}" for n in COMMON}
+    assert set(files_for(load(other))) == {f"testrunner/{n}" for n in common}
+
+
+def test_the_host_registry_names_every_runner():
+  # A task's registry names only its runners; the host's names them all.
+  assert _modules(files(RUNNERS, ())) == MODULES
+  host = (PACKAGE / "registry.py").read_bytes()
+  assert registry(RUNNERS) == host
+
+
+@pytest.mark.parametrize(
+  "manifest",
+  [
+    *(_manifest(r) for r in RUNNERS),
+    OWN_GROUP,
+    OWN_GROUP.replace("junit", "ctrf"),
+  ],
+)
+def test_no_tasks_copy_has_the_hosts_files(manifest: str):
+  copied = files_for(load(manifest))
+  assert not {f"testrunner/{n}" for n in HOST} & set(copied)
+
+
+def test_main_is_copied_only_when_asked_for():
+  plain = files({"maven"}, ("junit",))
+  main = files({"maven"}, ("junit",), main=True)
+  assert set(main) - set(plain) == {f"testrunner/{MAIN}"}
+  assert "testrunner/bundle.py" not in main
 
 
 @pytest.mark.parametrize(
@@ -276,19 +329,36 @@ def test_every_file_of_the_package_is_common_or_a_runners_or_a_formats():
     for p in PACKAGE.rglob("*")
     if p.suffix in (".py", ".cjs") and "__pycache__" not in p.parts
   }
-  assert package == needed
+  assert package == needed | HOST
+  assert not needed & HOST
   assert set(FORMAT_FILES) == set(FORMATS)
-  assert set(files(RUNNERS, FORMATS)) == {f"testrunner/{n}" for n in package}
+  assert set(files(RUNNERS, FORMATS)) == {f"testrunner/{n}" for n in needed}
 
 
 def test_the_common_files_name_no_runner_or_language_file():
-  # go and node are English words too, so only code may not hold them.
+  # A copy with no runner and with MAIN: what every task's copy has, and
+  # MAIN. go and node are English words too, so only code may not hold them.
+  copied = files((), (), main=True)
   prose = set(RUNNERS) - {"go", "node"}
-  for name in sorted(set(COMMON) - EXEMPT_FILES):
-    text = _common_source(name)
+  for name in sorted({*COMMON, MAIN} - EXEMPT_FILES):
+    text = _common_source(copied, name)
     assert not _words(text) & prose, name
     assert not _code_words(text) & {"go", "node"}, name
     assert not [f for f in LANGUAGE_FILES if f in text], name
+
+
+@pytest.mark.parametrize("runner", RUNNERS)
+def test_a_copy_whose_registry_lacks_its_runner_cannot_load_it(
+  tmp_path: Path, runner: str
+):
+  copied = files_for(load(_manifest(runner)))
+  others = set(RUNNERS) - {runner}
+  copied["testrunner/registry.py"] = registry(others)
+  tests = _copy(tmp_path, copied)
+  with pytest.raises(subprocess.CalledProcessError) as e:
+    _ = _python(LOAD, str(tests), runner, IDS[runner])
+  stderr = cast("str", e.value.stderr)
+  assert f"ValueError: unknown runner: {runner}" in stderr
 
 
 @pytest.mark.parametrize("runner", RUNNERS)
@@ -331,15 +401,14 @@ def test_a_tasks_files_alone_run_its_tests(tmp_path: Path, case: str):
   assert shutil.which("node") is not None, "the tests need node on the PATH"
   project, manifest, beside, listed = RUNS[case]
   tests = _copy(tmp_path, files_for(load(manifest)))
-  app, out = tmp_path / "app", tmp_path / "out"
+  app, out = tmp_path / "app", tmp_path / core.FILE
   app.mkdir()
   write(app, project)
   for path in (app / "node_modules" / ".bin").glob("*"):
     path.chmod(0o755)
   write(tests, {"manifest.toml": manifest, **beside})
-  args = ["--tests", str(tests), "--app", str(app), "--out", str(out)]
-  _ = _python(MAIN, str(tests), *args)
-  report = cast("dict[str, object]", json.loads((out / ctrf.FILE).read_text()))
+  _ = _python(HARNESS, str(tests), str(app), str(out))
+  report = cast("dict[str, object]", json.loads(out.read_text()))
   found = cast(
     "list[dict[str, object]]",
     cast("dict[str, object]", report["results"])["tests"],

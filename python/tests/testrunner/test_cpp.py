@@ -5,10 +5,9 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from dataforge.testrunner import cpp, junit
-from dataforge.testrunner.adapter import Call, Context
+from dataforge.testrunner.core import Call, Context, restore_paths
+from dataforge.testrunner.core import Test as Listed
 from dataforge.testrunner.cpp import CTest, GTest
-from dataforge.testrunner.manifest import Test as Listed
-from dataforge.testrunner.runners import restore_paths
 from tests.testrunner.projects import context
 
 

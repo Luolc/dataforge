@@ -25,9 +25,7 @@ import shlex
 from typing import final, override
 
 from . import junit
-from .adapter import Call, Context, rel, Runner, Spec
-from .ctrf import Case
-from .manifest import Test
+from .core import Call, Case, Context, rel, Runner, Spec, Test
 
 SEP = "::"
 """What joins a GoogleTest test's binary and name in its ID."""
