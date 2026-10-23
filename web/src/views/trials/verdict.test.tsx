@@ -110,6 +110,35 @@ describe("a trial's verdict", () => {
     );
   });
 
+  it("falls back to the reward, and says why, when the verdicts were not read", async () => {
+    const reason = "verdict.json has no key verdicts";
+    // The engine leaves each trial's verdict null when it read none.
+    const unread = regrade.deliverables
+      .find((d) => d.name === "regrade")
+      ?.trials.map((t) => ({ ...t, verdict: null }));
+    show(
+      "&tab=trials&deliverable=regrade",
+      withRegrade({
+        verdicts: { output: "verdict.json", field: ["verdicts"], reason },
+        trials: unread,
+      }),
+    );
+
+    await screen.findByRole("button", { name: "Regrade" });
+    expect(trial("Trial 1")).toHaveTextContent(/(solved|not solved)$/);
+    expect(trial("Trial 4")).not.toHaveTextContent(/no verdict/);
+    expect(
+      screen.getByText(/verdicts could not be read.*verdict\.json has no key/),
+    ).toHaveClass("text-fg-3");
+  });
+
+  it("says nothing of it when the verdicts were read", async () => {
+    show("&tab=trials&deliverable=regrade");
+
+    await screen.findByRole("button", { name: "Regrade" });
+    expect(screen.queryByText(/could not be read/)).toBeNull();
+  });
+
   it("says beside it that the trial also ended on an exception", async () => {
     show("&tab=trials&deliverable=regrade");
 
