@@ -118,9 +118,13 @@ class End:
 
   Attributes:
     status: The attempt's status.
+    keep_mark: A mark (Goto.mark) whose last visit the attempt keeps, as an
+      attempt that ends at a cap keeps its last marked visit, but with this
+      End's status; None, or no visit with this mark, keeps none.
   """
 
   status: str
+  keep_mark: str | None = None
 
 
 class State:
@@ -426,7 +430,8 @@ class Attempt:
     reason: Why it ended at a cap or a guard, if it did, or the reason of
       the outcome whose End ended it (Outcome.reason), if that gave one.
     kept_visit: The index into visits of the marked visit the attempt kept, if
-      any.
+      any: its last marked visit when a cap or the guard ended it, or its
+      last visit with the mark of the End that ended it (End.keep_mark).
     visits: Its visits, in order.
     max_cost_usd: What the attempt may spend, in US dollars; None for no cap.
     cost_usd: What the attempt spent, in US dollars, as the machine last
@@ -1284,6 +1289,14 @@ class Machine:
         _stop(attempt, "budget", f"{where}: {why}")
         return None
       attempt.status = transition.status
+      if transition.keep_mark is not None:
+        marked = [
+          i
+          for i, visit in enumerate(attempt.visits)
+          if visit.mark == transition.keep_mark
+        ]
+        if marked:
+          attempt.kept_visit = marked[-1]
       if outcome.reason is not None:
         attempt.reason = f"{where}: {outcome.reason}"
       return None
@@ -1305,7 +1318,7 @@ class Machine:
 
 def _edge(state: str, outcome: str, transition: Goto | End) -> GraphEdge:
   if isinstance(transition, End):
-    return {
+    edge: GraphEdge = {
       "from": state,
       "outcome": outcome,
       "to": None,
@@ -1314,6 +1327,9 @@ def _edge(state: str, outcome: str, transition: Goto | End) -> GraphEdge:
       "mark": None,
       "end_on_last_visit": False,
     }
+    if transition.keep_mark is not None:
+      edge["keep_mark"] = transition.keep_mark
+    return edge
   return {
     "from": state,
     "outcome": outcome,
@@ -1357,19 +1373,22 @@ def _not_finished(
 
 
 def _source(source: Source, attempt: Attempt) -> dict[str, object]:
-  found: dict[str, object] = {"state": source.state, "output": source.output}
+  # A source of several states names the state of the visit it found, or
+  # its first state when it found none.
+  state = source.states[0]
+  found: dict[str, object] = {"state": state, "output": source.output}
   index, why = _deliverable_visit(source, attempt)
   if index is None:
     unreached = {"visit": None, "visit_index": None, "path": None}
     return found | unreached | {"reason": why}
   visit = attempt.visits[index]
-  found |= {"visit": visit.visit, "visit_index": index}
+  found |= {"state": visit.state, "visit": visit.visit, "visit_index": index}
   if source.output is None:
     path = attempt.root / "artifacts" / visit.state / str(visit.visit)
     return found | {"path": str(path.relative_to(attempt.root)), "reason": None}
   path = visit.outputs.get(source.output)
   if path is None:
-    why = f"{source.state} visit {visit.visit} has no output {source.output}"
+    why = f"{visit.state} visit {visit.visit} has no output {source.output}"
     return found | {"path": None, "reason": why}
   return found | {"path": str(path.relative_to(attempt.root)), "reason": None}
 
@@ -1377,21 +1396,28 @@ def _source(source: Source, attempt: Attempt) -> dict[str, object]:
 def _deliverable_visit(
   source: Source, attempt: Attempt
 ) -> tuple[int | None, str]:
+  several = isinstance(source.state, tuple)
+  named = " or ".join(source.states)
   indices = [
-    i for i, visit in enumerate(attempt.visits) if visit.state == source.state
+    i for i, visit in enumerate(attempt.visits) if visit.state in source.states
   ]
   if not indices:
-    return None, f"{source.state} was never visited"
-  if source.visit == "last":
-    return indices[-1], ""
+    return None, f"{named} was never visited"
   if source.visit == "kept":
     end = (
       len(attempt.visits) if attempt.kept_visit is None else attempt.kept_visit
     )
-    kept = [i for i in indices if i <= end]
-    if not kept:
-      return None, f"{source.state} has no visit up to the kept one"
-    return kept[-1], ""
+    indices = [i for i in indices if i <= end]
+    if not indices:
+      return None, f"{named} has no visit up to the kept one"
+  output = source.output
+  if several and output is not None:
+    indices = [i for i in indices if output in attempt.visits[i].outputs]
+    if not indices:
+      upto = " up to the kept one" if source.visit == "kept" else ""
+      return None, f"no visit of {named}{upto} has the output {output}"
+  if source.visit in ("kept", "last"):
+    return indices[-1], ""
   found = [i for i in indices if attempt.visits[i].visit == source.visit]
   if not found:
     return None, f"{source.state} has no visit {source.visit}"

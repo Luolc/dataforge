@@ -190,9 +190,20 @@ def test_deliverables_load_in_their_order() -> None:
       "match": "regrade-[0-9]*",
       "verdicts": {"field": ["verdicts"]},
     },
+    "task": {
+      "kind": "files",
+      "title": "Task",
+      "source": {"state": ["make", "check"], "output": "out"},
+    },
   }
   machine = load_doc(doc)
-  assert list(machine.deliverables) == ["verdict", "made", "runs", "regrade"]
+  assert list(machine.deliverables) == [
+    "verdict",
+    "made",
+    "runs",
+    "regrade",
+    "task",
+  ]
   assert machine.deliverables == {
     "verdict": Deliverable(
       "report",
@@ -214,6 +225,7 @@ def test_deliverables_load_in_their_order() -> None:
       match="regrade-[0-9]*",
       verdicts=Value(("verdicts",)),
     ),
+    "task": Deliverable("files", "Task", Source(("make", "check"), "out")),
   }
   assert load_doc(base()).deliverables == {}
 
@@ -357,6 +369,17 @@ def drop(path: str) -> Callable[[Doc], None]:
       "states.check.transitions.pass: needs one of goto and end",
     ),
     (
+      put(
+        "states.check.transitions.fail",
+        {"goto": "make", "keep_mark": "kept"},
+      ),
+      "states.check.transitions.fail.keep_mark: only an end takes it",
+    ),
+    (
+      put("states.check.transitions.pass", {"end": "passed", "keep_mark": "k"}),
+      "states.check.transitions.pass.keep_mark: no goto has the mark 'k'",
+    ),
+    (
       put("states.check.transitions.pass", {"goto": "lone"}),
       "states.check.transitions.pass.goto: no state named 'lone'",
     ),
@@ -385,6 +408,17 @@ def drop(path: str) -> Callable[[Doc], None]:
     (
       files_deliverable(state="make"),
       "deliverables.made: a files deliverable takes an output",
+    ),
+    (
+      files_deliverable(state=["make", 1], output="out"),
+      "deliverables.made.source.state[1]: expected a string, got an integer",
+    ),
+    (
+      files_deliverable(state=["make", "check"], output="out", visit=1),
+      (
+        "deliverables.made: a source of several states takes an output and"
+        " visit kept or last"
+      ),
     ),
     (
       put(
@@ -579,6 +613,47 @@ def test_a_trials_state_may_take_a_judge() -> None:
   assert isinstance(check, TrialsState)
   assert check.judge == Judge(ScriptSpec(("judge",)), ("pass", "fail"))
   assert check.possible_outcomes() == {"pass", "fail"}
+
+
+def test_an_end_may_keep_a_mark() -> None:
+  doc = base()
+  put("states.check.transitions.pass", {"end": "passed", "keep_mark": "kept"})(
+    doc
+  )
+  check = load_doc(doc).states[1]
+  assert check.transitions["pass"] == End("passed", "kept")
+
+
+class Session(AgentState):
+  pass
+
+
+@pytest.mark.parametrize("uses", ["agent", "session"])
+def test_an_agent_state_may_take_a_judge(uses: str) -> None:
+  doc = base()
+  states_of(doc)["check"] = {
+    "uses": uses,
+    "with": {
+      "prompt": "Tighten.",
+      "workdir": "/app",
+      "outputs": ["out"],
+      "judge": {"argv": ["judge"], "outcomes": ["done", "tied"]},
+    },
+    "transitions": {
+      "done": {"goto": "make"},
+      "tied": {"end": "too_easy"},
+      "failed": {"goto": "check"},
+      "error": {"end": "error"},
+    },
+  }
+  check = load_doc(doc, bindings={"session": Session}).states[1]
+  assert type(check) is (Session if uses == "session" else AgentState)
+  assert isinstance(check, AgentState)
+  assert check.judge == Judge(ScriptSpec(("judge",)), ("done", "tied"))
+  assert check.possible_outcomes() == {"done", "tied", "failed", "error"}
+  del states_of(doc)["check"]["with"]["judge"]  # pyright: ignore[reportIndexIssue]
+  with pytest.raises(SpecError, match="no transition for the outcomes"):
+    _ = load_doc(doc, bindings={"session": Session})
 
 
 def test_rename_sets_the_outcomes_the_transitions_must_cover() -> None:

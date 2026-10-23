@@ -1238,6 +1238,159 @@ def test_deliverables_take_the_kept_last_or_nth_visit(tmp_path: Path) -> None:
   assert attempt.to_json()["graph"] == machine.graph()
 
 
+def judged_until_tied(keep_mark: str | None) -> Machine:
+  """Build, then judge: easy (mark easy), hard (mark hard), then tied.
+
+  Args:
+    keep_mark: The mark the End of tied keeps.
+
+  Returns:
+    The machine, which delivers the kept build's task.
+  """
+  actions = Actions()
+
+  def build(ctx: Context) -> Outcome:
+    argv = ["sh", "-c", f'echo {ctx.visit} > "$DATAFORGE_OUTPUTS/task"']
+    assert actions.script(ctx, ScriptSpec(argv, outputs=["task"])).ok
+    return Outcome("done")
+
+  def judge(ctx: Context) -> Outcome:
+    return Outcome(["easy", "hard", "tied"][ctx.visit - 1])
+
+  return Machine(
+    [
+      Step("build", build, {"done": Goto("judge")}, 3),
+      Step(
+        "judge",
+        judge,
+        {
+          "easy": Goto("build", mark="easy"),
+          "hard": Goto("build", mark="hard"),
+          "tied": End("too_easy", keep_mark=keep_mark),
+        },
+        3,
+      ),
+    ],
+    deliverables={
+      "task": Deliverable("files", "Task", Source("build", "task"))
+    },
+  )
+
+
+@pytest.mark.parametrize(
+  ("keep_mark", "kept", "build"),
+  [("easy", 1, 1), ("hard", 3, 2), (None, None, 3), ("never", None, 3)],
+)
+def test_an_end_keeps_the_last_visit_with_its_keep_mark(
+  tmp_path: Path, keep_mark: str | None, kept: int | None, build: int
+) -> None:
+  machine = judged_until_tied(keep_mark)
+  attempt = machine.run(tmp_path)
+  assert path_of(attempt)[-1] == ("judge", "tied")
+  assert (attempt.status, attempt.kept_visit) == ("too_easy", kept)
+  assert attempt.final["build"].visit == build
+  [task] = attempt.deliverables
+  assert task["path"] == f"artifacts/build/{build}/task"
+  [edge] = [e for e in machine.graph()["edges"] if e["outcome"] == "tied"]
+  assert edge.get("keep_mark") == keep_mark
+  assert ("keep_mark" in edge) is (keep_mark is not None)
+  assert all(
+    "keep_mark" not in e for e in machine.graph()["edges"] if e != edge
+  )
+
+
+def swap_or_zero(writes: bool, deliverables: dict[str, Deliverable]) -> Machine:
+  """Build, then regrade: zero (mark too_hard), then again, until a cap.
+
+  Args:
+    writes: Whether regrade's first visit writes a task, as its second does.
+    deliverables: The machine's deliverables.
+
+  Returns:
+    The machine.
+  """
+  actions = Actions()
+
+  def write(ctx: Context) -> None:
+    argv = ["sh", "-c", f'echo {ctx.visit} > "$DATAFORGE_OUTPUTS/task"']
+    assert actions.script(ctx, ScriptSpec(argv, outputs=["task"])).ok
+
+  def build(ctx: Context) -> Outcome:
+    write(ctx)
+    return Outcome("done")
+
+  def regrade(ctx: Context) -> Outcome:
+    if writes or ctx.visit == 2:
+      write(ctx)
+    return Outcome("zero" if ctx.visit == 1 else "again")
+
+  return Machine(
+    [
+      Step("build", build, {"done": Goto("regrade")}, 2),
+      Step(
+        "regrade",
+        regrade,
+        {"zero": Goto("build", mark="too_hard"), "again": Goto("build")},
+        2,
+      ),
+      Step("never", regrade, {"zero": End("passed")}),
+    ],
+    deliverables=deliverables,
+  )
+
+
+@pytest.mark.parametrize(("writes", "kept"), [(False, 0), (True, 1)])
+def test_a_source_of_several_states_takes_their_last_visit_with_the_output(
+  tmp_path: Path, writes: bool, kept: int
+) -> None:
+  both = ("build", "regrade")
+  machine = swap_or_zero(
+    writes,
+    {
+      "kept": Deliverable("files", "Task", Source(both, "task")),
+      "last": Deliverable("files", "Task", Source(both, "task", "last")),
+      "one": Deliverable("files", "Task", Source("regrade", "task")),
+      "none": Deliverable("files", "Task", Source(("never", "regrade"), "x")),
+      "unvisited": Deliverable("files", "Task", Source(("never",), "task")),
+    },
+  )
+  attempt = machine.run(tmp_path)
+  assert path_of(attempt) == [
+    ("build", "done"),
+    ("regrade", "zero"),
+    ("build", "done"),
+    ("regrade", "again"),
+  ]
+  assert (attempt.status, attempt.kept_visit) == ("too_hard", 1)
+  found = {entry["name"]: entry for entry in attempt.deliverables}
+  state, visit = attempt.visits[kept].state, attempt.visits[kept].visit
+  assert found["kept"] | {"name": None} == {
+    "name": None,
+    "kind": "files",
+    "title": "Task",
+    "state": state,
+    "output": "task",
+    "visit": visit,
+    "visit_index": kept,
+    "path": f"artifacts/{state}/{visit}/task",
+    "reason": None,
+  }
+  assert (found["last"]["state"], found["last"]["visit_index"]) == (
+    "regrade",
+    3,
+  )
+  assert found["one"]["visit_index"] == 1
+  assert (found["one"]["path"] is None) is not writes
+  assert {k: found["none"][k] for k in ("state", "visit", "reason")} == {
+    "state": "never",
+    "visit": None,
+    "reason": (
+      "no visit of never or regrade up to the kept one has the output x"
+    ),
+  }
+  assert found["unvisited"]["reason"] == "never was never visited"
+
+
 def test_an_end_resolves_deliverables_before_the_last_on_step(
   tmp_path: Path,
 ) -> None:
@@ -1923,6 +2076,19 @@ def test_a_value_from_a_symlinked_output_is_never_read(tmp_path: Path) -> None:
     (
       Deliverable("report", "t", Source("a", "x"), value=Value(["v"])),
       "only trials have a value",
+    ),
+    (Deliverable("files", "t", Source((), "x")), "no state"),
+    (
+      Deliverable("files", "t", Source(("a", "nowhere"), "x")),
+      "unknown state nowhere",
+    ),
+    (
+      Deliverable("trials", "t", Source(("a",))),
+      "a source of several states takes an output and visit kept or last",
+    ),
+    (
+      Deliverable("files", "t", Source(("a",), "x", 1)),
+      "a source of several states takes an output and visit kept or last",
     ),
     (
       Deliverable("files", "t", Source("a", "x"), verdicts=Value(["v"])),

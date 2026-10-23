@@ -551,6 +551,103 @@ describe("the home page", () => {
     }
   });
 
+  it("shows a column's value by its label, and one with no label as it is", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Tone",
+          field: ["tone"],
+          format: "text",
+          labels: { bug_report: "Bug report", true: "Kept" },
+        },
+        {
+          title: "Kept",
+          field: ["kept"],
+          format: "text",
+          labels: { true: "Kept" },
+        },
+      ],
+    };
+    ROWS[3] = { ...must(ROWS[3]), values: ["bug_report", true] };
+    ROWS[1] = { ...must(ROWS[1]), values: ["chat_message", false] };
+    try {
+      show("/sample", withColumns);
+      const cellsOf = async (id: string) =>
+        [
+          ...((await screen.findByText(id))
+            .closest("tr")
+            ?.querySelectorAll("td") ?? []),
+        ]
+          .slice(-2)
+          .map((c) => c.textContent);
+      expect(await cellsOf("t-new")).toEqual(["Bug report", "Kept"]);
+      expect(await cellsOf("t-old")).toEqual(["chat_message", "false"]);
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [] };
+      ROWS[1] = { ...must(ROWS[1]), values: [] };
+    }
+  });
+
+  it("sorts a column's values by their labels, as they show", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Verdict",
+          field: ["verdict"],
+          format: "text",
+          labels: {
+            aa_reject: "Rejected",
+            zz_accept: "Accepted",
+            true: "Kept",
+          },
+        },
+      ],
+    };
+    const rows = [
+      row("a/1", { started_at: at(5), ended_at: at(6), values: ["aa_reject"] }),
+      row("b/1", { started_at: at(6), ended_at: at(7), values: ["zz_accept"] }),
+      row("c/1", { started_at: at(7), ended_at: at(8), values: [true] }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show("/sample?sort=column-0", withColumns);
+    await screen.findByText("a");
+
+    // A to Z by Accepted, Kept, Rejected, not by the values themselves.
+    expect(itemsOf("Ended")).toEqual(["b", "c", "a"]);
+  });
+
+  it("says what a column holds on its heading's focus", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Cap",
+          field: ["budget", "max_usd"],
+          format: "usd",
+          description: "The most this attempt may spend.",
+        },
+        { title: "Note", field: ["note"], format: "text" },
+      ],
+    };
+    show("/sample", withColumns);
+    const cap = await screen.findByRole("button", { name: "Cap" });
+    expect(cap.firstElementChild).toHaveClass("decoration-dotted");
+    fireEvent.focus(cap);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "The most this attempt may spend.",
+    );
+    // A column with no description has no hint, nor its sign.
+    const note = screen.getByRole("button", { name: "Note" });
+    expect(note.firstElementChild).not.toHaveClass("decoration-dotted");
+  });
+
   it("tells a column's file not there from its value null", async () => {
     const withColumns: Project = {
       ...project,
@@ -573,11 +670,17 @@ describe("the home page", () => {
       expect(cells.map((c) => c.textContent)).toEqual([
         "Not run",
         "—",
-        "null",
+        "Not given",
         "$2.00",
       ]);
-      // A word of the viewer's, kept on one line.
+      // A word of the viewer's, kept on one line and set apart from values.
       expect(cells[0]?.firstElementChild).toHaveClass("whitespace-nowrap");
+      const given = cells[2]?.querySelector(".text-fg-3");
+      expect(given).toHaveClass("decoration-dotted");
+      fireEvent.focus(must(given?.closest("[tabindex]") ?? undefined));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "Its file gives null for this value.",
+      );
     } finally {
       ROWS[3] = { ...must(ROWS[3]), values: [], reads: null };
     }
