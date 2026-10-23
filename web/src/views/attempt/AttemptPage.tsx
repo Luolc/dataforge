@@ -41,6 +41,7 @@ import {
   stateTitle,
   toneGlyph,
   toneText,
+  withRowStatus,
 } from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
 import { declared, kindTitle, leading } from "../kind";
@@ -91,7 +92,10 @@ export function AttemptPage() {
         live?.live == null &&
         read.shape === "record" &&
         project.state === "ok" &&
-        attemptStatus(project.data, read.record) === null
+        attemptStatus(
+          project.data,
+          withRowStatus(project.data, read.record, live),
+        ) === null
       )
         throw new Error("/live could not read the record");
       return { read, live };
@@ -100,9 +104,25 @@ export function AttemptPage() {
     // Both reads end when their signal aborts.
     { limit: true },
   );
-  const loaded: Loaded<ReadRecord> =
-    both.state === "ok" ? { state: "ok", data: both.data.read } : both;
   const live = both.state === "ok" ? both.data.live : null;
+  // With the project's runs, the record shows its row's status.
+  const loaded: Loaded<ReadRecord> =
+    both.state === "ok"
+      ? {
+          state: "ok",
+          data:
+            both.data.read.shape === "record" && project.state === "ok"
+              ? {
+                  ...both.data.read,
+                  record: withRowStatus(
+                    project.data,
+                    both.data.read.record,
+                    live,
+                  ),
+                }
+              : both.data.read,
+        }
+      : both;
   // Read again only while /live says it runs and the record has not ended.
   usePolling(
     live?.live === "running" &&
@@ -285,6 +305,7 @@ function Attempt({
       <AttemptFacts project={project} record={record} live={live} />
       <Actions project={project} attempt={attempt} />
       <ReadFailed failed={failed} />
+      <RowNote note={read?.note ?? null} />
       <Tabs project={project} attempt={attempt} tabs={tabs} current={tab} />
       {tab === "runs" ? (
         <RunsView
@@ -360,6 +381,22 @@ function ReadFailed({ failed }: { failed: Failed | null }) {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * What a reconcile has yet to do with the attempt's row in the store, such as
+ * a holder that is gone (design-viz.md section 4); nothing when there is none.
+ */
+function RowNote({ note }: { note: string | null }) {
+  const Glyph = toneGlyph.warn;
+  return note === null ? null : (
+    <p
+      className={`flex items-center gap-1.5 px-7 pt-1 text-xs ${toneText.warn}`}
+    >
+      <Glyph className="size-3.5 flex-none" aria-hidden />
+      {`${note[0]?.toUpperCase() ?? ""}${note.slice(1)}.`}
+    </p>
   );
 }
 

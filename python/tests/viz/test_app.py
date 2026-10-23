@@ -148,6 +148,7 @@ def test_projects_leave_out_where_the_files_are(
     ],
     "session": {"thinking": "hidden"},
     "not_ended": None,
+    "runs": None,
     "deliverables": [],
     "kinds": {},
     "trials": None,
@@ -334,6 +335,9 @@ def test_attempts_are_newest_first_with_their_values(
     "queued": [None, None, None],
     "live": "not ended",
     "held": None,
+    "state": None,
+    "note": None,
+    "progress_at": None,
     "error": None,
   }
   assert rows[1]["error"] == "the record is not JSON"
@@ -352,6 +356,9 @@ def test_attempts_are_newest_first_with_their_values(
     "queued": [None, None, None],
     "live": None,
     "held": None,
+    "state": None,
+    "note": None,
+    "progress_at": None,
     "error": None,
   }
   assert rows[3]["modified"] is None

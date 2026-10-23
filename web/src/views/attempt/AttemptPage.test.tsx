@@ -191,7 +191,12 @@ describe("a record that is not a JSON object", () => {
 });
 
 describe("an attempt that runs", () => {
-  function showLive(live: unknown, status = 200, rec: unknown = inReview) {
+  function showLive(
+    live: unknown,
+    status = 200,
+    rec: unknown = inReview,
+    shown: Project = project,
+  ) {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>
@@ -203,7 +208,7 @@ describe("an attempt that runs", () => {
       ),
     );
     render(
-      <ProjectsContext value={{ state: "ok", data: [project] }}>
+      <ProjectsContext value={{ state: "ok", data: [shown] }}>
         <MemoryRouter initialEntries={[`/${project.id}/attempt?id=b/t`]}>
           <Routes>
             <Route path=":project/attempt" element={<AttemptPage />} />
@@ -224,6 +229,73 @@ describe("an attempt that runs", () => {
     );
     expect(within(header).getByRole("img", { name: "Running" })).toBeVisible();
     expect(tabs()[0]).toHaveTextContent("Runs5");
+  });
+
+  describe("with the store of runs", () => {
+    const runs: Project = {
+      ...project,
+      statuses: {
+        ...project.statuses,
+        canceled: { label: "Canceled", tone: "warn" },
+      },
+      runs: { stopped_by: { person: "canceled" } },
+    };
+    const header = async () => {
+      await screen.findByRole("heading", { name: /Attempt/ });
+      return must(
+        screen.getByRole("heading", { name: /Attempt/ }).parentElement,
+      );
+    };
+
+    it("takes a running row for running, whatever its record file's status", async () => {
+      const live = {
+        ...runningIn(),
+        held: null,
+        state: "running",
+        status: null,
+      };
+      showLive(live, 200, { ...inReview, status: "running" }, runs);
+
+      expect(
+        within(await header()).getByRole("img", { name: "Running" }),
+      ).toBeVisible();
+    });
+
+    it("shows an interrupted row's word, and what a reconcile has yet to do", async () => {
+      const note = "its machine ended passed; a reconcile has not ended it yet";
+      const live = {
+        ...mayHaveStopped,
+        held: null,
+        state: "interrupted",
+        status: "canceled",
+        note,
+      };
+      showLive(live, 200, { ...inReview, status: "running" }, runs);
+
+      expect(
+        within(await header()).getByRole("img", { name: "Canceled" }),
+      ).toBeVisible();
+      expect(
+        screen.getByText(
+          "Its machine ended passed; a reconcile has not ended it yet.",
+        ),
+      ).toBeVisible();
+    });
+
+    it("takes an ended row's outcome over its record file's status", async () => {
+      const live = {
+        live: null,
+        held: null,
+        current: null,
+        state: "ended",
+        status: "passed",
+      };
+      showLive(live, 200, { ...records.passed, status: "running" }, runs);
+
+      expect(
+        within(await header()).getByRole("img", { name: "Passed" }),
+      ).toBeVisible();
+    });
   });
 
   it("marks one that may have stopped as such, with no run it is in", async () => {

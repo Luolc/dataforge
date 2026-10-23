@@ -10,7 +10,7 @@ declares goes into the job.
 from collections.abc import Callable, Mapping, Sequence
 
 from dataforge import queue
-from dataforge.viz import live
+from dataforge.viz import live, runs
 from dataforge.viz.config import (
   Action,
   number,
@@ -119,12 +119,35 @@ def newest_row(rows: list[dict[str, object]]) -> dict[str, object] | None:
   return next((r for r in rows if r["error"] is None), None)
 
 
+def newest_attempt(
+  rows: list[dict[str, object]], found: runs.Found | None
+) -> str | None:
+  """Find the ID of the attempt an action with when "stopped" goes on with.
+
+  Args:
+    rows: The listing's rows of an item's attempts, newest modified first.
+    found: With runs, the item's rows in the store, the oldest first, which
+      then decide in place of rows.
+
+  Returns:
+    The store's newest row's, with runs; else the newest row's whose record
+    can be read; None when there is none.
+  """
+  if found is not None:
+    return (
+      None if found.error is not None or not found.rows else found.rows[-1].id
+    )
+  newest = newest_row(rows)
+  return None if newest is None else str(newest["id"])
+
+
 def unavailable(
   project: Project,
   action: Action,
   item: str,
   rows: list[dict[str, object]],
   open_jobs: list[queue.Job],
+  found: runs.Found | None = None,
 ) -> str | None:
   """Say why an action may not be submitted for an item now.
 
@@ -136,6 +159,8 @@ def unavailable(
     rows: The listing's rows of the item's attempts, newest modified first,
       with live and held marked.
     open_jobs: The jobs queued or running now.
+    found: With runs, the item's rows in the store, which then decide when
+      in place of rows.
 
   Returns:
     The reason, for a person; None when the action may be submitted.
@@ -144,6 +169,8 @@ def unavailable(
   holder = next((j for j in open_jobs if j.dedup_key == key), None)
   if holder is not None:
     return f"Job {holder.id} for this item is {holder.state} in {holder.queue}."
+  if found is not None:
+    return runs.unavailable(action.when, found)
   if action.when == "idle" and any(r["held"] is True for r in rows):
     return "An attempt of this item is running: its lock is held."
   if action.when == "stopped":
