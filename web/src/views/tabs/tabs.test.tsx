@@ -28,7 +28,7 @@ const project: Project = {
           file: "out/notes.md",
           fields: [
             { title: "Verdict", format: "text" },
-            { title: "Outcome", format: "text" },
+            { title: "Outcome", format: "text", labels: { done: "Done" } },
             { title: "Spent", format: "usd" },
           ],
         },
@@ -171,12 +171,32 @@ describe("a project's tab of a Markdown file", () => {
     const fields = within(screen.getByRole("region", { name: "Notes fields" }));
     const value = (title: string) =>
       fields.getByText(title).nextElementSibling?.textContent;
-    expect(value("Verdict")).toBe("null");
+    expect(value("Verdict")).toBe("Not given");
     expect(value("Outcome")).toBe(
       "Not run: notes/status.json: No such file or directory",
     );
     expect(value("Spent")).toBe("$1.50");
     expect(screen.queryByRole("navigation", { name: "Notes" })).toBeNull();
+  });
+
+  it("shows a field's value by its label, and one with no label as it is", async () => {
+    serve(three, { "notes-2/out/notes.md": "# Second notes\n" });
+    show();
+    const button = await screen.findByRole("button", {
+      name: "Version: notes",
+    });
+
+    fireEvent.pointerDown(button, { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "notes-2" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Second notes" }),
+    ).toBeVisible();
+    const fields = within(screen.getByRole("region", { name: "Notes fields" }));
+    const value = (title: string) =>
+      fields.getByText(title).nextElementSibling?.textContent;
+    expect(value("Outcome")).toBe("Done");
+    expect(value("Verdict")).toBe("n/a");
   });
 
   it("tells a field whose file is there without its keys from one not run", async () => {

@@ -11,6 +11,7 @@ import ipaddress
 import os
 from pathlib import Path
 import re
+from types import MappingProxyType
 from typing import cast
 
 import yaml
@@ -19,6 +20,9 @@ from dataforge import queue
 
 TONES = ("good", "bad", "warn", "neutral")
 """The tones a status may take."""
+
+NO_LABELS: Mapping[str, str] = MappingProxyType({})
+"""The labels of a column or a field that names none."""
 
 FORMATS = ("text", "number", "usd", "duration", "time")
 """The formats a column may take."""
@@ -101,6 +105,10 @@ class Column:
       for the record.
     tab: The name of a tab of the project whose first version file is in;
       None when file is relative to the attempt's directory.
+    labels: The label a page shows for each value that is a key of it, of
+      format text alone.
+    description: What the column holds, for a person, shown on its
+      heading; None for none.
   """
 
   title: str
@@ -108,6 +116,8 @@ class Column:
   format: str
   file: tuple[str, ...] | None = None
   tab: str | None = None
+  labels: Mapping[str, str] = NO_LABELS
+  description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,12 +129,15 @@ class TabField:
     file: The JSON file, relative to the version shown.
     field: The keys into the file its value is at.
     format: One of FORMATS.
+    labels: The label a page shows for each value that is a key of it, as a
+      column's.
   """
 
   title: str
   file: tuple[str, ...]
   field: tuple[str, ...]
   format: str
+  labels: Mapping[str, str] = NO_LABELS
 
 
 @dataclass(frozen=True, slots=True)
@@ -461,7 +474,13 @@ class Project:
       "statuses": self.statuses,
       "item": {"depth": self.item.depth, "title": self.item.title},
       "columns": [
-        {"title": c.title, "field": list(c.field), "format": c.format}
+        {
+          "title": c.title,
+          "field": list(c.field),
+          "format": c.format,
+          "labels": dict(c.labels),
+          "description": c.description,
+        }
         for c in self.columns
       ],
       "tabs": [
@@ -475,7 +494,8 @@ class Project:
               "title": part.title,
               "file": "/".join(part.file),
               "fields": [
-                {"title": f.title, "format": f.format} for f in part.fields
+                {"title": f.title, "format": f.format, "labels": dict(f.labels)}
+                for f in part.fields
               ],
             }
             for part in t.parts
@@ -869,7 +889,7 @@ def _columns(
       where,
       entry,
       required={"title", "field"},
-      optional={"format", "file", "tab"},
+      optional={"format", "file", "tab", "labels", "description"},
     )
     file = None
     if "file" in entry:
@@ -883,13 +903,18 @@ def _columns(
         raise ConfigError(f"{path}: {where}.file: missing, and tab names one")
       if not any(t.name == tab for t in tabs):
         raise ConfigError(f"{path}: {where}.tab: {tab!r} is not a tab's name")
+    format_ = _format(path, where, entry)
     columns.append(
       Column(
         _str(path, f"{where}.title", entry["title"]),
         _field_keys(path, where, entry["field"]),
-        _format(path, where, entry),
+        format_,
         file,
         tab,
+        _labels(path, where, entry, format_),
+        None
+        if "description" not in entry
+        else _str(path, f"{where}.description", entry["description"]),
       )
     )
   return tuple(columns)
@@ -900,6 +925,26 @@ def _field_keys(path: Path, where: str, value: object) -> tuple[str, ...]:
     raise ConfigError(f"{path}: {where}.field: not a non-empty list")
   return tuple(
     _str(path, f"{where}.field", k) for k in cast(list[object], value)
+  )
+
+
+def _labels(
+  path: Path, where: str, entry: Mapping[str, object], format_: str
+) -> Mapping[str, str]:
+  # A value's label: the value as a string, or a boolean's or a number's JSON
+  # text, mapped to the words a page shows for it.
+  if "labels" not in entry:
+    return NO_LABELS
+  if format_ != "text":
+    raise ConfigError(f"{path}: {where}.labels: only with format text")
+  labels = _mapping(path, f"{where}.labels", entry["labels"])
+  if not labels:
+    raise ConfigError(f"{path}: {where}.labels: not a non-empty mapping")
+  return MappingProxyType(
+    {
+      value: _str(path, f"{where}.labels.{value}", label)
+      for value, label in labels.items()
+    }
   )
 
 
@@ -1095,8 +1140,9 @@ def _tab_fields(path: Path, where: str, value: object) -> tuple[TabField, ...]:
       at,
       entry,
       required={"title", "file", "field"},
-      optional={"format"},
+      optional={"format", "labels"},
     )
+    format_ = _format(path, at, entry)
     found.append(
       TabField(
         title=_str(path, f"{at}.title", entry["title"]),
@@ -1104,7 +1150,8 @@ def _tab_fields(path: Path, where: str, value: object) -> tuple[TabField, ...]:
           path, f"{at}.file", _str(path, f"{at}.file", entry["file"])
         ),
         field=_field_keys(path, at, entry["field"]),
-        format=_format(path, at, entry),
+        format=format_,
+        labels=_labels(path, at, entry, format_),
       )
     )
   return tuple(found)
