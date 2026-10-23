@@ -231,7 +231,8 @@ def _modules(copied: dict[str, bytes]) -> dict[str, str]:
     if isinstance(node, ast.AnnAssign) and ast.unparse(node.target) == (
       "MODULES"
     ):
-      return cast("dict[str, str]", ast.literal_eval(node.value or ast.Dict()))
+      assert node.value is not None
+      return cast("dict[str, str]", ast.literal_eval(node.value))
   raise AssertionError("registry.py has no MODULES")
 
 
@@ -287,16 +288,17 @@ def test_the_host_registry_names_every_runner():
   assert registry(RUNNERS) == host
 
 
-@pytest.mark.parametrize(
-  "manifest",
-  [
-    *(_manifest(r) for r in RUNNERS),
-    OWN_GROUP,
-    OWN_GROUP.replace("junit", "ctrf"),
-  ],
-)
-def test_no_tasks_copy_has_the_hosts_files(manifest: str):
-  copied = files_for(load(manifest))
+# A manifest of each runner, and of a run group of each format.
+MANIFESTS = {
+  **{r: _manifest(r) for r in RUNNERS},
+  "junit": OWN_GROUP,
+  "ctrf": OWN_GROUP.replace("junit", "ctrf"),
+}
+
+
+@pytest.mark.parametrize("case", MANIFESTS)
+def test_no_tasks_copy_has_the_hosts_files(case: str):
+  copied = files_for(load(MANIFESTS[case]))
   assert not {f"testrunner/{n}" for n in HOST} & set(copied)
 
 
