@@ -1,0 +1,591 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 10.0,
+    "cost_usd": 1.0,
+    "stopped": null
+  },
+  "final": {
+    "solve": {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {
+        "solved": 1,
+        "errors": 1,
+        "k": 3
+      },
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-02T09:46:00+00:00",
+          "ended_at": "2026-03-02T09:55:03+00:00",
+          "cost_usd": 0.31,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__p3a1",
+            "path": "artifacts/solve/1/trial-1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-1/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-03-02T09:55:12+00:00",
+          "ended_at": "2026-03-02T10:04:34+00:00",
+          "cost_usd": 0.29,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__p3b2",
+            "path": "artifacts/solve/1/trial-2",
+            "trace": {
+              "path": "artifacts/solve/1/trial-2/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-03-02T10:04:40+00:00",
+          "ended_at": "2026-03-02T10:34:40+00:00",
+          "cost_usd": 0.4,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__p3c3",
+            "path": "artifacts/solve/1/trial-3",
+            "trace": null,
+            "rewards": {},
+            "exception": "AgentTimeoutError: the agent ran past its 1800s limit",
+            "source": null
+          }
+        }
+      ]
+    },
+    "regrade": {
+      "state": "regrade",
+      "visit": 1,
+      "round": 1,
+      "outcome": "ok",
+      "data": {
+        "verdicts": {
+          "regrade-1": "held",
+          "regrade-2": "broke",
+          "regrade-3": "broke"
+        }
+      },
+      "mark": null,
+      "last": true,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-1": "artifacts/regrade/1/regrade-1"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:47+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "1__rg1x",
+            "path": "artifacts/regrade/1/regrade-1/1__rg1x",
+            "trace": null,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": "artifacts/solve/1/trial-1"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-2": "artifacts/regrade/1/regrade-2"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:41+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "2__rg2x",
+            "path": "artifacts/regrade/1/regrade-2/2__rg2x",
+            "trace": null,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": "artifacts/solve/1/trial-2"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-3": "artifacts/regrade/1/regrade-3"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:39+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "3__rg3x",
+            "path": "artifacts/regrade/1/regrade-3/3__rg3x",
+            "trace": null,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": "artifacts/solve/0/trial-9"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-4": "artifacts/regrade/1/regrade-4"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:44+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "4__rg4x",
+            "path": "artifacts/regrade/1/regrade-4/4__rg4x",
+            "trace": null,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null
+          }
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {
+        "solved": 1,
+        "errors": 1,
+        "k": 3
+      },
+      "mark": null,
+      "last": false,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-03-02T09:46:00+00:00",
+          "ended_at": "2026-03-02T09:55:03+00:00",
+          "cost_usd": 0.31,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__p3a1",
+            "path": "artifacts/solve/1/trial-1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-1/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-03-02T09:55:12+00:00",
+          "ended_at": "2026-03-02T10:04:34+00:00",
+          "cost_usd": 0.29,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__p3b2",
+            "path": "artifacts/solve/1/trial-2",
+            "trace": {
+              "path": "artifacts/solve/1/trial-2/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-03-02T10:04:40+00:00",
+          "ended_at": "2026-03-02T10:34:40+00:00",
+          "cost_usd": 0.4,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__p3c3",
+            "path": "artifacts/solve/1/trial-3",
+            "trace": null,
+            "rewards": {},
+            "exception": "AgentTimeoutError: the agent ran past its 1800s limit",
+            "source": null
+          }
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 1,
+      "round": 1,
+      "outcome": "ok",
+      "data": {
+        "verdicts": {
+          "regrade-1": "held",
+          "regrade-2": "broke",
+          "regrade-3": "broke"
+        }
+      },
+      "mark": null,
+      "last": true,
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-1": "artifacts/regrade/1/regrade-1"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:47+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "1__rg1x",
+            "path": "artifacts/regrade/1/regrade-1/1__rg1x",
+            "trace": null,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": "artifacts/solve/1/trial-1"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-2": "artifacts/regrade/1/regrade-2"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:41+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "2__rg2x",
+            "path": "artifacts/regrade/1/regrade-2/2__rg2x",
+            "trace": null,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": "artifacts/solve/1/trial-2"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-3": "artifacts/regrade/1/regrade-3"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:39+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "3__rg3x",
+            "path": "artifacts/regrade/1/regrade-3/3__rg3x",
+            "trace": null,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": "artifacts/solve/0/trial-9"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "regrade-4": "artifacts/regrade/1/regrade-4"
+          },
+          "started_at": "2026-03-02T10:35:00+00:00",
+          "ended_at": "2026-03-02T10:35:44+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "4__rg4x",
+            "path": "artifacts/regrade/1/regrade-4/4__rg4x",
+            "trace": null,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null
+          }
+        }
+      ]
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "state": "solve",
+      "output": null,
+      "visit": 1,
+      "visit_index": 0,
+      "path": "artifacts/solve/1",
+      "reason": null,
+      "match": null,
+      "k": 3,
+      "value": {
+        "output": null,
+        "field": ["solved"],
+        "value": 1,
+        "reason": null
+      },
+      "verdicts": null,
+      "trials": [
+        {
+          "id": "tinyparse-fold__p3a1",
+          "output": "trial-1",
+          "path": "artifacts/solve/1/trial-1",
+          "trace": {
+            "path": "artifacts/solve/1/trial-1/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "source": null,
+          "log": null,
+          "verdict": null,
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__p3b2",
+          "output": "trial-2",
+          "path": "artifacts/solve/1/trial-2",
+          "trace": {
+            "path": "artifacts/solve/1/trial-2/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "source": null,
+          "log": null,
+          "verdict": null,
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__p3c3",
+          "output": "trial-3",
+          "path": "artifacts/solve/1/trial-3",
+          "trace": null,
+          "source": null,
+          "log": null,
+          "verdict": null,
+          "result": {
+            "reward": null,
+            "rewards": {},
+            "exception": "AgentTimeoutError: the agent ran past its 1800s limit"
+          }
+        }
+      ]
+    },
+    {
+      "name": "regrade",
+      "kind": "trials",
+      "title": "Regrade",
+      "state": "regrade",
+      "output": null,
+      "visit": 1,
+      "visit_index": 1,
+      "path": "artifacts/regrade/1",
+      "reason": null,
+      "match": null,
+      "k": 4,
+      "value": {
+        "output": null,
+        "field": ["solved"],
+        "value": null,
+        "reason": "the outcome data has no key solved"
+      },
+      "verdicts": {
+        "output": null,
+        "field": ["verdicts"],
+        "reason": null
+      },
+      "trials": [
+        {
+          "id": "1__rg1x",
+          "output": "regrade-1",
+          "path": "artifacts/regrade/1/regrade-1/1__rg1x",
+          "trace": null,
+          "source": "artifacts/solve/1/trial-1",
+          "log": "artifacts/regrade/1/regrade-1/harbor.log",
+          "verdict": "held",
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "2__rg2x",
+          "output": "regrade-2",
+          "path": "artifacts/regrade/1/regrade-2/2__rg2x",
+          "trace": null,
+          "source": "artifacts/solve/1/trial-2",
+          "log": "artifacts/regrade/1/regrade-2/harbor.log",
+          "verdict": "broke",
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "3__rg3x",
+          "output": "regrade-3",
+          "path": "artifacts/regrade/1/regrade-3/3__rg3x",
+          "trace": null,
+          "source": "artifacts/solve/0/trial-9",
+          "log": "artifacts/regrade/1/regrade-3/harbor.log",
+          "verdict": "broke",
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": "VerifierTimeoutError: the tests ran past their 600s limit\n  in step tests, after 3 of 5 tests\n  the last test was tests/test_fold.py::test_nested"
+          }
+        },
+        {
+          "id": "4__rg4x",
+          "output": "regrade-4",
+          "path": "artifacts/regrade/1/regrade-4/4__rg4x",
+          "trace": null,
+          "source": null,
+          "log": null,
+          "verdict": null,
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        }
+      ]
+    }
+  ],
+  "graph": null,
+  "resumptions": []
+}

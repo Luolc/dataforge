@@ -1469,6 +1469,8 @@ class TrialResult:
     trace_format: The trace's format, such as "claude-code-stream-json".
     written_bytes: What the trial's containers wrote and left on the disk,
       if the runner measures it.
+    log: The runner's log of the trial inside the output directory, if it
+      keeps one.
   """
 
   rewards: Mapping[str, float]
@@ -1481,6 +1483,7 @@ class TrialResult:
   trace: Path | None = None
   trace_format: str | None = None
   written_bytes: int | None = None
+  log: Path | None = None
 
 
 class TrialRunner(Protocol):
@@ -1834,6 +1837,7 @@ def _trial_record(
     dict(result.rewards),
     result.exception,
     source,
+    inside(result.log),
   )
 
 

@@ -2,10 +2,13 @@
 // deliverable of a kind or one version of a tab.
 import { ChevronDown } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
+import type { ReactNode } from "react";
 
 export interface Choice {
   key: string;
   title: string;
+  /** Shown after the title in the menu, such as a count. */
+  aside?: ReactNode;
 }
 
 /** The chosen item's title as a button that opens a menu of all of them. */
@@ -44,9 +47,14 @@ export function ChoiceMenu({
               onSelect={() => {
                 onChoose(item.key);
               }}
-              className="flex target cursor-default items-center rounded-row px-2 outline-none data-highlighted:bg-hover"
+              className="flex target cursor-default items-center justify-between gap-4 rounded-row px-2 outline-none data-highlighted:bg-hover"
             >
               {item.title}
+              {item.aside !== undefined && (
+                <span className="text-xs text-fg-3 tabular-nums">
+                  {item.aside}
+                </span>
+              )}
             </DropdownMenu.Item>
           ))}
         </DropdownMenu.Content>

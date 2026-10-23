@@ -519,7 +519,7 @@ class HarborRunner:
         f"{NOT_STARTED}: Harbor did not start the trial ({why}), on {runs};"
         + f" the end of harbor.log:\n{_tail(log, self.env.values())}"
       )
-      return TrialResult({}, reason, 0.0, elapsed, {"log": log})
+      return TrialResult({}, reason, 0.0, elapsed, {"log": log}, log=log)
     return _read(outdir, log, error, elapsed)
 
   def overlay(
@@ -1247,8 +1247,8 @@ def _read(
 ) -> TrialResult:
   results = sorted((outdir / "job").glob("*/result.json"))
   if not results:
-    reason = error or f"HarborError: no trial result; see {log}"
-    return TrialResult({}, reason, 0.0, elapsed, {"log": log})
+    reason = error or f"HarborError: no trial result; see {log.name}"
+    return TrialResult({}, reason, 0.0, elapsed, {"log": log}, log=log)
   trial = results[0].parent
   result = cast(dict[str, object], json.loads(results[0].read_text()))
   verifier = cast(dict[str, object], result.get("verifier_result") or {})
@@ -1307,4 +1307,5 @@ def _read(
     trace=None if traced is None else traced[1],
     trace_format=None if traced is None else traced[0].format,
     written_bytes=written(trial).total,
+    log=log,
   )
