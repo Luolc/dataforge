@@ -260,6 +260,10 @@ def test_a_tasks_copy_names_the_guards_it_has():
   assert guards_of(copied["testrunner/registry.py"]) == ["cpp"]
   assert guards_of(registry(("go",), ("cpp",))) == ["gotest", "cpp"]
   assert guards_of(registry(())) == []
+  # A copy of the old layout, written before GUARDS, names none.
+  old = registry(()).split(b"\nGUARDS")[0]
+  with pytest.raises(ValueError, match="names no GUARDS: a copy of the old"):
+    _ = guards_of(old)
   with pytest.raises(ValueError, match="unknown guards: js"):
     _ = guards_of(
       registry(()).replace(
