@@ -170,6 +170,12 @@ def test_an_attempt_s_status_reason_cost_and_live_come_from_its_row(
     lost: ("interrupted", None, None, "may have stopped", "interrupted"),
     running: (None, None, None, "running", "running"),
   }
+  assert {i: r["cost_from"] for i, r in rows.items()} == {
+    ended: "store",
+    person: "store",
+    lost: None,
+    running: None,
+  }
   # Only a running row whose holder is alive holds its item.
   assert {i: r["holder"] for i, r in rows.items()} == {
     ended: False,
