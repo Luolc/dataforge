@@ -1,6 +1,6 @@
 {
   "format": "dataforge.curation.record",
-  "version": 5,
+  "version": 6,
   "facts": {
     "budget": "object",
     "budget/cost_usd": "float",
@@ -36,10 +36,12 @@
     "final/*/actions/[]/trial/trace/format": "str",
     "final/*/actions/[]/trial/trace/path": "str",
     "final/*/data": "object",
+    "final/*/ended_at": "str",
     "final/*/last": "bool",
     "final/*/mark": "str",
     "final/*/outcome": "str",
     "final/*/round": "int",
+    "final/*/started_at": "str",
     "final/*/state": "str",
     "final/*/visit": "int",
     "graph": "object",
@@ -83,10 +85,12 @@
     "visits/[]/actions/[]/trial/trace/format": "str",
     "visits/[]/actions/[]/trial/trace/path": "str",
     "visits/[]/data": "object",
+    "visits/[]/ended_at": "str",
     "visits/[]/last": "bool",
     "visits/[]/mark": "str",
     "visits/[]/outcome": "str",
     "visits/[]/round": "int",
+    "visits/[]/started_at": "str",
     "visits/[]/state": "str",
     "visits/[]/visit": "int"
   }
