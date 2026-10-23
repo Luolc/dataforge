@@ -224,6 +224,20 @@ def test_a_row_a_person_stopped_has_ended_at_its_newest_stop(
   assert rows[lost]["ended_at"] not in stops
 
 
+def test_a_row_a_person_stopped_before_its_first_visit_starts_with_its_row(
+  made: QueueTree, static: Path, store: Store, me: Leader
+) -> None:
+  stopped = attempt(made, "task-1", {"status": "running", "visits": []})
+  assert store.insert(stopped, "batch-1", Path("/r"), me, None)
+  assert store.interrupt(stopped, me, by="runner", stopped_by="person")
+  row = store.get(stopped)
+  assert row is not None
+
+  listed = listing(client(made, static))[stopped]
+
+  assert (listed["live"], listed["started_at"]) == (None, row.created_at)
+
+
 def test_a_running_row_whose_holder_is_gone_says_so(
   made: QueueTree, static: Path, store: Store, gone: Leader
 ) -> None:
@@ -398,6 +412,10 @@ def test_the_store_is_opened_read_only_and_never_written(
   me: Leader,
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+  # A row a person stopped, whose events are read too, and one running.
+  stopped = attempt(made, "task-1", {"status": "running"})
+  assert store.insert(stopped, "batch-1", Path("/r"), me, None)
+  assert store.interrupt(stopped, me, by="runner", stopped_by="person")
   running = attempt(made, "task-2", {"status": "running"})
   assert store.insert(running, "batch-1", Path("/r"), me, None)
   web = client(made, static)

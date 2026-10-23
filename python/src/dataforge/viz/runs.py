@@ -177,7 +177,8 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
   holder, state, note and progress_at from it, holder true for a running row
   whose holder is alive, live None for a row that has ended (has_ended), and
   for a row a person stopped its ended_at too, from stopped_at, whatever its
-  record file holds; one with none keeps what its record file gave and says
+  record file holds, and its started_at, created_at, when its record file
+  gives none; one with none keeps what its record file gave and says
   so in its error, as does every attempt when the store is not read.
 
   Args:
@@ -212,8 +213,12 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
       note=note(row, gone),
       progress_at=row.progress_at,
     )
-    if row.id in found.stopped_at:
-      listed["ended_at"] = found.stopped_at[row.id]
+    if row.state == "interrupted" and has_ended(row):
+      listed["ended_at"] = found.stopped_at.get(row.id, listed["ended_at"])
+      # Stopped before its record had a visit, it starts when its row was
+      # made, so that the page does not take it as its item's oldest.
+      if listed["started_at"] is None:
+        listed["started_at"] = row.created_at
 
 
 def unavailable(
