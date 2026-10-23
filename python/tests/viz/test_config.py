@@ -144,8 +144,6 @@ RUNS = "runs: {db: ../runs.sqlite}"
   [
     "not_ended: [running]",
     "lock: .lock",
-    "statuses: {canceled: {label: Canceled, tone: warn}}\n"
-    + "resumable: [canceled]",
   ],
 )
 def test_a_project_file_with_runs_and_what_it_replaces_is_refused(
@@ -453,17 +451,9 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (("name: Example", "name: Example\nlock: ../.lock"), "lock"),
     (("name: Example", "name: Example\nnot_ended: running"), "not_ended"),
     (("name: Example", "name: Example\nnot_ended: []"), "not_ended"),
-    (("name: Example", "name: Example\nresumable: []"), "resumable"),
     (
-      ("name: Example", "name: Example\nresumable: [canceled]"),
-      "resumable.*'canceled'",
-    ),
-    (
-      (
-        "name: Example",
-        "name: Example\nresumable: [passed]\nnot_ended: [passed]",
-      ),
-      "resumable.*not_ended",
+      ("name: Example", "name: Example\nresumable: [passed]"),
+      "resumable: unknown key",
     ),
     (("name: Example", "name: Example\ndeliverables: task"), "deliverables"),
     (

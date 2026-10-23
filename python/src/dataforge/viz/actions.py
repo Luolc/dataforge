@@ -173,8 +173,7 @@ def unavailable(
   """Say why an action may not be submitted for an item now.
 
   Args:
-    project: The project, whose resumable statuses let an action with when
-      "stopped" go on with an attempt that has ended.
+    project: The project, whose labels the reasons give.
     action: The action.
     item: The item's ID.
     rows: The listing's rows of the item's attempts, newest modified first,
@@ -201,9 +200,7 @@ def unavailable(
     if newest is None:
       return "No attempt of this item can be read."
     if newest["live"] is None:
-      if newest["status"] not in project.resumable:
-        return _not_resumable(project, action, item, newest)
-      return None
+      return _not_resumable(project, action, item, newest)
     if newest["live"] != live.MAY_HAVE_STOPPED:
       return "The newest attempt of this item is running."
   return None
@@ -219,12 +216,10 @@ def _not_resumable(
       return "with no status"
     return project.statuses.get(status, {}).get("label", status)
 
-  needs = " or ".join(
-    ["may have stopped", *(f"ended {label(s)}" for s in project.resumable)]
-  )
   stamp = str(newest["id"]).removeprefix(f"{item}/")
   return (
-    f"{action.label} needs an attempt that {needs}; the newest, {stamp},"
+    f"{action.label} needs an attempt that may have stopped; the newest,"
+    + f" {stamp},"
     + f" ended {label(newest['status'])}."
   )
 
