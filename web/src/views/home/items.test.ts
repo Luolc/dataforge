@@ -90,6 +90,35 @@ describe("rowStatus", () => {
   });
 });
 
+describe("rowStatus with the store of runs", () => {
+  it("is an interrupted row's word for how it was stopped, not May have stopped", () => {
+    const stopped = {
+      live: "may have stopped" as const,
+      state: "interrupted" as const,
+    };
+    expect(rowStatus(row("a/1", { ...stopped, status: "canceled" }))).toBe(
+      "canceled",
+    );
+    expect(rowStatus(row("a/1", { ...stopped, status: "interrupted" }))).toBe(
+      "interrupted",
+    );
+    // A running row whose holder is gone, and a row of a project with a
+    // lock, keep live's word.
+    expect(
+      rowStatus(
+        row("a/1", {
+          live: "may have stopped",
+          state: "running",
+          status: null,
+        }),
+      ),
+    ).toBe("~may-have-stopped");
+    expect(
+      rowStatus(row("a/1", { live: "may have stopped", status: "running" })),
+    ).toBe("~may-have-stopped");
+  });
+});
+
 describe("toItems", () => {
   it("stands an item for its newest attempt by started_at", () => {
     const [item] = toItems([

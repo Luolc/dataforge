@@ -273,6 +273,10 @@ def test_a_running_attempt_is_in_the_state_its_last_visit_goes_to(
       "recorded": False,
       "since": "2026-01-02T03:14:05+00:00",
     },
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
   }
 
 
@@ -335,9 +339,33 @@ def test_only_a_running_attempt_has_a_current_visit(
     ended = state_of(tree, static, "task-1")
   free = state_of(tree, static, "task-2")
 
-  assert older == {"live": "may have stopped", "held": True, "current": None}
-  assert ended == {"live": None, "held": True, "current": None}
-  assert free == {"live": "may have stopped", "held": False, "current": None}
+  assert older == {
+    "live": "may have stopped",
+    "held": True,
+    "current": None,
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
+  }
+  assert ended == {
+    "live": None,
+    "held": True,
+    "current": None,
+    "state": None,
+    "status": "passed",
+    "reason": None,
+    "note": None,
+  }
+  assert free == {
+    "live": "may have stopped",
+    "held": False,
+    "current": None,
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
+  }
 
 
 def test_a_transition_to_the_end_has_no_current_visit(
@@ -347,7 +375,15 @@ def test_a_transition_to_the_end_has_no_current_visit(
   with holding(tree.root / "batch-1" / ".lock"):
     found = state_of(tree, static, "task-2")
 
-  assert found == {"live": "running", "held": True, "current": None}
+  assert found == {
+    "live": "running",
+    "held": True,
+    "current": None,
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
+  }
 
 
 def test_live_refuses_an_attempt_that_is_not_there(
