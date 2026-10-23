@@ -1,5 +1,5 @@
 // The home page's model: attempt rows grouped into data items, the items
-// split into the page's groups, and what search and the status chips keep.
+// split into the page's groups, and what search and the chips keep.
 import type { AttemptRow, Live, Project } from "../../api/types";
 import {
   isEnding,
@@ -232,37 +232,89 @@ function matches(item: Item, q: string): boolean {
   return item.id.toLowerCase().includes(q.trim().toLowerCase());
 }
 
+/**
+ * The key of a value of a column a page filters by: a string as it is, a
+ * number's or a boolean's JSON text, as a label is keyed; null for none.
+ */
+function valueKey(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean")
+    return JSON.stringify(value);
+  return null;
+}
+
+/** The key of an item's value in the column at index, its newest's. */
+const columnKey = (item: Item, index: number): string | null =>
+  valueKey(item.newest.values?.[index]);
+
+/** A chip's key and the number of items it has. */
+interface ChipCount {
+  key: string;
+  count: number;
+}
+
+/** The chips of a column the page filters by. */
+interface ColumnChips {
+  /** The column's index among the project's columns. */
+  index: number;
+  /** The items the search and every other filter keep, its All chip's count. */
+  all: number;
+  /** One per value those items have, in the order of the column's cases, then A to Z. */
+  chips: ChipCount[];
+}
+
 export interface Filtered {
-  /** The items search and the chosen chip keep, in the page's order. */
+  /** The items the search and the chosen chips keep, in the page's order. */
   shown: Item[];
-  /** Each chip's key and the number of searched items it has. */
-  chips: { key: string; count: number }[];
-  /** The number of searched items, the All chip's count. */
+  /** Each status chip's key and the number of items it has. */
+  chips: ChipCount[];
+  /** The number of items the search and the column filters keep, the All chip's count. */
   searched: number;
-  /** How many items search and the chip hide. */
+  /** The chips of each column the page filters by, in the columns' order. */
+  columns: ColumnChips[];
+  /** How many items the search and the chips hide. */
   hidden: number;
 }
 
 // The chips of the live words come first, unreadable last.
 const FIRST = ["~running", "~may-have-stopped", STOPPED_KEY, NOT_ENDED_KEY];
 
+/** Each key's count over the items, the chosen key at 0 when none has it. */
+function countKeys(
+  items: Item[],
+  key: (item: Item) => string | null,
+  chosen: string | null,
+): Map<string, number> {
+  const counts = new Map<string, number>(chosen === null ? [] : [[chosen, 0]]);
+  for (const item of items) {
+    const k = key(item);
+    if (k !== null) counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /**
- * What a search and a chosen chip keep; no chip chosen (All) keeps every
- * status. Chips count the items search keeps, so a chip says what choosing
- * it would show; the chosen chip stays when search leaves it none.
+ * What a search and the chosen chips keep: a status chip, and a value of
+ * each column the project filters by (`picked`, by the column's index); no
+ * chip chosen (All) keeps every one. Each group of chips counts the items
+ * the search and the other groups keep, so a chip says what choosing it
+ * would show; a chosen chip stays when the rest leaves it none.
  */
 export function filterItems(
   project: Project,
   items: Item[],
   q: string,
   chosen: string | null,
+  picked: ReadonlyMap<number, string> = new Map(),
 ): Filtered {
   const searched = items.filter((i) => matches(i, q));
-  const counts = new Map<string, number>(chosen === null ? [] : [[chosen, 0]]);
-  for (const item of searched) {
-    const key = filterKey(item);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
+  const byStatus = (i: Item) => chosen === null || filterKey(i) === chosen;
+  const byColumns = (i: Item, but?: number) =>
+    [...picked].every(
+      ([index, key]) => index === but || columnKey(i, index) === key,
+    );
+  const unstatused = searched.filter((i) => byColumns(i));
+  const counts = countKeys(unstatused, filterKey, chosen);
   const declared = Object.keys(project.statuses);
   const order = (key: string) =>
     FIRST.includes(key)
@@ -282,14 +334,39 @@ export function filterItems(
         ? byOrder
         : a.key.localeCompare(b.key);
     });
-  const shown =
-    chosen === null
-      ? searched
-      : searched.filter((i) => filterKey(i) === chosen);
+  const columns = project.columns.flatMap((column, index): ColumnChips[] => {
+    if (column.filter !== true) return [];
+    const kept = searched.filter((i) => byStatus(i) && byColumns(i, index));
+    const cases = column.cases ?? [];
+    const rank = (key: string) =>
+      cases.includes(key) ? cases.indexOf(key) : cases.length;
+    const label = (key: string) => column.labels?.[key] ?? key;
+    const counted = countKeys(
+      kept,
+      (i) => columnKey(i, index),
+      picked.get(index) ?? null,
+    );
+    return [
+      {
+        index,
+        all: kept.length,
+        chips: [...counted]
+          .map(([key, count]) => ({ key, count }))
+          .sort((a, b) => {
+            const byCase = rank(a.key) - rank(b.key);
+            return byCase !== 0
+              ? byCase
+              : label(a.key).localeCompare(label(b.key));
+          }),
+      },
+    ];
+  });
+  const shown = unstatused.filter(byStatus);
   return {
     shown,
     chips,
-    searched: searched.length,
+    searched: unstatused.length,
+    columns,
     hidden: items.length - shown.length,
   };
 }

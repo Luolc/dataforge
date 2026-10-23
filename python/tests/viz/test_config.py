@@ -55,6 +55,31 @@ def test_a_column_s_labels_and_description_reach_the_page(tree: Tree) -> None:
   assert (cost["labels"], cost["description"]) == ({}, None)
 
 
+def test_a_column_of_cases_gives_the_page_its_values_and_filter(
+  tree: Tree,
+) -> None:
+  _ = tree.project.write_text(
+    PROJECT
+    + "  - title: Kind\n"
+    + "    filter: true\n"
+    + "    cases:\n"
+    + "      - {value: b, when: [{field: [x], equals: 1}]}\n"
+    + "      - {value: a, when: [{field: [y], given: false}]}\n"
+  )
+
+  [project] = load_site(tree.site).projects
+
+  [status, *_, kind] = cast(
+    list[dict[str, object]], project.public()["columns"]
+  )
+  assert (kind["field"], kind["cases"], kind["filter"]) == (
+    [],
+    ["b", "a"],
+    True,
+  )
+  assert (status["cases"], status["filter"]) == ([], False)
+
+
 def test_a_session_view_shows_thinking_as_the_project_file_says(
   tree: Tree,
 ) -> None:
@@ -300,6 +325,90 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       ("field: [status]", "field: [status], description: ''"),
       r"columns\[0\]\.description: not a non-empty string",
+    ),
+    (
+      (
+        "field: [status]}",
+        "field: [status],"
+        + " cases: [{value: a, when: [{field: [x], given: true}]}]}",
+      ),
+      r"columns\[0\]: needs one of field and cases",
+    ),
+    (
+      ("{title: Status, field: [status]}", "{title: Status}"),
+      r"columns\[0\]: needs one of field and cases",
+    ),
+    (
+      ("{title: Status, field: [status]}", "{title: Status, cases: []}"),
+      r"columns\[0\]\.cases: not a non-empty list",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status, file: a.json,"
+        + " cases: [{value: a, when: [{field: [x], given: true}]}]}",
+      ),
+      r"columns\[0\]\.cases: not with file",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status, format: usd,"
+        + " cases: [{value: a, when: [{field: [x], given: true}]}]}",
+      ),
+      r"columns\[0\]\.cases: only with format text",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status, cases: [{value: a, when: []}]}",
+      ),
+      r"columns\[0\]\.cases\[0\]\.when: not a non-empty list",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status,"
+        + " cases: [{value: '', when: [{field: [x], given: true}]}]}",
+      ),
+      r"columns\[0\]\.cases\[0\]\.value: not a non-empty string",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status, cases: [{value: a, when: [{field: [x]}]}]}",
+      ),
+      r"columns\[0\]\.cases\[0\]\.when\[0\]: needs one of equals and given",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status,"
+        + " cases: [{value: a, when: [{field: [x], equals: 1, given: true}]}]}",
+      ),
+      r"columns\[0\]\.cases\[0\]\.when\[0\]: needs one of equals and given",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status, cases: [{value: a, when: [{field: [x], given: 1}]}]}",
+      ),
+      r"columns\[0\]\.cases\[0\]\.when\[0\]\.given: not true or false",
+    ),
+    (
+      (
+        "{title: Status, field: [status]}",
+        "{title: Status, cases: [{value: a, when: [{field: x, given: true}]}]}",
+      ),
+      r"columns\[0\]\.cases\[0\]\.when\[0\]\.field",
+    ),
+    (
+      ("field: [status]}", "field: [status], filter: yes please}"),
+      r"columns\[0\]\.filter: not true or false",
+    ),
+    (
+      ("format: usd", "format: usd, filter: true"),
+      r"columns\[1\]\.filter: only with format text",
     ),
     (("name: Example", "name: Example\nextra: 1"), "extra: unknown key"),
     (("name: Example", "name: Example\nname: Again"), "key name repeated"),

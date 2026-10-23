@@ -29,6 +29,17 @@ columns:
   - { title: Kept visit, field: [kept_visit], format: number }
   - { title: Cost, field: [budget, cost_usd], format: usd }
   - { title: Verdict, tab: notes, file: tags.json, field: [verdict, value] }
+  # A column of cases, which the page filters by: how a passed attempt got
+  # there, by its round; empty for one that did not pass.
+  - title: Path
+    filter: true
+    cases:
+      - value: first
+        when:
+          [{ field: [status], equals: passed }, { field: [round], equals: 1 }]
+      - value: again
+        when: [{ field: [status], equals: passed }]
+    labels: { first: First round, again: Later round }
 # Notes of a few attempts, to read the Verdict column from; made up.
 tabs:
   - name: notes

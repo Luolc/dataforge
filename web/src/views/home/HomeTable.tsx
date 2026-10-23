@@ -128,6 +128,16 @@ function timeValue(iso: string | null): Value {
 
 const NUMERIC_FORMATS = new Set(["number", "usd", "duration", "time"]);
 
+/** The key in the URL of the filter of the column at index. */
+const columnParam = (index: number) => `column-${index.toString()}`;
+
+/** Words joined as a sentence lists them: "a", "a and b", "a, b and c". */
+function joined(words: string[]): string {
+  return words.length <= 1
+    ? (words[0] ?? "")
+    : `${words.slice(0, -1).join(", ")} and ${words.at(-1) ?? ""}`;
+}
+
 /** A row's end, null while it has not ended. */
 const lineEnded = (l: Line) => (notEnded(l.row) ? null : l.row.ended_at);
 
@@ -260,6 +270,8 @@ function specs(project: Project): Spec[] {
       },
       cell: (l) => {
         const read = l.row.reads?.[index] ?? null;
+        // A column of cases is empty where none of them holds.
+        if ((column.cases ?? []).length > 0 && raw(l) == null) return null;
         if (read === null) return formatValue(raw(l), column);
         const queued = l.row.queued?.[index] ?? null;
         // A tab not run yet says how its job stands, when it names one.
@@ -468,9 +480,18 @@ export function HomeTable({
       ),
     [read.rows, showOlder],
   );
+  // ?column-<index>=<value> for each column the page filters by.
+  const picked = useMemo(() => {
+    const found = new Map<number, string>();
+    project.columns.forEach((c, index) => {
+      const key = c.filter === true ? params.get(columnParam(index)) : null;
+      if (key !== null) found.set(index, key);
+    });
+    return found;
+  }, [project.columns, params]);
   const filtered = useMemo(
-    () => filterItems(project, items, q, chosen),
-    [project, items, q, chosen],
+    () => filterItems(project, items, q, chosen, picked),
+    [project, items, q, chosen, picked],
   );
   const columnSpecs = useMemo(() => specs(project), [project]);
   const columns = useMemo(
@@ -521,6 +542,20 @@ export function HomeTable({
       else p.set("status", key);
     });
   };
+  const pick = (index: number, key: string | null) => {
+    update((p) => {
+      if (key === null) p.delete(columnParam(index));
+      else p.set(columnParam(index), key);
+    });
+  };
+  // What hides items, as the line under the filters names it.
+  const filters = [
+    ...(q.trim() !== "" ? ["the search"] : []),
+    ...(chosen !== null ? ["the status filter"] : []),
+    ...[...picked.keys()].map(
+      (index) => `the ${project.columns[index]?.title ?? ""} filter`,
+    ),
+  ];
 
   const table = useTable({
     features,
@@ -667,6 +702,45 @@ export function HomeTable({
               );
             })}
           </div>
+          {filtered.columns.map(({ index, all, chips }) => {
+            const column = project.columns[index];
+            if (column === undefined) return null;
+            const at = picked.get(index) ?? null;
+            return (
+              <div
+                key={index}
+                role="group"
+                aria-label={`Filter by ${column.title}`}
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                {/* Names the group, whose All would read as the status filter's. */}
+                <span aria-hidden className="text-xs text-fg-3">
+                  {column.title}
+                </span>
+                <Chip
+                  pressed={at === null}
+                  onClick={() => {
+                    pick(index, null);
+                  }}
+                  label="All"
+                  count={all}
+                  hint={counted(all, itemTitle)}
+                />
+                {chips.map(({ key, count }) => (
+                  <Chip
+                    key={key}
+                    pressed={at === key}
+                    onClick={() => {
+                      pick(index, at === key ? null : key);
+                    }}
+                    label={column.labels?.[key] ?? key}
+                    count={count}
+                    hint={counted(count, itemTitle)}
+                  />
+                ))}
+              </div>
+            );
+          })}
           <label className="inline-flex target items-center gap-1.5 rounded-row border border-chip-line px-2 focus-within:border-fg-3">
             <Search className="size-3.5 text-icon" aria-hidden />
             <input
@@ -707,12 +781,7 @@ export function HomeTable({
         {filtered.hidden > 0 && (
           <p className="flex items-center gap-2 text-xs text-fg-3">
             {filtered.hidden} of {counted(items.length, itemTitle)} hidden by{" "}
-            {q.trim() !== "" && chosen !== null
-              ? "the search and the status filter"
-              : q.trim() !== ""
-                ? "the search"
-                : "the status filter"}
-            .
+            {joined(filters)}.
             <button
               type="button"
               className={control}
@@ -720,6 +789,8 @@ export function HomeTable({
                 update((p) => {
                   p.delete("q");
                   p.delete("status");
+                  for (const index of picked.keys())
+                    p.delete(columnParam(index));
                 });
               }}
             >

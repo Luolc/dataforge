@@ -20,7 +20,15 @@ from fastapi.responses import JSONResponse, Response
 
 from dataforge import queue
 from dataforge.viz import actions, live, monitor, runs, tabs
-from dataforge.viz.config import Action, Project, Site, split_relative, Tab
+from dataforge.viz.config import (
+  Action,
+  Case,
+  Condition,
+  Project,
+  Site,
+  split_relative,
+  Tab,
+)
 from dataforge.viz.paths import (
   attempt_parts,
   FILE_LIMIT,
@@ -727,7 +735,11 @@ def _row(project: Project, attempt: str) -> _Read:
       "ended_at": next((t for t in reversed(ends) if t is not None), None),
       "rounds": _rounds(visits),
       "values": [
-        _field(data, c.field) if found is None else found["value"]
+        _case(data, c.cases)
+        if c.cases
+        else _field(data, c.field)
+        if found is None
+        else found["value"]
         for c, found in zip(project.columns, from_files, strict=True)
       ],
       "reads": [
@@ -800,6 +812,52 @@ def _field(record: object, field: tuple[str, ...]) -> object:
       return None
     current = cast(dict[str, object], current)[key]
   return current
+
+
+_ABSENT = object()
+
+
+def _case(record: dict[str, object], cases: tuple[Case, ...]) -> str | None:
+  # The value of the first case whose conditions all hold of the record.
+  for case in cases:
+    if all(_holds(record, c) for c in case.when):
+      return case.value
+  return None
+
+
+def _holds(record: dict[str, object], condition: Condition) -> bool:
+  found = _at(record, condition.field)
+  if condition.given is not None:
+    return (found is not _ABSENT and found is not None) == condition.given
+  return found is not _ABSENT and _same(found, condition.equals)
+
+
+def _at(record: object, field: tuple[str, ...]) -> object:
+  # The value at field, or _ABSENT where a key is not there, as _field
+  # gives None.
+  current = record
+  for key in field:
+    if not isinstance(current, dict) or key not in current:
+      return _ABSENT
+    current = cast(dict[str, object], current)[key]
+  return current
+
+
+def _same(a: object, b: object) -> bool:
+  # JSON equality: true is not 1, as it is in Python.
+  if isinstance(a, bool) or isinstance(b, bool):
+    return type(a) is type(b) and a == b
+  if isinstance(a, list) and isinstance(b, list):
+    x, y = cast(list[object], a), cast(list[object], b)
+    return len(x) == len(y) and all(
+      _same(i, j) for i, j in zip(x, y, strict=True)
+    )
+  if isinstance(a, dict) and isinstance(b, dict):
+    x, y = cast(dict[str, object], a), cast(dict[str, object], b)
+    return x.keys() == y.keys() and all(_same(x[k], y[k]) for k in x)
+  if isinstance(a, list | dict) or isinstance(b, list | dict):
+    return False
+  return a == b
 
 
 def _static(static: Path, rest: str) -> Response:
