@@ -502,10 +502,6 @@ function Tabs({
   );
 }
 
-/**
- * A record that is a JSON object of another shape: the Runs tab only, with
- * the record as written, as text (design-viz.md section 5, "Older records").
- */
 function RowOnly({
   project,
   attempt,
@@ -539,6 +535,10 @@ function RowOnly({
   );
 }
 
+/**
+ * A record that is a JSON object of another shape: the Runs tab only, with
+ * the record as written, as text (design-viz.md section 5, "Older records").
+ */
 function OtherRecord({
   project,
   attempt,

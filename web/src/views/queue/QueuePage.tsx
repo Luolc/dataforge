@@ -272,7 +272,7 @@ function Queues({
             : `${older.toString()} older jobs that ended are not shown.`}{" "}
           <button
             type="button"
-            className="min-h-6 link hover:underline"
+            className="target link hover:underline"
             onClick={() => {
               onShowMore(MORE);
             }}
