@@ -306,6 +306,8 @@ class Deliverable:
     title: Its title.
     no_trace: For a deliverable of trials, why a trial of it that has no
       trace has none, shown in its place; None for the viewer's own words.
+    count: For a deliverable of trials, the word after its count, such as
+      "pass every test"; None for the viewer's own, "solved".
     default: Whether it names its kind's tab, and opens first in it, while
       the attempt has reached no deliverable of the kind.
   """
@@ -314,7 +316,25 @@ class Deliverable:
   kind: str
   title: str
   no_trace: str | None = None
+  count: str | None = None
   default: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TaskSource:
+  """Where the Summary reads the task.toml of an attempt's task.
+
+  Attributes:
+    file: The task.toml's path: in the directory of deliverable, as the
+      attempt's record resolves it, or in the attempt's directory when
+      deliverable is None.
+    deliverable: The name of a deliverable of kind "files" whose directory
+      holds the task, so that a running attempt shows its latest; None for a
+      path in the attempt's directory.
+  """
+
+  file: tuple[str, ...]
+  deliverable: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,8 +384,8 @@ class Project:
       the dataset names nothing.
     definition: The path of the definition snapshot in an attempt's
       directory; None when the dataset names none.
-    task: The path of the task.toml of an attempt's task in its directory,
-      whose metadata the Summary shows; None when the dataset names none.
+    task: Where the task.toml of an attempt's task is, whose metadata the
+      Summary shows; None when the dataset names none.
     monitor: The resource monitor's SQLite database; None when the dataset
       names none.
     monitor_shown: The database as a page may show it: monitor.db as the
@@ -394,7 +414,7 @@ class Project:
   kinds: dict[str, dict[str, str]] = field(default_factory=dict)
   trials: Trials | None = None
   definition: tuple[str, ...] | None = None
-  task: tuple[str, ...] | None = None
+  task: TaskSource | None = None
   monitor: Path | None = None
   monitor_shown: str | None = None
   actions: tuple[Action, ...] = ()
@@ -451,6 +471,7 @@ class Project:
           "kind": d.kind,
           "title": d.title,
           "no_trace": d.no_trace,
+          "count": d.count,
           "default": d.default,
         }
         for d in self.deliverables
@@ -460,7 +481,12 @@ class Project:
       "definition": None
       if self.definition is None
       else "/".join(self.definition),
-      "task": None if self.task is None else "/".join(self.task),
+      "task": None
+      if self.task is None
+      else {
+        "file": "/".join(self.task.file),
+        "deliverable": self.task.deliverable,
+      },
       "monitor": self.monitor is not None,
       "actions": [
         {"name": a.name, "label": a.label, "queue": a.queue}
@@ -634,9 +660,7 @@ def load_project(path: Path) -> Project:
     else _relative(
       path, "definition", _str(path, "definition", data["definition"])
     ),
-    task=None
-    if data.get("task") is None
-    else _relative(path, "task", _str(path, "task", data["task"])),
+    task=_task(path, data.get("task"), deliverables),
     monitor=None if monitor is None else monitor[0],
     monitor_shown=None if monitor is None else monitor[1],
     actions=actions,
@@ -1064,27 +1088,50 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
     where = f"deliverables[{i}]"
     entry = _mapping(path, where, item)
     fields = {"name", "kind", "title"}
-    _keys(path, where, entry, required=fields, optional={"no_trace", "default"})
+    optional = {"no_trace", "count", "default"}
+    _keys(path, where, entry, required=fields, optional=optional)
     name, kind, title = (
       _str(path, f"{where}.{f}", entry[f]) for f in ("name", "kind", "title")
     )
     if any(d.name == name for d in found):
       raise ConfigError(f"{path}: {where}.name: {name!r} repeated")
-    no_trace = entry.get("no_trace")
-    if no_trace is not None:
-      no_trace = _str(path, f"{where}.no_trace", no_trace)
-      if kind != "trials":
-        raise ConfigError(f"{path}: {where}.no_trace: for kind trials only")
+    words: dict[str, str | None] = {}
+    for key in ("no_trace", "count"):
+      given = entry.get(key)
+      words[key] = (
+        None if given is None else _str(path, f"{where}.{key}", given)
+      )
+      if given is not None and kind != "trials":
+        raise ConfigError(f"{path}: {where}.{key}: for kind trials only")
     default = entry.get("default", False)
     if not isinstance(default, bool):
       raise ConfigError(f"{path}: {where}.default: not true or false")
     if default and any(d.kind == kind and d.default for d in found):
       other = f"another deliverable of kind {kind!r} is the default"
       raise ConfigError(f"{path}: {where}.default: {other}")
-    found.append(
-      Deliverable(name, kind, title, no_trace=no_trace, default=default)
-    )
+    found.append(Deliverable(name, kind, title, **words, default=default))
   return tuple(found)
+
+
+def _task(
+  path: Path, value: object, deliverables: tuple[Deliverable, ...]
+) -> TaskSource | None:
+  if value is None:
+    return None
+  if not isinstance(value, dict):
+    return TaskSource(_relative(path, "task", _str(path, "task", value)))
+  mapping = _mapping(path, "task", cast(object, value))
+  fields = {"deliverable", "file"}
+  _keys(path, "task", mapping, required=fields, optional=set())
+  name = _str(path, "task.deliverable", mapping["deliverable"])
+  file = _str(path, "task.file", mapping["file"])
+  found = next((d for d in deliverables if d.name == name), None)
+  if found is None:
+    raise ConfigError(f"{path}: task.deliverable: {name!r} is not declared")
+  if found.kind != "files":
+    why = f"{name!r} is of kind {found.kind!r}, not files"
+    raise ConfigError(f"{path}: task.deliverable: {why}")
+  return TaskSource(_relative(path, "task.file", file), name)
 
 
 def _kinds(

@@ -1410,6 +1410,8 @@ def test_trials_list_each_trial_with_its_id_trace_and_result(
       "path": path,
       "trace": trace if traced else None,
       "source": None,
+      "log": None,
+      "verdict": None,
       "result": {
         "reward": reward,
         "rewards": {"reward": reward},
@@ -1488,6 +1490,8 @@ def test_a_running_visit_lists_the_trials_that_have_started(
     "path": "artifacts/solve/1/trial-1",
     "trace": None,
     "source": None,
+    "log": None,
+    "verdict": None,
     "result": None,
   }
   # Which trials run is for the deliverables only, not part of a visit.
@@ -1616,6 +1620,100 @@ def test_a_match_lists_only_the_trials_whose_output_matches(
   )
 
 
+def judged(ctx: Context) -> Outcome:
+  actions = Actions(trial_runner=OutputTrials())
+  for output in ("regrade-1", "regrade-2", "regrade-3"):
+    _ = actions.trial(ctx, output, ctx.outdir, "oracle", Limits(1))
+  verdicts = {"regrade-1": "missed", "regrade-2": "passes", "regrade-3": 3}
+  return Outcome("done", {"verdicts": verdicts, "list": []})
+
+
+@pytest.mark.parametrize(
+  ("field", "verdicts", "reason"),
+  [
+    (["verdicts"], ["missed", "passes", None], None),
+    (["none"], [None, None, None], "the outcome data has no key none"),
+    (["list"], [None, None, None], "the outcome data at list is not an object"),
+  ],
+)
+def test_trials_take_their_verdicts_by_output_from_what_the_deliverable_names(
+  tmp_path: Path,
+  field: list[str],
+  verdicts: list[str | None],
+  reason: str | None,
+) -> None:
+  attempt = Machine(
+    [Step("regrade", judged, {"done": End("passed")})],
+    deliverables={
+      "regrade": Deliverable(
+        "trials", "Regrade", Source("regrade"), verdicts=Value(field)
+      )
+    },
+  ).run(tmp_path / "attempt")
+  [entry] = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
+  trials = cast(list[dict[str, object]], entry["trials"])
+  assert [trial["verdict"] for trial in trials] == verdicts
+  assert entry["verdicts"] == {"output": None, "field": field, "reason": reason}
+
+
+def test_trials_without_verdicts_declared_have_none(tmp_path: Path) -> None:
+  attempt = Machine(
+    [Step("regrade", judged, {"done": End("passed")})],
+    deliverables={"regrade": Deliverable("trials", "R", Source("regrade"))},
+  ).run(tmp_path / "attempt")
+  [entry] = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
+  assert entry["verdicts"] is None
+  trials = cast(list[dict[str, object]], entry["trials"])
+  assert [trial["verdict"] for trial in trials] == [None, None, None]
+
+
+class LoggedTrials:
+  """A trial runner whose trial-0 logs in its output directory, trial-1 not."""
+
+  def memory_gb(self, limits: Limits) -> float:
+    return 0.0
+
+  def run(
+    self, task_dir: Path, agent: TrialAgent, limits: Limits, outdir: Path
+  ) -> TrialResult:
+    log = outdir / "harbor.log" if outdir.name == "trial-0" else task_dir / "x"
+    return TrialResult({"reward": 1.0}, None, 0.0, 1.0, {}, log=log)
+
+
+def test_a_trial_s_log_inside_its_directory_is_recorded_and_reads_back(
+  tmp_path: Path,
+) -> None:
+  actions = Actions(trial_runner=LoggedTrials())
+  root = tmp_path / "attempt"
+
+  def solve(ctx: Context) -> Outcome:
+    for i in (0, 1):
+      _ = actions.trial(ctx, f"trial-{i}", tmp_path, "oracle", Limits(1))
+    return Outcome("done")
+
+  record = as_json(
+    Machine(
+      [Step("solve", solve, {"done": End("passed")})],
+      deliverables={"t": Deliverable("trials", "T", Source("solve"))},
+    ).run(root)
+  )
+  trials = [
+    cast(dict[str, object], action["trial"])
+    for action in cast(list[dict[str, object]], visits_of(record)[0]["actions"])
+  ]
+  assert [trial["log"] for trial in trials] == [
+    "artifacts/solve/1/trial-0/harbor.log",
+    None,
+  ]
+  [entry] = cast(list[dict[str, object]], record["deliverables"])
+  listed = cast(list[dict[str, object]], entry["trials"])
+  assert [trial["log"] for trial in listed] == [trials[0]["log"], None]
+  assert Attempt.from_json(root, record).to_json() == record
+  older = broken(record, ["visits", 0, "actions", 0, "trial", "log"], KeyError)
+  read = Attempt.from_json(root, older).visits[0].actions[0].trial
+  assert read is not None and read.log is None
+
+
 def test_deliverables_of_an_ended_attempt_resolve_as_its_end_would(
   tmp_path: Path,
 ) -> None:
@@ -1721,6 +1819,10 @@ def test_a_value_from_a_symlinked_output_is_never_read(tmp_path: Path) -> None:
     (
       Deliverable("report", "t", Source("a", "x"), value=Value(["v"])),
       "only trials have a value",
+    ),
+    (
+      Deliverable("files", "t", Source("a", "x"), verdicts=Value(["v"])),
+      "only trials have verdicts",
     ),
   ],
 )

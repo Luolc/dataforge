@@ -43,7 +43,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
-import { kindTitle, leading } from "../kind";
+import { declared, kindTitle, leading } from "../kind";
 import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
@@ -266,6 +266,7 @@ function Attempt({
             attempt={attempt}
             item={one}
             items={items}
+            word={declared(project, one.name)?.count}
           />
         ),
       };

@@ -2,17 +2,12 @@
 // and the names of what dataforge.task defines, its suites, the kind of the
 // project's own tests and the types of a principle. A dataset's kinds take
 // their labels from the project's trials.kinds.
-import type { Read, Tone } from "../../../api/types";
-import { NOT_RUN, viewerStatus } from "../../../ui/status";
+import type { Tone } from "../../../api/types";
+import { viewerStatus } from "../../../ui/status";
 
-/** A task.toml not there, which the attempt never reached, or refused. */
-export const TASK_READ: Record<
-  Exclude<Read, "found">,
-  { label: string; tone: Tone }
-> = {
-  "not run": { label: NOT_RUN, tone: "neutral" },
-  missing: viewerStatus.unreadable,
-};
+/** A task.toml that is there but was refused or did not parse. */
+export const TASK_UNREADABLE: { label: string; tone: Tone } =
+  viewerStatus.unreadable;
 
 /** dataforge.task's SUITES, in order, each with its title. */
 export const SUITES = [

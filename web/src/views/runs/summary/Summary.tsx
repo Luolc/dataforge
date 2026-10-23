@@ -16,6 +16,7 @@ import { Markdown } from "../../../ui/markdown";
 import { NOT_RUN, stateTitle } from "../../../ui/status";
 import { declaredMissing } from "../../attempt/declared";
 import { attemptHref } from "../../attempt/href";
+import { declared } from "../../kind";
 import { KindLine } from "../../registry";
 import { Graph } from "./Graph";
 import { layout } from "./graph";
@@ -57,7 +58,7 @@ export function Summary({
           <p className="p-4 text-fg-3">This record has no graph.</p>
         )}
       </Card>
-      <TaskCard project={project} attempt={attempt} />
+      <TaskCard project={project} attempt={attempt} record={record} />
       <Summaries project={project} record={record} runHref={runHref} />
       <Deliverables project={project} attempt={attempt} record={record} />
     </div>
@@ -214,6 +215,7 @@ function Deliverables({ project, attempt, record }: Props) {
                         project={project.id}
                         attempt={attempt}
                         item={item}
+                        word={declared(project, item.name)?.count}
                       />
                     )}
                   </td>

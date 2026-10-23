@@ -5,6 +5,8 @@ import { useId, useState } from "react";
 
 import { getJson, urls, useLoaded, useRefresh } from "../../../api/client";
 import {
+  type AttemptRecord,
+  type Deliverable,
   type Project,
   type TaskMeta,
   type TaskPrinciple,
@@ -12,7 +14,13 @@ import {
 } from "../../../api/types";
 import { Card } from "../../../ui/card";
 import { control } from "../../../ui/chip";
-import { toneGlyph, toneText } from "../../../ui/status";
+import {
+  attemptStatus,
+  NOT_RUN,
+  stateTitle,
+  toneGlyph,
+  toneText,
+} from "../../../ui/status";
 import { cutAt, PRINCIPLE_CUT } from "./cut";
 import {
   LEGACY_TESTS,
@@ -22,40 +30,101 @@ import {
   PROJECT_KIND,
   PROJECT_LABEL,
   SUITES,
-  TASK_READ,
+  TASK_UNREADABLE,
 } from "./task-words";
 
-/** The card of the project's task, for a project that names one. */
+/**
+ * The card of the project's task, for a project that names one. A task in a
+ * deliverable is the one the record resolves it to, so a running attempt
+ * shows its latest; one the record has not made yet is not read.
+ */
 export function TaskCard({
   project,
   attempt,
+  record,
 }: {
   project: Project;
   attempt: string;
+  /** The record as the page shows it (asShown). */
+  record: AttemptRecord;
 }) {
   const refresh = useRefresh();
-  const path = project.task ?? null;
-  const url = path === null ? null : urls.task(project.id, attempt);
+  const source = project.task ?? null;
+  const entry =
+    source?.deliverable == null
+      ? undefined
+      : record.deliverables?.find((d) => d.name === source.deliverable);
+  const unmade = entry?.path === null;
+  const url = source === null || unmade ? null : urls.task(project.id, attempt);
+  // Read again when the record names another directory for it.
   const loaded = useLoaded(
-    url,
+    url === null ? null : `${url}\0${entry?.path ?? ""}`,
     (signal) => getJson(url ?? "", taskMeta, signal),
     refresh,
   );
-  if (path === null) return null;
-  const aside =
-    loaded.state === "ok" && loaded.data.legacy
-      ? `${path} · the format before tests`
-      : path;
+  if (source === null) return null;
+  const from =
+    entry?.visit_index == null
+      ? null
+      : `${stateTitle(project, entry.state)} · run ${(entry.visit_index + 1).toString()}`;
+  const legacy = loaded.state === "ok" && loaded.data.legacy;
+  const aside = (
+    <>
+      {from !== null && `${from} · `}
+      <span className="font-mono">
+        {source.file}
+        {legacy && " · the format before tests"}
+      </span>
+    </>
+  );
   return (
-    <Card title="Task" aside={<span className="font-mono">{aside}</span>}>
-      {loaded.state === "loading" ? (
+    <Card title="Task" aside={aside}>
+      {unmade ? (
+        <NotThere why={entry.reason ?? ""} />
+      ) : loaded.state === "loading" ? (
         <p className="text-fg-3">Loading…</p>
       ) : loaded.state === "error" ? (
         <p className="text-fg-3">{loaded.message}</p>
+      ) : loaded.data.read === "not run" ? (
+        <NotThere why={notThere(project, record, source, entry, from)} />
       ) : (
         <TaskBody project={project} meta={loaded.data} />
       )}
     </Card>
+  );
+}
+
+/**
+ * Why the task.toml is not there, after "Not run: ": the run its deliverable
+ * takes made none, the record has no such deliverable, or the attempt has
+ * not written one yet or left none.
+ */
+function notThere(
+  project: Project,
+  record: AttemptRecord,
+  source: NonNullable<Project["task"]>,
+  entry: Deliverable | undefined,
+  from: string | null,
+): string {
+  if (source.deliverable !== null) {
+    if (entry !== undefined)
+      return `${from ?? entry.title} made no ${source.file}.`;
+    const declared = project.deliverables?.find(
+      (d) => d.name === source.deliverable,
+    );
+    return `this record has no ${declared?.title ?? source.deliverable}.`;
+  }
+  return attemptStatus(project, record) === null
+    ? `the attempt has no ${source.file} yet.`
+    : `the attempt left no ${source.file}.`;
+}
+
+function NotThere({ why }: { why: string }) {
+  return (
+    <p className="flex items-center gap-2 text-fg-3">
+      <CircleDashed className="size-4 flex-none text-icon" aria-hidden />
+      {why === "" ? NOT_RUN : `${NOT_RUN}: ${why}`}
+    </p>
   );
 }
 
@@ -82,16 +151,14 @@ function TaskBody({ project, meta }: { project: Project; meta: TaskMeta }) {
   );
 }
 
+/** A task.toml that did not read, with its word and why. */
 function Unread({ meta }: { meta: TaskMeta }) {
-  const word = TASK_READ[meta.read === "found" ? "missing" : meta.read];
-  const Glyph = meta.read === "not run" ? CircleDashed : toneGlyph[word.tone];
+  const word = TASK_UNREADABLE;
+  const Glyph = toneGlyph[word.tone];
   return (
     <div className="flex flex-col gap-1">
       <p className={`flex items-center gap-2 ${toneText[word.tone]}`}>
-        <Glyph
-          className={`size-4 flex-none ${meta.read === "not run" ? "text-icon" : ""}`}
-          aria-hidden
-        />
+        <Glyph className="size-4 flex-none" aria-hidden />
         {word.label}
       </p>
       {meta.reason !== null && (
