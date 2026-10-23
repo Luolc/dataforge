@@ -50,3 +50,23 @@ export async function firstFile(
   }
   return walk(root);
 }
+
+/**
+ * The file a link to path opens: path itself, unless its parent lists it as
+ * a directory, then the first file under it as firstFile finds it, null when
+ * it holds none.
+ */
+export async function fileAt(
+  source: FileSource,
+  project: string,
+  attempt: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  const listed = await source.listing(project, attempt, parent, signal);
+  const name = path.slice(parent.length + 1);
+  return listed.entries.some((e) => e.type === "dir" && e.name === name)
+    ? firstFile(source, project, attempt, path, signal)
+    : path;
+}

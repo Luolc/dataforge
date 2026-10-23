@@ -283,6 +283,38 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       (
         "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "default: 1}]",
+      ),
+      r"deliverables\[0\]\.default: not true or false",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "default: true}, {name: u, kind: k, title: U, default: true}]",
+      ),
+      r"deliverables\[1\]\.default: another deliverable of kind 'k'",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T}]\n"
+        + "kinds: {report: {title: Reviews}}",
+      ),
+      r"kinds\.report: no deliverable of this kind",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T}]\n"
+        + "kinds: {k: {label: K}}",
+      ),
+      r"kinds\.k\.label: unknown key",
+    ),
+    (
+      (
+        "name: Example",
         "name: Example\ndeliverables: [{name: t, kind: files, title: T, "
         + "no_trace: Why}]",
       ),

@@ -313,12 +313,15 @@ class Deliverable:
     title: Its title.
     no_trace: For a deliverable of trials, why a trial of it that has no
       trace has none, shown in its place; None for the viewer's own words.
+    default: Whether it names its kind's tab, and opens first in it, while
+      the attempt has reached no deliverable of the kind.
   """
 
   name: str
   kind: str
   title: str
   no_trace: str | None = None
+  default: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,6 +381,8 @@ class Project:
     runs: The store of the attempts; None when the dataset names none, and
       then a record's status and the lock say how an attempt stands.
     deliverables: The deliverables an attempt has once it ends, in order.
+    kinds: The title of a deliverable kind's tab, by kind; a kind with none
+      takes the title of its deliverable the tab opens on.
     trials: What the trials view reads in a trial's directory; None when
       the dataset names nothing.
     definition: The path of the definition snapshot in an attempt's
@@ -410,6 +415,7 @@ class Project:
   lock: tuple[str, ...] | None = None
   runs: Runs | None = None
   deliverables: tuple[Deliverable, ...] = ()
+  kinds: dict[str, dict[str, str]] = field(default_factory=dict)
   trials: Trials | None = None
   definition: tuple[str, ...] | None = None
   task: tuple[str, ...] | None = None
@@ -472,9 +478,11 @@ class Project:
           "kind": d.kind,
           "title": d.title,
           "no_trace": d.no_trace,
+          "default": d.default,
         }
         for d in self.deliverables
       ],
+      "kinds": self.kinds,
       "trials": None if self.trials is None else _public_trials(self.trials),
       "definition": None
       if self.definition is None
@@ -597,6 +605,7 @@ def load_project(path: Path) -> Project:
       "lock",
       "runs",
       "deliverables",
+      "kinds",
       "trials",
       "definition",
       "task",
@@ -650,6 +659,7 @@ def load_project(path: Path) -> Project:
     lock=lock,
     runs=runs,
     deliverables=deliverables,
+    kinds=_kinds(path, data.get("kinds"), deliverables),
     trials=_trials(path, data.get("trials")),
     definition=None
     if data.get("definition") is None
@@ -1086,7 +1096,7 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
     where = f"deliverables[{i}]"
     entry = _mapping(path, where, item)
     fields = {"name", "kind", "title"}
-    _keys(path, where, entry, required=fields, optional={"no_trace"})
+    _keys(path, where, entry, required=fields, optional={"no_trace", "default"})
     name, kind, title = (
       _str(path, f"{where}.{f}", entry[f]) for f in ("name", "kind", "title")
     )
@@ -1097,8 +1107,27 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
       no_trace = _str(path, f"{where}.no_trace", no_trace)
       if kind != "trials":
         raise ConfigError(f"{path}: {where}.no_trace: for kind trials only")
-    found.append(Deliverable(name, kind, title, no_trace))
+    default = entry.get("default", False)
+    if not isinstance(default, bool):
+      raise ConfigError(f"{path}: {where}.default: not true or false")
+    if default and any(d.kind == kind and d.default for d in found):
+      other = f"another deliverable of kind {kind!r} is the default"
+      raise ConfigError(f"{path}: {where}.default: {other}")
+    found.append(
+      Deliverable(name, kind, title, no_trace=no_trace, default=default)
+    )
   return tuple(found)
+
+
+def _kinds(
+  path: Path, value: object, deliverables: tuple[Deliverable, ...]
+) -> dict[str, dict[str, str]]:
+  kinds = _entries(path, "kinds", value, {"title"})
+  declared = {d.kind for d in deliverables}
+  for kind in kinds:
+    if kind not in declared:
+      raise ConfigError(f"{path}: kinds.{kind}: no deliverable of this kind")
+  return kinds
 
 
 def _trials(path: Path, value: object) -> Trials | None:

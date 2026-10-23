@@ -158,7 +158,7 @@ export function RunsView({
                       }
                     />
                     <span className="font-mono text-2xs text-faint">
-                      {index + 1}
+                      {`#${String(index + 1)}`}
                     </span>
                   </Link>
                 </Fragment>
@@ -171,7 +171,9 @@ export function RunsView({
                     state={pending.state}
                     since={pending.since}
                   />
-                  <span className="font-mono text-2xs text-faint">{runs}</span>
+                  <span className="font-mono text-2xs text-faint">
+                    {`#${String(runs)}`}
+                  </span>
                 </div>
               )}
             </div>

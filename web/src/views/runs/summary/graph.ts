@@ -80,13 +80,10 @@ interface Node {
    */
   under: string[];
   /**
-   * The word the node's icon and accessible name show: its last visit's
-   * outcome, or the attempt's status at the end; null for none.
+   * The label and tone the node's icon and accessible name show: its last
+   * visit's outcome, or the attempt's status at the end; null when the node
+   * was not reached.
    */
-  word: string | null;
-  /** Whether a null word is No outcome rather than Not ended. */
-  ended: boolean;
-  /** The word's label and tone; null when the node was not reached. */
   status: { label: string; tone: Tone } | null;
   idle: boolean;
   /** The index in visits of the state's last visit; null for none. */
@@ -116,7 +113,7 @@ interface LiveRow {
 
 interface LabelPart {
   outcome: string;
-  /** The outcome's label, as the project file names it (statusOf). */
+  /** The outcome's label, as a visit's outcome reads (outcomeOf). */
   label: string;
   taken: number;
   /** The title of the state a stub's transition goes to; null for none. */
@@ -236,8 +233,6 @@ export function layout(
         sub: ended ? status.label : NOT_RUN,
         time: null,
         under: below(ended ? status.label : NOT_RUN, null, measure),
-        word: end,
-        ended: true,
         status: ended ? status : null,
         idle: !ended,
         lastVisit: null,
@@ -284,8 +279,6 @@ export function layout(
         sub: `Run ${runs.toString()} of ${runs.toString()}`,
         time: null,
         under: [],
-        word: null,
-        ended: false,
         status: liveStatus.running,
         idle: false,
         lastVisit: current.recorded
@@ -307,8 +300,6 @@ export function layout(
       sub,
       time,
       under: below(sub, time, measure),
-      word: last?.outcome ?? null,
-      ended: attemptEnded,
       status: last ? outcomeOf(project, last.outcome, attemptEnded) : null,
       idle: mine.length === 0,
       lastVisit: last ? record.visits.lastIndexOf(last) : null,
@@ -326,7 +317,7 @@ export function layout(
     const group = groups.get(key) ?? { from: e.from, to, parts: [] };
     group.parts.push({
       outcome: e.outcome,
-      label: statusOf(project, e.outcome).label,
+      label: outcomeOf(project, e.outcome, false).label,
       taken: taken.get(`${e.from}\0${e.outcome}`) ?? 0,
       to: null,
     });

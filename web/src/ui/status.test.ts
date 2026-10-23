@@ -11,13 +11,13 @@ import {
 } from "./status";
 
 describe("status words", () => {
-  it("the engine's raised and interrupted read as Exception and Interrupted, any other unmapped word as itself", () => {
+  it("the engine's raised and interrupted read as Exception and Run interrupted, any other unmapped word as itself", () => {
     expect(statusOf(sampleProject, "raised")).toEqual({
       label: "Exception",
       tone: "bad",
     });
     expect(statusOf(sampleProject, "interrupted")).toEqual({
-      label: "Interrupted",
+      label: "Run interrupted",
       tone: "warn",
     });
     expect(statusOf(sampleProject, "skipped")).toEqual({
@@ -26,16 +26,44 @@ describe("status words", () => {
     });
   });
 
-  it("the project file's entry wins, raised included", () => {
+  it("the project file's entry wins for an attempt's status, raised and interrupted included", () => {
     const project = {
       ...sampleProject,
-      statuses: { raised: { label: "Crashed", tone: "warn" as const } },
+      statuses: {
+        raised: { label: "Crashed", tone: "warn" as const },
+        interrupted: { label: "Cut short", tone: "neutral" as const },
+      },
     };
 
     expect(statusOf(project, "raised")).toEqual({
       label: "Crashed",
       tone: "warn",
     });
+    expect(statusOf(project, "interrupted")).toEqual({
+      label: "Cut short",
+      tone: "neutral",
+    });
+  });
+
+  it("a visit's raised and interrupted read as the viewer's words whatever the project file says", () => {
+    const project = {
+      ...sampleProject,
+      statuses: {
+        raised: { label: "Crashed", tone: "warn" as const },
+        interrupted: { label: "Cut short", tone: "neutral" as const },
+      },
+    };
+
+    for (const ended of [true, false]) {
+      expect(outcomeOf(project, "raised", ended)).toEqual({
+        label: "Exception",
+        tone: "bad",
+      });
+      expect(outcomeOf(project, "interrupted", ended)).toEqual({
+        label: "Run interrupted",
+        tone: "warn",
+      });
+    }
   });
 
   it("no status is Not ended, neutral", () => {

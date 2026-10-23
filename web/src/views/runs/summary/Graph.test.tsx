@@ -38,11 +38,7 @@ function show(json: unknown) {
   const drawn = must(layout(record.parse(json), project));
   const view = render(
     <MemoryRouter>
-      <Graph
-        project={project}
-        layout={drawn}
-        runHref={(i) => `/run/${String(i)}`}
-      />
+      <Graph layout={drawn} runHref={(i) => `/run/${String(i)}`} />
       <Where />
     </MemoryRouter>,
   );
@@ -533,7 +529,7 @@ describe("a running attempt's machine", () => {
     const drawn = must(layout(record.parse(early), project, smoke));
     const shown = (at: Layout) => (
       <MemoryRouter>
-        <Graph project={project} layout={at} runHref={() => "/run"} />
+        <Graph layout={at} runHref={() => "/run"} />
       </MemoryRouter>
     );
     const view = render(shown(drawn));
@@ -602,7 +598,7 @@ describe("a running attempt's machine", () => {
     const drawn = must(layout(record.parse(early), project, draft, measured));
     const { container } = render(
       <MemoryRouter>
-        <Graph project={project} layout={drawn} runHref={() => "/run"} />
+        <Graph layout={drawn} runHref={() => "/run"} />
       </MemoryRouter>,
     );
     const linesOf = (key: string) => {
