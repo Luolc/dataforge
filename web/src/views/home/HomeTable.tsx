@@ -47,7 +47,7 @@ import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
-import { queuedShort } from "../queue/status";
+import { queuedShort, stoppedWhy } from "../queue/status";
 import {
   counted,
   filterItems,
@@ -329,7 +329,12 @@ function Described({
  */
 function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   const label = <StatusLabel project={project} word={rowStatus(row)} />;
-  const why = row.error ?? row.note ?? row.reason;
+  const why =
+    row.error ??
+    row.note ??
+    (row.live === "may have stopped" && row.stopped != null
+      ? stoppedWhy(row.stopped)
+      : row.reason);
   if (why === null) return label;
   return <Hint hint={why}>{label}</Hint>;
 }

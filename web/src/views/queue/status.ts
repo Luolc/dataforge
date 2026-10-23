@@ -24,9 +24,18 @@ const STATES = ["queued", "running", "done", "failed", "canceled"] as const;
 export function jobLabel(job: Job): { label: string; tone: Tone } {
   if (job.state === "running" && job.cancel_requested_at !== null)
     return jobStatus.canceling;
-  const state = STATES.find((s) => s === job.state);
+  return stateLabel(job.state);
+}
+
+/** Why an attempt that may have stopped has: the job that ran it has ended. */
+export const stoppedWhy = (stopped: { job: number; state: string }): string =>
+  `Job ${stopped.job.toString()}, which ran this attempt, ended ${stateLabel(stopped.state).label}; nothing runs it now.`;
+
+/** A job state's label and tone; one this viewer does not know is itself, neutral. */
+function stateLabel(word: string): { label: string; tone: Tone } {
+  const state = STATES.find((s) => s === word);
   return state === undefined
-    ? { label: job.state, tone: "neutral" }
+    ? { label: word, tone: "neutral" }
     : jobStatus[state];
 }
 

@@ -97,7 +97,12 @@ export function Split({
   const [width, setWidth] = useState(0);
   const [chosen, setChosen] = useState(() => saved(storageKey));
   const [dragging, setDragging] = useState(false);
-  const dragRef = useRef<{ x: number; from: number; bounds: Bounds }>(null);
+  const dragRef = useRef<{
+    x: number;
+    from: number;
+    to: number;
+    bounds: Bounds;
+  }>(null);
 
   useLayoutEffect(() => {
     const box = ref.current;
@@ -122,12 +127,14 @@ export function Split({
   };
 
   // A drag ends where it got to, whether the pointer lets go or the page
-  // takes it away.
+  // takes it away; where it got to is kept with the drag, since the release
+  // may come before the render of the last move.
   const end = () => {
-    if (dragRef.current === null) return;
+    const d = dragRef.current;
+    if (d === null) return;
     dragRef.current = null;
     setDragging(false);
-    if (chosen !== null) save(storageKey, chosen);
+    if (d.to !== d.from) save(storageKey, d.to);
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -137,13 +144,14 @@ export function Split({
     e.preventDefault();
     e.currentTarget.focus();
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { x: e.clientX, from: now, bounds };
+    dragRef.current = { x: e.clientX, from: now, to: now, bounds };
     setDragging(true);
   };
   const onPointerMove = (e: PointerEvent) => {
     const d = dragRef.current;
     if (d === null) return;
-    setChosen(within(d.from + e.clientX - d.x, d.bounds));
+    d.to = within(d.from + e.clientX - d.x, d.bounds);
+    setChosen(d.to);
   };
   const onKeyDown = (e: KeyboardEvent) => {
     const to =

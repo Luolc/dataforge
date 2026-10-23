@@ -253,6 +253,12 @@ export const taskMeta = z.looseObject({
 export type TaskMeta = z.infer<typeof taskMeta>;
 export type TaskPrinciple = NonNullable<TaskMeta["principles"]>[number];
 
+/** The job that ran an attempt that may have stopped, once it has ended. */
+const STOPPED = z
+  .looseObject({ job: z.number(), state: z.string() })
+  .nullable()
+  .optional();
+
 /** The states of an attempt's row in the store of a project's runs. */
 const ROW_STATES = ["running", "interrupted", "ended"] as const;
 
@@ -288,6 +294,10 @@ export const attemptRow = z.looseObject({
   live: z.enum(LIVE).nullable().optional(),
   // Whether the item's lock is held now; null when the project names none.
   held: z.boolean().nullable().optional(),
+  // Whether the item's held lock is taken to be this attempt's.
+  holder: z.boolean().nullable().optional(),
+  // For an attempt that may have stopped, the job that ran it, once ended.
+  stopped: STOPPED,
   // With the project's runs, the state of the attempt's row in the store, what
   // a reconcile has yet to do with it, and when its holder last wrote a step,
   // which its cost was read with; null without a row.
@@ -304,6 +314,8 @@ export const attemptRows = z.array(attemptRow);
 export const liveInfo = z.looseObject({
   live: z.enum(LIVE).nullable(),
   held: z.boolean().nullable(),
+  holder: z.boolean().nullable().optional(),
+  stopped: STOPPED,
   // As the listing's row has them: with runs, the row's state, its status
   // word, its reason and what a reconcile has yet to do with it.
   state: z.enum(ROW_STATES).nullable().optional(),

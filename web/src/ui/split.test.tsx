@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { must } from "../../fixtures/sample";
@@ -14,6 +14,11 @@ const tokens = {
   "--spacing-side-step": "16px",
 };
 
+const capture = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "setPointerCapture",
+);
+
 beforeEach(() => {
   for (const [name, v] of Object.entries(tokens)) {
     document.documentElement.style.setProperty(name, v);
@@ -27,6 +32,11 @@ afterEach(() => {
   }
   localStorage.clear();
   vi.restoreAllMocks();
+  if (capture === undefined) {
+    Reflect.deleteProperty(Element.prototype, "setPointerCapture");
+  } else {
+    Object.defineProperty(Element.prototype, "setPointerCapture", capture);
+  }
 });
 
 function show() {
@@ -79,6 +89,25 @@ describe("a split", () => {
     expect(localStorage.getItem(KEY)).toBe("216");
     fireEvent.pointerMove(divider, { clientX: 400 });
     expect(width(divider)).toBe(216);
+  });
+
+  it("keeps where a drag got to when the release comes before the last move is drawn", () => {
+    const { divider } = show();
+
+    fireEvent.pointerDown(divider, { button: 0, clientX: 300 });
+    // A browser may hand over the last move and the release before React
+    // draws that move; one act holds both back from it.
+    act(() => {
+      divider.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, clientX: 380 }),
+      );
+      divider.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, clientX: 380 }),
+      );
+    });
+
+    expect(width(divider)).toBe(336);
+    expect(localStorage.getItem(KEY)).toBe("336");
   });
 
   it("moves a step with an arrow key, and to its least and most with Home and End", () => {
