@@ -91,6 +91,88 @@ def test_the_monitor_database_is_relative_to_attempts_dir(tree: Tree) -> None:
   assert "monitor.sqlite" not in str(project.public())
 
 
+RUNS = "runs: {db: ../runs.sqlite}"
+
+
+@pytest.mark.parametrize(
+  "given",
+  [
+    "not_ended: [running]",
+    "lock: .lock",
+    "statuses: {canceled: {label: Canceled, tone: warn}}\n"
+    + "resumable: [canceled]",
+  ],
+)
+def test_a_project_file_with_runs_and_what_it_replaces_is_refused(
+  tree: Tree, given: str
+) -> None:
+  text = PROJECT.replace(
+    "statuses:\n  passed: {label: Passed, tone: good}\n", ""
+  )
+  # A control: each alone loads.
+  for alone in (RUNS, given):
+    _ = tree.project.write_text(f"{text}{alone}\n")
+    _ = load_site(tree.site)
+  _ = tree.project.write_text(f"{text}{RUNS}\n{given}\n")
+
+  with pytest.raises(ConfigError, match="runs: given with") as error:
+    _ = load_site(tree.site)
+  assert str(tree.project) in str(error.value)
+
+
+@pytest.mark.parametrize(
+  ("runs", "key"),
+  [
+    ("runs: {}", r"runs\.db: missing"),
+    ("runs: {db: ''}", r"runs\.db: not a non-empty string"),
+    ("runs: {db: r.sqlite, lock: x}", r"runs\.lock: unknown key"),
+    (
+      "runs: {db: r.sqlite, stopped_by: {killed: x}}",
+      r"runs\.stopped_by: 'killed' is not one of person, lost",
+    ),
+    (
+      "runs: {db: r.sqlite, stopped_by: {lost: [x]}}",
+      r"runs\.stopped_by\.lost: not a non-empty string",
+    ),
+  ],
+)
+def test_a_runs_that_breaks_a_rule_is_refused(
+  tree: Tree, runs: str, key: str
+) -> None:
+  _ = tree.project.write_text(f"{PROJECT}{runs}\n")
+
+  with pytest.raises(ConfigError, match=key):
+    _ = load_site(tree.site)
+
+
+def test_the_store_is_relative_to_attempts_dir(tree: Tree) -> None:
+  _ = tree.project.write_text(
+    PROJECT + "runs: {db: ../db/runs.sqlite, stopped_by: {person: canceled}}\n"
+  )
+
+  [project] = load_site(tree.site).projects
+
+  assert project.runs is not None
+  # Not checked at start: no attempt may have written it yet.
+  assert project.runs.db == tree.root.parent / "db" / "runs.sqlite"
+  assert project.public()["runs"] == {"stopped_by": {"person": "canceled"}}
+  assert "runs.sqlite" not in str(project.public())
+
+
+def test_an_action_with_when_loads_with_runs_and_no_lock(
+  tmp_path: Path,
+) -> None:
+  made = make_queue_tree(tmp_path)
+  text = made.tree.project.read_text()
+  _ = made.tree.project.write_text(
+    text.replace("lock: .lock\n", "runs: {db: ../runs.sqlite}\n")
+  )
+
+  [project] = load_site(made.tree.site).projects
+
+  assert [a.when for a in project.actions] == ["idle", "stopped"]
+
+
 def test_the_monitor_database_does_not_follow_the_project_file(
   tree: Tree, tmp_path: Path
 ) -> None:
@@ -308,6 +390,22 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
         + "no_trace: [Why]}]",
       ),
       r"deliverables\[0\]\.no_trace: not a non-empty string",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: report, title: T, "
+        + "count: passed}]",
+      ),
+      r"deliverables\[0\]\.count: for kind trials only",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: trials, title: T, "
+        + "count: ''}]",
+      ),
+      r"deliverables\[0\]\.count: not a non-empty string",
     ),
     (
       ("name: Example", "name: Example\ntrials: {diff: ../x.diff}"),

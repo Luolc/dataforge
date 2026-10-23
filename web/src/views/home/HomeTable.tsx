@@ -179,16 +179,26 @@ function specs(project: Project): Spec[] {
       title: "Spent",
       numeric: true,
       // An item's row is its newest attempt, as its other cells are; what all
-      // of its attempts spent is on hover.
+      // of its attempts spent, and when a store's row last read its cost, are
+      // on hover.
       value: (l) => l.row.cost_usd ?? undefined,
       cell: (l) => {
         const shown = l.row.cost_usd === null ? "—" : usd(l.row.cost_usd);
         const total = spent(l.item.attempts);
-        if (l.sub || l.item.attempts.length < 2 || total === null) return shown;
+        const read = l.row.progress_at ?? null;
+        const hints = [
+          ...(l.row.cost_usd !== null && read !== null
+            ? [`Read ${time(read)}.`]
+            : []),
+          ...(!l.sub && l.item.attempts.length >= 2 && total !== null
+            ? [
+                `${usd(total)} spent over its ${counted(l.item.attempts.length, "attempt")}.`,
+              ]
+            : []),
+        ];
+        if (hints.length === 0) return shown;
         return (
-          <Hint
-            hint={`${usd(total)} spent over its ${counted(l.item.attempts.length, "attempt")}.`}
-          >
+          <Hint hint={hints.join(" ")}>
             {/* Dotted, as a hint's sign. */}
             <span className="underline decoration-faint decoration-dotted underline-offset-3">
               {shown}
@@ -313,10 +323,13 @@ function Described({
   );
 }
 
-/** A status label, with the record's reason, or why it cannot be read, on hover. */
+/**
+ * A status label, with the record's reason, what a reconcile has yet to do
+ * with its row, or why it cannot be read, on hover.
+ */
 function StatusCell({ project, row }: { project: Project; row: AttemptRow }) {
   const label = <StatusLabel project={project} word={rowStatus(row)} />;
-  const why = row.error ?? row.reason;
+  const why = row.error ?? row.note ?? row.reason;
   if (why === null) return label;
   return <Hint hint={why}>{label}</Hint>;
 }

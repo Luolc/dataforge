@@ -274,6 +274,50 @@ describe("the home page", () => {
     ).toBeVisible();
   });
 
+  it("with the store of runs, shows an interrupted attempt's word, what a reconcile has yet to do and when its cost was read, on focus", async () => {
+    const note = "its machine ended passed; a reconcile has not ended it yet";
+    const rows: AttemptRow[] = [
+      row("t-stop/1", {
+        live: "may have stopped",
+        state: "interrupted",
+        status: "canceled",
+        note,
+        cost_usd: 4,
+        progress_at: "2026-03-02T09:30:00+00:00",
+      }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show("/sample", {
+      ...project,
+      statuses: {
+        ...project.statuses,
+        canceled: { label: "Canceled", tone: "warn" },
+      },
+      runs: { stopped_by: { person: "canceled" } },
+    });
+
+    const line = must(
+      (await screen.findByText("t-stop")).closest("tr") ?? undefined,
+    );
+    const label = within(line).getByText("Canceled").closest("[tabindex]");
+    if (!(label instanceof HTMLElement)) throw new Error("no focusable label");
+    fireEvent.focus(label);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(note);
+    fireEvent.blur(label);
+    await waitFor(() => {
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    });
+    const cost = within(line).getByText("$4.00").closest("[tabindex]");
+    if (!(cost instanceof HTMLElement)) throw new Error("no hint");
+    fireEvent.focus(cost);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/^Read /);
+  });
+
   it("shows the record's reason, or why it cannot be read, on focus", async () => {
     show("/sample?older=1");
     const label = (await screen.findByText("Exhausted")).closest("[tabindex]");

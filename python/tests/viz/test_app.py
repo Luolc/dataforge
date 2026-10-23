@@ -166,6 +166,7 @@ def test_projects_leave_out_where_the_files_are(
     ],
     "session": {"thinking": "hidden"},
     "not_ended": None,
+    "runs": None,
     "deliverables": [],
     "kinds": {},
     "trials": None,
@@ -194,7 +195,8 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
     + "deliverables:\n"
     + "  - {name: task, kind: files, title: Task}\n"
     + "  - {name: review, kind: report, title: Review}\n"
-    + "  - {name: regrade, kind: trials, title: Regrade, no_trace: No agent.}\n"
+    + "  - {name: regrade, kind: trials, title: Regrade, no_trace: No agent.,"
+    + " count: pass}\n"
   )
 
   [project] = cast(
@@ -207,6 +209,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "kind": "files",
       "title": "Task",
       "no_trace": None,
+      "count": None,
       "default": False,
     },
     {
@@ -214,6 +217,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "kind": "report",
       "title": "Review",
       "no_trace": None,
+      "count": None,
       "default": False,
     },
     {
@@ -221,6 +225,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "kind": "trials",
       "title": "Regrade",
       "no_trace": "No agent.",
+      "count": "pass",
       "default": False,
     },
   ]
@@ -348,6 +353,9 @@ def test_attempts_are_newest_first_with_their_values(
     "queued": [None, None, None],
     "live": "not ended",
     "held": None,
+    "state": None,
+    "note": None,
+    "progress_at": None,
     "error": None,
   }
   assert rows[1]["error"] == "the record is not JSON"
@@ -366,6 +374,9 @@ def test_attempts_are_newest_first_with_their_values(
     "queued": [None, None, None],
     "live": None,
     "held": None,
+    "state": None,
+    "note": None,
+    "progress_at": None,
     "error": None,
   }
   assert rows[3]["modified"] is None

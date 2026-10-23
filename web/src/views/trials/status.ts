@@ -11,26 +11,48 @@ export const RUNNING = "running";
 const NOT_FINISHED = "not finished";
 
 /**
- * A trial's status: solved when its reward is at least 1.0, as the default
- * `solved` accepts; an exception before anything else. One with no result
- * yet runs while its attempt runs, and else never finished.
+ * A trial's status: its verdict, the dataset's word for it, as the project
+ * names it, when it has one, with exception saying that it also ended on
+ * one; else an exception before anything else, then solved when its reward
+ * is at least 1.0, as the default `solved` accepts. One with no result yet
+ * runs while its attempt runs, and else never finished.
  */
 export function trialStatus(
   result: Pick<NonNullable<Trial["result"]>, "reward" | "exception"> | null,
   running: boolean,
-): { word: string; tone: Tone } {
+  verdict: { label: string; tone: Tone } | null = null,
+): { word: string; tone: Tone; exception: boolean } {
   if (result === null) {
     return running
-      ? { word: RUNNING, tone: "neutral" }
-      : { word: NOT_FINISHED, tone: "neutral" };
+      ? { word: RUNNING, tone: "neutral", exception: false }
+      : { word: NOT_FINISHED, tone: "neutral", exception: false };
   }
   const { reward, exception } = result;
-  if (exception !== null) return { word: EXCEPTION, tone: "warn" };
-  if (reward === null) return { word: NO_REWARD, tone: "neutral" };
+  if (verdict !== null)
+    return {
+      word: verdict.label,
+      tone: verdict.tone,
+      exception: exception !== null,
+    };
+  const plain = { exception: false };
+  if (exception !== null) return { word: EXCEPTION, tone: "warn", ...plain };
+  if (reward === null) return { word: NO_REWARD, tone: "neutral", ...plain };
   return reward >= 1
-    ? { word: SOLVED, tone: "good" }
-    : { word: NOT_SOLVED, tone: "bad" };
+    ? { word: SOLVED, tone: "good", ...plain }
+    : { word: NOT_SOLVED, tone: "bad", ...plain };
 }
+
+/** The verdict of a trial of a deliverable that gives verdicts, but not it. */
+export const NO_VERDICT: { label: string; tone: Tone } = {
+  label: "no verdict",
+  tone: "neutral",
+};
+
+/** The mark beside a trial's status when it also ended on an exception. */
+export const WITH_EXCEPTION = EXCEPTION;
+
+/** The word after a trials deliverable's count, unless the project names one. */
+export const COUNTED = SOLVED;
 
 /**
  * A test's status words, in the order the Tests tab's filter lists them:

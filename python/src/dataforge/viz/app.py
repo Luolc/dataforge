@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 from dataforge import queue
-from dataforge.viz import actions, live, monitor, tabs
+from dataforge.viz import actions, live, monitor, runs, tabs
 from dataforge.viz.config import Action, Project, Site, split_relative, Tab
 from dataforge.viz.paths import (
   attempt_parts,
@@ -149,7 +149,15 @@ class _Api:
     if current is not None and current["since"] is None:
       current["since"] = self._job_starts(project).get(item)
     return JSONResponse(
-      {"live": row["live"], "held": row["held"], "current": current}
+      {
+        "live": row["live"],
+        "held": row["held"],
+        "current": current,
+        "state": row["state"],
+        "status": row["status"],
+        "reason": row["reason"],
+        "note": row["note"],
+      }
     )
 
   def record(self, p: str, attempt: str | None = None) -> Response:
@@ -222,13 +230,14 @@ class _Api:
     actions.check_item(project, item)
     rows = _item_rows(project, item)
     jobs = self._open_jobs()
+    found = None if project.runs is None else runs.read(project.runs, item)
     return JSONResponse(
       [
         {
           "name": a.name,
           "label": a.label,
           "queue": a.queue,
-          "reason": actions.unavailable(project, a, item, rows, jobs),
+          "reason": actions.unavailable(project, a, item, rows, jobs, found),
           "params": [param.public() for param in a.params],
         }
         for a in project.actions
@@ -245,7 +254,10 @@ class _Api:
     args = actions.param_args(action, request.query_params)
     rows = _item_rows(project, item)
     config = self._config()
-    reason = actions.unavailable(project, action, item, rows, self._open_jobs())
+    found = None if project.runs is None else runs.read(project.runs, item)
+    reason = actions.unavailable(
+      project, action, item, rows, self._open_jobs(), found
+    )
     if reason is not None:
       raise RefusedError(409, reason)
     try:
@@ -558,7 +570,10 @@ def _error(status: int, reason: str) -> Response:
 
 def _mark(project: Project, rows: list[dict[str, object]]) -> None:
   rows.sort(key=lambda r: cast(str, r["modified"] or ""), reverse=True)
-  live.mark(project, rows)
+  if project.runs is not None:
+    runs.mark(project, rows)
+  else:
+    live.mark(project, rows)
 
 
 def _item_rows(project: Project, item: str) -> list[dict[str, object]]:
@@ -610,6 +625,9 @@ def _row(
     "queued": None,
     "live": None,
     "held": None,
+    "state": None,
+    "note": None,
+    "progress_at": None,
     "error": None,
   }
   try:
