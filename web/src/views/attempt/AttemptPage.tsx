@@ -272,8 +272,8 @@ function Attempt({
     },
     ...kinds.map((kind) => {
       const items = itemsOf(kind);
-      const title = kindTitle(project, kind, items);
-      const one = leading(project, items);
+      const title = kindTitle(project, record, kind, items);
+      const one = leading(project, record, items);
       return {
         key: kind,
         title,

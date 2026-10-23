@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -192,8 +198,12 @@ describe("a tab of several deliverables of one kind", () => {
   };
   // The record of an attempt that ended, with a regrade declared before its
   // pass@k: reached or not, and pass@k reached or not.
-  const withRegrade = (regraded: boolean, solved = true): unknown => {
-    const record = structuredClone(passed);
+  const withRegrade = (
+    regraded: boolean,
+    solved = true,
+    base = passed,
+  ): unknown => {
+    const record = structuredClone(base);
     const pass = record.deliverables.find((d) => d.name === "pass_at_k");
     if (pass === undefined) throw new Error("no pass_at_k");
     const unreached = (state: string) => ({
@@ -285,6 +295,54 @@ describe("a tab of several deliverables of one kind", () => {
     expect(await tabs()).toContain("Regrade1 / 4");
   });
 
+  // As twice, with pass@k to lead its kind when its visit's data has
+  // settings ["explicit"], and both reached from a visit of that data.
+  const told = (equals: unknown): Project => ({
+    ...sampleProject,
+    deliverables: [
+      { name: "regrade", kind: "trials", title: "Regrade" },
+      {
+        name: "pass_at_k",
+        kind: "trials",
+        title: "Pass@k",
+        default: { field: ["settings"], equals },
+      },
+    ],
+  });
+  const withSettings = (settings: string[]): unknown => {
+    const record = structuredClone(passed);
+    const pass = record.deliverables.find((d) => d.name === "pass_at_k");
+    const visit = must(record.visits[must(pass?.visit_index)]);
+    Object.assign(visit.data, { settings });
+    return withRegrade(true, true, record);
+  };
+
+  it("is titled by the one whose condition holds over the first reached", async () => {
+    show(withSettings(["explicit"]), "", told(["explicit"]));
+
+    expect(await tabs()).toContain("Pass@k2 / 4");
+  });
+
+  it("opens on the one whose condition holds and lists it first", async () => {
+    show(withSettings(["explicit"]), "&tab=trials", told(["explicit"]));
+
+    const menu = await screen.findByRole("button", { name: /Pass@k/ });
+    expect(menu).toHaveTextContent(/^Pass@k$/);
+    expect(await screen.findByText(/2 \/ 4 solved/)).toBeVisible();
+    fireEvent.pointerDown(menu, { button: 0, ctrlKey: false });
+    const items = screen.getAllByRole("menuitem");
+    expect(items.map((i) => i.textContent)).toEqual([
+      expect.stringMatching(/^Pass@k/),
+      expect.stringMatching(/^Regrade/),
+    ]);
+  });
+
+  it("is titled by the first reached when the condition does not hold", async () => {
+    show(withSettings(["implicit", "explicit"]), "", told(["explicit"]));
+
+    expect(await tabs()).toContain("Regrade1 / 4");
+  });
+
   it("titled by the project names the one its count is of", async () => {
     show(withRegrade(true), "", {
       ...marked,
@@ -304,8 +362,8 @@ describe("a tab of several deliverables of one kind", () => {
       { name: "review", kind: "report", title: "Review" },
     ],
   };
-  const withTightened = (reached: boolean): unknown => {
-    const record = structuredClone(passed);
+  const withTightened = (reached: boolean, base = passed): unknown => {
+    const record = structuredClone(base);
     const review = record.deliverables.find((d) => d.name === "review");
     if (review === undefined) throw new Error("no review");
     const tightened = {
@@ -359,6 +417,32 @@ describe("a tab of several deliverables of one kind", () => {
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
     ).toEqual(["Review", "Tightened review"]);
+  });
+
+  it("of reports stacks first the one whose condition holds", async () => {
+    const record = structuredClone(passed);
+    const review = record.deliverables.find((d) => d.name === "review");
+    Object.assign(must(record.visits[must(review?.visit_index)]).data, {
+      verdict: "pass",
+    });
+    show(withTightened(true, record), "&tab=report", {
+      ...sampleProject,
+      deliverables: [
+        { name: "tightened", kind: "report", title: "Tightened review" },
+        {
+          name: "review",
+          kind: "report",
+          title: "Review",
+          default: { field: ["verdict"], equals: "pass" },
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+      ).toEqual(["Review", "Tightened review"]);
+    });
   });
 
   it("of reports keeps the declared order when all were reached", async () => {
