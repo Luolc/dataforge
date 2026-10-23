@@ -239,6 +239,9 @@ describe("the files view", () => {
     ["Change.Diff", "--- a/x\n+++ b/x\n", "diff", ["diff"]],
     ["Main.PY", "import os\n", "python", ["highlighted"]],
     ["DOCKERFILE", "FROM scratch\n", "docker", []],
+    ["app.ts", "const a = 1;\n", "typescript", ["highlighted"]],
+    ["main.go", "package main\n", "go", ["highlighted"]],
+    ["go.mod", "module x\n", "gomod", []],
     [".md", "# A heading\n", "other", []],
   ])(
     "shows %s with the icon and the preview of one kind",
