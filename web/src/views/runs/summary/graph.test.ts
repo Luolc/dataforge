@@ -76,6 +76,13 @@ describe("the graph", () => {
       );
 
     expect(node([must(author), bare]).time).toBe("no action recorded");
+    // A run with no action that keeps its own times gives them.
+    const own = {
+      ...bare,
+      started_at: "2026-03-02T09:30:00Z",
+      ended_at: "2026-03-02T09:35:00Z",
+    };
+    expect(node([must(author), own]).time).toBe("5m 0s");
     // An action whose times do not read is still an action.
     const action = must(must(check).actions[0]);
     const unread = { ...must(check), actions: [{ ...action, ended_at: "?" }] };

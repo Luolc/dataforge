@@ -430,6 +430,10 @@ const visit = z.looseObject({
   outcome: z.string().nullable(),
   data: z.record(z.string(), z.unknown()),
   mark: z.string().nullable(),
+  // When it was entered and when its outcome was recorded, ended_at null
+  // while it runs; a record from before version 6 has neither.
+  started_at: z.string().nullable().optional(),
+  ended_at: z.string().nullable().optional(),
   actions: z.array(action),
 });
 export type Visit = z.infer<typeof visit>;
