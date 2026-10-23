@@ -7,6 +7,7 @@ import {
   liveStatus,
   outcomeOf,
   statusOf,
+  withRowStatus,
 } from "./status";
 
 describe("status words", () => {
@@ -117,5 +118,53 @@ describe("status words", () => {
       "may have stopped": { label: "May have stopped", tone: "warn" },
       "not ended": { label: "Not ended", tone: "neutral" },
     });
+  });
+});
+
+describe("an attempt with a row in the store of runs", () => {
+  const runs = {
+    ...sampleProject,
+    runs: { stopped_by: { person: "canceled" } },
+  };
+  const shown = { ...records.passed, status: "running" };
+  const live = (
+    state: "running" | "interrupted" | "ended" | null,
+    status: string | null,
+  ) => ({
+    live: null,
+    held: null,
+    current: null,
+    state,
+    status,
+  });
+
+  it("takes its status and reason from its row, not from its record file", () => {
+    expect(withRowStatus(runs, shown, live("ended", "passed")).status).toBe(
+      "passed",
+    );
+    expect(
+      withRowStatus(
+        runs,
+        { ...shown, reason: "the file's" },
+        {
+          ...live("ended", "passed"),
+          reason: "the row's",
+        },
+      ).reason,
+    ).toBe("the row's");
+    expect(
+      attemptStatus(runs, withRowStatus(runs, shown, live("running", null))),
+    ).toBeNull();
+    expect(
+      withRowStatus(runs, shown, live("interrupted", "canceled")).status,
+    ).toBe("canceled");
+  });
+
+  it("keeps its record's status with no row, no /live or no runs", () => {
+    expect(withRowStatus(runs, shown, live(null, null))).toBe(shown);
+    expect(withRowStatus(runs, shown, null)).toBe(shown);
+    expect(withRowStatus(sampleProject, shown, live("ended", "passed"))).toBe(
+      shown,
+    );
   });
 });

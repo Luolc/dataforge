@@ -106,7 +106,12 @@
       "round": 1,
       "outcome": "ok",
       "data": {
-        "solved": 2
+        "solved": 2,
+        "verdicts": {
+          "regrade-1": "held",
+          "regrade-2": "broke",
+          "regrade-3": "broke"
+        }
       },
       "mark": null,
       "last": true,
@@ -308,7 +313,12 @@
       "round": 1,
       "outcome": "ok",
       "data": {
-        "solved": 2
+        "solved": 2,
+        "verdicts": {
+          "regrade-1": "held",
+          "regrade-2": "broke",
+          "regrade-3": "broke"
+        }
       },
       "mark": null,
       "last": true,
@@ -431,6 +441,7 @@
         "value": 1,
         "reason": null
       },
+      "verdicts": null,
       "trials": [
         {
           "id": "tinyparse-fold__p3a1",
@@ -441,6 +452,8 @@
             "format": "claude-code-stream-json"
           },
           "source": null,
+          "log": null,
+          "verdict": null,
           "result": {
             "reward": 1.0,
             "rewards": {
@@ -458,6 +471,8 @@
             "format": "claude-code-stream-json"
           },
           "source": null,
+          "log": null,
+          "verdict": null,
           "result": {
             "reward": 0.0,
             "rewards": {
@@ -472,6 +487,8 @@
           "path": "artifacts/solve/1/trial-3",
           "trace": null,
           "source": null,
+          "log": null,
+          "verdict": null,
           "result": {
             "reward": null,
             "rewards": {},
@@ -498,6 +515,11 @@
         "value": 2,
         "reason": null
       },
+      "verdicts": {
+        "output": null,
+        "field": ["verdicts"],
+        "reason": null
+      },
       "trials": [
         {
           "id": "1__rg1x",
@@ -505,6 +527,8 @@
           "path": "artifacts/regrade/1/regrade-1/1__rg1x",
           "trace": null,
           "source": "artifacts/solve/1/trial-1",
+          "log": "artifacts/regrade/1/regrade-1/harbor.log",
+          "verdict": "held",
           "result": {
             "reward": 1.0,
             "rewards": {
@@ -519,6 +543,8 @@
           "path": "artifacts/regrade/1/regrade-2/2__rg2x",
           "trace": null,
           "source": "artifacts/solve/1/trial-2",
+          "log": "artifacts/regrade/1/regrade-2/harbor.log",
+          "verdict": "broke",
           "result": {
             "reward": 0.0,
             "rewards": {
@@ -533,12 +559,14 @@
           "path": "artifacts/regrade/1/regrade-3/3__rg3x",
           "trace": null,
           "source": "artifacts/solve/0/trial-9",
+          "log": "artifacts/regrade/1/regrade-3/harbor.log",
+          "verdict": "broke",
           "result": {
             "reward": 0.0,
             "rewards": {
               "reward": 0.0
             },
-            "exception": null
+            "exception": "VerifierTimeoutError: the tests ran past their 600s limit\n  in step tests, after 3 of 5 tests\n  the last test was tests/test_fold.py::test_nested"
           }
         },
         {
@@ -547,6 +575,8 @@
           "path": "artifacts/regrade/1/regrade-4/4__rg4x",
           "trace": null,
           "source": null,
+          "log": null,
+          "verdict": null,
           "result": {
             "reward": 1.0,
             "rewards": {

@@ -32,6 +32,7 @@ import {
 } from "../../../ui/status";
 import { declaredMissing } from "../../attempt/declared";
 import { attemptHref } from "../../attempt/href";
+import { declared } from "../../kind";
 import { KindLine } from "../../registry";
 import { carried } from "../resumed/resumed";
 import { Graph } from "./Graph";
@@ -297,6 +298,7 @@ function Deliverables({ project, attempt, record }: Props) {
                         project={project.id}
                         attempt={attempt}
                         item={item}
+                        word={declared(project, item.name)?.count}
                       />
                     )}
                   </td>

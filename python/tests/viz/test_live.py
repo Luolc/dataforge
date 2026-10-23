@@ -278,6 +278,10 @@ def test_a_running_attempt_is_in_the_state_its_last_visit_goes_to(
       "recorded": False,
       "since": "2026-01-02T03:14:05+00:00",
     },
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
   }
 
 
@@ -346,6 +350,10 @@ def test_only_a_running_attempt_has_a_current_visit(
     "holder": False,
     "stopped": None,
     "current": None,
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
   }
   assert ended == {
     "live": None,
@@ -353,6 +361,10 @@ def test_only_a_running_attempt_has_a_current_visit(
     "holder": False,
     "stopped": None,
     "current": None,
+    "state": None,
+    "status": "passed",
+    "reason": None,
+    "note": None,
   }
   assert free == {
     "live": "may have stopped",
@@ -360,6 +372,10 @@ def test_only_a_running_attempt_has_a_current_visit(
     "holder": False,
     "stopped": None,
     "current": None,
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
   }
 
 
@@ -376,6 +392,10 @@ def test_a_transition_to_the_end_has_no_current_visit(
     "holder": True,
     "stopped": None,
     "current": None,
+    "state": None,
+    "status": None,
+    "reason": None,
+    "note": None,
   }
 
 

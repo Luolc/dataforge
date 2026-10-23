@@ -168,7 +168,7 @@ describe("the address of a trials tab", () => {
     expect(where().get("trial")).toBe("trial-3");
 
     fireEvent.pointerDown(menu, { button: 0, ctrlKey: false });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Regrade" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Regrade/ }));
     expect(where().get("deliverable")).toBe("regrade");
     // A trial of the deliverable left is not one of this one.
     expect(where().get("trial")).toBeNull();

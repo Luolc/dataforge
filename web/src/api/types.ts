@@ -44,6 +44,12 @@ export const project = z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
   }),
   not_ended: z.array(z.string()).nullable().optional(),
+  // The store of the attempts, which then says how each stands: the status
+  // word of an interrupted one, by how it was stopped.
+  runs: z
+    .looseObject({ stopped_by: z.record(z.string(), z.string()) })
+    .nullable()
+    .optional(),
   // Each deliverable a dataset's declaration names; the one marked default
   // names its kind's tab while the attempt has reached none of the kind.
   // no_trace: for a deliverable of trials, why a trial of it with no trace
@@ -55,6 +61,7 @@ export const project = z.looseObject({
         kind: z.string(),
         title: z.string(),
         no_trace: z.string().nullable().optional(),
+        count: z.string().nullable().optional(),
         default: z.boolean().optional(),
       }),
     )
@@ -236,6 +243,9 @@ const STOPPED = z
   .nullable()
   .optional();
 
+/** The states of an attempt's row in the store of a project's runs. */
+const ROW_STATES = ["running", "interrupted", "ended"] as const;
+
 /** How an attempt that has not ended stands; null once it has ended. */
 const LIVE = ["running", "may have stopped", "not ended"] as const;
 export type Live = (typeof LIVE)[number];
@@ -272,6 +282,12 @@ export const attemptRow = z.looseObject({
   holder: z.boolean().nullable().optional(),
   // For an attempt that may have stopped, the job that ran it, once ended.
   stopped: STOPPED,
+  // With the project's runs, the state of the attempt's row in the store, what
+  // a reconcile has yet to do with it, and when its holder last wrote a step,
+  // which its cost was read with; null without a row.
+  state: z.enum(ROW_STATES).nullable().optional(),
+  note: z.string().nullable().optional(),
+  progress_at: z.string().nullable().optional(),
   error: z.string().nullable(),
 });
 export type AttemptRow = z.infer<typeof attemptRow>;
@@ -284,6 +300,12 @@ export const liveInfo = z.looseObject({
   held: z.boolean().nullable(),
   holder: z.boolean().nullable().optional(),
   stopped: STOPPED,
+  // As the listing's row has them: with runs, the row's state, its status
+  // word, its reason and what a reconcile has yet to do with it.
+  state: z.enum(ROW_STATES).nullable().optional(),
+  status: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
   current: z
     .looseObject({
       state: z.string(),
@@ -441,7 +463,8 @@ const source = {
 
 // A trial that has started and not been recorded yet has no id, trace or
 // result (design.md section 5, "The record"). source is the path of the
-// trial whose output it judged again; a record written before it has none.
+// trial whose output it judged again, log its runner's log and verdict the
+// dataset's word for it; a record written before one of them has none.
 const trial = z.looseObject({
   id: z.string().nullable(),
   output: z.string(),
@@ -450,6 +473,8 @@ const trial = z.looseObject({
     .looseObject({ path: z.string(), format: z.string().nullable() })
     .nullable(),
   source: z.string().nullable().optional(),
+  log: z.string().nullable().optional(),
+  verdict: z.string().nullable().optional(),
   result: z
     .looseObject({
       reward: z.number().nullable(),
@@ -475,6 +500,15 @@ const deliverable = z.looseObject({
       output: z.string().nullable(),
       field: z.array(z.string()),
       value: z.unknown(),
+      reason: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
+  // Where its trials' verdicts were read, null when it names none.
+  verdicts: z
+    .looseObject({
+      output: z.string().nullable(),
+      field: z.array(z.string()),
       reason: z.string().nullable(),
     })
     .nullable()

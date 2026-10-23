@@ -3,6 +3,12 @@
 # (regrade-1 on trial-1's, regrade-2 on trial-2's), one names a trial no
 # deliverable lists (regrade-3), and one names none (regrade-4). The pass@k
 # trials are p3's trials 1 to 3, with their traces, diffs and test results.
+# The regrade gives regrade-1 to regrade-3 a verdict (held or broke), and
+# names their logs: regrade-1's has lines, regrade-2's is not there and
+# regrade-3's is empty; regrade-4 names none. regrade-3 also ended on an
+# exception of several lines. regrade-unread is the same attempt with no
+# count in the regrade's outcome data, and regrade-unreached one that ended
+# before its regrade ran.
 id: regrade
 name: Regrade samples
 color: "#7fb5f5"
@@ -16,6 +22,8 @@ statuses:
   passed: { label: Passed, tone: good }
   in_range: { label: In range, tone: good }
   ok: { label: Ok, tone: good }
+  held: { label: Held, tone: good }
+  broke: { label: Broke, tone: bad }
 item: { depth: 1, title: Task }
 columns: []
 session: { thinking: collapsed }
@@ -24,6 +32,7 @@ deliverables:
   - name: regrade
     kind: trials
     title: Regrade
+    count: held
     no_trace: >-
       A regrade runs no agent: it applies another trial's diff and runs the
       task's tests on it.

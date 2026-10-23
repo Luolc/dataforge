@@ -67,6 +67,8 @@ class Deliverable:
     match: For trials, a glob (fnmatch, case-sensitive) that a trial's output
       name matches to be listed, such as "regrade-[0-9]*"; None for every
       trial of the visit.
+    verdicts: For trials, where a JSON object of each trial's verdict, a
+      word, by its output name is, if anywhere.
   """
 
   kind: Kind
@@ -75,6 +77,7 @@ class Deliverable:
   table: Source | None = None
   value: Value | None = None
   match: str | None = None
+  verdicts: Value | None = None
 
 
 def check(deliverables: Mapping[str, Deliverable], states: set[str]) -> None:
@@ -87,7 +90,7 @@ def check(deliverables: Mapping[str, Deliverable], states: set[str]) -> None:
   Raises:
     ValueError: When one has an unknown kind, state or visit, has or lacks an
       output against its kind, has a table, a value or a match its kind does
-      not, or an empty match.
+      not, verdicts its kind does not, or an empty match.
   """
   for name, item in deliverables.items():
     where = f"deliverable {name}"
@@ -116,6 +119,8 @@ def _kind_error(item: Deliverable) -> str | None:
     return "only trials have a value"
   if item.match is not None and item.kind != "trials":
     return "only trials have a match"
+  if item.verdicts is not None and item.kind != "trials":
+    return "only trials have verdicts"
   if item.match == "":
     return "an empty match"
   return None

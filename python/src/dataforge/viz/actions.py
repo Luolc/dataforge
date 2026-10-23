@@ -12,7 +12,7 @@ from datetime import datetime
 import math
 
 from dataforge import queue
-from dataforge.viz import live
+from dataforge.viz import live, runs
 from dataforge.viz.config import (
   Action,
   number,
@@ -115,6 +115,7 @@ def unavailable(
   item: str,
   rows: list[dict[str, object]],
   open_jobs: list[queue.Job],
+  found: runs.Found | None = None,
 ) -> str | None:
   """Say why an action may not be submitted for an item now.
 
@@ -126,6 +127,8 @@ def unavailable(
     rows: The listing's rows of the item's attempts, newest modified first,
       with live and held marked.
     open_jobs: The jobs queued or running now.
+    found: With runs, the item's rows in the store, which then decide when
+      in place of rows.
 
   Returns:
     The reason, for a person; None when the action may be submitted.
@@ -134,6 +137,8 @@ def unavailable(
   holder = next((j for j in open_jobs if j.dedup_key == key), None)
   if holder is not None:
     return f"Job {holder.id} for this item is {holder.state} in {holder.queue}."
+  if found is not None:
+    return runs.unavailable(action.when, found)
   if action.when in ("idle", "stopped") and any(
     r["held"] is True for r in rows
   ):
