@@ -14,7 +14,14 @@ import {
 } from "../../ui/format";
 import { Hint } from "../../ui/hint";
 import { Elapsed } from "../../ui/running";
-import { attemptStatus, liveStatus, statusOf, toneText } from "../../ui/status";
+import {
+  attemptStatus,
+  liveStatus,
+  statusOf,
+  toneText,
+  viewerStatus,
+} from "../../ui/status";
+import { stoppedWhy } from "../queue/status";
 import { carried } from "../runs/resumed/resumed";
 
 export function AttemptFacts({
@@ -43,20 +50,21 @@ export function AttemptFacts({
   // or may have, it is the record's.
   const word =
     attemptStatus(project, record) === null ? (live?.live ?? null) : null;
+  // One that may have stopped has, once the job that ran it has ended.
+  const stopped = word === "may have stopped" ? (live?.stopped ?? null) : null;
   const status =
-    word !== null
-      ? liveStatus[word]
-      : statusOf(project, attemptStatus(project, record));
+    stopped !== null
+      ? viewerStatus.stopped
+      : word !== null
+        ? liveStatus[word]
+        : statusOf(project, attemptStatus(project, record));
+  const why = stopped !== null ? stoppedWhy(stopped) : record.reason;
   const items = [
     {
       key: "Status",
       value: (
         <span className={toneText[status.tone]}>
-          {record.reason === null ? (
-            status.label
-          ) : (
-            <Hint hint={record.reason}>{status.label}</Hint>
-          )}
+          {why === null ? status.label : <Hint hint={why}>{status.label}</Hint>}
         </span>
       ),
     },

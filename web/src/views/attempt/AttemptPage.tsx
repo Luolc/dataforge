@@ -41,6 +41,7 @@ import {
   stateTitle,
   toneGlyph,
   toneText,
+  viewerStatus,
   withRowStatus,
 } from "../../ui/status";
 import { StatusIcon, ToneIcon } from "../../ui/status-mark";
@@ -346,7 +347,8 @@ function Attempt({
 
 /**
  * The attempt's status as an icon: turning while it runs, May have stopped
- * when /live says so, else its status word as the record has it.
+ * when /live says so, Stopped when it also gives the job that ran it, ended,
+ * else its status word as the record has it.
  */
 function AttemptIcon({
   project,
@@ -359,7 +361,13 @@ function AttemptIcon({
 }) {
   if (live?.live === "running") return <RunningIcon />;
   if (live?.live === "may have stopped")
-    return <ToneIcon {...liveStatus["may have stopped"]} />;
+    return (
+      <ToneIcon
+        {...(live.stopped == null
+          ? liveStatus["may have stopped"]
+          : viewerStatus.stopped)}
+      />
+    );
   return <StatusIcon project={project} word={attemptStatus(project, record)} />;
 }
 

@@ -77,6 +77,21 @@ describe("an attempt's status", () => {
       "4 of 4 solved",
     );
   });
+
+  it("is Stopped, with the job that ran it on focus, once that job has ended", async () => {
+    const { item } = show(inReview, {
+      ...mayHaveStopped,
+      stopped: { job: 7, state: "canceled" },
+    });
+
+    expect(item("Status")).toHaveTextContent(/^Stopped$/);
+    const label = item("Status").querySelector("[tabindex]");
+    if (!(label instanceof HTMLElement)) throw new Error("no focusable label");
+    fireEvent.focus(label);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Job 7, which ran this attempt, ended Canceled; nothing runs it now.",
+    );
+  });
 });
 
 describe("an attempt's total duration", () => {
