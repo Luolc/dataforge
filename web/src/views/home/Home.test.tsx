@@ -348,7 +348,7 @@ describe("the home page", () => {
       row("t-stop/1", {
         live: "may have stopped",
         state: "interrupted",
-        status: "canceled",
+        status: "interrupted",
         note,
         cost_usd: 4,
         progress_at: "2026-03-02T09:30:00+00:00",
@@ -364,15 +364,15 @@ describe("the home page", () => {
       ...project,
       statuses: {
         ...project.statuses,
-        canceled: { label: "Canceled", tone: "warn" },
+        interrupted: { label: "Interrupted", tone: "warn" },
       },
-      runs: { stopped_by: { person: "canceled" } },
+      runs: { stopped_by: { lost: "interrupted" } },
     });
 
     const line = must(
       (await screen.findByText("t-stop")).closest("tr") ?? undefined,
     );
-    const label = within(line).getByText("Canceled").closest("[tabindex]");
+    const label = within(line).getByText("Interrupted").closest("[tabindex]");
     if (!(label instanceof HTMLElement)) throw new Error("no focusable label");
     fireEvent.focus(label);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(note);
