@@ -1,9 +1,17 @@
+from collections.abc import Callable
 import dataclasses
 from datetime import datetime, UTC
 import hashlib
+from pathlib import Path
 import tomllib
 from typing import cast
 
+from harbor.models.task.task import (  # pyright: ignore[reportMissingTypeStubs]
+  strip_canary,
+)
+from harbor.utils.templating import (  # pyright: ignore[reportMissingTypeStubs]
+  render_prompt_template,
+)
 import pytest
 
 from dataforge.task import (
@@ -17,6 +25,7 @@ from dataforge.task import (
   principles_sha256,
   public_toml,
   toml_text,
+  with_principle_template,
 )
 
 SENTENCE = (
@@ -58,6 +67,17 @@ PUBLIC_REST = (
 )
 
 
+PRINCIPLES: list[dict[str, object]] = [
+  {
+    "id": "p2",
+    "text": OTHER,
+    "type": "trade_off",
+    "tests": ["f2p::test_limit"],
+  },
+  {"id": "p1", "text": SENTENCE, "source": "new", "tests": []},
+]
+
+
 def metadata(**changes: object) -> dict[str, object]:
   # A [metadata] of the format, with a group of the dataset's and a key of
   # its own in `instruction`.
@@ -65,21 +85,27 @@ def metadata(**changes: object) -> dict[str, object]:
     "id": "k7m2q9xr4t",
     "language": "Python",
     "provenance": {"origin": "synthetic", "base_sha": "a" * 40},
-    "instruction": {"tone": "bug_report", "settings": ["explicit", "implicit"]},
+    "instruction": {"tone": "bug_report"},
     "tests": {
       "f2p": {"vulnerability": 2, "behavior": 1},
       "p2p": {"project": 7, "behavior": 0},
     },
-    "principles": [
-      {
-        "id": "p2",
-        "text": OTHER,
-        "type": "trade_off",
-        "tests": ["f2p::test_limit"],
-      },
-      {"id": "p1", "text": SENTENCE, "source": "new", "tests": []},
-    ],
+    "alignment": {
+      "learnable_in": ["explicit", "implicit"],
+      "principles": PRINCIPLES,
+    },
   }
+  return table | changes
+
+
+def before_alignment(**changes: object) -> dict[str, object]:
+  # The same [metadata] in the format before `alignment`.
+  table = {k: v for k, v in metadata().items() if k != "alignment"}
+  table["instruction"] = {
+    "tone": "bug_report",
+    "settings": ["explicit", "implicit"],
+  }
+  table["principles"] = PRINCIPLES
   return table | changes
 
 
@@ -99,12 +125,30 @@ def test_parse_metadata_reads_the_shared_part_and_keeps_the_datasets():
       ),
       Principle(id="p1", text=SENTENCE, source="new"),
     ),
-    settings=("implicit", "explicit"),
+    learnable_in=("implicit", "explicit"),
     extra={
       "provenance": {"origin": "synthetic", "base_sha": "a" * 40},
       "instruction": {"tone": "bug_report"},
     },
   )
+
+
+def test_parse_metadata_reads_the_format_before_alignment_as_the_same():
+  assert parse_metadata(before_alignment()) == parse_metadata(metadata())
+
+
+@pytest.mark.parametrize(
+  "table",
+  [
+    metadata(alignment={"principles": PRINCIPLES}),
+    before_alignment(instruction={"tone": "bug_report"}),
+  ],
+  ids=["alignment", "before-alignment"],
+)
+def test_parse_metadata_takes_implicit_alone_by_default(
+  table: dict[str, object],
+):
+  assert parse_metadata(table).learnable_in == ("implicit",)
 
 
 def test_parse_metadata_takes_no_principles_and_implicit_by_default():
@@ -123,21 +167,68 @@ def test_parse_metadata_takes_no_principles_and_implicit_by_default():
     ({"tests": {"f2p": {"behavior": "1"}}}, "metadata.tests.f2p.behavior"),
     ({"tests": {"e2e": {}}}, "metadata.tests.e2e"),
     ({"tests": {"p2p": 3}}, "metadata.tests.p2p"),
+    ({"alignment": SENTENCE}, "metadata.alignment"),
+    (
+      {"alignment": {"principles": [{"id": "p1", "text": "a"}] * 2}},
+      "metadata.alignment.principles[1].id",
+    ),
+    (
+      {
+        "alignment": {
+          "principles": [{"id": "p1", "text": "a", "type": "vulnerability"}]
+        }
+      },
+      "metadata.alignment.principles[0].type",
+    ),
+    (
+      {"alignment": {"principles": [{"id": "p1", "text": "one\ntwo"}]}},
+      "metadata.alignment.principles[0].text",
+    ),
+    (
+      {
+        "alignment": {
+          "principles": [{"id": "p1", "text": "a", "tests": ["t", "t"]}]
+        }
+      },
+      "metadata.alignment.principles[0].tests",
+    ),
+    (
+      {"alignment": {"principles": [{"id": "p1", "text": "a", "kind": "x"}]}},
+      "metadata.alignment.principles[0].kind",
+    ),
+    (
+      {"alignment": {"principles": PRINCIPLES, "learnable_in": []}},
+      "metadata.alignment.learnable_in",
+    ),
+    (
+      {"alignment": {"principles": PRINCIPLES, "learnable_in": ["solver"]}},
+      "metadata.alignment.learnable_in",
+    ),
+    (
+      {"alignment": {"principles": PRINCIPLES, "settings": ["implicit"]}},
+      "metadata.alignment.settings",
+    ),
+    ({"alignment": {}}, "metadata.alignment.principles"),
+    (
+      {"alignment": {"learnable_in": ["implicit"], "principles": []}},
+      "metadata.alignment.principles",
+    ),
+  ],
+)
+def test_parse_metadata_names_the_key_that_is_wrong(
+  changes: dict[str, object], path: str
+):
+  with pytest.raises(MetadataError) as e:
+    _ = parse_metadata(metadata(**changes))
+  assert e.value.path == path
+
+
+@pytest.mark.parametrize(
+  ("changes", "path"),
+  [
     (
       {"principles": [{"id": "p1", "text": "a"}, {"id": "p1", "text": "b"}]},
       "metadata.principles[1].id",
-    ),
-    (
-      {"principles": [{"id": "p1", "text": "a", "type": "vulnerability"}]},
-      "metadata.principles[0].type",
-    ),
-    (
-      {"principles": [{"id": "p1", "text": "one\ntwo"}]},
-      "metadata.principles[0].text",
-    ),
-    (
-      {"principles": [{"id": "p1", "text": "a", "tests": ["t", "t"]}]},
-      "metadata.principles[0].tests",
     ),
     (
       {"principles": [{"id": "p1", "text": "a", "kind": "x"}]},
@@ -147,9 +238,28 @@ def test_parse_metadata_takes_no_principles_and_implicit_by_default():
     ({"instruction": {"settings": []}}, "metadata.instruction.settings"),
   ],
 )
-def test_parse_metadata_names_the_key_that_is_wrong(
+def test_parse_metadata_names_the_key_that_is_wrong_before_alignment(
   changes: dict[str, object], path: str
 ):
+  with pytest.raises(MetadataError) as e:
+    _ = parse_metadata(before_alignment(**changes))
+  assert e.value.path == path
+
+
+@pytest.mark.parametrize(
+  ("changes", "path"),
+  [
+    ({"principles": PRINCIPLES}, "metadata.principles"),
+    (
+      {"instruction": {"tone": "bug_report", "settings": ["implicit"]}},
+      "metadata.instruction.settings",
+    ),
+  ],
+)
+def test_parse_metadata_refuses_the_format_before_alignment_beside_it(
+  changes: dict[str, object], path: str
+):
+  # Even when the two agree, which is the one to keep is not said.
   with pytest.raises(MetadataError) as e:
     _ = parse_metadata(metadata(**changes))
   assert e.value.path == path
@@ -177,18 +287,19 @@ def test_metadata_toml_writes_the_dataforge_keys_first_and_the_rest_sorted():
     "\n[metadata.tests.p2p]\n"
     "behavior = 0\n"
     "project = 7\n"
-    "\n[[metadata.principles]]\n"
+    "\n[metadata.alignment]\n"
+    'learnable_in = ["implicit", "explicit"]\n'
+    "\n[[metadata.alignment.principles]]\n"
     'id = "p2"\n'
     f'text = "{OTHER}"\n'
     'type = "trade_off"\n'
     'tests = ["f2p::test_limit"]\n'
-    "\n[[metadata.principles]]\n"
+    "\n[[metadata.alignment.principles]]\n"
     'id = "p1"\n'
     f'text = "{SENTENCE}"\n'
     'source = "new"\n'
     "tests = []\n"
     "\n[metadata.instruction]\n"
-    'settings = ["implicit", "explicit"]\n'
     'tone = "bug_report"\n'
     "\n[metadata.provenance]\n"
     f'base_sha = "{"a" * 40}"\n'
@@ -230,11 +341,52 @@ def test_metadata_toml_keeps_tests_when_nothing_is_counted(
   assert parse_metadata(table) == meta
 
 
-def test_metadata_toml_refuses_a_key_of_dataforges_in_the_datasets_tables():
-  meta = Metadata(id=None, language="Go", tests={}, extra={"tests": {}})
+def test_metadata_toml_of_no_principles_writes_no_alignment_or_settings():
+  meta = parse_metadata(before_alignment(principles=[], instruction={}))
+
+  assert metadata_toml(meta) == (
+    "[metadata]\n"
+    'id = "k7m2q9xr4t"\n'
+    'language = "Python"\n'
+    "\n[metadata.tests]\n"
+    "\n[metadata.tests.f2p]\n"
+    "behavior = 1\n"
+    "vulnerability = 2\n"
+    "\n[metadata.tests.p2p]\n"
+    "behavior = 0\n"
+    "project = 7\n"
+    "\n[metadata.provenance]\n"
+    f'base_sha = "{"a" * 40}"\n'
+    'origin = "synthetic"\n'
+  )
+
+
+@pytest.mark.parametrize(
+  ("extra", "path"),
+  [
+    ({"tests": {}}, "metadata.tests"),
+    ({"alignment": {}}, "metadata.alignment"),
+    ({"principles": {}}, "metadata.principles"),
+    ({"instruction": {"settings": "x"}}, "metadata.instruction.settings"),
+  ],
+)
+def test_metadata_toml_refuses_a_key_of_dataforges_in_the_datasets_tables(
+  extra: dict[str, dict[str, object]], path: str
+):
+  meta = Metadata(id=None, language="Go", tests={}, extra=extra)
   with pytest.raises(MetadataError) as e:
     _ = metadata_toml(meta)
-  assert e.value.path == "metadata.tests"
+  assert e.value.path == path
+
+
+@pytest.mark.parametrize("learnable_in", [("explicit",), (), ("implicit",) * 2])
+def test_metadata_toml_refuses_what_no_principles_cannot_be_learnable_in(
+  learnable_in: tuple[str, ...],
+):
+  meta = Metadata(id=None, language="Go", tests={}, learnable_in=learnable_in)
+  with pytest.raises(MetadataError) as e:
+    _ = metadata_toml(meta)
+  assert e.value.path == "metadata.alignment.learnable_in"
 
 
 def test_public_toml_reads_as_the_export_before_with_tests_for_test_kinds():
@@ -295,6 +447,34 @@ def test_public_toml_keeps_only_the_paths_the_allow_list_names():
   }
 
 
+@pytest.mark.parametrize("table", [metadata, before_alignment])
+def test_public_toml_gives_out_alignment_whole_in_the_format(
+  table: Callable[..., dict[str, object]],
+):
+  text = toml_text({"metadata": table()})
+
+  found = tomllib.loads(public_toml(text, ["alignment", "instruction"]))
+
+  assert found == {
+    "metadata": {
+      "instruction": {"tone": "bug_report"},
+      "alignment": {
+        "learnable_in": ["implicit", "explicit"],
+        "principles": PRINCIPLES,
+      },
+    }
+  }
+
+
+def test_public_toml_of_no_principles_gives_out_no_alignment_or_settings():
+  text = toml_text({"metadata": before_alignment(principles=[])})
+  text = text.replace('"explicit", ', "")
+
+  found = tomllib.loads(public_toml(text, ["alignment", "instruction"]))
+
+  assert found == {"metadata": {"instruction": {"tone": "bug_report"}}}
+
+
 def test_public_toml_keeps_a_file_without_metadata_as_read():
   assert (
     public_toml('a = 1\n\n[b]\nc = "d"\n', ["id"]) == 'a = 1\n\n[b]\nc = "d"\n'
@@ -315,13 +495,13 @@ def test_public_toml_refuses_what_it_cannot_give_out_as_it_is(text: str):
     _ = public_toml(text, ["id", "language", "tests"])
 
 
-def test_explicit_instruction_of_one_principle_is_the_guideline_line():
+def test_explicit_instruction_of_one_principle_is_the_principle_line():
   found = explicit_instruction(
     b"\n  Fix the parser.\n\n", [Principle(id="p1", text=SENTENCE)]
   )
 
   assert found == (
-    b"Guideline for your change: A change that accepts a new kind of input"
+    b"General principle for you: A change that accepts a new kind of input"
     b" gives it the same checks the old kinds get.\n\n---\n\nFix the parser.\n"
   )
 
@@ -337,7 +517,7 @@ def test_explicit_instruction_lists_several_principles_by_their_ids():
   assert (
     found
     == (
-      f"Guidelines for your change:\n- {SENTENCE}\n- {OTHER}\n\n---\n\n"
+      f"General principles for you:\n- {SENTENCE}\n- {OTHER}\n\n---\n\n"
       "Fix the parser.\n"
     ).encode()
   )
@@ -346,6 +526,97 @@ def test_explicit_instruction_lists_several_principles_by_their_ids():
 def test_explicit_instruction_refuses_no_principle():
   with pytest.raises(ValueError):
     _ = explicit_instruction(b"Fix the parser.\n", [])
+
+
+# A prompt template as a dataset gives its solver one: the instruction, then
+# Jinja of its own.
+PROMPT_TEMPLATE = (
+  "{{ instruction }}\n\n---\n\n"
+  "Leave only your change in `/app`{% if true %}, nothing else{% endif %}.\n"
+  "\n```sh\ngit status --porcelain\n```\n"
+)
+DESCRIPTION = b"\n  Fix the parser.\n\nIt reads `{{ x }}` as a name.\n\n"
+
+
+def render(tmp_path: Path, template: str, instruction: bytes) -> bytes:
+  # As Harbor 0.24.0 gives an installed agent its prompt: instruction.md
+  # read as text and stripped of a canary, rendered by the template's file.
+  path, md = tmp_path / "template.j2", tmp_path / "instruction.md"
+  _ = path.write_text(template, encoding="utf-8")
+  _ = md.write_bytes(instruction)
+  found = render_prompt_template(path, strip_canary(md.read_text("utf-8")))
+  return found.encode()
+
+
+@pytest.mark.parametrize(
+  "texts",
+  [
+    [SENTENCE],
+    [OTHER, SENTENCE],
+    [
+      'Write {{ instruction }}, {{ x }} and {%- raw %} as "they" are.',
+      "Keep {% endraw %}, {#, #} and {% if x %} in a comment.",
+      r"A \ is no escape, nor \n, nor \x41, nor \u0041; }} and %} close none.",
+      "Odd text: \x0b\x0c\x1f\x7f\x85\u2028\u00a0 é \U0001f512 ends here.",
+    ],
+  ],
+  ids=["one", "several", "jinja-and-escapes"],
+)
+@pytest.mark.parametrize(
+  "template",
+  [
+    PROMPT_TEMPLATE,
+    "{{ instruction }}",
+    "Before.\n{{ instruction }}\nAfter.\n\n",
+  ],
+  ids=["with-jinja", "alone", "between"],
+)
+@pytest.mark.parametrize(
+  "description",
+  [DESCRIPTION, b"Fix it.", "\u00a0Fix it.\x1f\u3000\n \t\r\n".encode()],
+  ids=["spaced", "bare", "unicode-spaced"],
+)
+def test_with_principle_template_renders_as_explicit_instruction(
+  tmp_path: Path, texts: list[str], template: str, description: bytes
+):
+  principles = [Principle(id=f"p{i}", text=t) for i, t in enumerate(texts)]
+
+  found = render(
+    tmp_path, with_principle_template(template, principles), description
+  )
+
+  assert found == render(
+    tmp_path, template, explicit_instruction(description, principles)
+  )
+
+
+def test_with_principle_template_states_the_principle_before_the_rest():
+  found = with_principle_template(
+    PROMPT_TEMPLATE, [Principle(id="p1", text=SENTENCE)]
+  )
+
+  assert found == (
+    f'{{{{ "General principle for you: {SENTENCE}\\n\\n---\\n\\n" }}}}'
+    '{{ instruction | trim(" \\x09\\n\\x0d\\x0b\\x0c") ~ "\\n" }}'
+  ) + PROMPT_TEMPLATE.removeprefix("{{ instruction }}")
+
+
+@pytest.mark.parametrize(
+  ("template", "principles"),
+  [
+    ("{{instruction}}", [Principle(id="p1", text=SENTENCE)]),
+    (
+      "{{ instruction }} {{ instruction }}",
+      [Principle(id="p1", text=SENTENCE)],
+    ),
+    (PROMPT_TEMPLATE, []),
+  ],
+)
+def test_with_principle_template_refuses_what_it_cannot_render_as_stated(
+  template: str, principles: list[Principle]
+):
+  with pytest.raises(ValueError):
+    _ = with_principle_template(template, principles)
 
 
 def test_principles_sha256_of_one_principle_is_that_of_its_text():
@@ -418,7 +689,7 @@ def test_parse_legacy_maps_the_old_keys_to_the_format():
         tests=("f2p::test_same_checks",),
       ),
     ),
-    settings=("implicit", "explicit"),
+    learnable_in=("implicit", "explicit"),
     extra={
       "instruction": {"tone": "bug_report"},
       "provenance": {
@@ -485,17 +756,41 @@ def test_parse_legacy_without_groups_leaves_out_the_dataset_s_keys():
     (LEGACY, GROUPS | {"cwe": "instruction.settings"}, [], "metadata.cwe"),
     (LEGACY, GROUPS | {"cwe": "provenance.origin"}, [], "metadata.cwe"),
     ({"language": "C"}, GROUPS, ["f2p::t"], "metadata.alignment"),
+    (
+      {k: v for k, v in metadata().items() if k != "tests"},
+      None,
+      [],
+      "metadata.alignment",
+    ),
   ],
 )
 def test_parse_legacy_refuses_what_it_cannot_place(
   table: dict[str, object],
-  groups: dict[str, str],
+  groups: dict[str, str] | None,
   tests: list[str],
   path: str,
 ):
   with pytest.raises(MetadataError) as e:
     _ = parse_legacy(table, groups, tests)
   assert e.value.path == path
+
+
+@pytest.mark.parametrize("tests", [{}, {"tests": {}}])
+def test_the_format_and_the_one_before_tests_are_not_taken_for_each_other(
+  tests: dict[str, object],
+):
+  # `alignment` is a table in the one and a string in the other.
+  legacy: dict[str, object] = {
+    "language": "Python",
+    "test_kinds": {},
+    "alignment": SENTENCE,
+  }
+  with pytest.raises(MetadataError) as e:
+    _ = parse_metadata(legacy | tests)
+  assert e.value.path == "metadata.alignment"
+  with pytest.raises(MetadataError) as e:
+    _ = parse_legacy(metadata(), None)
+  assert e.value.path == "metadata.alignment"
 
 
 def test_toml_text_reads_back_and_keeps_keys_and_lines():

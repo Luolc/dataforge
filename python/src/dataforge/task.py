@@ -13,21 +13,24 @@ dataset shares and leaves the rest to the dataset:
   [metadata.tests.p2p]        pass); the dataset names the kinds, and p2p's
   project = <count>           `project` counts the project's own tests
 
-  [[metadata.principles]]     what the task asks of a change beyond the
-  id = "p1"                   description, one sentence each: `type` one of
-  text = "..."                TYPES and `source` where it comes from, both
-  type = "best_practice"      optional, and `tests` the tests that check it
-  source = "..."
+  [metadata.alignment]        only for a task with principles: the prompts
+  learnable_in = ["implicit"] (PROMPTS) the task is learnable in, its pass@k
+                              neither 0 nor k, implicit by default
+  [[metadata.alignment.principles]]
+  id = "p1"                   what the task asks of a change beyond the
+  text = "..."                description, one sentence each: `type` one of
+  type = "best_practice"      TYPES and `source` where it comes from, both
+  source = "..."              optional, and `tests` the tests that check it
   tests = ["..."]
 
-  [metadata.instruction]      `settings`, the solver settings the task is
-  settings = ["implicit"]     given out in (SETTINGS), and the dataset's keys
-
-  [metadata.<group>]          any other table: the dataset's, kept as read
+  [metadata.<group>]          any other table: the dataset's, kept as read,
+                              `instruction` among them
 
 Besides `id` and `language`, the top level of `[metadata]` holds only tables.
-A `[metadata]` with no `tests` table is of the format before this one, which
-`parse_legacy` reads.
+The format before `alignment` had the principles as `[[metadata.principles]]`
+and `learnable_in` as `[metadata.instruction] settings`, which parse_metadata
+reads too; a `[metadata]` with no `tests` table is of the format before that
+one, which `parse_legacy` reads.
 """
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -52,28 +55,38 @@ TYPES = ("best_practice", "trade_off")
 choice between two goods."""
 
 IMPLICIT, EXPLICIT = "implicit", "explicit"
-SETTINGS = (IMPLICIT, EXPLICIT)
-"""The solver settings: the principles kept from the solver, or stated to it
-at the head of `instruction.md` (`explicit_instruction`)."""
+PROMPTS = (IMPLICIT, EXPLICIT)
+"""The prompts a task is solved in: the principles kept from the solver, or
+stated to it at the head of `instruction.md` (`explicit_instruction`)."""
 
-GUIDELINE = "Guideline for your change: "
-"""What opens the explicit setting's `instruction.md` for one principle."""
+PRINCIPLE_HEAD = "General principle for you: "
+"""What opens the explicit prompt's `instruction.md` for one principle."""
 
-GUIDELINES = "Guidelines for your change:"
+PRINCIPLES_HEAD = "General principles for you:"
 """What opens it for several, each then on a line of its own after `- `."""
 
-GUIDELINE_RULE = "\n\n---\n\n"
+PRINCIPLE_RULE = "\n\n---\n\n"
 """What comes between the principles and the description."""
 
-_OWN = ("id", "language", "tests", "principles")
+_ALIGNMENT = "alignment"
+_LEARNABLE_IN = "learnable_in"
+_PRINCIPLES = "principles"
+_OWN = ("id", "language", "tests", _ALIGNMENT, _PRINCIPLES)
 _INSTRUCTION = "instruction"
+# Where the format before `alignment` kept `learnable_in`.
 _SETTINGS = "settings"
+# What `bytes.strip` drops around the description.
+_ASCII_SPACE = " \t\n\r\x0b\x0c"
+_INSTRUCTION_VARIABLE = "{{ instruction }}"
 _PRINCIPLE_KEYS = ("id", "text", "type", "source", "tests")
 _THEIRS = "is dataforge's, not the dataset's"
 _BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
 # What a multi-line basic string escapes: its quote, the backslash, and the
 # controls TOML refuses raw there.
 _MULTILINE_ESCAPED = re.compile(r'["\\\x00-\x08\x0b-\x1f\x7f]')
+# What a Jinja string literal escapes: its quote, the backslash, and the
+# controls.
+_JINJA_ESCAPED = re.compile(r'["\\\x00-\x1f\x7f]')
 
 
 class MetadataError(ValueError):
@@ -122,17 +135,18 @@ class Metadata:
     tests: For each suite of SUITES the task has, the count of its tests of
       each kind.
     principles: The task's principles, in the file's order.
-    settings: The solver settings the task is given out in, in the order of
-      SETTINGS.
+    learnable_in: The prompts the task is learnable in, its pass@k neither
+      0 nor k, in the order of PROMPTS; IMPLICIT alone for a task with no
+      principles.
     extra: The dataset's own tables, as read; `instruction` holds its keys
-      other than `settings`.
+      other than the `settings` of the format before `alignment`.
   """
 
   id: str | None
   language: str
   tests: Mapping[str, Mapping[str, int]]
   principles: tuple[Principle, ...] = ()
-  settings: tuple[str, ...] = (IMPLICIT,)
+  learnable_in: tuple[str, ...] = (IMPLICIT,)
   extra: Mapping[str, Mapping[str, object]] = field(
     default_factory=dict[str, Mapping[str, object]]
   )
@@ -148,11 +162,13 @@ def parse_metadata(table: Mapping[str, object]) -> Metadata:
     What it says.
 
   Raises:
-    MetadataError: It does not have the shape of this module's docstring,
-      or it states the explicit setting with no principle.
+    MetadataError: It does not have the shape of this module's docstring
+      or of the format before `alignment`, mixes the two, has an
+      `alignment` with no principle, or is learnable in the explicit prompt
+      with no principle.
   """
   for key, value in table.items():
-    if key not in ("id", "language", "principles") and not _is_table(value):
+    if key not in ("id", "language", _PRINCIPLES) and not _is_table(value):
       raise MetadataError(f"metadata.{key}", "is not a table")
   who = table.get("id")
   if who is not None and not isinstance(who, str):
@@ -162,13 +178,11 @@ def parse_metadata(table: Mapping[str, object]) -> Metadata:
     raise MetadataError("metadata.language", "is not a string")
   if "tests" not in table:
     raise MetadataError("metadata.tests", "is missing")
-  principles = _principles(table.get("principles", []))
   instruction = cast(Mapping[str, object], table.get(_INSTRUCTION, {}))
-  settings = _settings(instruction.get(_SETTINGS, [IMPLICIT]))
-  if EXPLICIT in settings and not principles:
-    raise MetadataError(
-      f"metadata.{_INSTRUCTION}.{_SETTINGS}", f"{EXPLICIT} with no principle"
-    )
+  if _ALIGNMENT in table:
+    principles, learnable_in = _alignment(table, instruction)
+  else:
+    principles, learnable_in = _before_alignment(table, instruction)
   extra = {
     k: cast(Mapping[str, object], copy.deepcopy(v))
     for k, v in table.items()
@@ -182,7 +196,7 @@ def parse_metadata(table: Mapping[str, object]) -> Metadata:
     language=language,
     tests=_tests(table["tests"]),
     principles=principles,
-    settings=settings,
+    learnable_in=learnable_in,
     extra=extra,
   )
 
@@ -210,14 +224,14 @@ def parse_legacy(
     What it says: `test_kinds` as the suite f2p, with p2p left out as not
     known; `alignment` as the principle `p1`, of the type `difference`
     names when it is one of TYPES, with no source and `principle_tests`;
-    `settings` as `instruction.settings`; each key of `groups` at its path.
+    `settings` as `learnable_in`; each key of `groups` at its path.
     `difference` and `tags` are left out.
 
   Raises:
     MetadataError: A key is neither the format's nor in `groups`, a path of
       `groups` is not a key of a group of the dataset's, two keys go to one
-      path, `principle_tests` are given with no `alignment`, or what comes
-      out fails `parse_metadata`.
+      path, `alignment` is not a string, `principle_tests` are given with no
+      `alignment`, or what comes out fails `parse_metadata`.
   """
   new: dict[str, object] = {"tests": {}}
   for key, value in table.items():
@@ -238,7 +252,7 @@ def parse_legacy(
         raise MetadataError(f"metadata.{key}", "has no group to go to")
   alignment = table.get("alignment")
   if alignment is not None:
-    new["principles"] = [_legacy_principle(table, alignment, principle_tests)]
+    new[_PRINCIPLES] = [_legacy_principle(table, alignment, principle_tests)]
   elif principle_tests:
     raise MetadataError("metadata.alignment", "is missing, but tests check it")
   return parse_metadata(new)
@@ -254,27 +268,33 @@ def metadata_table(meta: Metadata) -> dict[str, object]:
     meta: The metadata.
 
   Returns:
-    The table: `settings` always, `principles` only when there are some.
+    The table, of the format of this module's docstring: `alignment` only
+    when there are principles, and `instruction` only when the dataset has
+    keys in it.
 
   Raises:
-    MetadataError: `extra` holds one of dataforge's keys, or the table
+    MetadataError: `extra` holds one of dataforge's keys, a task with no
+      principles is learnable in other than IMPLICIT alone, or the table
       fails `parse_metadata`.
   """
   for key in meta.extra:
     if key in _OWN:
       raise MetadataError(f"metadata.{key}", _THEIRS)
-  given = dict(meta.extra.get(_INSTRUCTION, {}))
-  if _SETTINGS in given:
+  if _SETTINGS in meta.extra.get(_INSTRUCTION, {}):
     raise MetadataError(f"metadata.{_INSTRUCTION}.{_SETTINGS}", _THEIRS)
+  if not meta.principles and meta.learnable_in != (IMPLICIT,):
+    raise MetadataError(
+      f"metadata.{_ALIGNMENT}.{_LEARNABLE_IN}",
+      f"is not {IMPLICIT} alone, with no principle",
+    )
   table: dict[str, object] = {} if meta.id is None else {"id": meta.id}
   table["language"] = meta.language
   suites = [s for s in SUITES if s in meta.tests]
   suites += sorted(set(meta.tests) - set(SUITES))
   table["tests"] = {s: _sorted(meta.tests[s]) for s in suites}
   if meta.principles:
-    table["principles"] = [_principle_table(p) for p in meta.principles]
-  table[_INSTRUCTION] = {_SETTINGS: list(meta.settings)} | _sorted(given)
-  for key in sorted(set(meta.extra) - {_INSTRUCTION}):
+    table[_ALIGNMENT] = _alignment_table(meta)
+  for key in sorted(meta.extra):
     table[key] = _sorted(meta.extra[key])
   _ = parse_metadata(table)
   return table
@@ -300,16 +320,19 @@ def metadata_toml(meta: Metadata) -> str:
 def public_toml(text: str, allow: Iterable[str]) -> str:
   """Return a task's task.toml with only the metadata it may give out.
 
-  `[metadata]` keeps only what the allow-list names, so that a key added
-  later stays inside unless the allow-list names it too; every other value
-  reads the same. The file is written anew, without comments.
+  `[metadata]` is first put in the format of this module's docstring, a
+  file of the format before `alignment` with its principles and
+  `learnable_in` moved to `alignment` where its `principles` were, and
+  keeps only what the allow-list names, so that a key added later stays
+  inside unless the allow-list names it too; every other value reads the
+  same. The file is written anew, without comments.
 
   Args:
     text: The task's task.toml.
     allow: Dotted paths of keys in `[metadata]`, as `tests` or `tests.f2p`;
       a path keeps the whole value under it. An array of tables, as
-      `principles`, is kept whole or not at all, and a path the file does
-      not have keeps nothing.
+      `alignment.principles`, is kept whole or not at all, and a path the
+      file does not have keeps nothing.
 
   Returns:
     The file's text.
@@ -325,41 +348,74 @@ def public_toml(text: str, allow: Iterable[str]) -> str:
   meta = cast(object, doc["metadata"])
   if not _is_table(meta):
     raise MetadataError("metadata", "is not a table")
-  _ = parse_metadata(meta)
+  aligned = _aligned(meta, parse_metadata(meta))
   paths = [_dotted(p) for p in allow]
-  return toml_text(doc | {"metadata": _kept(meta, paths)})
+  return toml_text(doc | {"metadata": _kept(aligned, paths)})
 
 
 def explicit_instruction(
   description: bytes, principles: Sequence[Principle]
 ) -> bytes:
-  """Return a task's `instruction.md` in the explicit setting.
+  """Return a task's `instruction.md` in the explicit prompt.
 
-  Every principle is stated, in the order of their IDs: the setting gives
+  Every principle is stated, in the order of their IDs: the prompt gives
   the set whole, never part of it.
 
   Args:
-    description: The task's `instruction.md` as the implicit setting has
+    description: The task's `instruction.md` as the implicit prompt has
       it, the description alone.
     principles: The task's principles.
 
   Returns:
-    For one principle, GUIDELINE and the principle; for several,
-    GUIDELINES and a line `- <principle>` for each. Then GUIDELINE_RULE,
-    the description without the whitespace around it and a line end.
+    For one principle, PRINCIPLE_HEAD and the principle; for several,
+    PRINCIPLES_HEAD and a line `- <principle>` for each. Then
+    PRINCIPLE_RULE, the description without the whitespace around it and
+    a line end.
 
   Raises:
     ValueError: There is no principle, two share an ID, or one is not one
       line.
+  """  # noqa: DOC502
+  head = f"{_head(principles)}{PRINCIPLE_RULE}"
+  return head.encode() + description.strip() + b"\n"
+
+
+def with_principle_template(
+  template: str, principles: Sequence[Principle]
+) -> str:
+  """Return a prompt template that states a task's principles.
+
+  Harbor renders an agent's prompt template, a Jinja template in a sandbox
+  with StrictUndefined whose one variable is `instruction`, the task's
+  `instruction.md` as Harbor reads it. Given the description's
+  `instruction.md`, the template returned renders what `template` renders
+  given `explicit_instruction` of it, byte for byte, whatever the
+  principles hold, `{{`, `{%` and `{#` among them; unless the description
+  begins with a line that Harbor drops and `bytes.strip` keeps, a canary's
+  or one blank only by Unicode's whitespace, such as U+00A0.
+
+  Args:
+    template: The text of the prompt template the description is given in,
+      which holds `{{ instruction }}` once and names `instruction` nowhere
+      else.
+    principles: The task's principles.
+
+  Returns:
+    `template` with its `{{ instruction }}` replaced by the head of
+    `explicit_instruction` and PRINCIPLE_RULE, as a Jinja string, then the
+    instruction without the whitespace `bytes.strip` drops around it and a
+    line end.
+
+  Raises:
+    ValueError: The template does not hold `{{ instruction }}` once, there
+      is no principle, two share an ID, or one is not one line.
   """
-  texts = _texts(principles)
-  if not texts:
-    raise ValueError("no principle to state")
-  if len(texts) == 1:
-    head = f"{GUIDELINE}{texts[0]}"
-  else:
-    head = "\n- ".join((GUIDELINES, *texts))
-  return f"{head}{GUIDELINE_RULE}".encode() + description.strip() + b"\n"
+  if template.count(_INSTRUCTION_VARIABLE) != 1:
+    raise ValueError(f"the template does not hold {_INSTRUCTION_VARIABLE} once")
+  head = _jinja_string(f"{_head(principles)}{PRINCIPLE_RULE}")
+  space, end = _jinja_string(_ASCII_SPACE), _jinja_string("\n")
+  stated = f"{{{{ {head} }}}}{{{{ instruction | trim({space}) ~ {end} }}}}"
+  return template.replace(_INSTRUCTION_VARIABLE, stated)
 
 
 def principles_sha256(principles: Sequence[Principle]) -> str | None:
@@ -422,12 +478,51 @@ def _tests(value: object) -> dict[str, dict[str, int]]:
   return found
 
 
-def _principles(value: object) -> tuple[Principle, ...]:
+def _alignment(
+  table: Mapping[str, object], instruction: Mapping[str, object]
+) -> tuple[tuple[Principle, ...], tuple[str, ...]]:
+  # The principles and learnable_in of [metadata.alignment], beside which
+  # the format before it may not be.
+  at = f"metadata.{_ALIGNMENT}"
+  if _PRINCIPLES in table:
+    raise MetadataError(f"metadata.{_PRINCIPLES}", f"is beside {at}")
+  if _SETTINGS in instruction:
+    raise MetadataError(
+      f"metadata.{_INSTRUCTION}.{_SETTINGS}", f"is beside {at}"
+    )
+  alignment = cast(Mapping[str, object], table[_ALIGNMENT])
+  for key in alignment:
+    if key not in (_LEARNABLE_IN, _PRINCIPLES):
+      raise MetadataError(f"{at}.{key}", "is not a key of alignment")
+  principles = _principles(
+    alignment.get(_PRINCIPLES, []), f"{at}.{_PRINCIPLES}"
+  )
+  if not principles:
+    raise MetadataError(f"{at}.{_PRINCIPLES}", "is missing or empty")
+  learnable = alignment.get(_LEARNABLE_IN, [IMPLICIT])
+  return principles, _learnable_in(learnable, f"{at}.{_LEARNABLE_IN}")
+
+
+def _before_alignment(
+  table: Mapping[str, object], instruction: Mapping[str, object]
+) -> tuple[tuple[Principle, ...], tuple[str, ...]]:
+  # The principles and learnable_in of the format before `alignment`.
+  principles = _principles(
+    table.get(_PRINCIPLES, []), f"metadata.{_PRINCIPLES}"
+  )
+  at = f"metadata.{_INSTRUCTION}.{_SETTINGS}"
+  learnable_in = _learnable_in(instruction.get(_SETTINGS, [IMPLICIT]), at)
+  if EXPLICIT in learnable_in and not principles:
+    raise MetadataError(at, f"{EXPLICIT} with no principle")
+  return principles, learnable_in
+
+
+def _principles(value: object, path: str) -> tuple[Principle, ...]:
   if not _tables(value) and value != []:
-    raise MetadataError("metadata.principles", "is not an array of tables")
+    raise MetadataError(path, "is not an array of tables")
   found: list[Principle] = []
   for i, each in enumerate(cast(list[dict[str, object]], value)):
-    at = f"metadata.principles[{i}]"
+    at = f"{path}[{i}]"
     for key in each:
       if key not in _PRINCIPLE_KEYS:
         raise MetadataError(f"{at}.{key}", "is not a key of a principle")
@@ -464,28 +559,55 @@ def _principle(table: Mapping[str, object], at: str) -> Principle:
   )
 
 
-def _settings(value: object) -> tuple[str, ...]:
+def _learnable_in(value: object, path: str) -> tuple[str, ...]:
   if (
     not _strings(value)
     or not value
-    or not all(s in SETTINGS for s in value)
+    or not all(s in PROMPTS for s in value)
     or len(set(value)) != len(value)
   ):
     raise MetadataError(
-      f"metadata.{_INSTRUCTION}.{_SETTINGS}",
-      f"is not a list of {', '.join(SETTINGS)} without repeats",
+      path, f"is not a list of {', '.join(PROMPTS)} without repeats"
     )
-  return tuple(s for s in SETTINGS if s in value)
+  return tuple(s for s in PROMPTS if s in value)
 
 
 def _legacy_principle(
   table: Mapping[str, object], alignment: object, tests: Sequence[str]
 ) -> dict[str, object]:
+  # A table here is the `alignment` of a [metadata] of the format, whose
+  # `tests` tells it apart.
+  if not isinstance(alignment, str):
+    raise MetadataError("metadata.alignment", "is not a string")
   principle: dict[str, object] = {"id": "p1", "text": alignment}
   if table.get("difference") in TYPES:
     principle["type"] = table["difference"]
   principle["tests"] = list(tests)
   return principle
+
+
+def _alignment_table(meta: Metadata) -> dict[str, object]:
+  return {
+    _LEARNABLE_IN: list(meta.learnable_in),
+    _PRINCIPLES: [_principle_table(p) for p in meta.principles],
+  }
+
+
+def _aligned(table: Mapping[str, object], meta: Metadata) -> dict[str, object]:
+  # The [metadata] in the format of `alignment`, in its order: `alignment`
+  # where `principles` or `alignment` was, `instruction` without the
+  # `settings` of the format before.
+  aligned: dict[str, object] = {}
+  for key, value in table.items():
+    if key in (_PRINCIPLES, _ALIGNMENT):
+      if meta.principles:
+        aligned[_ALIGNMENT] = _alignment_table(meta)
+    elif key == _INSTRUCTION and _is_table(value) and _SETTINGS in value:
+      if own := {k: v for k, v in value.items() if k != _SETTINGS}:
+        aligned[key] = own
+    else:
+      aligned[key] = value
+  return aligned
 
 
 def _principle_table(p: Principle) -> dict[str, object]:
@@ -496,6 +618,28 @@ def _principle_table(p: Principle) -> dict[str, object]:
     table["source"] = p.source
   table["tests"] = list(p.tests)
   return table
+
+
+def _head(principles: Sequence[Principle]) -> str:
+  texts = _texts(principles)
+  if not texts:
+    raise ValueError("no principle to state")
+  if len(texts) == 1:
+    return f"{PRINCIPLE_HEAD}{texts[0]}"
+  return "\n- ".join((PRINCIPLES_HEAD, *texts))
+
+
+def _jinja_string(text: str) -> str:
+  # A Jinja string literal that renders as the text: Jinja reads its
+  # backslash escapes as Python does, and a control is escaped so that no
+  # reader of the template's lines turns a `\r` into a line end.
+  def escape(m: re.Match[str]) -> str:
+    c = m[0]
+    if c == "\n":
+      return "\\n"
+    return "\\" + c if c in '"\\' else f"\\x{ord(c):02x}"
+
+  return f'"{_JINJA_ESCAPED.sub(escape, text)}"'
 
 
 def _texts(principles: Sequence[Principle]) -> list[str]:
