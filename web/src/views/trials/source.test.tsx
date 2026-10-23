@@ -22,17 +22,20 @@ const project: Project = {
   ],
   trials: { diff: "verifier/patch.diff", tests: null },
 };
+// What the record route serves; a test may point a trial at another source.
+let record: unknown = regrade;
 const files: Record<string, string> = {
   "artifacts/solve/1/trial-1/trace.jsonl": solved,
 };
 
 beforeEach(() => {
+  record = regrade;
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string) => {
       const url = new URL(input, "http://viz");
       if (url.pathname.endsWith("/record"))
-        return Promise.resolve(Response.json(regrade));
+        return Promise.resolve(Response.json(record));
       const path = url.searchParams.get("path") ?? "";
       const file = files[path];
       return Promise.resolve(
@@ -112,7 +115,7 @@ describe("a trial that judged another trial's output again", () => {
     expect(within(trace).getByText(NO_TRACE)).toBeVisible();
     const link = within(trace).getByRole("link", { name: "Pass@k · Trial 1" });
     expect(trace).toHaveTextContent(
-      "It judged again the output of Pass@k · Trial 1, whose trace is there.",
+      "It judged again the output of Pass@k · Trial 1, whose trace is shown below.",
     );
 
     fireEvent.click(link);
@@ -124,12 +127,63 @@ describe("a trial that judged another trial's output again", () => {
     expect(await screen.findByText("Expand all")).toBeVisible();
   });
 
+  it("shows the trace of the trial it judged under its words", async () => {
+    show("&tab=trials&deliverable=regrade&trial=regrade-1");
+
+    const trace = await screen.findByRole("tabpanel", { name: "Trace" });
+    expect(await within(trace).findByText("Expand all")).toBeVisible();
+    // The link, and the name at the head of the trace.
+    expect(within(trace).getAllByText("Pass@k · Trial 1")).toHaveLength(2);
+    // The words come first, the trace after them.
+    const words = within(trace).getByText(/whose trace is shown below/);
+    const bar = within(trace).getByText("Expand all");
+    expect(
+      words.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("says why the trace of the trial it judged is not shown when its file is not there", async () => {
+    show("&tab=trials&deliverable=regrade&trial=regrade-2");
+
+    const trace = await screen.findByRole("tabpanel", { name: "Trace" });
+    expect(await within(trace).findByText(/^The trace/)).toHaveTextContent(
+      "artifacts/solve/1/trial-2/trace.jsonl",
+    );
+    // The words above do not say the trace is shown when it is not.
+    expect(trace).not.toHaveTextContent("shown below");
+    expect(trace).toHaveTextContent(
+      "whose trace could not be read: 404: artifacts/solve/1/trial-2/trace.jsonl does not exist",
+    );
+    expect(
+      within(trace).getByRole("link", { name: "Pass@k · Trial 2" }),
+    ).toBeVisible();
+    expect(within(trace).queryByText("Expand all")).toBeNull();
+  });
+
+  it("says when the trial it judged recorded no trace either", async () => {
+    const pointed = structuredClone(regrade);
+    const trials = pointed.deliverables.find(
+      (d) => d.name === "regrade",
+    )?.trials;
+    const first = trials?.[0];
+    if (first === undefined) throw new Error("fixture changed");
+    first.source = "artifacts/solve/1/trial-3";
+    record = pointed;
+    show("&tab=trials&deliverable=regrade&trial=regrade-1");
+
+    const trace = await screen.findByRole("tabpanel", { name: "Trace" });
+    expect(trace).toHaveTextContent(
+      "It judged again the output of Pass@k · Trial 3, which recorded no trace either.",
+    );
+    expect(within(trace).queryByText("Expand all")).toBeNull();
+  });
+
   it("names the path of a trial it judged that no deliverable lists", async () => {
     show("&tab=trials&deliverable=regrade&trial=regrade-3");
 
     const trace = await screen.findByRole("tabpanel", { name: "Trace" });
     expect(trace).toHaveTextContent(
-      "It judged again the output of artifacts/solve/0/trial-9 (listed by no deliverable).",
+      "It judged again the output of artifacts/solve/0/trial-9 (listed by no deliverable), so its trace is not known.",
     );
     expect(within(trace).queryByRole("link")).toBeNull();
     expect(field("Source trial")).toHaveTextContent(

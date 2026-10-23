@@ -136,7 +136,7 @@ describe("a trial's verdict", () => {
     show("&tab=trials&deliverable=regrade");
 
     await screen.findByRole("button", { name: "Regrade" });
-    expect(screen.queryByText(/could not be read/)).toBeNull();
+    expect(screen.queryByText(/verdicts could not be read/)).toBeNull();
   });
 
   it("says beside it that the trial also ended on an exception", async () => {
