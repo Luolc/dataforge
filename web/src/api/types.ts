@@ -46,6 +46,10 @@ export const project = z.looseObject({
       labels: LABELS,
       // What the column holds, shown on its heading.
       description: z.string().nullable().optional(),
+      // What a value stands for, shown on its cell.
+      hints: LABELS,
+      // What a cell with no value stands for, shown on it.
+      none: z.string().nullable().optional(),
       // The values its cases may give, in their order; empty for a column
       // with a field.
       cases: z.array(z.string()).optional(),

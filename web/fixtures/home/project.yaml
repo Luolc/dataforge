@@ -28,7 +28,14 @@ columns:
   - { title: Round, field: [round], format: number }
   - { title: Kept visit, field: [kept_visit], format: number }
   - { title: Cost, field: [budget, cost_usd], format: usd }
-  - { title: Verdict, tab: notes, file: tags.json, field: [verdict, value] }
+  # A value's hint, and what a cell with no value stands for.
+  - title: Verdict
+    tab: notes
+    file: tags.json
+    field: [verdict, value]
+    labels: { sound: Sound }
+    hints: { sound: The notes found the task sound. }
+    none: No notes were written for this attempt, or they gave no verdict.
   # A column of cases, which the page filters by: how a passed attempt got
   # there, by its round; empty for one that did not pass.
   - title: Path

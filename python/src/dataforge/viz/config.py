@@ -139,6 +139,10 @@ class Column:
       format text alone.
     description: What the column holds, for a person, shown on its
       heading; None for none.
+    hints: What a value that is a key of it stands for, a sentence for a
+      person shown on its cell, of format text alone.
+    none: What a cell with no value stands for, a sentence for a person
+      shown on it in place of the viewer's own words; None for none.
     cases: In place of field, the value of the first of them whose
       conditions all hold of the record, else none; empty for a column
       with field.
@@ -152,6 +156,8 @@ class Column:
   tab: str | None = None
   labels: Mapping[str, str] = NO_LABELS
   description: str | None = None
+  hints: Mapping[str, str] = NO_LABELS
+  none: str | None = None
   cases: tuple[Case, ...] = ()
   filter: bool = False
 
@@ -531,6 +537,8 @@ class Project:
           "format": c.format,
           "labels": dict(c.labels),
           "description": c.description,
+          "hints": dict(c.hints),
+          "none": c.none,
           "cases": [case.value for case in c.cases],
           "filter": c.filter,
         }
@@ -954,6 +962,8 @@ def _columns(
         "tab",
         "labels",
         "description",
+        "hints",
+        "none",
         "filter",
       },
     )
@@ -983,9 +993,9 @@ def _columns(
         file,
         tab,
         _labels(path, where, entry, format_),
-        None
-        if "description" not in entry
-        else _str(path, f"{where}.description", entry["description"]),
+        _optional_str(path, where, entry, "description"),
+        _labels(path, where, entry, format_, "hints"),
+        _optional_str(path, where, entry, "none"),
         cases,
         filter_,
       )
@@ -1051,6 +1061,12 @@ def _condition(path: Path, where: str, value: object) -> Condition:
   return Condition(field, given=given)
 
 
+def _optional_str(
+  path: Path, where: str, entry: Mapping[str, object], key: str
+) -> str | None:
+  return None if key not in entry else _str(path, f"{where}.{key}", entry[key])
+
+
 def _field_keys(path: Path, where: str, value: object) -> tuple[str, ...]:
   if not isinstance(value, list) or not value:
     raise ConfigError(f"{path}: {where}.field: not a non-empty list")
@@ -1060,20 +1076,24 @@ def _field_keys(path: Path, where: str, value: object) -> tuple[str, ...]:
 
 
 def _labels(
-  path: Path, where: str, entry: Mapping[str, object], format_: str
+  path: Path,
+  where: str,
+  entry: Mapping[str, object],
+  format_: str,
+  key: str = "labels",
 ) -> Mapping[str, str]:
-  # A value's label: the value as a string, or a boolean's or a number's JSON
-  # text, mapped to the words a page shows for it.
-  if "labels" not in entry:
+  # A value's label, or its hint: the value as a string, or a boolean's or a
+  # number's JSON text, mapped to the words a page shows for it.
+  if key not in entry:
     return NO_LABELS
   if format_ != "text":
-    raise ConfigError(f"{path}: {where}.labels: only with format text")
-  labels = _mapping(path, f"{where}.labels", entry["labels"])
+    raise ConfigError(f"{path}: {where}.{key}: only with format text")
+  labels = _mapping(path, f"{where}.{key}", entry[key])
   if not labels:
-    raise ConfigError(f"{path}: {where}.labels: not a non-empty mapping")
+    raise ConfigError(f"{path}: {where}.{key}: not a non-empty mapping")
   return MappingProxyType(
     {
-      value: _str(path, f"{where}.labels.{value}", label)
+      value: _str(path, f"{where}.{key}.{value}", label)
       for value, label in labels.items()
     }
   )
