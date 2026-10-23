@@ -4,10 +4,12 @@ With runs, a project's attempts have their rows in the store of
 dataforge.runs, and an attempt's status, reason, cost and whether it runs
 come from its row, not from its record file or a lock. The store is opened
 with SQLite's read-only URI and never written. A holder that is gone leaves
-its row running until a reconcile moves it; the viewer only says so.
+its row running until a reconcile moves it; the viewer only says so. A row a
+person stopped has ended for the viewer, though the store keeps it
+interrupted and it may go on.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import sqlite3
 
 from dataforge.queue.proc import alive
@@ -37,10 +39,13 @@ class Found:
   Attributes:
     rows: The rows read, the oldest first; none when error is set.
     error: Why the store was not read, for every attempt; None when it was.
+    stopped_at: For each row a person stopped, by ID, when the store last
+      made it interrupted: the at of its newest event into interrupted.
   """
 
   rows: list[AttemptRow]
   error: str | None = None
+  stopped_at: dict[str, str] = field(default_factory=dict[str, str])
 
 
 def read(runs: Runs, item: str | None = None) -> Found:
@@ -67,7 +72,15 @@ def read(runs: Runs, item: str | None = None) -> Found:
         f"the store's schema_major {major} is newer than this viewer's"
         + f" {SCHEMA_MAJOR}",
       )
-    return Found(store.rows(item=item))
+    rows = store.rows(item=item)
+    return Found(
+      rows,
+      stopped_at={
+        row.id: at
+        for row in rows
+        if (at := _stopped_at(store, row)) is not None
+      },
+    )
   except (sqlite3.Error, OSError, KeyError, ValueError) as error:
     return Found([], f"the store cannot be read: {error}")
 
@@ -88,6 +101,35 @@ def status(runs: Runs, row: AttemptRow) -> str | None:
   if row.state == "interrupted":
     return runs.stopped_by.get(row.stopped_by or "", INTERRUPTED)
   return None
+
+
+def has_ended(row: AttemptRow) -> bool:
+  """Say whether a row has ended for the viewer.
+
+  Args:
+    row: The row.
+
+  Returns:
+    True for an ended row, and for an interrupted one a person stopped.
+  """
+  return row.state == "ended" or (
+    row.state == "interrupted" and row.stopped_by == "person"
+  )
+
+
+def _stopped_at(store: Store, row: AttemptRow) -> str | None:
+  # When the store last made a row a person stopped interrupted; None for
+  # any other row, or one with no such event.
+  if row.state != "interrupted" or row.stopped_by != "person":
+    return None
+  return next(
+    (
+      e.at
+      for e in reversed(store.events(row.id))
+      if e.to_state == "interrupted"
+    ),
+    None,
+  )
 
 
 def holder_gone(row: AttemptRow) -> bool:
@@ -133,9 +175,10 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
 
   An attempt with a row takes its status, reason, cost_usd, cost_from, live,
   holder, state, note and progress_at from it, holder true for a running row
-  whose holder is alive, whatever its record file holds; one with
-  none keeps what its record file gave and says so in its error, as does
-  every attempt when the store is not read.
+  whose holder is alive, live None for a row that has ended (has_ended), and
+  for a row a person stopped its ended_at too, from stopped_at, whatever its
+  record file holds; one with none keeps what its record file gave and says
+  so in its error, as does every attempt when the store is not read.
 
   Args:
     project: The project, with runs.
@@ -160,7 +203,7 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
       cost_usd=row.cost_usd,
       cost_from=None if row.cost_usd is None else "store",
       live=None
-      if row.state == "ended"
+      if has_ended(row)
       else live.MAY_HAVE_STOPPED
       if row.state == "interrupted" or gone
       else live.RUNNING,
@@ -169,6 +212,8 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
       note=note(row, gone),
       progress_at=row.progress_at,
     )
+    if row.id in found.stopped_at:
+      listed["ended_at"] = found.stopped_at[row.id]
 
 
 def unavailable(
