@@ -52,7 +52,7 @@ function TrialStatus({
 }: {
   project: Project;
   trial: Trial;
-  /** Whether its deliverable gives its trials' verdicts. */
+  /** Whether its deliverable gives its trials' verdicts, and they were read. */
   judged: boolean;
   live: LiveInfo | null | undefined;
   reward?: boolean;
@@ -135,7 +135,10 @@ export default function TrialsView({
       ? String(value.value)
       : "—";
   const entry = declared(project, deliverable.name);
-  const judged = deliverable.verdicts != null;
+  // Verdicts that could not be read at all leave the trials judged by their
+  // reward, as a deliverable that gives none does.
+  const unreadVerdicts = deliverable.verdicts?.reason ?? null;
+  const judged = deliverable.verdicts != null && unreadVerdicts === null;
   return (
     // The list goes above the trial where the two do not fit side by side.
     <div className="@container">
@@ -159,6 +162,12 @@ export default function TrialsView({
             {/* A visit that has not ended has no value to read yet. */}
             {value?.reason != null && visit?.outcome !== null && (
               <Unread reason={value.reason} />
+            )}
+            {unreadVerdicts !== null && (
+              <p className="text-xs break-words text-fg-3">
+                The trials' verdicts could not be read, so each shows its
+                reward: {unreadVerdicts}
+              </p>
             )}
             {visit !== undefined && (
               <p className="flex items-center gap-2 text-xs text-fg-3">
