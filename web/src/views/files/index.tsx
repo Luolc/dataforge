@@ -8,6 +8,7 @@ import { useLocation, useSearchParams } from "react-router";
 import { useFileSource, useLoaded } from "../../api/client";
 import type { Deliverable } from "../../api/types";
 import { Card, Note } from "../../ui/card";
+import { Split } from "../../ui/split";
 import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
@@ -69,6 +70,9 @@ export function FilesCard({
   );
 }
 
+/** Where the file tree's width a reader sets is kept in localStorage. */
+export const WIDTH_KEY = "viz.treeWidth";
+
 /** A file tree of root and the preview of the file chosen in it. */
 export function Files({
   project,
@@ -108,18 +112,23 @@ export function Files({
         : opened;
   const selected = shown.state === "ok" ? shown.data : null;
   return (
-    <div className="grid grid-cols-[minmax(calc(var(--spacing)*48),calc(var(--spacing)*64))_minmax(0,1fr)]">
-      <div className="border-r border-line bg-tree">
-        {/* The tree opens the folders above the file first shown. */}
-        {(chosen !== null || first.state !== "loading") && (
+    <Split
+      name="tree"
+      storageKey={WIDTH_KEY}
+      label="Resize the file tree"
+      sideClass="border-r border-line bg-tree"
+      side={
+        // The tree opens the folders above the file first shown.
+        (chosen !== null || first.state !== "loading") && (
           <Tree
             project={project}
             attempt={attempt}
             root={root}
             selected={selected ?? chosen}
           />
-        )}
-      </div>
+        )
+      }
+    >
       {selected !== null ? (
         <Preview
           key={selected}
@@ -135,6 +144,6 @@ export function Files({
       ) : (
         <Note>No file to show.</Note>
       )}
-    </div>
+    </Split>
   );
 }
