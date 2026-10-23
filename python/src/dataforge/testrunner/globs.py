@@ -4,7 +4,7 @@ A glob is a path relative to the project's root, `/`-separated. `*`, `?` and
 `[...]` match within one component, never across a `/`, and `*` matches a
 leading `.` too; a component that is `**` matches any number of components,
 none among them. So `spec/**` matches `spec` and everything under it, and
-`**/conftest.py` a conftest.py anywhere. A glob never names a `.git`, so
+`**/notes.txt` a notes.txt anywhere. A glob never names a `.git`, so
 that a manifest's globs never delete the project's own repository.
 """
 

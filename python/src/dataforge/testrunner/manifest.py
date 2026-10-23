@@ -34,24 +34,13 @@ import re
 import tomllib
 from typing import cast
 
-from . import globs
+from .globs import valid
+from .registry import MODULES
 
 NAME = "manifest.toml"
 """The manifest's name in a task's tests/."""
 
-RUNNERS = (
-  "pytest",
-  "jest",
-  "vitest",
-  "jasmine",
-  "node",
-  "go",
-  "cargo",
-  "ctest",
-  "gtest",
-  "maven",
-  "phpunit",
-)
+RUNNERS = tuple(MODULES)
 """The runners a test may name."""
 
 SUITE = re.compile(r"[a-z][a-z0-9_]*")
@@ -182,13 +171,20 @@ class Manifest:
   def runners(self) -> frozenset[str]:
     """The runners its tests and its run groups' presets name.
 
-    A run group with a command of its own names none: it needs only the
-    package's common files (bundle.COMMON).
+    A run group with a command of its own names none.
     """
     return frozenset(
       {t.runner for t in self.tests if t.runner}
       | {r.preset for r in self.runs if r.preset}
     )
+
+  @property
+  def formats(self) -> frozenset[str]:
+    """The formats of FORMATS its run groups' parse names.
+
+    A parse argv names none, nor does a preset.
+    """
+    return frozenset(r.parse for r in self.runs if isinstance(r.parse, str))
 
 
 def read(
@@ -419,7 +415,7 @@ def _globs(value: object, where: str, problems: list[str]) -> tuple[str, ...]:
     return ()
   found: list[str] = []
   for item in items:
-    glob = globs.valid(item)
+    glob = valid(item)
     if glob is None:
       problems.append(f"{where}: {item!r} is not a glob inside the project")
     else:

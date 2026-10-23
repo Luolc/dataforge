@@ -18,20 +18,12 @@ from pathlib import Path
 from typing import cast, final, override
 import xml.etree.ElementTree as ET
 
-from . import junit
-from .adapter import (
-  Call,
-  Context,
-  find_bin,
-  JS_SEP,
-  PREFIX,
-  rel,
-  Runner,
-  upward,
-  write_new,
-)
+from .adapter import Call, Context, PREFIX, rel, Runner, Spec, upward, write_new
 from .ctrf import Case
 from .manifest import Test
+
+JS_SEP = " > "
+"""What joins a test's file and titles in its ID."""
 
 JASMINE_REPORTER = Path(__file__).parent / "jasmine_reporter.cjs"
 """The Jasmine reporter that writes a run's outcomes as JSON."""
@@ -83,6 +75,27 @@ def files_of(ctx: Context, tests: list[Test]) -> list[str]:
     if path.is_file() and arg not in found:
       found.append(arg)
   return found
+
+
+def find_bin(ctx: Context, name: str) -> str:
+  """Return the project's own copy of a Node.js tool, or its bare name.
+
+  Args:
+    ctx: Where the runner runs.
+    name: The tool, such as jest.
+
+  Returns:
+    The first node_modules/.bin/<name> from the directory up to the
+    project's root, where a workspace may have hoisted it; else name, for
+    the PATH to resolve.
+  """
+  for here in (ctx.dir, *ctx.dir.parents):
+    found = here / "node_modules" / ".bin" / name
+    if found.is_file():
+      return str(found)
+    if here == ctx.app:
+      break
+  return name
 
 
 def _json(path: Path) -> dict[str, object] | None:
@@ -392,6 +405,10 @@ class Node(Runner):
 
   @override
   def cases(self, ctx: Context) -> list[Case] | None:
+    # Imported here: only node reads JUnit XML, and a task's copy has
+    # junit.py only for a runner that needs it (bundle.files).
+    from . import junit
+
     cases: list[Case] = []
     reported = False
     for file, path in self._files:
@@ -436,3 +453,30 @@ def _walk(
       yield from _walk(child, [*titles, name])
     elif child.tag == "testcase":
       yield [*titles, name], child
+
+
+SPECS = {
+  "jest": Spec(
+    Jest,
+    runner_files=("jest.config.*", "babel.config.*", ".babelrc", ".babelrc.*"),
+    id_sep=JS_SEP,
+  ),
+  "vitest": Spec(
+    Vitest,
+    runner_files=("vitest.config.*", "vitest.workspace.*"),
+    id_sep=JS_SEP,
+  ),
+  "jasmine": Spec(
+    Jasmine,
+    runner_files=(
+      "spec/support/jasmine.json",
+      "spec/support/jasmine.js",
+      "spec/support/jasmine.mjs",
+    ),
+    id_sep=JS_SEP,
+    files=("jasmine_reporter.cjs",),
+  ),
+  "node": Spec(Node, id_sep=JS_SEP, files=("junit.py",)),
+}
+"""The Spec of each Node.js runner; jest's runner_files include Babel's
+configuration, which jest's default transform reads by itself."""

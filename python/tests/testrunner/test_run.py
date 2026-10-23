@@ -10,10 +10,10 @@ import pytest
 from dataforge.testrunner import ctrf, files
 from dataforge.testrunner.adapter import Call, Context, PREFIX, Runner
 from dataforge.testrunner.ctrf import Case
-from dataforge.testrunner.manifest import File, load, RUNNERS
+from dataforge.testrunner.manifest import File, FORMATS, load, RUNNERS
 from dataforge.testrunner.manifest import Test as Listed
+from dataforge.testrunner.python import Pytest
 from dataforge.testrunner.run import match, place, run, run_group
-from dataforge.testrunner.runners import Pytest
 from tests.testrunner.projects import commit, context, write
 
 BASE = {
@@ -240,13 +240,15 @@ def test_files_are_the_package_and_run_on_python_3_12(tmp_path: Path):
   python = shutil.which("python3.12")
   assert python is not None, "the tests need python3.12 on the PATH"
   tests, app, out = tmp_path / "tests", tmp_path / "app", tmp_path / "out"
-  for name, data in files(RUNNERS).items():
+  for name, data in files(RUNNERS, FORMATS).items():
     path = tests / name
     path.parent.mkdir(parents=True, exist_ok=True)
     _ = path.write_bytes(data)
-  assert "testrunner/__main__.py" in files(RUNNERS)
-  assert "testrunner/jasmine_reporter.cjs" in files(RUNNERS)
-  assert not [n for n in files(RUNNERS) if not n.startswith("testrunner/")]
+  assert "testrunner/__main__.py" in files(RUNNERS, FORMATS)
+  assert "testrunner/jasmine_reporter.cjs" in files(RUNNERS, FORMATS)
+  assert not [
+    n for n in files(RUNNERS, FORMATS) if not n.startswith("testrunner/")
+  ]
   write(
     app,
     {
