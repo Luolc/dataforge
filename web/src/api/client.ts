@@ -63,7 +63,8 @@ export const urls = {
     params: Record<string, string> = {},
   ) =>
     `${api(p)}/actions/${encodeURIComponent(action)}?${new URLSearchParams([["item", item], ...Object.entries(params)]).toString()}`,
-  queue: () => "/api/queue",
+  queue: (ended?: number) =>
+    ended === undefined ? "/api/queue" : `/api/queue?ended=${ended.toString()}`,
   cancel: (job: number) => `/api/queue/jobs/${job.toString()}/cancel`,
 };
 

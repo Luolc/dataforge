@@ -35,6 +35,8 @@ interface Read {
 }
 
 function useQueue() {
+  // How many ended jobs to ask for; null leaves it to the server's default.
+  const [ended, setEnded] = useState<number | null>(null);
   const [generation, setGeneration] = useState({ n: 0, polled: false });
   const [read, setRead] = useState<Read>();
   const [done, setDone] = useState<{
@@ -45,7 +47,7 @@ function useQueue() {
   useEffect(() => {
     const controller = new AbortController();
     const n = generation.n;
-    getJson(urls.queue(), queueRead, controller.signal).then(
+    getJson(urls.queue(ended ?? undefined), queueRead, controller.signal).then(
       (data) => {
         setRead({ data, at: new Date().toISOString() });
         setDone({ n, error: null, missing: false });
@@ -62,7 +64,7 @@ function useQueue() {
     return () => {
       controller.abort();
     };
-  }, [generation.n]);
+  }, [generation.n, ended]);
   const refresh = useCallback(() => {
     setGeneration((g) => ({ n: g.n + 1, polled: false }));
   }, []);
@@ -76,11 +78,14 @@ function useQueue() {
     missing: current?.missing ?? false,
     reading: current === null && !generation.polled,
     refresh,
+    showMore: (step: number) => {
+      setEnded((n) => (n ?? read?.data.ended_limit ?? 0) + step);
+    },
   };
 }
 
 export function QueuePage() {
-  const { read, error, missing, reading, refresh } = useQueue();
+  const { read, error, missing, reading, refresh, showMore } = useQueue();
   let body;
   if (missing) body = <Note>This site names no queue.</Note>;
   else if (read === undefined)
@@ -91,10 +96,19 @@ export function QueuePage() {
     );
   else
     body = (
-      <Queues read={read} reading={reading} error={error} onRefresh={refresh} />
+      <Queues
+        read={read}
+        reading={reading}
+        error={error}
+        onRefresh={refresh}
+        onShowMore={showMore}
+      />
     );
   return <Frame crumbs={[{ label: "Queue" }]}>{body}</Frame>;
 }
+
+/** How many more ended jobs a click on "Show more" asks for. */
+const MORE = 50;
 
 const GROUPS = [
   { title: "Running", has: (j: Job) => j.state === "running" },
@@ -120,11 +134,13 @@ function Queues({
   reading,
   error,
   onRefresh,
+  onShowMore,
 }: {
   read: Read;
   reading: boolean;
   error: string | null;
   onRefresh: () => void;
+  onShowMore: (step: number) => void;
 }) {
   const { data } = read;
   const projects = use(ProjectsContext);
@@ -253,7 +269,16 @@ function Queues({
         <p className="text-xs text-fg-3">
           {older === 1
             ? "1 older job that ended is not shown."
-            : `${older.toString()} older jobs that ended are not shown.`}
+            : `${older.toString()} older jobs that ended are not shown.`}{" "}
+          <button
+            type="button"
+            className="target link hover:underline"
+            onClick={() => {
+              onShowMore(MORE);
+            }}
+          >
+            {`Show ${Math.min(MORE, older).toString()} more`}
+          </button>
         </p>
       )}
     </div>
@@ -319,8 +344,8 @@ function JobRow({
             <div className="whitespace-nowrap">{label}</div>
           )}
           {others.length > 0 && (
-            <div className="font-mono text-xs text-fg-2">
-              {others.map(([k, v]) => `${k}=${v}`).join(" ")}
+            <div className="text-xs text-fg-2">
+              {others.map(([k, v]) => `${k}: ${v}`).join(", ")}
             </div>
           )}
         </td>

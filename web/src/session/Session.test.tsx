@@ -261,6 +261,16 @@ describe("the session view", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("says a session without a result line has no totals, not a row of dashes", () => {
+    const { container } = show(call("c1"));
+
+    const header = container.querySelector("header");
+    expect(header).toHaveTextContent(
+      "No totals: the session wrote no result line.",
+    );
+    expect(header).not.toHaveTextContent(/cost|turns|tokens/);
+  });
+
   it("shows the model alone in the header when told to", () => {
     const { container } = show(solved, "collapsed", { totals: "model" });
 

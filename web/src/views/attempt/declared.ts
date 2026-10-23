@@ -67,7 +67,7 @@ function notReached(
     }
     const kept = record.kept_visit;
     if (kept !== null && mine.every(({ i }) => i > kept))
-      return `${title} ran only after the run the attempt kept, run ${(kept + 1).toString()}.`;
+      return `${title} ran only after run ${(kept + 1).toString()}, the run this attempt kept.`;
     const runs = `${title}'s ${runCount(mine.length)} ${mine.length === 1 ? "does" : "do"}`;
     return `${runs} not include the one this takes${ended ? "" : " yet"}.`;
   }
