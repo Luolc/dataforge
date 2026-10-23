@@ -16,7 +16,7 @@ from .adapter import Call, Context, Runner
 from .ctrf import Case, TestObject
 from .manifest import File, Manifest, relative, Run, Test
 from .restore import remove
-from .runners import ADAPTERS
+from .runners import load_adapter
 
 # What the runners must not take from the environment of whoever runs this.
 _DROPPED_ENV = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")
@@ -100,7 +100,7 @@ def run(
         continue
       ctx = Context(app, app / first.dir, here, base)
       print(f"===== {first.suite} {first.runner} {first.dir} =====", flush=True)
-      found.tests.extend(run_group(ADAPTERS[first.runner](), ctx, listed))
+      found.tests.extend(run_group(load_adapter(first.runner)(), ctx, listed))
   return found
 
 

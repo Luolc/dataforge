@@ -2,7 +2,8 @@
 
 `junit` is every `*.xml` file under the report's directory, JUnit XML, each
 `<testcase>` named `<classname>::<name>`, or `<name>` with no classname, and
-skipped also when CTest's or GoogleTest's attributes say so. `ctrf` is every
+skipped also when the attributes some runners write say so
+(junit.marked_outcome). `ctrf` is every
 `*.json` file, CTRF, of which only each test's `name`, one line, `status`,
 one of CTRF's, and `rawStatus` are read: only `passed` passes, `pending` is
 read as `skipped` and `other` as `failed`, and `rawStatus` `error` makes a
@@ -26,7 +27,7 @@ from pathlib import Path
 import sys
 from typing import cast
 
-from . import ctrf, junit
+from . import ctrf
 from .ctrf import Case
 from .manifest import FORMATS
 
@@ -95,6 +96,10 @@ def _files(path: Path, suffix: str) -> list[Path]:
 
 
 def _junit(data: bytes) -> list[Case]:
+  # Imported here: a task's copy has junit.py only when a run group's
+  # parse or a runner reads JUnit XML (bundle.files).
+  from . import junit
+
   root = junit.parse(data)
   if root is None:
     raise ReportError("a report is not UTF-8 JUnit XML")

@@ -6,7 +6,7 @@ does not put a module of the project's before the standard library's in this
 process; the runners still get the environment's PYTHONPATH. It writes only
 the report; the reward is the dataset's to write, from ctrf.suite_counts. It
 restores nothing: its result can be trusted only once the project's
-RUNNER_FILES and the files restore_paths gives for the listed tests are the
+runner_files and the files restore_paths gives for the listed tests are the
 base's, which is for whoever runs it to see to.
 """
 

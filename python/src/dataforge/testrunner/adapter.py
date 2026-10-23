@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
@@ -176,27 +176,6 @@ def write_new(path: Path, text: str) -> Path:
   return path
 
 
-def find_bin(ctx: Context, name: str) -> str:
-  """Return the project's own copy of a Node.js tool, or its bare name.
-
-  Args:
-    ctx: Where the runner runs.
-    name: The tool, such as jest.
-
-  Returns:
-    The first node_modules/.bin/<name> from the directory up to the
-    project's root, where a workspace may have hoisted it; else name, for
-    the PATH to resolve.
-  """
-  for here in (ctx.dir, *ctx.dir.parents):
-    found = here / "node_modules" / ".bin" / name
-    if found.is_file():
-      return str(found)
-    if here == ctx.app:
-      break
-  return name
-
-
 def upward(ctx: Context) -> list[Path]:
   """Return the directories from where the runner starts up to the root.
 
@@ -212,3 +191,32 @@ def upward(ctx: Context) -> list[Path]:
       break
     found.append(here)
   return found
+
+
+@dataclass(frozen=True, slots=True)
+class Spec:
+  """What testrunner knows of a runner, which its module's SPECS gives.
+
+  Attributes:
+    adapter: Its adapter's class.
+    runner_files: The files it loads by itself that hold only its own
+      configuration, which a dataset checks back to the base before the
+      tests run: a pattern without `/` matches a file's name, one with `/`
+      the end of its path.
+    build_config: The build files that also hold its test configuration and
+      that no command line replaces, which a dataset keeps at the base;
+      patterns as runner_files' are.
+    id_sep: What ends the file an ID names, or None when an ID names none.
+    restore_paths: What gives, of the base's files, those that define a
+      test (runners.restore_paths); None gives its ID's file when the base
+      has it.
+    files: The package's files it needs beyond its module and the common
+      ones (bundle.files).
+  """
+
+  adapter: type[Runner]
+  runner_files: tuple[str, ...] = ()
+  build_config: tuple[str, ...] = ()
+  id_sep: str | None = None
+  restore_paths: Callable[[Test, Collection[str]], list[str]] | None = None
+  files: tuple[str, ...] = ()
