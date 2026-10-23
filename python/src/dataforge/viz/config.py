@@ -938,6 +938,63 @@ def _statuses(path: Path, value: object) -> dict[str, dict[str, str]]:
   return statuses
 
 
+_ABSENT = object()
+
+
+def case_value(
+  record: dict[str, object], cases: tuple[Case, ...]
+) -> str | None:
+  """Return the value a column of cases takes for a record.
+
+  Args:
+    record: The attempt's record.
+    cases: The column's cases.
+
+  Returns:
+    The value of the first case whose conditions all hold of the record;
+    None when none holds.
+  """
+  for case in cases:
+    if all(_holds(record, c) for c in case.when):
+      return case.value
+  return None
+
+
+def _holds(record: dict[str, object], condition: Condition) -> bool:
+  found = _at(record, condition.field)
+  if condition.given is not None:
+    return (found is not _ABSENT and found is not None) == condition.given
+  return found is not _ABSENT and _same(found, condition.equals)
+
+
+def _at(record: object, field: tuple[str, ...]) -> object:
+  # The value at field, or _ABSENT where a key is not there, as _field
+  # gives None.
+  current = record
+  for key in field:
+    if not isinstance(current, dict) or key not in current:
+      return _ABSENT
+    current = cast(dict[str, object], current)[key]
+  return current
+
+
+def _same(a: object, b: object) -> bool:
+  # JSON equality: true is not 1, as it is in Python.
+  if isinstance(a, bool) or isinstance(b, bool):
+    return type(a) is type(b) and a == b
+  if isinstance(a, list) and isinstance(b, list):
+    x, y = cast(list[object], a), cast(list[object], b)
+    return len(x) == len(y) and all(
+      _same(i, j) for i, j in zip(x, y, strict=True)
+    )
+  if isinstance(a, dict) and isinstance(b, dict):
+    x, y = cast(dict[str, object], a), cast(dict[str, object], b)
+    return x.keys() == y.keys() and all(_same(x[k], y[k]) for k in x)
+  if isinstance(a, list | dict) or isinstance(b, list | dict):
+    return False
+  return a == b
+
+
 def _columns(
   path: Path, value: object, tabs: tuple[Tab, ...]
 ) -> tuple[Column, ...]:
