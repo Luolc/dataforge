@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from dataforge.testrunner.manifest import File, load, ManifestError, read, Run
-from dataforge.testrunner.manifest import Test as Listed
+from dataforge.testrunner.core import File, load, ManifestError, read, Run
+from dataforge.testrunner.core import Test as Listed
 
 FULL = """
 [[test]]

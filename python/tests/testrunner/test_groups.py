@@ -4,10 +4,8 @@ from typing import cast
 
 import pytest
 
-from dataforge.testrunner import ctrf
-from dataforge.testrunner import run as runs
-from dataforge.testrunner.manifest import load
-from dataforge.testrunner.run import Results, run
+from dataforge.testrunner import core
+from dataforge.testrunner.core import load, Results, run
 from tests.testrunner.projects import write
 
 # A run that writes the JUnit XML in report.xml, beside it in tests/, to
@@ -126,7 +124,7 @@ def test_a_listed_name_the_groups_report_lacks_is_an_error(tmp_path: Path):
   app, tests = project(tmp_path)
   found = run(load(MANIFEST), tests=tests, app=app)
   gone = found.tests[6]
-  assert gone["message"] == f"{ctrf.MISSING} (the run exited 0)"
+  assert gone["message"] == f"{core.MISSING} (the run exited 0)"
 
 
 def test_a_skipped_test_and_a_name_with_a_failed_case_do_not_pass(
@@ -134,9 +132,9 @@ def test_a_skipped_test_and_a_name_with_a_failed_case_do_not_pass(
 ):
   app, tests = project(tmp_path)
   found = run(load(MANIFEST), tests=tests, app=app)
-  report = ctrf.report(found.tests, 0, 0, unlisted=found.unlisted)
+  report = core.report(found.tests, 0, 0, unlisted=found.unlisted)
   # adds passes; errs, skips, one case of twice and gone do not.
-  assert ctrf.suite_counts(report) == {"p2p": (2, 6), "f2p": (0, 1)}
+  assert core.suite_counts(report) == {"p2p": (2, 6), "f2p": (0, 1)}
 
 
 def test_a_canary_counts_in_no_suite_and_a_failed_one_is_not_broken(
@@ -146,8 +144,8 @@ def test_a_canary_counts_in_no_suite_and_a_failed_one_is_not_broken(
   found = run(load(MANIFEST), tests=tests, app=app)
   canary = found.tests[-1]
   assert cast("dict[str, str]", canary["labels"])["expect"] == "failed"
-  report = ctrf.report(found.tests, 0, 0)
-  assert ctrf.suite_counts(report)["p2p"][1] == 6
+  report = core.report(found.tests, 0, 0)
+  assert core.suite_counts(report)["p2p"][1] == 6
   assert "extra" not in cast("dict[str, object]", report["results"])
 
 
@@ -161,23 +159,23 @@ ALL_PASSED = """<testsuite>
 def test_a_report_made_all_passed_breaks_the_canary(tmp_path: Path):
   app, tests = project(tmp_path, files={"report.xml": ALL_PASSED})
   found = run(load(MANIFEST), tests=tests, app=app)
-  report = ctrf.report(found.tests, 0, 0, unlisted=found.unlisted)
+  report = core.report(found.tests, 0, 0, unlisted=found.unlisted)
   extra = cast("dict[str, object]", report["results"])["extra"]
   assert extra == {"canary_broken": ["p2p::spec/a_spec.rb::canary"]}
 
 
 def test_a_canary_that_errs_or_is_missing_is_broken():
-  def canary(status: str, raw: str | None = None) -> ctrf.TestObject:
-    found: ctrf.TestObject = {"name": "c", "status": status, "suite": ["p2p"]}
+  def canary(status: str, raw: str | None = None) -> core.TestObject:
+    found: core.TestObject = {"name": "c", "status": status, "suite": ["p2p"]}
     if raw:
       found["rawStatus"] = raw
     found["labels"] = {"id": "p2p::c", "expect": "failed"}
     return found
 
-  assert ctrf.canary_broken([canary("failed")]) == []
-  assert ctrf.canary_broken([canary("failed", "error")]) == ["p2p::c"]
-  assert ctrf.canary_broken([canary("skipped")]) == ["p2p::c"]
-  assert ctrf.canary_broken([canary("failed"), canary("passed")]) == ["p2p::c"]
+  assert core.canary_broken([canary("failed")]) == []
+  assert core.canary_broken([canary("failed", "error")]) == ["p2p::c"]
+  assert core.canary_broken([canary("skipped")]) == ["p2p::c"]
+  assert core.canary_broken([canary("failed"), canary("passed")]) == ["p2p::c"]
 
 
 def test_a_report_that_cannot_be_read_errs_each_test_of_its_group(
@@ -208,7 +206,7 @@ def test_a_group_with_no_report_errs_each_test(tmp_path: Path):
   app, tests = project(tmp_path, files={"run.sh": "exit 3\n"})
   found = run(load(MANIFEST), tests=tests, app=app)
   assert found.tests[0]["message"] == (
-    f"{ctrf.MISSING} (the run exited 3, with no report)"
+    f"{core.MISSING} (the run exited 3, with no report)"
   )
 
 
@@ -277,7 +275,7 @@ id = "t.py::test_a"
 def test_a_group_keeps_at_most_the_limit_of_unlisted_names(
   tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-  monkeypatch.setattr(runs, "UNLISTED_LIMIT", 1)
+  monkeypatch.setattr(core, "UNLISTED_LIMIT", 1)
   app, tests = project(tmp_path)
   found = run(load(MANIFEST), tests=tests, app=app)
   assert found.unlisted == [{"run": "rspec", "total": 2, "names": ["bare"]}]

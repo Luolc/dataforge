@@ -10,9 +10,7 @@ from typing import final, override
 import xml.etree.ElementTree as ET
 
 from . import junit
-from .adapter import Call, Context, rel, Runner, Spec
-from .ctrf import Case
-from .manifest import Test
+from .core import Call, Case, Context, rel, Runner, Spec, Test
 
 RUNNER_FILES = ("phpunit.xml", "phpunit.dist.xml", "phpunit.xml.dist")
 """The configuration files PHPUnit finds by itself."""

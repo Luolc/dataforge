@@ -7,23 +7,24 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from dataforge.testrunner.adapter import Call, PREFIX
-from dataforge.testrunner.ctrf import Case
-from dataforge.testrunner.manifest import RUNNERS
-from dataforge.testrunner.manifest import Test as Listed
+from dataforge.testrunner.core import (
+  Call,
+  Case,
+  id_file,
+  is_build_config,
+  loaded_by_runner,
+  PREFIX,
+  restore_paths,
+  run_group,
+  RUNNERS,
+  spec,
+)
+from dataforge.testrunner.core import Test as Listed
+from dataforge.testrunner.deps import dependency_overrides
 from dataforge.testrunner.maven import Maven
 from dataforge.testrunner.phpunit import PHPUnit
 from dataforge.testrunner.python import Pytest
 from dataforge.testrunner.registry import MODULES
-from dataforge.testrunner.run import run_group
-from dataforge.testrunner.runners import (
-  dependency_overrides,
-  id_file,
-  is_build_config,
-  loaded_by_runner,
-  restore_paths,
-  spec,
-)
 from tests.testrunner.projects import commit, context, write
 
 PYTEST_REPORT = """<?xml version="1.0" encoding="utf-8"?>

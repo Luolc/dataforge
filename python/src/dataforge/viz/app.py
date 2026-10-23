@@ -656,6 +656,7 @@ def _row(project: Project, attempt: str) -> _Read:
     "status": None,
     "reason": None,
     "cost_usd": None,
+    "cost_from": None,
     "started_at": None,
     "ended_at": None,
     "rounds": None,
@@ -708,12 +709,14 @@ def _row(project: Project, attempt: str) -> _Read:
   status = _str(_field(data, ("status",)))
   outcome = _str(visits[-1].get("outcome")) if visits else None
   ended = live.has_ended(project, status, outcome)
+  cost, cost_from = _cost(data, actions)
   return (
     row
     | {
       "status": status,
       "reason": _str(_field(data, ("reason",))),
-      "cost_usd": _number(_field(data, ("budget", "cost_usd"))),
+      "cost_usd": cost,
+      "cost_from": cost_from,
       "started_at": _str(actions[0].get("started_at")) if actions else None,
       "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
       "rounds": _rounds(visits),
@@ -729,6 +732,17 @@ def _row(project: Project, attempt: str) -> _Read:
     data,
     None if ended else read.mtime,
   )
+
+
+def _cost(
+  data: dict[str, object], actions: list[dict[str, object]]
+) -> tuple[float | None, str | None]:
+  # A record with no budget costs what its actions cost, as its page says.
+  budget = _number(_field(data, ("budget", "cost_usd")))
+  if budget is not None:
+    return budget, "budget"
+  costs = [c for a in actions if (c := _number(a.get("cost_usd"))) is not None]
+  return (sum(costs), "runs") if costs else (None, None)
 
 
 def _rounds(visits: list[dict[str, object]]) -> list[dict[str, object]]:

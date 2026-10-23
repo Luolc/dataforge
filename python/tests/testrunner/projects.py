@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from dataforge.testrunner.adapter import Context
+from dataforge.testrunner.core import Context
 
 GIT_ENV = {
   **os.environ,

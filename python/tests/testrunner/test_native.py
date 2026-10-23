@@ -4,12 +4,10 @@ from pathlib import Path
 import pytest
 
 from dataforge.testrunner import cargo, gotest
-from dataforge.testrunner.adapter import Call
 from dataforge.testrunner.cargo import Cargo
-from dataforge.testrunner.ctrf import Case
+from dataforge.testrunner.core import Call, Case, restore_paths
+from dataforge.testrunner.core import Test as Listed
 from dataforge.testrunner.gotest import GoTest
-from dataforge.testrunner.manifest import Test as Listed
-from dataforge.testrunner.runners import restore_paths
 from tests.testrunner.projects import context, write
 
 
