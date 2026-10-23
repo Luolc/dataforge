@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import cast
 
@@ -77,10 +78,13 @@ def write(tree: Tree, text: str) -> None:
   _ = (tree.attempt / "task" / "task.toml").write_text(text)
 
 
-def none(read: str, reason: str) -> dict[str, object]:
+def none(
+  read: str, reason: str, path: str | None = "task/task.toml"
+) -> dict[str, object]:
   return {
     "read": read,
     "reason": reason,
+    "path": path,
     "legacy": False,
     "tests": None,
     "principles": None,
@@ -97,6 +101,7 @@ def test_a_task_gives_its_counts_by_suite_and_its_principles(
   assert found == {
     "read": "found",
     "reason": None,
+    "path": "task/task.toml",
     "legacy": False,
     "tests": {
       "f2p": {"security": 3, "alignment": 1},
@@ -134,6 +139,7 @@ def test_a_task_of_the_format_before_tests_leaves_out_the_dataset_s_keys(
   assert get(tree) == {
     "read": "found",
     "reason": None,
+    "path": "task/task.toml",
     "legacy": True,
     "tests": {"f2p": {"security": 2, "behavior": 1}},
     "principles": [
@@ -207,3 +213,88 @@ def test_a_project_that_names_no_task_has_no_task_route(tree: Tree) -> None:
 
   assert response.status_code == 404
   assert response.json()["reason"] == "the project 'example' names no task"
+
+
+# The record of an attempt whose build made the task in its second visit, as
+# the engine resolves the deliverable named built.
+BUILT = "artifacts/build/2/task"
+
+
+def in_deliverable(tree: Tree, path: object = BUILT) -> None:
+  _ = tree.project.write_text(
+    PROJECT
+    + "deliverables: [{name: built, kind: files, title: Built}]\n"
+    + "task: {deliverable: built, file: task.toml}\n"
+  )
+  record = {
+    "status": None,
+    "deliverables": [
+      {"name": "other", "kind": "files", "path": "artifacts/other/1"},
+      {"name": "built", "kind": "files", "path": path},
+    ],
+  }
+  _ = (tree.attempt / "record.json").write_text(json.dumps(record))
+
+
+def test_a_task_in_a_deliverable_is_read_where_the_record_resolves_it(
+  tree: Tree,
+) -> None:
+  in_deliverable(tree)
+  (tree.attempt / BUILT).mkdir(parents=True)
+  _ = (tree.attempt / BUILT / "task.toml").write_text(CURRENT)
+  # The copy an attempt keeps once it ends is not the one read.
+  _ = (tree.attempt / "task" / "task.toml").write_text(LEGACY)
+
+  found = get(tree)
+
+  assert found["read"] == "found"
+  assert found["path"] == f"{BUILT}/task.toml"
+  assert found["legacy"] is False
+
+
+def test_a_task_whose_deliverable_has_no_path_has_not_run(tree: Tree) -> None:
+  in_deliverable(tree, None)
+
+  assert get(tree) == none(
+    "not run", "the record gives the deliverable built no path", None
+  )
+
+
+def test_a_task_in_a_deliverable_with_no_task_toml_has_not_run(
+  tree: Tree,
+) -> None:
+  in_deliverable(tree)
+  (tree.attempt / BUILT).mkdir(parents=True)
+
+  found = get(tree)
+
+  assert found == none("not run", str(found["reason"]), f"{BUILT}/task.toml")
+
+
+@pytest.mark.parametrize("path", ["../task", "/etc", "", 3])
+def test_a_deliverable_s_path_that_is_not_relative_is_refused(
+  tree: Tree, path: object
+) -> None:
+  in_deliverable(tree, path)
+
+  assert get(tree) == none(
+    "missing",
+    "the record's path of the deliverable built is not relative",
+    None,
+  )
+
+
+def test_a_deliverable_s_directory_that_is_a_symlink_is_not_followed(
+  tree: Tree,
+) -> None:
+  in_deliverable(tree)
+  outside = tree.root.parent / "elsewhere"
+  outside.mkdir()
+  _ = (outside / "task.toml").write_text(CURRENT)
+  (tree.attempt / "artifacts" / "build" / "2").mkdir(parents=True)
+  (tree.attempt / BUILT).symlink_to(outside)
+
+  found = get(tree)
+
+  assert found["read"] == "missing"
+  assert "never followed" in str(found["reason"])

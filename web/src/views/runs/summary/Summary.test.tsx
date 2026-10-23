@@ -118,6 +118,7 @@ describe("the Summary's Task card", () => {
           Response.json({
             read: "not run",
             reason: "task: No such file or directory",
+            path: "task/task.toml",
             legacy: false,
             tests: null,
             principles: null,
@@ -125,7 +126,10 @@ describe("the Summary's Task card", () => {
         ),
       ),
     );
-    show("passed", { ...sampleProject, task: "task/task.toml" });
+    show("passed", {
+      ...sampleProject,
+      task: { file: "task/task.toml", deliverable: null },
+    });
 
     const task = await screen.findByRole("heading", { name: "Task" });
     const headings = screen
