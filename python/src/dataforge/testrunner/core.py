@@ -2,7 +2,8 @@
 
 It holds, in this order: the globs of a manifest, the manifest, the CTRF
 report, what a runner's adapter is given and gives back, each runner's data,
-restoring a project's files, reading a run group's report, and the run.
+the checks of a fix's files, restoring a project's files, reading a run
+group's report, and the run.
 
 The globs of a manifest's restore and outputs, matched on project paths.
 
@@ -76,6 +77,20 @@ it (build_config), the dataset keeps it at the base. A project file that the
 base's configuration names to run in the test process, such as a plugin or a
 setup file, is neither: it is the dataset's to restore.
 
+The checks a dataset makes of a fix's files, beside deps'.
+
+is_test_file and is_test_dir tell a test's files and directories by their
+paths alone, whatever the language, for a dataset to keep a fix from
+changing them. A language's module may add to them, and give checks of its
+own, by optional hooks of the same names: PLAIN_SOURCES, the suffixes of
+its source files, which a test's directory or name does not make a test's;
+kept_lines, the lines of the base's files that hold listed tests and that a
+fix must leave as they are; and rewires, what lines a fix adds that change
+what the tests check with no change to them. registry.GUARDS names these
+modules; a task's copy has those its runners use or whose language is in
+its project (bundle.guards_for), and its GUARDS names only those, so that
+each check gathers the hooks of the modules the copy has.
+
 Checking a project's files back to its base, and clearing a run's reports.
 
 restore writes each file of the base that a glob matches from the base's
@@ -113,19 +128,21 @@ from collections.abc import (
 from dataclasses import dataclass, field
 import fnmatch
 import importlib
+import itertools
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
 import subprocess
 import tempfile
 import tomllib
+from types import ModuleType
 from typing import cast, Protocol
 
-from .registry import MODULES
+from .registry import GUARDS, MODULES
 
 ANY = "**"
 """The component that matches any number of components."""
@@ -983,8 +1000,8 @@ class Call:
     argv: The command.
     env: What it adds to the environment.
     output: A file outside the project that its standard output and error
-      go to, together, for the adapter to read as its report; None leaves
-      them as they are.
+      are written to, together, for the adapter to read as its report;
+      None leaves them as they are.
   """
 
   argv: list[str]
@@ -1003,7 +1020,7 @@ class Runner(Protocol):
       tests: The tests it runs.
 
     Returns:
-      The files it wrote into the project, which go once the run ends.
+      The files it wrote into the project, removed once the run ends.
     """
     ...
 
@@ -1111,6 +1128,8 @@ class Spec:
       has it.
     files: The package's files it needs beyond its module and the common
       ones (bundle.files).
+    vendor_dir: Whether it loads dependencies from the `vendor` directory
+      of a test's dir (vendor_test_dirs).
   """
 
   adapter: type[Runner]
@@ -1119,6 +1138,7 @@ class Spec:
   id_sep: str | None = None
   restore_paths: Callable[[Test, Collection[str]], list[str]] | None = None
   files: tuple[str, ...] = ()
+  vendor_dir: bool = False
 
 
 def spec(runner: str) -> Spec:
@@ -1251,6 +1271,170 @@ def _matches(patterns: tuple[str, ...], path: str) -> bool:
     elif fnmatch.fnmatchcase(name, pattern):
       return True
   return False
+
+
+def vendor_test_dirs(tests: Iterable[Test]) -> list[str]:
+  """Return the dir of each test whose runner loads its `vendor` directory.
+
+  Args:
+    tests: The tests.
+
+  Returns:
+    The dir of each of tests whose runner's Spec.vendor_dir is set, in
+    their order.
+  """
+  return [
+    t.dir for t in tests if t.runner is not None and spec(t.runner).vendor_dir
+  ]
+
+
+TEST_DIRS = frozenset({"test", "tests", "testing"})
+"""The directories at the project's top that hold tests."""
+
+NESTED_TEST_DIRS = frozenset({"spec", "__tests__"})
+"""The directories at any depth that hold tests."""
+
+SRC_TESTS = ("src", "test")
+"""A directory of sources and the one of tests in it, at any depth."""
+
+TEST_INFIXES = frozenset({"test", "spec"})
+"""What between a file name's first and last dots makes it a test's, as
+in x.test.<ext>."""
+
+TEST_NAMES = frozenset({"conftest.py"})
+"""The names of files of tests wherever they are."""
+
+PLAIN_SOURCES = (".py", ".pyi")
+"""The source files that NESTED_TEST_DIRS, SRC_TESTS, a name ending in
+`_spec` or TEST_INFIXES do not make a test's, beyond the guards' own
+(plain_sources)."""
+
+
+def guards() -> list[ModuleType]:
+  """Return the modules of registry.GUARDS, importing them.
+
+  Returns:
+    Each, in GUARDS' order: in a task's copy, only those it has.
+  """
+  return [importlib.import_module(f".{m}", __package__) for m in GUARDS]
+
+
+def plain_sources() -> tuple[str, ...]:
+  """Return the suffixes of the source files whose names make no test.
+
+  Returns:
+    PLAIN_SOURCES and the PLAIN_SOURCES of each module of guards that has
+    them.
+  """
+  found: list[str] = [*PLAIN_SOURCES]
+  for module in guards():
+    found += cast("tuple[str, ...]", getattr(module, "PLAIN_SOURCES", ()))
+  return tuple(found)
+
+
+def is_test_file(path: str) -> bool:
+  """Return whether a path is a test's file, by its parts alone.
+
+  Args:
+    path: The path, relative to the project.
+
+  Returns:
+    Whether its top directory is one of TEST_DIRS, its name starts with
+    `test_`, its stem ends with `_test` or it is one of TEST_NAMES; or,
+    for a name that ends with none of plain_sources, whether a directory
+    of it is one of NESTED_TEST_DIRS or the second of SRC_TESTS after the
+    first, its stem ends with `_spec`, or one of TEST_INFIXES is between
+    its first and last dots. Directories are compared lowercased.
+  """
+  p = PurePosixPath(path)
+  dirs = [d.lower() for d in p.parts[:-1]]
+  top = dirs[0] if dirs else ""
+  if (
+    top in TEST_DIRS
+    or p.name.startswith("test_")
+    or p.stem.endswith("_test")
+    or p.name in TEST_NAMES
+  ):
+    return True
+  return not p.name.endswith(plain_sources()) and (
+    any(d in NESTED_TEST_DIRS for d in dirs)
+    or SRC_TESTS in itertools.pairwise(dirs)
+    or p.stem.endswith("_spec")
+    or bool(TEST_INFIXES & set(p.name.split(".")[1:-1]))
+  )
+
+
+def is_test_dir(path: str) -> bool:
+  """Return whether a path is a directory of tests, by is_test_file's rule.
+
+  Args:
+    path: The path, relative to the project.
+
+  Returns:
+    Whether it is one of TEST_DIRS at the top, or ends with one of
+    NESTED_TEST_DIRS or with SRC_TESTS, compared lowercased.
+  """
+  parts = PurePosixPath(path.lower()).parts
+  if not parts:
+    return False
+  return (
+    (len(parts) == 1 and parts[0] in TEST_DIRS)
+    or parts[-1] in NESTED_TEST_DIRS
+    or parts[-2:] == SRC_TESTS
+  )
+
+
+Spans = list[tuple[int, int]]
+"""Spans of a file's lines, each its first and last line, from 1."""
+
+
+def kept_lines(app: Path, tests: Sequence[Test]) -> dict[str, Spans]:
+  """Return the lines of the base's files that a fix must leave as they are.
+
+  They are lines that hold listed tests in a file a fix may change too, so
+  that `restore` does not check it back, as the kept_lines of the modules
+  of guards give them.
+
+  Args:
+    app: The project at the base.
+    tests: The manifest's tests.
+
+  Returns:
+    For each such file, by its path from the project's root, its spans,
+    each once.
+  """
+  found: dict[str, Spans] = {}
+  for module in guards():
+    hook = getattr(module, "kept_lines", None)
+    if hook is None:
+      continue
+    for path, spans in cast("dict[str, Spans]", hook(app, tests)).items():
+      have = found.setdefault(path, [])
+      have += [s for s in spans if s not in have]
+  return found
+
+
+def rewires(path: str, added: str) -> str | None:
+  """Return what lines a fix adds to a file change what the tests check.
+
+  That is a change to the tests' meaning with no change to them, such as a
+  macro they assert with defined again, as the rewires of the modules of
+  guards find it.
+
+  Args:
+    path: The file's path, relative to the project.
+    added: The lines added, joined by newlines.
+
+  Returns:
+    The first such thing a module of guards finds, in a few words; None
+    for none.
+  """
+  for module in guards():
+    hook = getattr(module, "rewires", None)
+    found = None if hook is None else cast("str | None", hook(path, added))
+    if found is not None:
+      return found
+  return None
 
 
 _GIT = (

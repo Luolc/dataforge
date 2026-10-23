@@ -1,13 +1,19 @@
-"""The dependency overrides check, of where build files take dependencies from.
+"""The checks of where a project's dependencies come from.
 
-It is not a runner's: a project of any runner may hold such a build file,
-such as a native extension's, so every task's copy has this module
-(bundle.COMMON) and it imports no runner's.
+The dependency overrides check, of where build files take dependencies
+from, and where vendored dependencies are (vendor_dirs). Neither is a
+runner's nor a language's: a project of any runner may hold such a build
+file or a vendored dependency, such as a native extension's, and a fix
+may add one, so every task's copy has this module (bundle.COMMON) and it
+imports no runner's.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 import json
+from pathlib import PurePosixPath
+import posixpath
 import tomllib
 from typing import cast
 
@@ -241,3 +247,66 @@ def _dependency_tables(
         (("workspace", "dependencies"), cast("dict[str, object]", deps))
       )
   return found
+
+
+VENDOR = "vendor"
+"""The directory, beside a file of VENDOR_OWNERS or in the dir of a test
+whose runner loads it (core.vendor_test_dirs), that dependencies are loaded
+from."""
+
+VENDOR_OWNERS = frozenset({"go.mod", "composer.json"})
+"""The build files whose directory's VENDOR go and Composer load the
+dependencies from."""
+
+CARGO_CHECKSUM = ".cargo-checksum.json"
+"""The file that marks a crate `cargo vendor` wrote."""
+
+
+def vendored(
+  path: str, owners: Collection[str], crates: Collection[str] = ()
+) -> bool:
+  """Return whether a path is a vendored dependency's, or under one.
+
+  Args:
+    path: The path, relative to the project.
+    owners: The directories, from the project's root ("" for it), whose
+      VENDOR holds dependencies (vendor_dirs).
+    crates: The directories of crates `cargo vendor` wrote.
+
+  Returns:
+    Whether it is the VENDOR of a directory of owners, a link among them,
+    or under it, or under a directory of crates.
+  """
+  parts = PurePosixPath(path).parts
+  if any(
+    part == VENDOR and "/".join(parts[:i]) in owners
+    for i, part in enumerate(parts)
+  ):
+    return True
+  return any(path.startswith(c + "/") for c in crates)
+
+
+def vendor_dirs(
+  paths: Collection[str], dirs: Collection[str] = ()
+) -> tuple[set[str], set[str]]:
+  """Return where vendored dependencies are among a project's paths.
+
+  Args:
+    paths: The paths of the project's files, those a fix adds among them.
+    dirs: The dir of each test whose runner loads its VENDOR
+      (core.vendor_test_dirs).
+
+  Returns:
+    The directories that hold a file of VENDOR_OWNERS, with dirs, and
+    those below the root that hold a CARGO_CHECKSUM.
+  """
+  owners = {"" if d == "." else d for d in map(posixpath.normpath, dirs)}
+  crates: set[str] = set()
+  for path in paths:
+    p = PurePosixPath(path)
+    parent = "" if str(p.parent) == "." else str(p.parent)
+    if p.name in VENDOR_OWNERS:
+      owners.add(parent)
+    elif p.name == CARGO_CHECKSUM and parent:
+      crates.add(parent)
+  return owners, crates

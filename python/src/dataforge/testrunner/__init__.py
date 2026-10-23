@@ -7,7 +7,9 @@ CTRF, the format Harbor's viewer reads from /logs/verifier/ctrf.json. The
 package uses only Python 3.12's standard library and imports nothing of
 dataforge: a dataset copies its files into each task (bundle.files_for), so
 that the task runs without the dataset, and imports them as testrunner
-there. A task's copy has core, deps, a registry of its runners only, and
-the modules of its runners and formats; bundle and __main__ stay on the
-host, __main__ unless the dataset asks for it (bundle.files).
+there. A task's copy has core, deps, a registry of its runners only, the
+modules of its runners and formats, and those of the languages in its
+project whose checks of a fix's files it needs (bundle.guards_for);
+bundle and __main__ stay on the host, __main__ unless the dataset asks for
+it (bundle.files).
 """

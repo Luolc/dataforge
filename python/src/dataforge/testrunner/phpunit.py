@@ -146,6 +146,7 @@ SPECS = {
     runner_files=RUNNER_FILES,
     restore_paths=restore_paths,
     files=("junit.py",),
+    vendor_dir=True,
   )
 }
 """PHPUnit's Spec."""
