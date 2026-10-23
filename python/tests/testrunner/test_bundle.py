@@ -149,11 +149,18 @@ RUNS: dict[
 # - core.py's _DROPPED_ENV, which keeps the caller's environment from
 #   changing what every runner and run group runs, a group whose own argv
 #   runs pytest among them, so it is no one runner's;
-# - deps.py, the dependency overrides check, which a dataset runs on each
-#   go.mod and Cargo.toml a fix changes or adds, whatever the task's runner,
-#   so every task needs it.
+# - core.py's TEST_NAMES, the file of tests that a test's directory or
+#   name does not tell, which keeps a fix from changing it in any task: a
+#   language's module would hold it only for the tasks it is copied into;
+# - deps.py, the checks of where dependencies come from, which a dataset
+#   runs on each go.mod, Cargo.toml and vendored dependency a fix changes
+#   or adds, whatever the task's runner and languages, so every task needs
+#   it.
 EXEMPT_LINES = {
-  "core.py": ['_DROPPED_ENV = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")'],
+  "core.py": [
+    '_DROPPED_ENV = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")',
+    'TEST_NAMES = frozenset({"conftest.py"})',
+  ],
 }
 EXEMPT_FILES = {"deps.py"}
 LANGUAGE_FILES = (
@@ -246,7 +253,7 @@ def _common_source(copied: dict[str, bytes], name: str) -> str:
 
 
 def test_maven_gets_no_other_runners_files():
-  copied = files_for(load(_manifest("maven")))
+  copied = files_for(load(_manifest("maven")), ())
   assert set(copied) == {
     f"testrunner/{n}"
     for n in (
@@ -272,13 +279,15 @@ def test_two_runners_get_both_their_files():
 
 
 def test_a_run_group_gets_the_files_of_its_parse_format():
-  junit = files_for(load(OWN_GROUP))
+  junit = files_for(load(OWN_GROUP), ())
   common = {"__init__.py", "core.py", "deps.py", "registry.py"}
   assert set(junit) == {f"testrunner/{n}" for n in (*common, "junit.py")}
   assert _modules(junit) == {}
   argv = OWN_GROUP.replace('parse = "junit"', 'parse = ["sh", "parse.sh"]')
   for other in (OWN_GROUP.replace("junit", "ctrf"), argv):
-    assert set(files_for(load(other))) == {f"testrunner/{n}" for n in common}
+    assert set(files_for(load(other), ())) == {
+      f"testrunner/{n}" for n in common
+    }
 
 
 def test_the_host_registry_names_every_runner():
@@ -298,7 +307,7 @@ MANIFESTS = {
 
 @pytest.mark.parametrize("case", MANIFESTS)
 def test_no_tasks_copy_has_the_hosts_files(case: str):
-  copied = files_for(load(MANIFESTS[case]))
+  copied = files_for(load(MANIFESTS[case]), ())
   assert not {f"testrunner/{n}" for n in HOST} & set(copied)
 
 
@@ -317,7 +326,7 @@ def test_an_unknown_runner_or_format_is_refused(
   runners: set[str], formats: set[str], unknown: str
 ):
   with pytest.raises(
-    ValueError, match=f"unknown runners or formats: {unknown}"
+    ValueError, match=f"unknown runners, formats or guards: {unknown}"
   ):
     _ = files(runners, formats)
 
@@ -353,7 +362,7 @@ def test_the_common_files_name_no_runner_or_language_file():
 def test_a_copy_whose_registry_lacks_its_runner_cannot_load_it(
   tmp_path: Path, runner: str
 ):
-  copied = files_for(load(_manifest(runner)))
+  copied = files_for(load(_manifest(runner)), ())
   others = set(RUNNERS) - {runner}
   copied["testrunner/registry.py"] = registry(others)
   tests = _copy(tmp_path, copied)
@@ -367,7 +376,7 @@ def test_a_copy_whose_registry_lacks_its_runner_cannot_load_it(
 def test_a_runners_files_alone_load_the_run_its_adapter_and_its_data(
   tmp_path: Path, runner: str
 ):
-  tests = _copy(tmp_path, files_for(load(_manifest(runner))))
+  tests = _copy(tmp_path, files_for(load(_manifest(runner)), ()))
   found = cast(
     "dict[str, object]",
     json.loads(_python(LOAD, str(tests), runner, IDS[runner])),
@@ -388,7 +397,7 @@ def test_the_dependency_overrides_check_runs_in_any_tasks_copy(
   # A pytest task's project may hold a Cargo.toml, such as a native
   # extension's: its copy, with no runner's module but pytest's, still
   # finds a dependency the fix takes from a path.
-  tests = _copy(tmp_path, files_for(load(_manifest("pytest"))))
+  tests = _copy(tmp_path, files_for(load(_manifest("pytest")), ()))
   assert not (tests / "testrunner" / "cargo.py").exists()
   base = '[dependencies]\nserde = "1"\n'
   text = '[dependencies]\nserde = { path = "../serde" }\n'
@@ -402,7 +411,7 @@ def test_a_tasks_files_alone_run_its_tests(tmp_path: Path, case: str):
   # command of its own needs its format's. Jasmine's stand-in runs on node.
   assert shutil.which("node") is not None, "the tests need node on the PATH"
   project, manifest, beside, listed = RUNS[case]
-  tests = _copy(tmp_path, files_for(load(manifest)))
+  tests = _copy(tmp_path, files_for(load(manifest), ()))
   app, out = tmp_path / "app", tmp_path / core.FILE
   app.mkdir()
   write(app, project)

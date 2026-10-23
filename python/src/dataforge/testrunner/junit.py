@@ -1,4 +1,4 @@
-"""Reading JUnit XML reports, such as pytest's, Surefire's and PHPUnit's.
+"""Reading JUnit XML reports, as many test frameworks write them.
 
 A report is read only as UTF-8: one that is not, or whose XML declaration
 names another encoding, is no report, so that reading it after the tests
@@ -120,8 +120,8 @@ def marked_outcome(case: ET.Element) -> Outcome:
     case: Its testcase element.
 
   Returns:
-    Its outcome, skipped also when CTest's `status` is notrun or disabled
-    or GoogleTest's `result` is skipped or suppressed.
+    Its outcome, skipped also when its `status` is notrun or disabled or
+    its `result` is skipped or suppressed, as some frameworks mark a skip.
   """
   end = outcome(case)
   if end.status == "passed" and (

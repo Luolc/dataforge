@@ -240,3 +240,11 @@ SPECS = {
   )
 }
 """go's Spec."""
+
+SOURCES = (".go",)
+"""Go's source files, which a task's copy has this module for
+(bundle.guards_for)."""
+
+PLAIN_SOURCES = SOURCES
+"""Go's tests are never in a file whose directory or name alone makes it a
+test's (core.is_test_file)."""

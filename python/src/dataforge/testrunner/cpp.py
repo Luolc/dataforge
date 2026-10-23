@@ -15,6 +15,10 @@ full one (`Suite.Test`, `Inst/Suite.Test/0`); a binary covers its tests, a
 suite its tests (`<binary>::Suite`) and a parametrized test its instances.
 An ID names no source file, so restore_paths gives none: a dataset restores
 the files that define its tests itself.
+
+It also holds C's and C++'s check of a fix's files (core.guards): the
+redefinitions of GoogleTest's macros that change what tests check
+(rewires).
 """
 
 from __future__ import annotations
@@ -199,3 +203,53 @@ SPECS = {
   "gtest": Spec(GTest, build_config=CMAKE, files=("junit.py",)),
 }
 """The Spec of CTest and of a GoogleTest binary."""
+
+SOURCES = (".h", ".hh", ".hpp", ".hxx", ".c", ".cc", ".cpp", ".cxx")
+"""C's and C++'s source files, which a task's copy has this module for
+(bundle.guards_for)."""
+
+GTEST_MACROS = frozenset(
+  {
+    "TEST",
+    "TEST_F",
+    "TEST_P",
+    "TYPED_TEST",
+    "TYPED_TEST_P",
+    "FAIL",
+    "SUCCEED",
+    "ADD_FAILURE",
+    "ADD_FAILURE_AT",
+  }
+)
+"""GoogleTest's macros that tests are declared, assert or fail with, which
+a `#define` or `#undef` of the same name in the project's code changes
+(rewires); also each that starts with one of GTEST_PREFIXES."""
+
+GTEST_PREFIXES = ("EXPECT_", "ASSERT_", "GTEST_")
+
+# What rewires reads of the lines a fix adds, joined, with their comments
+# and line continuations removed and their whitespace collapsed to one
+# space: a `#define` or `#undef` and its name.
+_COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+_DEFINE = re.compile(r"# ?(define|undef) (\w+)")
+
+
+def rewires(path: str, added: str) -> str | None:
+  """Return what lines a fix adds to a C or C++ file change what tests check.
+
+  Args:
+    path: The file's path.
+    added: The lines added, joined by newlines.
+
+  Returns:
+    In a file of SOURCES, `#define <name>` or `#undef <name>` for one of
+    GoogleTest's macros (GTEST_MACROS, GTEST_PREFIXES); None for none.
+  """
+  if not path.endswith(SOURCES):
+    return None
+  joined = _COMMENT.sub(" ", added)
+  text = " ".join(joined.replace("\\\n", " ").split())
+  for m in _DEFINE.finditer(text):
+    if m[2] in GTEST_MACROS or m[2].startswith(GTEST_PREFIXES):
+      return f"#{m[1]} {m[2]}"
+  return None
