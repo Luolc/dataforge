@@ -74,7 +74,7 @@ export function Summary({
           <p className="p-4 text-fg-3">This record has no graph.</p>
         )}
       </Card>
-      <TaskCard project={project} attempt={attempt} />
+      <TaskCard project={project} attempt={attempt} record={record} />
       <Summaries project={project} record={record} runHref={runHref} />
       <Deliverables project={project} attempt={attempt} record={record} />
     </div>
