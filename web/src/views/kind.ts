@@ -16,24 +16,92 @@ export interface DeliverableProps {
 }
 
 /**
- * Deliverables of a kind in the order their tab stacks them: those the
- * attempt reached, then the others, each in their own order.
+ * Whether a deliverable the attempt reached leads its kind: the project's
+ * condition for it holds on the outcome data of the visit it came from.
  */
-export function reachedFirst(items: Deliverable[]): Deliverable[] {
+function leads(
+  project: Project,
+  record: AttemptRecord,
+  item: Deliverable,
+): boolean {
+  const when = (project.deliverables ?? []).find(
+    (d) => d.name === item.name,
+  )?.default;
+  if (typeof when !== "object" || item.path === null) return false;
+  const visit =
+    item.visit_index === null ? undefined : record.visits[item.visit_index];
+  let value: unknown = visit?.data;
+  for (const key of when.field) {
+    if (!isObject(value) || !(key in value)) return false;
+    value = value[key];
+  }
+  return sameJson(value, when.equals);
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function sameJson(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b))
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, i) => sameJson(item, b[i]))
+    );
+  if (isObject(a) && isObject(b)) {
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((key) => key in b && sameJson(a[key], b[key]))
+    );
+  }
+  return a === b;
+}
+
+/**
+ * Deliverables of a kind with those that lead it (leads) first, then the
+ * others, each in their own order.
+ */
+export function leadersFirst(
+  project: Project,
+  record: AttemptRecord,
+  items: Deliverable[],
+): Deliverable[] {
+  const first = (item: Deliverable) => leads(project, record, item);
+  return [...items.filter(first), ...items.filter((item) => !first(item))];
+}
+
+/**
+ * Deliverables of a kind in the order their tab stacks them: those that
+ * lead it, then the others the attempt reached, then the rest, each in
+ * their own order.
+ */
+export function reachedFirst(
+  project: Project,
+  record: AttemptRecord,
+  items: Deliverable[],
+): Deliverable[] {
   const reached = (item: Deliverable) => item.path !== null;
-  return [...items.filter(reached), ...items.filter((item) => !reached(item))];
+  return leadersFirst(project, record, [
+    ...items.filter(reached),
+    ...items.filter((item) => !reached(item)),
+  ]);
 }
 
 /**
  * The deliverable of a kind that its tab is titled and counted by and opens
- * on: the first the attempt reached, else the one the project marks
- * default, else the first.
+ * on: the first that leads it, else the first the attempt reached, else the
+ * one the project marks default, else the first.
  */
 export function leading(
   project: Project,
+  record: AttemptRecord,
   items: Deliverable[],
 ): Deliverable | undefined {
-  const reached = items.find((item) => item.path !== null);
+  const reached = reachedFirst(project, record, items).find(
+    (item) => item.path !== null,
+  );
   if (reached !== undefined) return reached;
   const marked = (project.deliverables ?? []).filter((d) => d.default === true);
   return (
@@ -44,8 +112,13 @@ export function leading(
 /** The title of a kind's tab: the project's for the kind, else its leading one's. */
 export function kindTitle(
   project: Project,
+  record: AttemptRecord,
   kind: string,
   items: Deliverable[],
 ): string {
-  return project.kinds?.[kind]?.title ?? leading(project, items)?.title ?? kind;
+  return (
+    project.kinds?.[kind]?.title ??
+    leading(project, record, items)?.title ??
+    kind
+  );
 }

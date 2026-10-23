@@ -18,7 +18,12 @@ import { ChoiceMenu } from "../ui/menu";
 import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
 import FilesView from "./files";
-import { type DeliverableProps, leading, reachedFirst } from "./kind";
+import {
+  type DeliverableProps,
+  leadersFirst,
+  leading,
+  reachedFirst,
+} from "./kind";
 import ReportView from "./report";
 import TrialsView from "./trials";
 
@@ -195,7 +200,8 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
   const { View, stack } = kindOf(kind);
   const [query, setQuery] = useSearchParams();
   const asked = props.items.find((d) => d.name === query.get("deliverable"));
-  const chosen = (asked ?? leading(props.project, props.items))?.name;
+  const chosen = (asked ?? leading(props.project, props.record, props.items))
+    ?.name;
   const setChosen = (name: string) => {
     setQuery((before) => {
       const next = new URLSearchParams(before);
@@ -207,13 +213,15 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
     });
   };
   const shown = stack
-    ? reachedFirst(props.items)
+    ? reachedFirst(props.project, props.record, props.items)
     : props.items.filter((d) => d.name === chosen).slice(0, 1);
   return (
     <div className="flex flex-col gap-3 px-7 pt-5 pb-12">
       {!stack && props.items.length > 1 && (
         <ChoiceMenu
-          items={props.items.map(choice)}
+          items={leadersFirst(props.project, props.record, props.items).map(
+            choice,
+          )}
           chosen={shown[0] && choice(shown[0])}
           onChoose={setChosen}
         />

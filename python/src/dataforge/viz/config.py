@@ -297,6 +297,19 @@ class JobKind:
 
 
 @dataclass(frozen=True, slots=True)
+class When:
+  """A condition on the outcome data of the visit a deliverable came from.
+
+  Attributes:
+    field: The keys of a value in the data, from the outside in.
+    equals: What the value must equal, JSON data.
+  """
+
+  field: tuple[str, ...]
+  equals: object
+
+
+@dataclass(frozen=True, slots=True)
 class Deliverable:
   """A deliverable the dataset's declaration names, as a record names it.
 
@@ -306,15 +319,17 @@ class Deliverable:
     title: Its title.
     no_trace: For a deliverable of trials, why a trial of it that has no
       trace has none, shown in its place; None for the viewer's own words.
-    default: Whether it names its kind's tab, and opens first in it, while
-      the attempt has reached no deliverable of the kind.
+    default: True when it names its kind's tab, and opens first in it,
+      while the attempt has reached no deliverable of the kind; a When when
+      it does so, and stacks first, in an attempt that reached it from a
+      visit whose data meets the When, before the others of its kind.
   """
 
   name: str
   kind: str
   title: str
   no_trace: str | None = None
-  default: bool = False
+  default: bool | When = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,7 +466,11 @@ class Project:
           "kind": d.kind,
           "title": d.title,
           "no_trace": d.no_trace,
-          "default": d.default,
+          "default": (
+            {"field": list(d.default.field), "equals": d.default.equals}
+            if isinstance(d.default, When)
+            else d.default
+          ),
         }
         for d in self.deliverables
       ],
@@ -1075,16 +1094,40 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
       no_trace = _str(path, f"{where}.no_trace", no_trace)
       if kind != "trials":
         raise ConfigError(f"{path}: {where}.no_trace: for kind trials only")
-    default = entry.get("default", False)
-    if not isinstance(default, bool):
-      raise ConfigError(f"{path}: {where}.default: not true or false")
-    if default and any(d.kind == kind and d.default for d in found):
+    default = _default(path, f"{where}.default", entry.get("default", False))
+    if default is True and any(
+      d.kind == kind and d.default is True for d in found
+    ):
       other = f"another deliverable of kind {kind!r} is the default"
       raise ConfigError(f"{path}: {where}.default: {other}")
     found.append(
       Deliverable(name, kind, title, no_trace=no_trace, default=default)
     )
   return tuple(found)
+
+
+def _default(path: Path, where: str, value: object) -> bool | When:
+  if isinstance(value, bool):
+    return value
+  if not isinstance(value, dict):
+    raise ConfigError(f"{path}: {where}: not true, false or a condition")
+  entry = cast(dict[str, object], value)
+  _keys(path, where, entry, required={"field", "equals"}, optional=set())
+  equals = entry["equals"]
+  if not _is_json(equals):
+    raise ConfigError(f"{path}: {where}.equals: not JSON data")
+  return When(_field_keys(path, where, entry["field"]), equals)
+
+
+def _is_json(value: object) -> bool:
+  if value is None or isinstance(value, str | int | float | bool):
+    return True
+  if isinstance(value, list):
+    return all(_is_json(item) for item in cast(list[object], value))
+  if isinstance(value, dict):
+    items = cast(dict[object, object], value).items()
+    return all(isinstance(k, str) and _is_json(v) for k, v in items)
+  return False
 
 
 def _kinds(

@@ -221,6 +221,10 @@ def test_projects_carry_a_kind_s_title_and_its_default(
     + "  - {name: regrade, kind: trials, title: Regrade}\n"
     + "  - {name: pass_at_k, kind: trials, title: Pass@k, default: true}\n"
     + "  - {name: review, kind: report, title: Review}\n"
+    + "  - name: told\n"
+    + "    kind: trials\n"
+    + "    title: Told\n"
+    + "    default: {field: [settings], equals: [explicit]}\n"
     + "kinds: {report: {title: Reviews}}\n"
   )
 
@@ -232,6 +236,7 @@ def test_projects_carry_a_kind_s_title_and_its_default(
     ("regrade", False),
     ("pass_at_k", True),
     ("review", False),
+    ("told", {"field": ["settings"], "equals": ["explicit"]}),
   ]
   assert project["kinds"] == {"report": {"title": "Reviews"}}
 

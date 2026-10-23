@@ -45,7 +45,10 @@ export const project = z.looseObject({
   }),
   not_ended: z.array(z.string()).nullable().optional(),
   // Each deliverable a dataset's declaration names; the one marked default
-  // names its kind's tab while the attempt has reached none of the kind.
+  // names its kind's tab while the attempt has reached none of the kind,
+  // and one whose default is a condition leads its kind, the first of them,
+  // in an attempt whose visit it came from has `equals` at `field` of its
+  // outcome data.
   // no_trace: for a deliverable of trials, why a trial of it with no trace
   // has none, in the project's words.
   deliverables: z
@@ -55,7 +58,12 @@ export const project = z.looseObject({
         kind: z.string(),
         title: z.string(),
         no_trace: z.string().nullable().optional(),
-        default: z.boolean().optional(),
+        default: z
+          .union([
+            z.boolean(),
+            z.looseObject({ field: z.array(z.string()), equals: z.unknown() }),
+          ])
+          .optional(),
       }),
     )
     .optional(),
