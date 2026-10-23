@@ -213,9 +213,10 @@ class _Runner:
     assert self.row is not None
     # Read again: a take_over that failed has given it a problem since.
     row = self.store.get(row.id) or row
-    why = f"{self.row.id} started in its place"
+    why = "Started again as a new attempt"
     if row.resume_problem:
       why += f": {row.resume_problem}"
+    why += f" ({self.row.id})"
     if self.store.abandon(row.id, self.hooks.given_up, why):
       ended = self.store.get(row.id)
       if ended is None:
