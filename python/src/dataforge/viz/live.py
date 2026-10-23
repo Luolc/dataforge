@@ -6,7 +6,7 @@ item's attempts runs. The viewer learns whether that lock is held only from
 that tried to take it at that moment would find it busy and fail.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 import logging
 import os
@@ -15,6 +15,7 @@ import re
 import stat
 from typing import cast
 
+from dataforge.queue import Job
 from dataforge.viz.config import Project
 from dataforge.viz.paths import stat_lock
 
@@ -113,38 +114,84 @@ def is_held(
   return key in held
 
 
-def mark(project: Project, rows: list[dict[str, object]]) -> None:
-  """Set held on every row of the listing, and live on those not ended.
+def mark(
+  project: Project, rows: list[dict[str, object]], touched: Mapping[str, float]
+) -> None:
+  """Set held and holder on every row, and live on those not ended.
 
-  Without a lock file, held stays None and live "not ended". With one, held
-  says whether the row's item's lock is held, a record that cannot be read
-  included, and a row not ended is "running" only when its item's lock is
-  held and it is the item's newest attempt by modified, since one lock covers
-  the whole item; every other is "may have stopped".
+  Without a lock file, held and holder stay None and live "not ended". With
+  one, held says whether the row's item's lock is held, a record that cannot
+  be read included. Since one lock covers the whole item, it is taken to be
+  held for one attempt alone, its holder: of those that may run, one that
+  has not ended or has no record yet, the one that wrote last, by touched.
+  A row not ended is "running" when it is its item's holder, and "may have
+  stopped" otherwise.
 
   Args:
     project: The project.
-    rows: The listing, newest modified first, live "not ended" or None; a
-      row whose record could not be read has an error and is no item's
-      newest.
+    rows: The listing, newest modified first, live "not ended" or None.
+    touched: For each attempt that may run, by ID, when it last wrote, in
+      seconds since the epoch: its record's mtime, or its directory's while it
+      has no record; an attempt not in it does not run.
   """
   if project.lock is None:
     return
   held = read_held_locks()
   locked: dict[str, bool] = {}
-  seen: set[str] = set()
+  holders: dict[str, str] = {}
   for row in rows:
     item = str(row["item"])
     if item not in locked:
       locked[item] = is_held(project, item, held)
+    at = touched.get(str(row["id"]))
+    if not locked[item] or at is None:
+      continue
+    holder = holders.get(item)
+    # The first of two that wrote at once, as the listing orders them.
+    if holder is None or at > touched[holder]:
+      holders[item] = str(row["id"])
+  for row in rows:
+    item = str(row["item"])
     row["held"] = locked[item]
-    if row["error"] is not None:
+    row["holder"] = holders.get(item) == row["id"]
+    if row["live"] is not None:
+      row["live"] = RUNNING if row["holder"] else MAY_HAVE_STOPPED
+
+
+def stopped(
+  project: Project, rows: list[dict[str, object]], ended: list[Job]
+) -> None:
+  """Set stopped on each row that may have stopped and is known to have.
+
+  An attempt that may have stopped has stopped for sure when its item's lock
+  is not held and a job of the queue that ran it has ended: a job labelled
+  with the project and the item that was running when the record was last
+  written, from its start to its end.
+
+  Args:
+    project: The project.
+    rows: The listing, marked.
+    ended: The queue's jobs that have ended.
+  """
+  for row in rows:
+    if row["live"] != MAY_HAVE_STOPPED or row["held"] is not False:
       continue
-    newest = item not in seen
-    seen.add(item)
-    if row["live"] is None:
+    try:
+      wrote = datetime.fromisoformat(str(row["modified"])).timestamp()
+    except ValueError:
       continue
-    row["live"] = RUNNING if newest and locked[item] else MAY_HAVE_STOPPED
+    ran = [
+      job
+      for job in ended
+      if job.labels.get("project") == project.id
+      and job.labels.get("item") == row["item"]
+      and job.started_at is not None
+      and job.ended_at is not None
+      and job.started_at <= wrote <= job.ended_at
+    ]
+    if ran:
+      job = max(ran, key=lambda j: j.id)
+      row["stopped"] = {"job": job.id, "state": job.state}
 
 
 def current(record: dict[str, object]) -> dict[str, object] | None:

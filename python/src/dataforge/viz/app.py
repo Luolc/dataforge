@@ -115,8 +115,10 @@ class _Api:
 
   def attempts(self, p: str) -> Response:
     project = self._project(p)
-    rows = [_row(project, attempt)[0] for attempt in list_attempts(project)]
-    _mark(project, rows)
+    read = [_row(project, attempt) for attempt in list_attempts(project)]
+    rows = [row for row, _, _ in read]
+    _mark(project, rows, _touched(read))
+    self._stopped(project, rows)
     self._mark_queued(project, rows)
     unstarted = [
       row
@@ -142,8 +144,10 @@ class _Api:
     }
     if attempt not in read:
       raise RefusedError(404, f"no attempt {attempt!r}")
-    _mark(project, [row for row, _ in read.values()])
-    row, record = read[attempt]
+    rows = [row for row, _, _ in read.values()]
+    _mark(project, rows, _touched(list(read.values())))
+    self._stopped(project, rows)
+    row, record, _ = read[attempt]
     running = row["live"] == live.RUNNING
     current = live.current(record) if running and record else None
     if current is not None and current["since"] is None:
@@ -152,6 +156,8 @@ class _Api:
       {
         "live": row["live"],
         "held": row["held"],
+        "holder": row["holder"],
+        "stopped": row["stopped"],
         "current": current,
         "state": row["state"],
         "status": row["status"],
@@ -457,6 +463,26 @@ class _Api:
         found.append(find(tab.job, attempt))
       row["queued"] = found
 
+  def _stopped(self, project: Project, rows: list[dict[str, object]]) -> None:
+    # Which job ran each attempt that may have stopped, its item's lock free,
+    # once it has ended; nothing with runs, whose rows say how each stands,
+    # nor when the site names no queue or it cannot be read, and the queue
+    # is read only when some row may have stopped so.
+    if (
+      project.runs is not None
+      or self._site.queue is None
+      or not any(
+        row["live"] == live.MAY_HAVE_STOPPED and row["held"] is False
+        for row in rows
+      )
+    ):
+      return
+    try:
+      ended = queue.jobs(self._site.queue, states=actions.ENDED)
+    except sqlite3.Error, OSError:
+      return
+    live.stopped(project, rows, ended)
+
   def _open_jobs(self) -> list[queue.Job]:
     try:
       return queue.jobs(self._config(), states=actions.OPEN)
@@ -572,24 +598,32 @@ def _error(status: int, reason: str) -> Response:
   )
 
 
-def _mark(project: Project, rows: list[dict[str, object]]) -> None:
+_Read = tuple[dict[str, object], dict[str, object] | None, float | None]
+
+
+def _touched(read: list[_Read]) -> dict[str, float]:
+  # When each attempt that may run last wrote, by ID, from _row.
+  return {str(row["id"]): t for row, _, t in read if t is not None}
+
+
+def _mark(
+  project: Project, rows: list[dict[str, object]], touched: dict[str, float]
+) -> None:
   rows.sort(key=lambda r: cast(str, r["modified"] or ""), reverse=True)
   if project.runs is not None:
     runs.mark(project, rows)
   else:
-    live.mark(project, rows)
+    live.mark(project, rows, touched)
 
 
 def _item_rows(project: Project, item: str) -> list[dict[str, object]]:
   # The listing's rows of an item's attempts, newest first, marked.
-  rows = [
-    _row(project, a)[0]
-    for a in list_attempts(project)
-    if _item(project, a) == item
-  ]
-  if not rows:
+  read = [_row(project, a) for a in list_attempts(project)]
+  read = [r for r in read if r[0]["item"] == item]
+  if not read:
     raise RefusedError(404, f"no attempt of item {item!r}")
-  _mark(project, rows)
+  rows = [row for row, _, _ in read]
+  _mark(project, rows, _touched(read))
   return rows
 
 
@@ -610,10 +644,11 @@ def _item(project: Project, attempt: str) -> str:
   return "/".join(attempt.split("/")[: project.item.depth])
 
 
-def _row(
-  project: Project, attempt: str
-) -> tuple[dict[str, object], dict[str, object] | None]:
-  # A row of the listing, and the record it read, None when there is none.
+def _row(project: Project, attempt: str) -> _Read:
+  # A row of the listing, the record it read, None when there is none, and,
+  # for an attempt its item's lock may be held for, when it last wrote: the
+  # record's mtime for one that has not ended, its directory's for one that
+  # has no record yet, as one that has just started; else None.
   row: dict[str, object] = {
     "id": attempt,
     "item": _item(project, attempt),
@@ -630,27 +665,33 @@ def _row(
     "queued": None,
     "live": None,
     "held": None,
+    "holder": None,
+    "stopped": None,
     "state": None,
     "note": None,
     "progress_at": None,
     "error": None,
   }
+  made: float | None = None
   try:
     with open_attempt(project, attempt) as fd:
+      made = os.fstat(fd).st_mtime
       read = read_record(project, fd)
       from_files = [
         None if c.file is None else tabs.column_value(project, c, fd)
         for c in project.columns
       ]
   except RefusedError as error:
-    return row | {"error": f"the record: {error.reason}"}, None
+    # An attempt that has just started may have written no record yet.
+    fresh = made if error.absent else None
+    return row | {"error": f"the record: {error.reason}"}, None, fresh
   row["modified"] = datetime.fromtimestamp(read.mtime, UTC).isoformat()
   try:
     record = cast(object, json.loads(read.data))
   except ValueError, RecursionError:
-    return row | {"error": "the record is not JSON"}, None
+    return row | {"error": "the record is not JSON"}, None, None
   if not isinstance(record, dict):
-    return row | {"error": "the record is not a JSON object"}, None
+    return row | {"error": "the record is not a JSON object"}, None, None
   data = cast(dict[str, object], record)
   # The record is the file as an attempt left it: each value is checked
   # before it is used, and one of another type reads as missing.
@@ -669,21 +710,28 @@ def _row(
   outcome = _str(visits[-1].get("outcome")) if visits else None
   ended = live.has_ended(project, status, outcome)
   cost, cost_from = _cost(data, actions)
-  return row | {
-    "status": status,
-    "reason": _str(_field(data, ("reason",))),
-    "cost_usd": cost,
-    "cost_from": cost_from,
-    "started_at": _str(actions[0].get("started_at")) if actions else None,
-    "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
-    "rounds": _rounds(visits),
-    "values": [
-      _field(data, c.field) if found is None else found["value"]
-      for c, found in zip(project.columns, from_files, strict=True)
-    ],
-    "reads": [None if found is None else found["read"] for found in from_files],
-    "live": None if ended else live.NOT_ENDED,
-  }, data
+  return (
+    row
+    | {
+      "status": status,
+      "reason": _str(_field(data, ("reason",))),
+      "cost_usd": cost,
+      "cost_from": cost_from,
+      "started_at": _str(actions[0].get("started_at")) if actions else None,
+      "ended_at": _str(actions[-1].get("ended_at")) if actions else None,
+      "rounds": _rounds(visits),
+      "values": [
+        _field(data, c.field) if found is None else found["value"]
+        for c, found in zip(project.columns, from_files, strict=True)
+      ],
+      "reads": [
+        None if found is None else found["read"] for found in from_files
+      ],
+      "live": None if ended else live.NOT_ENDED,
+    },
+    data,
+    None if ended else read.mtime,
+  )
 
 
 def _cost(

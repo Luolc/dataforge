@@ -210,6 +210,34 @@ def test_load_reads_run_groups_restore_and_expect():
   )
 
 
+def test_runners_are_those_of_its_tests_and_its_presets():
+  # A preset's group names its runner without a test of its own; a group
+  # with a command of its own names none.
+  more = """
+[[run]]
+name = "lint"
+preset = "go"
+
+[[test]]
+suite = "p2p"
+runner = "maven"
+id = "a.B#c"
+"""
+  assert load(GROUPS + more).runners == {"pytest", "go", "maven"}
+  own = """
+[[run]]
+name = "own"
+run = ["sh", "run.sh"]
+parse = "junit"
+
+[[test]]
+suite = "p2p"
+run = "own"
+id = "x"
+"""
+  assert load(own).runners == set()
+
+
 @pytest.mark.parametrize(
   ("tables", "problem"),
   [

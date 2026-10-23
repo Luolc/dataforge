@@ -1,0 +1,243 @@
+"""The dependency overrides check, of where build files take dependencies from.
+
+It is not a runner's: a project of any runner may hold such a build file,
+such as a native extension's, so every task's copy has this module
+(bundle.COMMON) and it imports no runner's.
+"""
+
+from __future__ import annotations
+
+import json
+import tomllib
+from typing import cast
+
+DEPENDENCY_FILES: dict[str, str] = {"go": "go.mod", "cargo": "Cargo.toml"}
+"""For each runner that builds its tests with the project's dependencies,
+the name of the build file that says where they come from: a fix may need to
+change it, so it is not one of the runner's runner_files, and a dataset
+compares it with the base's through dependency_overrides."""
+
+
+def dependency_file(runner: str) -> str | None:
+  """Return the name of the file that says where a runner's dependencies are.
+
+  Args:
+    runner: The runner.
+
+  Returns:
+    Its DEPENDENCY_FILES entry; None when it has none.
+  """
+  return DEPENDENCY_FILES.get(runner)
+
+
+def dependency_overrides(
+  runner: str, base_text: str | None, text: str
+) -> list[str]:
+  """Return what a build file puts in place of a dependency, beyond its base.
+
+  A fix that points a dependency, such as a test framework or an assertion
+  library, at a copy of its own makes the tests run against that copy; a
+  dataset judges such a fix as it sees fit. A dependency's new version is
+  not one, since it still comes from where the base's did.
+
+  Args:
+    runner: A runner of DEPENDENCY_FILES.
+    base_text: The file at the base; None when the base has none.
+    text: The file as the fix leaves it.
+
+  Returns:
+    The overrides text has and base_text has not, sorted: for go, the
+    replace directives of a go.mod (replacements); for cargo, the patch and
+    replace entries of a Cargo.toml and its dependencies taken from a path
+    or git (overrides).
+
+  Raises:
+    ValueError: When either text cannot be read, or the runner has no
+      dependency file.
+  """
+  read = {"go": replacements, "cargo": overrides}.get(runner)
+  if read is None:
+    raise ValueError(f"{runner} has no dependency file")
+  before: set[str] = set() if base_text is None else read(base_text)
+  return sorted(read(text) - before)
+
+
+def replacements(text: str) -> set[str]:
+  """Return the replace directives of a go.mod.
+
+  The file is read as golang.org/x/mod's modfile reads it: `//` comments,
+  quoted paths, and a directive's block, `replace (` up to `)`, each line
+  of it a directive of its own.
+
+  Args:
+    text: The go.mod.
+
+  Returns:
+    Each directive as `<path> [<version>] => <path> [<version>]`.
+
+  Raises:
+    ValueError: When a string or a block is not closed.
+  """
+  found: set[str] = set()
+  verb: str | None = None  # the verb of the block being read
+  for line in _go_mod_lines(text):
+    if verb is not None:
+      if line == [")"]:
+        verb = None
+      else:
+        line = [verb, *line]
+    elif len(line) == 2 and line[1] == "(":
+      verb = line[0]
+      continue
+    if line[0] == "replace" and "=>" in line[1:]:
+      found.add(" ".join(line[1:]))
+  if verb is not None:
+    raise ValueError(f"go.mod: the {verb} block is not closed")
+  return found
+
+
+_GO_PUNCT = frozenset("()[]{},")
+
+
+def _go_mod_lines(text: str) -> list[list[str]]:
+  # The tokens of each line that has any, quoted strings unquoted.
+  lines: list[list[str]] = []
+  for raw in text.splitlines():
+    tokens: list[str] = []
+    i = 0
+    while i < len(raw):
+      c = raw[i]
+      if c in " \t\r":
+        i += 1
+      elif raw.startswith("//", i):
+        break
+      elif c in _GO_PUNCT:
+        tokens.append(c)
+        i += 1
+      elif c in '"`':
+        end = _go_string_end(raw, i)
+        quoted = raw[i : end + 1]
+        tokens.append(quoted[1:-1] if c == "`" else json.loads(quoted))
+        i = end + 1
+      else:
+        start = i
+        while (
+          i < len(raw)
+          and raw[i] not in " \t\r"
+          and raw[i] not in _GO_PUNCT
+          and not raw.startswith("//", i)
+        ):
+          i += 1
+        tokens.append(raw[start:i])
+    if tokens:
+      lines.append(tokens)
+  return lines
+
+
+def _go_string_end(line: str, start: int) -> int:
+  # The index of the quote that closes the string opening at start.
+  quote, i = line[start], start + 1
+  while i < len(line):
+    if line[i] == "\\" and quote == '"':
+      i += 2
+    elif line[i] == quote:
+      return i
+    else:
+      i += 1
+  raise ValueError(f"go.mod: a string is not closed: {line}")
+
+
+def overrides(text: str) -> set[str]:
+  """Return what a Cargo.toml puts in place of a dependency's source.
+
+  That is each entry of its `patch` and `replace` tables, and each
+  dependency of a dependency table (`dependencies`, `dev-dependencies` and
+  `build-dependencies`, with their old `_` spellings, those of each
+  `target`, and `workspace.dependencies`) taken from a path or a git
+  repository, with the keys that say which.
+
+  Args:
+    text: The Cargo.toml.
+
+  Returns:
+    Each as `<table>.<name> = <its value or keys as JSON>`.
+
+  Raises:
+    ValueError: When it is not TOML.
+  """  # noqa: DOC502
+  doc = tomllib.loads(text)
+  found: set[str] = set()
+  for key in ("patch", "replace"):
+    for name, value in _leaves(
+      doc.get(key), (key,), 2 if key == "patch" else 1
+    ):
+      found.add(f"{name} = {json.dumps(value, sort_keys=True)}")
+  for table, deps in _dependency_tables(doc):
+    for name, dep in deps.items():
+      if not isinstance(dep, dict):
+        continue
+      source = {
+        k: v for k, v in cast("dict[str, object]", dep).items() if k in _SOURCE
+      }
+      if "path" in source or "git" in source:
+        line = (
+          f"{'.'.join((*table, name))} = {json.dumps(source, sort_keys=True)}"
+        )
+        found.add(line)
+  return found
+
+
+_DEPENDENCIES = (
+  "dependencies",
+  "dev-dependencies",
+  "dev_dependencies",
+  "build-dependencies",
+  "build_dependencies",
+)
+# The keys that say where a dependency comes from, besides the registry.
+_SOURCE = frozenset({"path", "git", "branch", "tag", "rev"})
+
+
+def _leaves(
+  value: object, prefix: tuple[str, ...], depth: int
+) -> list[tuple[str, object]]:
+  # The entries depth tables below value, by their dotted names.
+  if not isinstance(value, dict):
+    return [] if value is None else [(".".join(prefix), value)]
+  table = cast("dict[str, object]", value)
+  if depth == 0:
+    return [(".".join(prefix), table)]
+  return [
+    leaf
+    for key, inner in table.items()
+    for leaf in _leaves(inner, (*prefix, key), depth - 1)
+  ]
+
+
+def _dependency_tables(
+  doc: dict[str, object],
+) -> list[tuple[tuple[str, ...], dict[str, object]]]:
+  # Each dependency table, by its path, with its entries.
+  found: list[tuple[tuple[str, ...], dict[str, object]]] = []
+  scopes: list[tuple[tuple[str, ...], object]] = [((), doc)]
+  targets = doc.get("target")
+  if isinstance(targets, dict):
+    scopes += [
+      (("target", cfg), inner)
+      for cfg, inner in cast("dict[str, object]", targets).items()
+    ]
+  for prefix, scope in scopes:
+    if not isinstance(scope, dict):
+      continue
+    for key in _DEPENDENCIES:
+      deps = cast("dict[str, object]", scope).get(key)
+      if isinstance(deps, dict):
+        found.append(((*prefix, key), cast("dict[str, object]", deps)))
+  workspace = doc.get("workspace")
+  if isinstance(workspace, dict):
+    deps = cast("dict[str, object]", workspace).get("dependencies")
+    if isinstance(deps, dict):
+      found.append(
+        (("workspace", "dependencies"), cast("dict[str, object]", deps))
+      )
+  return found

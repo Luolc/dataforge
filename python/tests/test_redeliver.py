@@ -159,6 +159,36 @@ def test_an_attempt_that_has_not_ended_is_never_written(
   ]
 
 
+@pytest.mark.parametrize("ending", ["raised", "interrupted"])
+def test_a_record_whose_last_visit_did_not_finish_gets_what_those_before_made(
+  tmp_path: Path, ending: str
+) -> None:
+  # As a dataforge before the visits before it were kept wrote it: a second
+  # visit that did not finish, and no deliverables.
+  record = ended_record(tmp_path / "attempt", None)
+  data = read(record)
+  visits = cast(list[dict[str, object]], data["visits"])
+  ending_visit: dict[str, object] = {
+    "visit": 2,
+    "outcome": ending,
+    "actions": [],
+  }
+  visits.append(visits[0] | ending_visit)
+  data["deliverables"] = []
+  _ = record.write_text(json.dumps(data, indent=2) + "\n")
+  machine = Machine(STATES, deliverables=NEW)
+
+  wrote = redeliver(machine, record, write=True)
+
+  assert wrote.action == "wrote"
+  [entry] = entries(read(record))
+  assert (entry["visit_index"], entry["path"], entry["k"]) == (
+    0,
+    "artifacts/regrade/1",
+    3,
+  )
+
+
 def test_dataforge_redeliver_previews_then_writes(
   tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

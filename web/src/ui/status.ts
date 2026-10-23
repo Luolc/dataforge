@@ -132,6 +132,11 @@ export const viewerStatus = {
   noOutcome: { label: NO_OUTCOME, tone: "neutral" },
   unreadable: { label: UNREADABLE, tone: "bad" },
   discarded: { label: DISCARDED, tone: "neutral" },
+  /**
+   * An attempt that may have stopped, whose item's lock is free and whose
+   * job has ended: nothing runs it.
+   */
+  stopped: { label: "Stopped", tone: "warn" },
 } as const satisfies Record<string, { label: string; tone: Tone }>;
 
 /**

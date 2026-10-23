@@ -25,7 +25,7 @@ import shlex
 from typing import final, override
 
 from . import junit
-from .adapter import Call, Context, rel, Runner
+from .adapter import Call, Context, rel, Runner, Spec
 from .ctrf import Case
 from .manifest import Test
 
@@ -180,3 +180,24 @@ class GTest(Runner):
   @override
   def covers(self, outer: str, inner: str) -> bool:
     return covers(outer, inner)
+
+
+CMAKE = (
+  "CMakeLists.txt",
+  "*.cmake",
+  "CMakePresets.json",
+  "CMakeUserPresets.json",
+)
+"""CMake's build files, which hold the tests' build and registration and
+which no command line replaces."""
+
+SPECS = {
+  "ctest": Spec(
+    CTest,
+    runner_files=("CTestCustom.cmake", "CTestCustom.ctest"),
+    build_config=CMAKE,
+    files=("junit.py",),
+  ),
+  "gtest": Spec(GTest, build_config=CMAKE, files=("junit.py",)),
+}
+"""The Spec of CTest and of a GoogleTest binary."""
