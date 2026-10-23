@@ -178,6 +178,18 @@ class Manifest:
   runs: tuple[Run, ...] = ()
   restore: tuple[str, ...] = ()
 
+  @property
+  def runners(self) -> frozenset[str]:
+    """The runners its tests and its run groups' presets name.
+
+    A run group with a command of its own names none: it needs only the
+    package's common files (bundle.COMMON).
+    """
+    return frozenset(
+      {t.runner for t in self.tests if t.runner}
+      | {r.preset for r in self.runs if r.preset}
+    )
+
 
 def read(
   tests: Path,

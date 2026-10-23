@@ -18,22 +18,19 @@ from __future__ import annotations
 from collections.abc import Collection
 import configparser
 import fnmatch
+import importlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import sys
 import tomllib
-from typing import final, override
+from typing import cast, final, override
 import xml.etree.ElementTree as ET
 
-from . import cargo, gotest, junit
-from .adapter import Call, Context, PREFIX, rel, Runner, write_new
-from .cargo import Cargo
-from .cpp import CTest, GTest
+from . import junit
+from .adapter import Call, Context, JS_SEP, PREFIX, rel, Runner, write_new
 from .ctrf import Case
-from .gotest import GoTest
-from .js import Jasmine, Jest, Node, SEP, Vitest
 from .manifest import Test
 
 RUNNER_FILES: dict[str, tuple[str, ...]] = {
@@ -105,8 +102,17 @@ def dependency_overrides(
     ValueError: When either text cannot be read, or the runner has no
       dependency file.
   """
-  read = {"go": gotest.replacements, "cargo": cargo.overrides}.get(runner)
-  if read is None:
+  # Imported here, as in restore_paths: a task's copy may lack the module of
+  # a runner it does not use (bundle.files).
+  if runner == "go":
+    from . import gotest
+
+    read = gotest.replacements
+  elif runner == "cargo":
+    from . import cargo
+
+    read = cargo.overrides
+  else:
     raise ValueError(f"{runner} has no dependency file")
   before: set[str] = set() if base_text is None else read(base_text)
   return sorted(read(text) - before)
@@ -548,20 +554,37 @@ def _pcre(text: str) -> str:
   return re.sub(r"(\W)", r"\\\1", text)
 
 
-ADAPTERS: dict[str, type[Runner]] = {
-  "pytest": Pytest,
-  "jest": Jest,
-  "vitest": Vitest,
-  "jasmine": Jasmine,
-  "node": Node,
-  "go": GoTest,
-  "cargo": Cargo,
-  "ctest": CTest,
-  "gtest": GTest,
-  "maven": Maven,
-  "phpunit": PHPUnit,
+ADAPTERS: dict[str, tuple[str, str]] = {
+  "pytest": ("runners", "Pytest"),
+  "jest": ("js", "Jest"),
+  "vitest": ("js", "Vitest"),
+  "jasmine": ("js", "Jasmine"),
+  "node": ("js", "Node"),
+  "go": ("gotest", "GoTest"),
+  "cargo": ("cargo", "Cargo"),
+  "ctest": ("cpp", "CTest"),
+  "gtest": ("cpp", "GTest"),
+  "maven": ("runners", "Maven"),
+  "phpunit": ("runners", "PHPUnit"),
 }
-"""The adapter of each runner."""
+"""The adapter of each runner: the module of this package it is in and its
+class's name. A task's copy may hold the modules of only the runners its
+manifest names (bundle.files), so load_adapter imports one only for its
+runner."""
+
+
+def load_adapter(runner: str) -> type[Runner]:
+  """Return a runner's adapter, importing its module.
+
+  Args:
+    runner: A runner of ADAPTERS.
+
+  Returns:
+    The adapter's class.
+  """
+  module, name = ADAPTERS[runner]
+  found = importlib.import_module(f".{module}", __package__)
+  return cast("type[Runner]", getattr(found, name))
 
 
 def restore_paths(test: Test, files: Collection[str]) -> list[str]:
@@ -583,12 +606,16 @@ def restore_paths(test: Test, files: Collection[str]) -> list[str]:
   if test.runner in ("ctest", "gtest"):
     return []
   if test.runner == "go":
+    from . import gotest
+
     return gotest.restore_paths(test, files)
   if test.runner == "cargo":
+    from . import cargo
+
     return cargo.restore_paths(test, files)
   under = "" if test.dir == "." else test.dir + "/"
   if test.runner in ("pytest", "jest", "vitest", "jasmine", "node"):
-    path = test.id.split("::" if test.runner == "pytest" else SEP, 1)[0]
+    path = test.id.split("::" if test.runner == "pytest" else JS_SEP, 1)[0]
     return [path] if path in files else []
   if test.runner == "maven":
     cls = test.id.split("#", 1)[0].split("$", 1)[0]

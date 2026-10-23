@@ -16,6 +16,10 @@ PREFIX = ".testrunner-"
 """The start of the name of each file testrunner writes into the project for
 a run, and removes once it ends."""
 
+JS_SEP = " > "
+"""What joins a test's file and titles in the ID of a Node.js runner's test
+(js), which restore_paths reads without the adapters."""
+
 
 @dataclass(frozen=True, slots=True)
 class Context:

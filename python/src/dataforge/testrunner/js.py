@@ -23,6 +23,7 @@ from .adapter import (
   Call,
   Context,
   find_bin,
+  JS_SEP,
   PREFIX,
   rel,
   Runner,
@@ -31,9 +32,6 @@ from .adapter import (
 )
 from .ctrf import Case
 from .manifest import Test
-
-SEP = " > "
-"""What joins a test's file and titles in its ID."""
 
 JASMINE_REPORTER = Path(__file__).parent / "jasmine_reporter.cjs"
 """The Jasmine reporter that writes a run's outcomes as JSON."""
@@ -52,7 +50,7 @@ def node_id(file: str, titles: list[str]) -> str:
   Returns:
     The ID.
   """
-  return SEP.join([file, *titles])
+  return JS_SEP.join([file, *titles])
 
 
 def covers(outer: str, inner: str) -> bool:
@@ -65,7 +63,7 @@ def covers(outer: str, inner: str) -> bool:
   Returns:
     Whether inner is outer or inside it.
   """
-  return inner == outer or inner.startswith(outer + SEP)
+  return inner == outer or inner.startswith(outer + JS_SEP)
 
 
 def files_of(ctx: Context, tests: list[Test]) -> list[str]:
@@ -80,7 +78,7 @@ def files_of(ctx: Context, tests: list[Test]) -> list[str]:
   """
   found: list[str] = []
   for test in tests:
-    path = ctx.app / test.id.split(SEP, 1)[0]
+    path = ctx.app / test.id.split(JS_SEP, 1)[0]
     arg = os.path.relpath(path, ctx.dir)
     if path.is_file() and arg not in found:
       found.append(arg)
