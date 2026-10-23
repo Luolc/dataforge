@@ -258,7 +258,8 @@ def test_when_it_can_starts_anew_and_gives_up_the_row_it_could_not_take(
   assert old is not None
   assert (old.state, old.outcome) == ("ended", hooks.given_up)
   assert old.reason == (
-    f"{ended.id} started in its place: the container would not start"
+    "Started again as a new attempt: the container would not start "
+    f"({ended.id})"
   )
   assert old.settled_at is not None
   assert ended.id != stopped.id
@@ -275,7 +276,7 @@ def test_never_gives_up_each_interrupted_row_and_starts_anew(
   assert (old.state, old.outcome, old.reason) == (
     "ended",
     hooks.given_up,
-    f"{ended.id} started in its place",
+    f"Started again as a new attempt ({ended.id})",
   )
   assert not hooks.hook_calls("take_over")
   assert f"cleanup {stopped.id}" in hooks.hook_calls("cleanup")

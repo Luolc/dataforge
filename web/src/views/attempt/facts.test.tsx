@@ -43,7 +43,31 @@ describe("an attempt's cost", () => {
     const { item } = show({ ...records.passed, budget: undefined });
 
     // The sample's budget holds what its runs cost, $5.34.
-    expect(item("Cost")).toHaveTextContent("$5.34 of —from its runs");
+    expect(item("Cost")).toHaveTextContent("$5.34from its runs");
+  });
+});
+
+describe("an older record with no times", () => {
+  it("says on a dash why Started and Total duration have no value", async () => {
+    const bare = {
+      ...records.passed,
+      visits: records.passed.visits.map((v) => ({
+        ...v,
+        started_at: null,
+        ended_at: null,
+        actions: [],
+      })),
+    };
+    const { item } = show(bare);
+
+    expect(item("Started")).toHaveTextContent("—");
+    expect(item("Total duration")).toHaveTextContent("—");
+    const dash = must(item("Started").firstElementChild);
+    fireEvent.focus(dash);
+    expect(
+      (await screen.findAllByText(/does not say when the attempt started/))
+        .length,
+    ).toBeGreaterThan(0);
   });
 });
 

@@ -98,7 +98,7 @@ describe("a record an older dataforge wrote", () => {
     show(older);
 
     // No budget: the cost is its runs', $2.15 + $1.62, with no cap.
-    expect(await screen.findByText("$3.77 of —")).toBeVisible();
+    expect(await screen.findByText("$3.77")).toBeVisible();
     expect(screen.getByText("from its runs")).toBeVisible();
     expect(screen.getByText("This record has no graph.")).toBeVisible();
     expect(screen.getByText("This record has no summaries.")).toBeVisible();
@@ -149,6 +149,56 @@ describe("a resumed record", () => {
         { name: "older/task-0301" },
       ),
     ).toHaveAttribute("href", "/sample/attempt?id=older%2Ftask-0301");
+  });
+});
+
+describe("an attempt with a row and no record file", () => {
+  function showRow(live: unknown, recordStatus = 404) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes("/live?")
+            ? new Response(JSON.stringify(live), { status: 200 })
+            : new Response(
+                JSON.stringify({ error: "record.json: No such file" }),
+                { status: recordStatus },
+              ),
+        ),
+      ),
+    );
+    render(
+      <ProjectsContext value={{ state: "ok", data: [project] }}>
+        <MemoryRouter initialEntries={[`/${project.id}/attempt?id=b/t`]}>
+          <Routes>
+            <Route path=":project/attempt" element={<AttemptPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ProjectsContext>,
+    );
+  }
+
+  it("shows its row, not the missing file", async () => {
+    showRow({
+      live: null,
+      held: null,
+      current: null,
+      state: "ended",
+      status: "failed",
+      reason: "the machine was lost",
+    });
+
+    expect(
+      await screen.findByText(/This attempt has no record file/),
+    ).toBeVisible();
+    expect(screen.getByText(/the machine was lost/)).toBeVisible();
+    expect(screen.queryByText(/No such file/)).toBeNull();
+  });
+
+  it("says the file is missing when the store has no row either", async () => {
+    showRow({ live: null, held: null, current: null });
+
+    expect(await screen.findByText(/no record file and no row/)).toBeVisible();
   });
 });
 

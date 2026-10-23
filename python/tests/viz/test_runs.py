@@ -280,6 +280,19 @@ def test_a_row_with_no_record_file_shows_its_row_and_no_error(
   )
 
 
+def test_the_live_route_gives_the_row_of_an_attempt_with_no_record_file(
+  made: QueueTree, static: Path, store: Store
+) -> None:
+  ended = bare(made, "task-2")
+  add(store, kept(ended, "ended", outcome="failed", ended_at=ENDED_AT))
+
+  response = client(made, static).get(LIVE, params={"attempt": ended})
+
+  assert response.status_code == 200
+  body = cast(dict[str, object], response.json())
+  assert (body["state"], body["status"]) == ("ended", "failed")
+
+
 def test_a_directory_with_no_row_and_no_record_file_says_it_has_no_row(
   made: QueueTree, static: Path, store: Store
 ) -> None:

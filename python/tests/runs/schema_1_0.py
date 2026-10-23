@@ -109,7 +109,7 @@ def transitions(conn: sqlite3.Connection, me: Leader, gone: Leader) -> None:
   one(SETTLE, AT, "a/1")
   one(INSERT, "b/1", "b", "/r/b", *me, 1, "/q", AT, AT)
   one(INTERRUPT, "person", None, None, None, "b/1", *me)
-  one(ABANDON, "given_up", "b/2 started in its place", AT, "b/1")
+  one(ABANDON, "given_up", "Started again as a new attempt (b/2)", AT, "b/1")
   one(INSERT, "c/1", "c", "/r/c", *me, None, None, AT, AT)
   one(INTERRUPT, "lost", 0, "gone", AT, "c/1", *me)
   one(CHECK, 0, "gone", AT, 1.0, "c/1")

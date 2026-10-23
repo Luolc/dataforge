@@ -388,6 +388,8 @@ function Panels({
       whole: "peak",
       dashed: true,
     },
+  ];
+  const runnable: Series[] = [
     {
       label: "Load (1 min)",
       values: values(m, (r) => r.load1_max),
@@ -486,6 +488,14 @@ function Panels({
             series={cpu}
             max={w.cpus}
             format={cores}
+            {...span}
+          />
+          <Chart
+            title="Load (1 min)"
+            times={times(m)}
+            series={runnable}
+            max={w.cpus}
+            format={load}
             {...span}
           />
           <Chart
