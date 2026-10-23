@@ -20,7 +20,14 @@ from fastapi.responses import JSONResponse, Response
 
 from dataforge import queue
 from dataforge.viz import actions, live, monitor, runs, tabs
-from dataforge.viz.config import Action, Project, Site, split_relative, Tab
+from dataforge.viz.config import (
+  Action,
+  case_value,
+  Project,
+  Site,
+  split_relative,
+  Tab,
+)
 from dataforge.viz.paths import (
   attempt_parts,
   FILE_LIMIT,
@@ -727,7 +734,11 @@ def _row(project: Project, attempt: str) -> _Read:
       "ended_at": next((t for t in reversed(ends) if t is not None), None),
       "rounds": _rounds(visits),
       "values": [
-        _field(data, c.field) if found is None else found["value"]
+        case_value(data, c.cases)
+        if c.cases
+        else _field(data, c.field)
+        if found is None
+        else found["value"]
         for c, found in zip(project.columns, from_files, strict=True)
       ],
       "reads": [

@@ -291,6 +291,102 @@ describe("the home page", () => {
     );
   });
 
+  describe("a column the page filters by", () => {
+    const kinds: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Kind",
+          field: [],
+          format: "text",
+          cases: ["first", "second"],
+          labels: { first: "First" },
+          hints: { first: "It went the first way." },
+          filter: true,
+        },
+      ],
+    };
+    const rows: AttemptRow[] = [
+      row("t-a/1", { values: ["first"] }),
+      row("t-b/1", { values: ["second"] }),
+      row("t-c/1", { values: [null] }),
+    ];
+    beforeEach(() => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+        ),
+      );
+    });
+
+    it("filters by a value's chip, says it hides items, and shows all again", async () => {
+      show("/sample", kinds);
+      const none = (await screen.findByText("t-c")).closest("tr");
+      // No case held: the cell is empty, with no dash.
+      expect(none?.querySelector("td:last-child")?.textContent).toBe("");
+      const chips = screen.getByRole("group", { name: "Filter by Kind" });
+      expect(
+        within(chips)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual(["All3", "First1", "second1"]);
+
+      act(() => {
+        within(chips)
+          .getByRole("button", { name: /^First/ })
+          .click();
+      });
+
+      expect(screen.getByLabelText("where")).toHaveTextContent(
+        "column-0=first",
+      );
+      expect(itemsOf("Ended")).toEqual(["t-a"]);
+      expect(
+        screen.getByText("2 of 3 Tasks hidden by the Kind filter."),
+      ).toBeVisible();
+
+      act(() => {
+        screen.getByRole("button", { name: "Show all" }).click();
+      });
+
+      expect(screen.getByLabelText("where")).not.toHaveTextContent("column-0");
+      expect(itemsOf("Ended")).toHaveLength(3);
+    });
+
+    it("says on a value's chip what the value stands for, and what it counts", async () => {
+      show("/sample", kinds);
+      await screen.findByText("t-a");
+      const chips = screen.getByRole("group", { name: "Filter by Kind" });
+      fireEvent.focus(within(chips).getByRole("button", { name: /^First/ }));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        /^It went the first way\. 1 Task$/,
+      );
+    });
+
+    it("shows a dash where no case holds when the column says what that stands for", async () => {
+      const said = "It did not pass.";
+      show("/sample", {
+        ...kinds,
+        columns: kinds.columns.map((c) => ({ ...c, none: said })),
+      });
+      const none = (await screen.findByText("t-c")).closest("tr");
+      const cell = none?.querySelector("td:last-child");
+      expect(cell?.textContent).toBe("—");
+      fireEvent.focus(must(cell?.querySelector("[tabindex]") ?? undefined));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(said);
+    });
+
+    it("names every filter that hides items", async () => {
+      show("/sample?q=t-&status=passed&column-0=first", kinds);
+      expect(
+        await screen.findByText(
+          "2 of 3 Tasks hidden by the search, the status filter and the Kind filter.",
+        ),
+      ).toBeVisible();
+    });
+  });
+
   it("names both filters when both hide items", async () => {
     show("/sample?q=t-&status=too_easy&older=1");
     expect(

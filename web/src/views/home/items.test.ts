@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { attemptRow } from "../../api/types";
+import { attemptRow, type Project } from "../../api/types";
 import {
   filterItems,
   flagged,
@@ -248,6 +248,79 @@ describe("filterItems", () => {
       label: "No status",
       tone: "neutral",
     });
+  });
+});
+
+describe("filterItems by a column's value", () => {
+  const kinds: Project = {
+    ...project,
+    columns: [
+      { title: "Note", field: ["note"], format: "text" },
+      {
+        title: "Kind",
+        field: [],
+        format: "text",
+        cases: ["second", "first"],
+        labels: { first: "A first", zeta: "Zeta", alpha: "Alpha" },
+        filter: true,
+      },
+    ],
+  };
+  const full = withHomeStatuses(kinds);
+  const items = toItems([
+    row("a/1", { values: ["x", "first"] }),
+    row("b/1", { values: ["x", "second"] }),
+    row("c/1", { values: ["x", "first"], status: "too_easy" }),
+    row("d/1", { values: ["x", "zeta"] }),
+    row("e/1", { values: ["x", "alpha"] }),
+    // No case held: no chip, and hidden by any value chosen.
+    row("f/1", { values: ["x", null] }),
+  ]);
+
+  it("gives a chip per value, in the order of its cases, then by label", () => {
+    const found = filterItems(full, items, "", null);
+    expect(found.columns).toEqual([
+      {
+        index: 1,
+        all: 6,
+        chips: [
+          { key: "second", count: 1 },
+          { key: "first", count: 2 },
+          { key: "alpha", count: 1 },
+          { key: "zeta", count: 1 },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps the items of the value chosen, and counts each group over what the others keep", () => {
+    const found = filterItems(
+      full,
+      items,
+      "",
+      "passed",
+      new Map([[1, "first"]]),
+    );
+    expect(found.shown.map((i) => i.id)).toEqual(["a"]);
+    expect(found.hidden).toBe(5);
+    // The status chips count what the value chosen keeps.
+    expect(found.searched).toBe(2);
+    expect(found.chips).toEqual([
+      { key: "passed", count: 1 },
+      { key: "too_easy", count: 1 },
+    ]);
+    // The column's chips count what the status chosen keeps.
+    expect(found.columns[0]?.all).toBe(5);
+    expect(found.columns[0]?.chips).toContainEqual({ key: "first", count: 1 });
+  });
+
+  it("keeps a chosen value's chip when the rest leaves it none", () => {
+    const found = filterItems(full, items, "b", null, new Map([[1, "first"]]));
+    expect(found.shown).toEqual([]);
+    expect(found.columns[0]?.chips).toEqual([
+      { key: "second", count: 1 },
+      { key: "first", count: 0 },
+    ]);
   });
 });
 
