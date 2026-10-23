@@ -269,6 +269,22 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
       r"deliverables\[0\]\.no_trace: not a non-empty string",
     ),
     (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: report, title: T, "
+        + "count: passed}]",
+      ),
+      r"deliverables\[0\]\.count: for kind trials only",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: trials, title: T, "
+        + "count: ''}]",
+      ),
+      r"deliverables\[0\]\.count: not a non-empty string",
+    ),
+    (
       ("name: Example", "name: Example\ntrials: {diff: ../x.diff}"),
       r"trials\.diff: '\.\./x\.diff' is not",
     ),

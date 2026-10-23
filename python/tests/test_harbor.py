@@ -41,9 +41,10 @@ from tests.sigterm import sigterm_once
 # The fake harbor writes what it got to <jobs-dir>/fake.json, starts the trial
 # (writes its config.json, in a directory named FAKE_TRIAL, task__abc by
 # default) and then does what FAKE_MODE says: "ok", "exception", "no-reward",
-# "exit" (exit 3 with no result) or "hang" (start a child, write its own and the
-# child's pid, sleep); "deaf" does the same, ignoring SIGTERM from before it
-# writes the pids; "interrupt" also sends its parent SIGUSR1 before it sleeps,
+# "exit" (exit 3 with no result), "no-result" (exit 0 with no result) or
+# "hang" (start a child, write its own and the child's pid, sleep); "deaf"
+# does the same, ignoring SIGTERM from before it writes the pids; "interrupt"
+# also sends its parent SIGUSR1 before it sleeps,
 # and "stubborn" does too, and again on SIGTERM instead of exiting;
 # "cancelled" sleeps, and on SIGTERM writes a result whose exception is
 # CancelledError, as Harbor does, and exits 1. With FAKE_NOT_STARTED, it prints
@@ -79,6 +80,8 @@ else:
     (trial / "config.json").write_text("{}")
 if mode == "exit":
     sys.exit(3)
+if mode == "no-result":
+    sys.exit(0)
 if mode == "cancelled":
     def cancelled(*_):
         (trial / "result.json").write_text(json.dumps({
@@ -753,6 +756,17 @@ def test_a_trial_harbor_did_not_start_is_run_again_and_each_run_kept(
   assert len(chowns) == 3
   labels = {chown[2] for chown in chowns}
   assert len(labels) == 3
+
+
+def test_a_trial_gives_its_harbor_log_and_names_it_inside_its_directory(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  for mode in ("ok", "no-result"):
+    out = outdir(tmp_path / mode)
+    result = runner(fakes, mode).run(task(tmp_path), "nop", Limits(2), out)
+    assert result.log == out / "harbor.log"
+  # The record names the log by its own field, not by a path of the host.
+  assert result.exception == "HarborError: no trial result; see harbor.log"
 
 
 def test_a_trial_harbor_started_is_not_run_again(

@@ -55,6 +55,7 @@ export const project = z.looseObject({
         kind: z.string(),
         title: z.string(),
         no_trace: z.string().nullable().optional(),
+        count: z.string().nullable().optional(),
         default: z.boolean().optional(),
       }),
     )
@@ -429,7 +430,8 @@ const source = {
 
 // A trial that has started and not been recorded yet has no id, trace or
 // result (design.md section 5, "The record"). source is the path of the
-// trial whose output it judged again; a record written before it has none.
+// trial whose output it judged again, log its runner's log and verdict the
+// dataset's word for it; a record written before one of them has none.
 const trial = z.looseObject({
   id: z.string().nullable(),
   output: z.string(),
@@ -438,6 +440,8 @@ const trial = z.looseObject({
     .looseObject({ path: z.string(), format: z.string().nullable() })
     .nullable(),
   source: z.string().nullable().optional(),
+  log: z.string().nullable().optional(),
+  verdict: z.string().nullable().optional(),
   result: z
     .looseObject({
       reward: z.number().nullable(),
@@ -463,6 +467,15 @@ const deliverable = z.looseObject({
       output: z.string().nullable(),
       field: z.array(z.string()),
       value: z.unknown(),
+      reason: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
+  // Where its trials' verdicts were read, null when it names none.
+  verdicts: z
+    .looseObject({
+      output: z.string().nullable(),
+      field: z.array(z.string()),
       reason: z.string().nullable(),
     })
     .nullable()

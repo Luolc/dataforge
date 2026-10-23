@@ -306,6 +306,8 @@ class Deliverable:
     title: Its title.
     no_trace: For a deliverable of trials, why a trial of it that has no
       trace has none, shown in its place; None for the viewer's own words.
+    count: For a deliverable of trials, the word after its count, such as
+      "pass every test"; None for the viewer's own, "solved".
     default: Whether it names its kind's tab, and opens first in it, while
       the attempt has reached no deliverable of the kind.
   """
@@ -314,6 +316,7 @@ class Deliverable:
   kind: str
   title: str
   no_trace: str | None = None
+  count: str | None = None
   default: bool = False
 
 
@@ -468,6 +471,7 @@ class Project:
           "kind": d.kind,
           "title": d.title,
           "no_trace": d.no_trace,
+          "count": d.count,
           "default": d.default,
         }
         for d in self.deliverables
@@ -1084,26 +1088,28 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
     where = f"deliverables[{i}]"
     entry = _mapping(path, where, item)
     fields = {"name", "kind", "title"}
-    _keys(path, where, entry, required=fields, optional={"no_trace", "default"})
+    optional = {"no_trace", "count", "default"}
+    _keys(path, where, entry, required=fields, optional=optional)
     name, kind, title = (
       _str(path, f"{where}.{f}", entry[f]) for f in ("name", "kind", "title")
     )
     if any(d.name == name for d in found):
       raise ConfigError(f"{path}: {where}.name: {name!r} repeated")
-    no_trace = entry.get("no_trace")
-    if no_trace is not None:
-      no_trace = _str(path, f"{where}.no_trace", no_trace)
-      if kind != "trials":
-        raise ConfigError(f"{path}: {where}.no_trace: for kind trials only")
+    words: dict[str, str | None] = {}
+    for key in ("no_trace", "count"):
+      given = entry.get(key)
+      words[key] = (
+        None if given is None else _str(path, f"{where}.{key}", given)
+      )
+      if given is not None and kind != "trials":
+        raise ConfigError(f"{path}: {where}.{key}: for kind trials only")
     default = entry.get("default", False)
     if not isinstance(default, bool):
       raise ConfigError(f"{path}: {where}.default: not true or false")
     if default and any(d.kind == kind and d.default for d in found):
       other = f"another deliverable of kind {kind!r} is the default"
       raise ConfigError(f"{path}: {where}.default: {other}")
-    found.append(
-      Deliverable(name, kind, title, no_trace=no_trace, default=default)
-    )
+    found.append(Deliverable(name, kind, title, **words, default=default))
   return tuple(found)
 
 
