@@ -7,21 +7,28 @@ import { type ReactNode, useState } from "react";
 import { SessionView } from "../session";
 import { Note } from "../ui/card";
 import { toneGlyph, toneText } from "../ui/status";
-import { trialStatus } from "../views/trials/status";
+import { trialStatus, WITH_EXCEPTION } from "../views/trials/status";
 import type { ShareDeliverable, ShareProject, ShareTrial } from "./api";
 
 /** A trial as the page names it, from its ID. */
 const trialName = (trial: ShareTrial) => `Trial ${trial.id}`;
 
 function TrialStatus({ trial }: { trial: ShareTrial }) {
-  const { word, tone } = trialStatus(trial.result, false);
+  const { word, tone, exception } = trialStatus(trial.result, false);
   const Glyph = toneGlyph[tone];
+  const Warn = toneGlyph.warn;
   return (
-    <span
-      className={`inline-flex flex-none items-center gap-1 text-xs ${toneText[tone]}`}
-    >
-      <Glyph className="size-3" aria-hidden />
-      {word}
+    <span className="inline-flex flex-none items-center gap-1 text-xs">
+      <span className={`inline-flex items-center gap-1 ${toneText[tone]}`}>
+        <Glyph className="size-3" aria-hidden />
+        {word}
+      </span>
+      {exception && (
+        <span className={`inline-flex items-center gap-1 ${toneText.warn}`}>
+          ·<Warn className="size-3" aria-hidden />
+          {WITH_EXCEPTION}
+        </span>
+      )}
     </span>
   );
 }

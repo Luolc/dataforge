@@ -12,10 +12,11 @@ const NOT_FINISHED = "not finished";
 
 /**
  * A trial's status: its verdict, the dataset's word for it, as the project
- * names it, when it has one, with exception saying that it also ended on
- * one; else an exception before anything else, then solved when its reward
- * is at least 1.0, as the default `solved` accepts. One with no result yet
- * runs while its attempt runs, and else never finished.
+ * names it, when it has one, with exception marking that it also ended on
+ * one; else when reward is known, solved if reward >= 1.0, not solved if <
+ * 1.0, with exception as a marker; else if no reward but exception exists,
+ * the exception; else no reward. One with no result yet runs while its
+ * attempt runs, and else never finished.
  */
 export function trialStatus(
   result: Pick<NonNullable<Trial["result"]>, "reward" | "exception"> | null,
@@ -34,12 +35,17 @@ export function trialStatus(
       tone: verdict.tone,
       exception: exception !== null,
     };
+  if (reward !== null) {
+    const solved = reward >= 1;
+    return {
+      word: solved ? SOLVED : NOT_SOLVED,
+      tone: solved ? "good" : "bad",
+      exception: exception !== null,
+    };
+  }
   const plain = { exception: false };
   if (exception !== null) return { word: EXCEPTION, tone: "warn", ...plain };
-  if (reward === null) return { word: NO_REWARD, tone: "neutral", ...plain };
-  return reward >= 1
-    ? { word: SOLVED, tone: "good", ...plain }
-    : { word: NOT_SOLVED, tone: "bad", ...plain };
+  return { word: NO_REWARD, tone: "neutral", ...plain };
 }
 
 /** The verdict of a trial of a deliverable that gives verdicts, but not it. */
