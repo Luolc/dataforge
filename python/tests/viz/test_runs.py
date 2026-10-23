@@ -130,8 +130,8 @@ def listing(web: TestClient) -> dict[str, dict[str, object]]:
 def reasons(web: TestClient) -> dict[str, str | None]:
   response = web.get(ACTIONS, params={"item": "batch-1"})
   assert response.status_code == 200
-  rows = cast(list[dict[str, str | None]], response.json())
-  return {str(r["name"]): r["reason"] for r in rows}
+  body = cast(dict[str, list[dict[str, str | None]]], response.json())
+  return {str(r["name"]): r["reason"] for r in body["actions"]}
 
 
 def test_an_attempt_s_status_reason_cost_and_live_come_from_its_row(
@@ -361,6 +361,11 @@ def test_stopped_needs_a_newest_row_interrupted_that_may_go_on(
 
   assert empty == "The store has no attempt of this item."
   assert found == [reason for _, reason in steps]
+  # The attempt it goes on with is the store's newest row.
+  newest = cast(
+    dict[str, object], web.get(ACTIONS, params={"item": "batch-1"}).json()
+  )["newest"]
+  assert newest == "batch-1/d"
   response = web.post(
     f"{ACTIONS}/go-on", params={"item": "batch-1"}, headers=WRITE
   )
