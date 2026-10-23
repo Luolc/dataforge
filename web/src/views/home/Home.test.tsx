@@ -186,6 +186,32 @@ describe("the home page", () => {
     );
   });
 
+  it("says on focus that a cost is its runs' when its record has no budget", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          row("t-runs/1", { cost_usd: 10.77, cost_from: "runs" }),
+          row("t-budget/1", { cost_usd: 0.5, cost_from: "budget" }),
+        ]),
+        { status: 200 },
+      ),
+    );
+    show();
+    const item = (await screen.findByText("t-runs")).closest("tr");
+    if (!item) throw new Error("no row");
+
+    const spent = within(item).getByText("$10.77").closest("[tabindex]");
+    if (!(spent instanceof HTMLElement)) throw new Error("no hint");
+    fireEvent.focus(spent);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "From its runs; its record has no budget.",
+    );
+    const budget = screen.getByText("t-budget").closest("tr");
+    expect(
+      within(budget ?? document.body).getByText("$0.50"),
+    ).not.toHaveAttribute("tabindex");
+  });
+
   it("sorts an item by its newest attempt's cost, not by its attempts' sum", async () => {
     // a's newest spent $2.00 and its two attempts $5.00; b's one $3.00.
     const rows = [

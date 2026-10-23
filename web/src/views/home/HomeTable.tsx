@@ -187,6 +187,9 @@ function specs(project: Project): Spec[] {
         const total = spent(l.item.attempts);
         const read = l.row.progress_at ?? null;
         const hints = [
+          ...(l.row.cost_from === "runs"
+            ? ["From its runs; its record has no budget."]
+            : []),
           ...(l.row.cost_usd !== null && read !== null
             ? [`Read ${time(read)}.`]
             : []),

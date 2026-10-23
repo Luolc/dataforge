@@ -155,7 +155,7 @@ export const NO_ACTION = "no action recorded";
 
 /**
  * A visit's time: its duration (visitSeconds), NO_ACTION when it recorded no
- * action and has no time of its own, "—" when its times do not read.
+ * action and has no start and end of its own, "—" when its times do not read.
  */
 export function visitTime(v: Visit): string {
   const seconds = visitSeconds(v);
