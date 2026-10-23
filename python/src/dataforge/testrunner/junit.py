@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 
+from .core import Case, ReportError
+
 _ENCODING = re.compile(rb"""<\?xml[^>]*?encoding\s*=\s*["']([^"']*)["']""")
 
 
@@ -128,6 +130,45 @@ def marked_outcome(case: ET.Element) -> Outcome:
   ):
     return Outcome("skipped", False, None, None, end.duration)
   return end
+
+
+def report_cases(data: bytes) -> list[Case]:
+  """Return the cases of a run group's report file of the junit format.
+
+  Args:
+    data: The file's bytes.
+
+  Returns:
+    A case for each `<testcase>`, in its order, named
+    `<classname>::<name>`, or `<name>` with no classname, and skipped also
+    when the attributes some runners write say so (marked_outcome).
+
+  Raises:
+    ReportError: When it is not UTF-8 JUnit XML, or a testcase has no
+      one-line name.
+  """
+  root = parse(data)
+  if root is None:
+    raise ReportError("a report is not UTF-8 JUnit XML")
+  cases: list[Case] = []
+  for tc in root.iter("testcase"):
+    classname, name = tc.get("classname") or "", tc.get("name") or ""
+    full = f"{classname}::{name}" if classname else name
+    if not name or "\n" in full:
+      raise ReportError(f"a testcase has no one-line name: {full!r}")
+    end = marked_outcome(tc)
+    cases.append(
+      Case(
+        full,
+        end.status,
+        end.duration,
+        end.error,
+        end.message,
+        end.trace,
+        tc.get("file") or None,
+      )
+    )
+  return cases
 
 
 def _milliseconds(case: ET.Element) -> int:

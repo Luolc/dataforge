@@ -6,8 +6,8 @@ from typing import cast
 
 import pytest
 
-from dataforge.testrunner.adapter import Call, Context, PREFIX
-from dataforge.testrunner.ctrf import Case
+from dataforge.testrunner.core import Call, Case, Context, load, PREFIX, run
+from dataforge.testrunner.core import Test as Listed
 from dataforge.testrunner.js import (
   covers,
   find_bin,
@@ -18,9 +18,6 @@ from dataforge.testrunner.js import (
   jest_cases,
   Vitest,
 )
-from dataforge.testrunner.manifest import load
-from dataforge.testrunner.manifest import Test as Listed
-from dataforge.testrunner.run import run
 from tests.testrunner.projects import commit, context, write
 
 # The shape jest 30 and vitest 4 write with --json and --reporter=json.

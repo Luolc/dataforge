@@ -11,9 +11,7 @@ from pathlib import Path
 from typing import final, override
 
 from . import junit
-from .adapter import Call, Context, Runner, Spec
-from .ctrf import Case
-from .manifest import Test
+from .core import Call, Case, Context, Runner, Spec, Test
 
 RUNNER_FILES = (
   "junit-platform.properties",

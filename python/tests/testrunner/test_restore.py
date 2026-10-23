@@ -4,10 +4,9 @@ import subprocess
 
 import pytest
 
-from dataforge.testrunner import globs
-from dataforge.testrunner.manifest import load
-from dataforge.testrunner.restore import globs as restore_globs
-from dataforge.testrunner.restore import remove, restore
+from dataforge.testrunner import core
+from dataforge.testrunner.core import globs as restore_globs
+from dataforge.testrunner.core import load, remove, restore
 from tests.testrunner.projects import commit, GIT_ENV, write
 
 
@@ -32,13 +31,13 @@ from tests.testrunner.projects import commit, GIT_ENV, write
 def test_a_glob_matches_within_components_and_double_star_across(
   glob: str, path: str, matched: bool
 ):
-  assert globs.matches(path, [glob]) is matched
+  assert core.matches(path, [glob]) is matched
 
 
 def test_escape_matches_the_path_alone():
   path = "tests/test_[a]*.py"
-  assert globs.matches(path, [globs.escape(path)])
-  assert not globs.matches("tests/test_a.py", [globs.escape(path)])
+  assert core.matches(path, [core.escape(path)])
+  assert not core.matches("tests/test_a.py", [core.escape(path)])
 
 
 BASE = {

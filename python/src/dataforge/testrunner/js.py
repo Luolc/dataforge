@@ -18,9 +18,18 @@ from pathlib import Path
 from typing import cast, final, override
 import xml.etree.ElementTree as ET
 
-from .adapter import Call, Context, PREFIX, rel, Runner, Spec, upward, write_new
-from .ctrf import Case
-from .manifest import Test
+from .core import (
+  Call,
+  Case,
+  Context,
+  PREFIX,
+  rel,
+  Runner,
+  Spec,
+  Test,
+  upward,
+  write_new,
+)
 
 JS_SEP = " > "
 """What joins a test's file and titles in its ID."""
