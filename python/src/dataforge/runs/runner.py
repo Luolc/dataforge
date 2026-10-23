@@ -84,7 +84,8 @@ def run_attempt(
   one takes it over; a take_over that fails makes the row interrupted again,
   not resumable. Every other interrupted row of the item, and the one it
   could not go on with when it starts a new one, is ended with
-  hooks.given_up, settled and cleaned up. After the cleanup it reconciles the
+  hooks.given_up, or hooks.canceled when a person stopped it and the dataset
+  gives that word, settled and cleaned up. After the cleanup it reconciles the
   whole store. A new attempt's row is inserted with extra; one it goes on
   with keeps the extra it has.
 
@@ -217,7 +218,10 @@ class _Runner:
     if row.resume_problem:
       why += f": {row.resume_problem}"
     why += f" ({self.row.id})"
-    if self.store.abandon(row.id, self.hooks.given_up, why):
+    word = self.hooks.given_up
+    if row.stopped_by == "person" and self.hooks.canceled is not None:
+      word = self.hooks.canceled
+    if self.store.abandon(row.id, word, why):
       ended = self.store.get(row.id)
       if ended is None:
         return
