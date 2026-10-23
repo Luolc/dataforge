@@ -24,7 +24,14 @@ import { type MouseEvent, type ReactNode, useId, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import type { AttemptRow, Project } from "../../api/types";
-import { duration, formatValue, readValue, time, usd } from "../../ui/format";
+import {
+  duration,
+  formatValue,
+  labelOf,
+  readValue,
+  time,
+  usd,
+} from "../../ui/format";
 import {
   liveStatus,
   outcomeOf,
@@ -34,7 +41,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { Chip, control } from "../../ui/chip";
-import { Hint } from "../../ui/hint";
+import { Hint, HintContent } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
@@ -79,6 +86,8 @@ interface Spec {
   id: string;
   title: string;
   numeric: boolean;
+  /** What the column holds, on its heading's hover and focus. */
+  description?: string | null;
   value: (line: Line) => Value;
   cell: (line: Line) => ReactNode;
 }
@@ -235,26 +244,39 @@ function specs(project: Project): Spec[] {
     return {
       id: `column-${index.toString()}`,
       title: column.title,
+      description: column.description ?? null,
       numeric: NUMERIC_FORMATS.has(column.format),
       value: (l) => {
         const v = raw(l);
         if (column.format === "time" && typeof v === "string")
           return timeValue(v);
+        // A value with a label sorts by it, as it shows.
+        const label = labelOf(v, column.labels);
+        if (label !== undefined) return label;
         return typeof v === "number" || typeof v === "string" ? v : undefined;
       },
       cell: (l) => {
         const read = l.row.reads?.[index] ?? null;
-        if (read === null) return formatValue(raw(l), column.format);
+        if (read === null) return formatValue(raw(l), column);
         const queued = l.row.queued?.[index] ?? null;
         // A tab not run yet says how its job stands, when it names one.
         const shown =
           (queued === null ? null : queuedShort(queued)) ??
-          readValue(read, raw(l), column.format);
-        // A value it has not read is a word of the viewer's, kept whole.
+          readValue(read, raw(l), column);
+        if (read === "found" && raw(l) !== null) return shown;
+        // A value it has not read, or null, is a word of the viewer's, kept
+        // whole; null says on hover what it stands for.
+        const word = (
+          <span
+            className={`whitespace-nowrap text-fg-3 ${read === "found" ? "underline decoration-faint decoration-dotted underline-offset-3" : ""}`}
+          >
+            {shown}
+          </span>
+        );
         return read === "found" ? (
-          shown
+          <Hint hint="Its file gives null for this value.">{word}</Hint>
         ) : (
-          <span className="whitespace-nowrap text-fg-3">{shown}</span>
+          word
         );
       },
     };
@@ -282,6 +304,23 @@ function parseSort(param: string | null, ids: string[]): SortingState {
   const desc = param.startsWith("-");
   const id = desc ? param.slice(1) : param;
   return ids.includes(id) ? [{ id, desc }] : [];
+}
+
+/** A heading's button, with what its column holds on hover and focus. */
+function Described({
+  description,
+  children,
+}: {
+  description: string | null | undefined;
+  children: ReactNode;
+}) {
+  if (description == null) return children;
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
+      <HintContent>{description}</HintContent>
+    </Tooltip.Root>
+  );
 }
 
 /**
@@ -712,16 +751,27 @@ export function HomeTable({
                       }
                       className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"} ${spec === undefined ? "" : stuckHead(spec.id)}`}
                     >
-                      <button
-                        type="button"
-                        onClick={header.column.getToggleSortingHandler()}
-                        className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
-                      >
-                        {spec?.title}
-                        {sorted !== false && (
-                          <Arrow className="size-3" aria-hidden />
-                        )}
-                      </button>
+                      <Described description={spec?.description}>
+                        <button
+                          type="button"
+                          onClick={header.column.getToggleSortingHandler()}
+                          className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
+                        >
+                          {/* Dotted, as a hint's sign, when it has one. */}
+                          <span
+                            className={
+                              spec?.description == null
+                                ? ""
+                                : "underline decoration-faint decoration-dotted underline-offset-3"
+                            }
+                          >
+                            {spec?.title}
+                          </span>
+                          {sorted !== false && (
+                            <Arrow className="size-3" aria-hidden />
+                          )}
+                        </button>
+                      </Described>
                     </th>
                   );
                 })}

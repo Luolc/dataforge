@@ -118,9 +118,9 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
           "title": "Notes",
           "file": "out/notes.md",
           "fields": [
-            {"title": "Verdict", "format": "text"},
-            {"title": "Outcome", "format": "text"},
-            {"title": "Spent", "format": "usd"},
+            {"title": "Verdict", "format": "text", "labels": {}},
+            {"title": "Outcome", "format": "text", "labels": {}},
+            {"title": "Spent", "format": "usd", "labels": {}},
           ],
         }
       ],
@@ -146,7 +146,7 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
           "name": "report",
           "title": "Report",
           "file": "out/report.md",
-          "fields": [{"title": "Verdict", "format": "text"}],
+          "fields": [{"title": "Verdict", "format": "text", "labels": {}}],
         },
         {
           "name": "prompt",
@@ -159,6 +159,21 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
       "job": None,
     },
   ]
+
+
+def test_a_field_s_labels_reach_the_page(tree: Tree) -> None:
+  text = tree.project.read_text()
+  old = "field: [outcome]}"
+  _ = tree.project.write_text(
+    text.replace(old, "field: [outcome], labels: {done: Done, 'n/a': None}}")
+  )
+
+  [project] = load_site(tree.site).projects
+
+  tab = cast(list[dict[str, object]], project.public()["tabs"])[0]
+  part = cast(list[dict[str, object]], tab["parts"])[0]
+  fields = cast(list[dict[str, object]], part["fields"])
+  assert fields[1]["labels"] == {"done": "Done", "n/a": "None"}
 
 
 PARTS = r"tabs\[2\]\.parts: not a list of two or more"
@@ -188,6 +203,14 @@ _UNKNOWN = (
       r"fields\[2\]\.format",
     ),
     (("[cost_usd], format: usd}", "[c], path: x}"), r"fields\[2\]\.path: unkn"),
+    (
+      ("[cost_usd], format: usd}", "[c], format: usd, labels: {a: A}}"),
+      r"fields\[2\]\.labels: only with format text",
+    ),
+    (
+      ("field: [outcome]}", "field: [outcome], labels: {}}"),
+      r"fields\[1\]\.labels: not a non-empty mapping",
+    ),
     (("name: notes", "name: Notes"), r"tabs\[0\]\.name"),
     (("name: notes", "name: runs"), r"tabs\[0\]\.name: 'runs'"),
     (("name: notes", "name: files"), r"tabs\[0\]\.name: 'files'"),
