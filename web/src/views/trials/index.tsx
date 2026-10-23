@@ -473,8 +473,9 @@ function SourceName({
 /**
  * What a finished trial shows when it has no trace of its own: the trace of
  * the trial whose output it judged again, as any trace shows, when that trial
- * has one; otherwise the project's words, and the trial it judged, when it
- * judged one, to say why there is none.
+ * has one; otherwise, for a trial that judged one, a single line that names
+ * it and says its trace cannot be shown, and, for a trial that judged none,
+ * the project's words.
  */
 function NoTrace({
   project,
@@ -503,23 +504,24 @@ function NoTrace({
       />
     );
   }
-  return (
-    <div className="flex flex-col gap-2 p-6 text-fg-3">
-      <p>
-        {source === undefined
-          ? "This trial recorded no trace."
-          : "This trial recorded no trace of its own."}
-      </p>
-      {noTrace !== null && <p>{noTrace}</p>}
-      {source !== undefined && (
+  if (source !== undefined) {
+    return (
+      <div className="p-6 text-fg-3">
         <p>
-          It judged again the output of{" "}
+          This trial recorded no trace of its own, and the trial it judged
+          again,{" "}
           <SourceName project={project.id} attempt={attempt} source={source} />
           {source.listed === null
-            ? ", so its trace is not known."
-            : ", which recorded no trace either."}
+            ? ", whose trace is not known."
+            : ", recorded no trace either."}
         </p>
-      )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 p-6 text-fg-3">
+      <p>This trial recorded no trace.</p>
+      {noTrace !== null && <p>{noTrace}</p>}
     </div>
   );
 }
