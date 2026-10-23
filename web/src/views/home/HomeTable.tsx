@@ -128,6 +128,10 @@ function timeValue(iso: string | null): Value {
 
 const NUMERIC_FORMATS = new Set(["number", "usd", "duration", "time"]);
 
+/** Dotted, as a hint's sign. */
+const DOTTED =
+  "underline decoration-faint decoration-dotted underline-offset-3";
+
 /** A row's end, null while it has not ended. */
 const lineEnded = (l: Line) => (notEnded(l.row) ? null : l.row.ended_at);
 
@@ -259,28 +263,44 @@ function specs(project: Project): Spec[] {
         return typeof v === "number" || typeof v === "string" ? v : undefined;
       },
       cell: (l) => {
+        const v = raw(l);
         const read = l.row.reads?.[index] ?? null;
-        if (read === null) return formatValue(raw(l), column);
-        const queued = l.row.queued?.[index] ?? null;
+        const queued = read === null ? null : (l.row.queued?.[index] ?? null);
         // A tab not run yet says how its job stands, when it names one.
-        const shown =
-          (queued === null ? null : queuedShort(queued)) ??
-          readValue(read, raw(l), column);
-        if (read === "found" && raw(l) !== null) return shown;
+        const job = queued === null ? null : queuedShort(queued);
+        const given =
+          read === null
+            ? v !== null && v !== undefined
+            : read === "found" && v !== null;
+        if (given) {
+          const shown = job ?? formatValue(v, column);
+          const hint = labelOf(v, column.hints);
+          return hint === undefined ? (
+            shown
+          ) : (
+            <Hint hint={hint}>
+              <span className={DOTTED}>{shown}</span>
+            </Hint>
+          );
+        }
+        if (read === null && column.none == null) return "—";
         // A value it has not read, or null, is a word of the viewer's, kept
-        // whole; null says on hover what it stands for.
+        // whole, or "—" when the column says what no value stands for; null,
+        // or that, says on hover what it stands for.
+        const hint =
+          column.none ??
+          (read === "found" ? "Its file gives null for this value." : null);
         const word = (
           <span
-            className={`whitespace-nowrap text-fg-3 ${read === "found" ? "underline decoration-faint decoration-dotted underline-offset-3" : ""}`}
+            className={`whitespace-nowrap text-fg-3 ${hint === null ? "" : DOTTED}`}
           >
-            {shown}
+            {job ??
+              (column.none != null || read === null
+                ? "—"
+                : readValue(read, v, column))}
           </span>
         );
-        return read === "found" ? (
-          <Hint hint="Its file gives null for this value.">{word}</Hint>
-        ) : (
-          word
-        );
+        return hint === null ? word : <Hint hint={hint}>{word}</Hint>;
       },
     };
   });

@@ -754,6 +754,87 @@ describe("the home page", () => {
     }
   });
 
+  it("says on focus what a column's value stands for, by its hints", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Kind",
+          field: ["kind"],
+          format: "text",
+          labels: { plain: "Plain" },
+          hints: { plain: "It took the plain way." },
+        },
+      ],
+    };
+    ROWS[3] = { ...must(ROWS[3]), values: ["plain"] };
+    ROWS[1] = { ...must(ROWS[1]), values: ["other"] };
+    try {
+      show("/sample", withColumns);
+      const cellOf = async (id: string) =>
+        [
+          ...((await screen.findByText(id))
+            .closest("tr")
+            ?.querySelectorAll("td") ?? []),
+        ].at(-1);
+      const hinted = must(await cellOf("t-new"));
+      expect(hinted).toHaveTextContent("Plain");
+      const word = must(
+        hinted.querySelector(".decoration-dotted") ?? undefined,
+      );
+      fireEvent.focus(must(word.closest("[tabindex]") ?? undefined));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "It took the plain way.",
+      );
+      // A value with no hint shows as it is, with no hint's sign.
+      const plain = must(await cellOf("t-old"));
+      expect(plain).toHaveTextContent("other");
+      expect(plain.querySelector(".decoration-dotted")).toBeNull();
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [] };
+      ROWS[1] = { ...must(ROWS[1]), values: [] };
+    }
+  });
+
+  it("shows a cell with no value as a dash that says why, by the column's none", async () => {
+    const none = "Its meta.json is not there yet.";
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        { title: "A", field: ["a"], format: "text", none },
+        { title: "B", field: ["b"], format: "text", none },
+        { title: "C", field: ["c"], format: "text", none },
+      ],
+    };
+    // From files: not there, there without it, and null.
+    ROWS[3] = {
+      ...must(ROWS[3]),
+      values: [null, null, null],
+      reads: ["not run", "missing", "found"],
+    };
+    // From a record written before it had the key.
+    ROWS[1] = { ...must(ROWS[1]), values: [null, null, null], reads: null };
+    try {
+      show("/sample", withColumns);
+      for (const id of ["t-new", "t-old"]) {
+        const item = (await screen.findByText(id)).closest("tr");
+        const cells = [...(item?.querySelectorAll("td") ?? [])].slice(-3);
+        expect(cells.map((c) => c.textContent)).toEqual(["—", "—", "—"]);
+        for (const cell of cells)
+          expect(cell.querySelector(".text-fg-3")).toHaveClass(
+            "decoration-dotted",
+          );
+      }
+      const item = (await screen.findByText("t-new")).closest("tr");
+      const first = item?.querySelectorAll("td")[item.cells.length - 3];
+      fireEvent.focus(must(first?.querySelector("[tabindex]") ?? undefined));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(none);
+    } finally {
+      ROWS[3] = { ...must(ROWS[3]), values: [], reads: null };
+      ROWS[1] = { ...must(ROWS[1]), values: [] };
+    }
+  });
+
   it("says in a column of a tab not run how the tab's job stands", async () => {
     const withColumns: Project = {
       ...project,
