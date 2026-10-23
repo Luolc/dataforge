@@ -350,6 +350,7 @@ def test_attempts_are_newest_first_with_their_values(
     "status": None,
     "reason": None,
     "cost_usd": None,
+    "cost_from": None,
     "started_at": None,
     "ended_at": None,
     "rounds": [],
@@ -371,6 +372,7 @@ def test_attempts_are_newest_first_with_their_values(
     "status": "passed",
     "reason": None,
     "cost_usd": 0.42,
+    "cost_from": "budget",
     "started_at": "2026-01-02T03:04:05+00:00",
     "ended_at": "2026-01-02T03:14:05+00:00",
     "rounds": [{"round": 1, "state": "write", "outcome": "done"}],
@@ -386,6 +388,32 @@ def test_attempts_are_newest_first_with_their_values(
   }
   assert rows[3]["modified"] is None
   assert "No such file" in str(rows[3]["error"])
+
+
+def test_a_record_with_no_budget_costs_what_its_actions_cost(
+  tree: Tree, static: Path
+) -> None:
+  def record(*costs: float | None) -> str:
+    # The last cost in a visit of its own, the others in the first.
+    *first, last = [{"cost_usd": c} for c in costs]
+    visits = [{"actions": first}, {"actions": [last]}]
+    return json.dumps({"status": "passed", "visits": visits})
+
+  _ = (tree.attempt / "record.json").write_text(record(1.25, None, 0.5))
+  none = tree.root / "batch-1" / "task-2"
+  none.mkdir()
+  _ = (none / "record.json").write_text(record(None, None))
+
+  rows = cast(
+    list[dict[str, object]],
+    client(tree, static).get(f"{API}/attempts").json(),
+  )
+
+  costs = {str(r["id"]): (r["cost_usd"], r["cost_from"]) for r in rows}
+  assert costs == {
+    "batch-1/task-1": (1.75, "runs"),
+    "batch-1/task-2": (None, None),
+  }
 
 
 @pytest.mark.parametrize(

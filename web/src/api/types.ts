@@ -267,6 +267,9 @@ export const attemptRow = z.looseObject({
   status: z.string().nullable(),
   reason: z.string().nullable(),
   cost_usd: z.number().nullable(),
+  // Where cost_usd comes from: the record's budget, the sum of its actions'
+  // costs for a record with no budget, or the store of runs.
+  cost_from: z.enum(["budget", "runs", "store"]).nullable().optional(),
   started_at: z.string().nullable(),
   ended_at: z.string().nullable(),
   rounds: z
