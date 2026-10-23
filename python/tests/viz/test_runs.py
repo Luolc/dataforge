@@ -258,6 +258,52 @@ def test_a_directory_with_no_row_is_read_from_its_record_and_says_so(
   assert rows[other]["status"] == "failed"
 
 
+def bare(made: QueueTree, name: str) -> str:
+  # An attempt directory of batch-1 with no record file; its ID.
+  path = made.tree.root / "batch-1" / name
+  path.mkdir()
+  return f"batch-1/{name}"
+
+
+def test_a_row_with_no_record_file_shows_its_row_and_no_error(
+  made: QueueTree, static: Path, store: Store
+) -> None:
+  ended = bare(made, "task-2")
+  add(store, kept(ended, "ended", outcome="failed", ended_at=ENDED_AT))
+
+  row = listing(client(made, static))[ended]
+
+  assert (row["status"], row["state"], row["error"]) == (
+    "failed",
+    "ended",
+    None,
+  )
+
+
+def test_a_directory_with_no_row_and_no_record_file_says_it_has_no_row(
+  made: QueueTree, static: Path, store: Store
+) -> None:
+  lone = bare(made, "task-2")
+  other = attempt(made, "task-3", {"status": "passed"})
+  add(store, kept(other, "ended", outcome="failed", ended_at=ENDED_AT))
+
+  row = listing(client(made, static))[lone]
+
+  assert (row["status"], row["error"]) == (None, NO_ROW)
+
+
+def test_with_no_runs_a_missing_record_file_is_an_error(
+  made: QueueTree, static: Path
+) -> None:
+  project = made.tree.project
+  _ = project.write_text(project.read_text().replace(RUNS, "lock: .lock\n"))
+  lone = bare(made, "task-2")
+
+  row = listing(client(made, static))[lone]
+
+  assert "No such file" in str(row["error"])
+
+
 def test_with_no_store_yet_every_attempt_says_it_has_no_row(
   made: QueueTree, static: Path, store: Store
 ) -> None:

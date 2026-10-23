@@ -684,6 +684,9 @@ def _row(project: Project, attempt: str) -> _Read:
   except RefusedError as error:
     # An attempt that has just started may have written no record yet.
     fresh = made if error.absent else None
+    if error.absent and project.runs is not None:
+      # The store decides: `runs.mark` shows the row, or says there is none.
+      return row, None, fresh
     return row | {"error": f"the record: {error.reason}"}, None, fresh
   row["modified"] = datetime.fromtimestamp(read.mtime, UTC).isoformat()
   try:
