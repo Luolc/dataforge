@@ -292,8 +292,14 @@ describe("the Monitor page", () => {
       ],
       ["Mean", "4.5 cores", "3 cores mean"],
       ["Peak", "21 cores", "21 cores peak"],
-      ["Load (1 min)", "10.4", "10.4 peak"],
     ]);
+    // Load is runnable tasks, not cores, so its axis carries no unit of cores.
+    const queue = screen.getByRole("table", { name: "Load (1 min), values" });
+    expect(
+      [...queue.querySelectorAll("tr")].map((r) =>
+        [...r.children].map((c) => c.textContent),
+      )[1],
+    ).toEqual(["Load (1 min)", "10.4", "10.4 peak"]);
   });
 
   it("shows why the database cannot be read", async () => {

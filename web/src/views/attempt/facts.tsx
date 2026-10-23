@@ -59,6 +59,11 @@ export function AttemptFacts({
         ? liveStatus[word]
         : statusOf(project, attemptStatus(project, record));
   const why = stopped !== null ? stoppedWhy(stopped) : record.reason;
+  const noTime = (
+    <Hint hint="This record does not say when the attempt started; a record from an older dataforge keeps no times.">
+      —
+    </Hint>
+  );
   const items = [
     {
       key: "Status",
@@ -68,14 +73,18 @@ export function AttemptFacts({
         </span>
       ),
     },
-    { key: "Started", value: started === undefined ? "—" : time(started) },
+    { key: "Started", value: started === undefined ? noTime : time(started) },
     {
       key: "Total duration",
       value:
         word === "running" && started !== undefined ? (
           <Elapsed since={started} />
         ) : seconds === null ? (
-          "—"
+          started === undefined ? (
+            noTime
+          ) : (
+            "—"
+          )
         ) : (
           duration(seconds)
         ),
@@ -106,7 +115,7 @@ function Cost({ record }: { record: AttemptRecord }) {
     const runs = record.visits.reduce((sum, v) => sum + visitCost(v), 0);
     return (
       <>
-        {`${usd(runs)} of —`}
+        {usd(runs)}
         <span className="ml-1.5 font-normal text-fg-3">from its runs</span>
       </>
     );

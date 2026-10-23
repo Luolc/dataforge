@@ -48,7 +48,11 @@ WRITE_HEADER = "X-Viz-Write"
 it without the browser first asking, which the viewer never allows."""
 
 ENDED_LIMIT = 50
-"""How many of the jobs that have ended the queue route lists."""
+"""How many of the jobs that have ended the queue route lists, unless the
+request asks for more."""
+
+ENDED_MAX = 5000
+"""The most jobs that have ended the queue route lists, whatever is asked."""
 
 _STATIC = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
@@ -300,20 +304,22 @@ class _Api:
       raise RefusedError(503, _queue_failure(error)) from None
     return JSONResponse({"job": actions.public(found)})
 
-  def queue_jobs(self) -> Response:
+  def queue_jobs(self, ended: str | None = None) -> Response:
+    limit = ENDED_LIMIT if ended is None else _integer("ended", ended)
+    limit = min(max(limit, ENDED_LIMIT), ENDED_MAX)
     config = self._config()
     try:
       pauses = {pause.queue: pause.to_json() for pause in queue.pauses(config)}
       open_jobs = queue.jobs(config, states=actions.OPEN)
       # The jobs that ended last, not those queued last: a long job queued
       # early may end after many short ones.
-      ended = queue.jobs(
-        config, states=actions.ENDED, by="ended_at", limit=ENDED_LIMIT
+      finished = queue.jobs(
+        config, states=actions.ENDED, by="ended_at", limit=limit
       )
       ended_count = queue.count(config, states=actions.ENDED)
     except FileNotFoundError:
       # No job was ever submitted: submitting one makes the database.
-      open_jobs, ended, ended_count, pauses = [], [], 0, {}
+      open_jobs, finished, ended_count, pauses = [], [], 0, {}
     except (sqlite3.Error, OSError) as error:
       raise RefusedError(503, _queue_failure(error)) from None
     return JSONResponse(
@@ -333,9 +339,9 @@ class _Api:
           for name, limit in config.queues.items()
         ],
         "max_running": config.max_running,
-        "ended_limit": ENDED_LIMIT,
+        "ended_limit": limit,
         "ended": ended_count,
-        "jobs": [actions.public(j) for j in open_jobs + ended],
+        "jobs": [actions.public(j) for j in open_jobs + finished],
       }
     )
 

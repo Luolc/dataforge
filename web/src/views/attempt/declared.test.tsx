@@ -419,6 +419,16 @@ describe("a tab of several deliverables of one kind", () => {
     ).toEqual(["Review", "Tightened review"]);
   });
 
+  it("opens the tab of a deliverable's kind from a link made with its name", async () => {
+    show(withTightened(false), "&tab=tightened", reviews);
+
+    await screen.findByText("Not run: the attempt never reached tighten.");
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual(["Review", "Tightened review"]);
+    expect(screen.queryByText(/has no deliverable of kind/)).toBeNull();
+  });
+
   it("of reports stacks first the one whose condition holds", async () => {
     const record = structuredClone(passed);
     const review = record.deliverables.find((d) => d.name === "review");
@@ -642,7 +652,7 @@ describe("why a deliverable has no path, in the viewer's words", () => {
     const kept = { ...ended, kept_visit: 1 };
 
     expect(why(kept, entry({ state: "review" }))).toBe(
-      "review ran only after the run the attempt kept, run 2.",
+      "review ran only after run 2, the run this attempt kept.",
     );
   });
 

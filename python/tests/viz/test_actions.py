@@ -604,6 +604,34 @@ def test_the_queue_lists_the_jobs_that_ended_last_and_counts_them_all(
   assert [j["id"] for j in listed] == [second, first]
 
 
+def test_the_queue_lists_more_ended_jobs_when_asked_up_to_a_ceiling(
+  made: QueueTree, static: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  monkeypatch.setattr(app, "ENDED_LIMIT", 1)
+  monkeypatch.setattr(app, "ENDED_MAX", 2)
+  web = client(made, static)
+  for _ in range(3):
+    job = queue.submit(
+      config(made),
+      "slow",
+      ["x"],
+      cwd=made.work,
+      memory_mib=1,
+      key=None,
+      labels={},
+    )
+    _ = queue.cancel(config(made), job.id)
+
+  def listed(ask: str) -> tuple[int, int]:
+    body = cast(dict[str, object], web.get(f"/api/queue{ask}").json())
+    return len(cast(list[object], body["jobs"])), cast(int, body["ended_limit"])
+
+  assert listed("") == (1, 1)
+  assert listed("?ended=2") == (2, 2)
+  assert listed("?ended=3") == (2, 2)
+  assert web.get("/api/queue?ended=x").status_code == 400
+
+
 def test_a_job_the_queue_refuses_shows_no_path(
   made: QueueTree, static: Path
 ) -> None:

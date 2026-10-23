@@ -134,7 +134,7 @@ describe("the queue page", () => {
     expect(cells("1")[0]).toBe("Canceled");
     expect(cells("1")[9]).toBe("-15");
     expect(cells("4")[0]).toBe("Canceling");
-    expect(cells("6").slice(3, 5)).toEqual(["—", "note=by hand"]);
+    expect(cells("6").slice(3, 5)).toEqual(["—", "note: by hand"]);
     expect(
       within(row("3") ?? document.body).getByRole("link", {
         name: "batch-1/task-3",
@@ -216,9 +216,22 @@ describe("the queue page", () => {
     show();
 
     await screen.findByRole("button", { name: /^Ended/ });
-    expect(
-      screen.queryByText(/older jobs? that ended/)?.textContent ?? null,
-    ).toBe(note);
+    const text = screen.queryByText(/older jobs? that ended/)?.textContent;
+    expect(text === undefined ? null : text.replace(/ Show.*$/, "")).toBe(note);
+  });
+
+  it("asks for 50 more ended jobs at a click on Show more", async () => {
+    const shown = Array.from({ length: 50 }, (_, i) => job(i + 1, "done"));
+    const calls = serve({}, [200, read(shown, 120)]);
+    show();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show 50 more" }),
+    );
+
+    await waitFor(() => {
+      expect(calls.map((c) => c.url)).toContain("/api/queue?ended=100");
+    });
   });
 
   it("warns that a running job's processes are sent SIGTERM", async () => {

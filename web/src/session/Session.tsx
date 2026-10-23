@@ -60,6 +60,14 @@ export function SessionBody({
 }) {
   const [fold, setFold] = useState({ serial: 0, open: startOpen, startOpen });
   const { totals } = session;
+  // The totals come from the session's result line, so a session that ended
+  // without one has none of them.
+  const noResult =
+    totals.seconds === null &&
+    totals.costUsd === null &&
+    totals.turns === null &&
+    totals.tokensIn === null &&
+    totals.tokensOut === null;
   // How thinking shows; null when the project hides all of it.
   const shownThinking = thinking === "hidden" ? null : thinking;
   return (
@@ -67,7 +75,10 @@ export function SessionBody({
       <section className="flex flex-col rounded-panel border border-line bg-panel">
         <header className="sticky top-tabs z-10 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-t-panel border-b border-line bg-panel px-5 py-3 text-xs text-fg-2">
           {badge}
-          {shownTotals === "all" && (
+          {shownTotals === "all" && noResult && (
+            <span>No totals: the session wrote no result line.</span>
+          )}
+          {shownTotals === "all" && !noResult && (
             <>
               <Total label="session">
                 {totals.seconds === null ? "—" : duration(totals.seconds)}

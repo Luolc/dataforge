@@ -7,6 +7,7 @@ import { useParams, useSearchParams } from "react-router";
 import { Link } from "react-router";
 
 import {
+  ApiError,
   type Failed,
   getJson,
   type Loaded,
@@ -44,7 +45,7 @@ import {
   viewerStatus,
   withRowStatus,
 } from "../../ui/status";
-import { StatusIcon, ToneIcon } from "../../ui/status-mark";
+import { StatusIcon, StatusLabel, ToneIcon } from "../../ui/status-mark";
 import { declared, kindTitle, leading } from "../kind";
 import { KindCount, KindTab } from "../registry";
 import { ItemActions } from "./Actions";
@@ -56,6 +57,12 @@ import { TabCount, TabView } from "../tabs";
 import { useTabVersions } from "../tabs/versions";
 import { WORKFLOW } from "../definition/details";
 import { useSnapshot } from "../definition/load";
+
+/**
+ * What the page read of the attempt: its record file, or, for an attempt with
+ * a row in the store and no record file, the row alone.
+ */
+type PageRead = ReadRecord | { shape: "none" };
 
 export function AttemptPage() {
   const { project: id } = useParams();
@@ -78,7 +85,16 @@ export function AttemptPage() {
     url,
     async (signal) => {
       const [read, live] = await Promise.all([
-        getJson(url ?? "", z.unknown(), signal).then(readRecord),
+        getJson(url ?? "", z.unknown(), signal).then(
+          (raw): PageRead => readRecord(raw),
+          // Only an absent file may leave the row to speak; /live says below
+          // whether there is a row.
+          (error: unknown): PageRead => {
+            if (error instanceof ApiError && error.status === 404)
+              return { shape: "none" };
+            throw error;
+          },
+        ),
         // A page that cannot read /live at first shows the record alone, as
         // for a project with no lock; a read again keeps what it showed.
         getJson(liveUrl ?? "", liveInfo, signal).catch((error: unknown) => {
@@ -99,6 +115,8 @@ export function AttemptPage() {
         ) === null
       )
         throw new Error("/live could not read the record");
+      if (read.shape === "none" && live?.state == null)
+        throw new ApiError("The attempt has no record file and no row.");
       return { read, live };
     },
     refresh,
@@ -107,7 +125,7 @@ export function AttemptPage() {
   );
   const live = both.state === "ok" ? both.data.live : null;
   // With the project's runs, the record shows its row's status.
-  const loaded: Loaded<ReadRecord> =
+  const loaded: Loaded<PageRead> =
     both.state === "ok"
       ? {
           state: "ok",
@@ -187,6 +205,8 @@ export function AttemptPage() {
   else if (loaded.state === "error") body = <Note>{loaded.message}</Note>;
   else if (project.state === "loading" || loaded.state === "loading")
     body = <Note>Loading…</Note>;
+  else if (loaded.data.shape === "none")
+    body = <RowOnly project={project.data} attempt={attempt} live={live} />;
   else if (loaded.data.shape === "other")
     body = (
       <OtherRecord
@@ -229,7 +249,7 @@ function Attempt({
   record: recordRead,
   live: read,
   failed,
-  tab,
+  tab: asked,
   run,
   discarded,
   defn,
@@ -265,6 +285,16 @@ function Attempt({
   // gives way to it.
   const own = (project.tabs ?? []).filter((t) => !kinds.includes(t.name));
   const versions = useTabVersions(project, attempt);
+  // A link made when a tab was keyed by a deliverable's name opens the tab
+  // of that deliverable's kind.
+  const named = deliverables.find((d) => d.name === asked);
+  const tab =
+    named !== undefined &&
+    !kinds.includes(asked) &&
+    !own.some((t) => t.name === asked) &&
+    kinds.includes(named.kind)
+      ? named.kind
+      : asked;
   const ownTab = own.find((t) => t.name === tab);
   const tabs = [
     {
@@ -476,6 +506,39 @@ function Tabs({
  * A record that is a JSON object of another shape: the Runs tab only, with
  * the record as written, as text (design-viz.md section 5, "Older records").
  */
+function RowOnly({
+  project,
+  attempt,
+  live,
+}: {
+  project: Project;
+  attempt: string;
+  live: LiveInfo | null;
+}) {
+  return (
+    <>
+      <Header attempt={attempt} />
+      <Actions project={project} attempt={attempt} />
+      <div className="flex flex-col gap-2 px-7 pt-5 pb-12">
+        <p className="text-fg-2">
+          This attempt has no record file. Its row in the store says:
+        </p>
+        <p>
+          {live?.status != null ? (
+            <StatusLabel project={project} word={live.status} />
+          ) : (
+            <span className="text-fg-2">{live?.state}</span>
+          )}
+          {live?.reason != null && (
+            <span className="text-fg-2"> — {live.reason}</span>
+          )}
+        </p>
+        {live?.note != null && <p className="text-fg-3">{live.note}</p>}
+      </div>
+    </>
+  );
+}
+
 function OtherRecord({
   project,
   attempt,
