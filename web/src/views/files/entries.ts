@@ -50,3 +50,39 @@ export async function firstFile(
   }
   return walk(root);
 }
+
+/**
+ * The file a link to path opens: path itself, unless its parent lists it as
+ * a directory, then the first file under it as firstFile finds it, null when
+ * it holds none.
+ */
+export async function fileAt(
+  source: FileSource,
+  project: string,
+  attempt: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  const listed = await source.listing(project, attempt, parent, signal);
+  const name = path.slice(parent.length + 1);
+  return listed.entries.some((e) => e.type === "dir" && e.name === name)
+    ? firstFile(source, project, attempt, path, signal)
+    : path;
+}
+
+/**
+ * The router state of a link to a path it knows is a file, as the tree's are,
+ * so the view opens it without asking whether it is a directory.
+ */
+export const knownFile = (path: string) => ({ file: path });
+
+/** Whether a router state says that path is a file, as knownFile puts it. */
+export function isKnownFile(state: unknown, path: string): boolean {
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    "file" in state &&
+    state.file === path
+  );
+}

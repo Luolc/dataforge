@@ -163,6 +163,26 @@ export function clock(seconds: number): string {
   return `${get("hour")}:${get("minute")}`;
 }
 
+/** A day in seconds: a chart's window longer than this dates its ticks. */
+export const DAY_S = 86_400;
+
+/**
+ * A tick of a chart's time axis whose window lasts span seconds: "09:15"
+ * within a day; on a longer window with its day, "03-02 09:15", or "03-02"
+ * alone at midnight, in the browser's zone.
+ */
+export function axisTime(seconds: number, span: number): string {
+  if (span <= DAY_S) return clock(seconds);
+  const get = parts(new Date(seconds * 1000), {
+    month: "2-digit",
+    day: "2-digit",
+    ...numeric,
+  });
+  const day = `${get("month")}-${get("day")}`;
+  const at = `${get("hour")}:${get("minute")}`;
+  return at === "00:00" ? day : `${day} ${at}`;
+}
+
 /** Seconds since the epoch as "09:15:42 PST". */
 export function instant(seconds: number): string {
   const get = parts(new Date(seconds * 1000), {
@@ -204,3 +224,7 @@ export const cores = (value: number): string =>
 /** A load average, a count of runnable tasks with no unit, as "10.4". */
 export const load = (value: number): string =>
   value.toFixed(value >= 100 || Number.isInteger(value) ? 0 : 1);
+
+/** A count with its unit, as "1 run" or "13 runs". */
+export const counted = (n: number, one: string, many = `${one}s`): string =>
+  `${n.toString()} ${n === 1 ? one : many}`;

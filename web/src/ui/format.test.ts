@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  axisTime,
   bytes,
   clock,
+  DAY_S,
   cores,
   duration,
   epoch,
@@ -28,6 +30,9 @@ describe("the formatters the Monitor page reads", () => {
     const t = Date.UTC(2026, 2, 2, 9, 15, 42) / 1000;
     expect(epoch(t)).toBe("2026-03-02 09:15 UTC");
     expect(clock(t)).toBe("09:15");
+    expect(axisTime(t, DAY_S)).toBe("09:15");
+    expect(axisTime(t, DAY_S + 1)).toBe("03-02 09:15");
+    expect(axisTime(Date.UTC(2026, 2, 3) / 1000, 3 * DAY_S)).toBe("03-03");
     expect(instant(t)).toBe("09:15:42 UTC");
     expect(moment(t)).toBe("2026-03-02 09:15:42 UTC");
   });

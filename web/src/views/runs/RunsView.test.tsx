@@ -85,6 +85,23 @@ describe("the Runs column", () => {
     expect(runs.queryByText(/no action recorded/)).toBeNull();
   });
 
+  it("shows a run that raised as Exception whatever the project file says", () => {
+    const runs = show(
+      {
+        ...sampleProject,
+        statuses: {
+          ...sampleProject.statuses,
+          raised: { label: "Crashed", tone: "warn" },
+        },
+      },
+      records.raised,
+    );
+
+    expect(runs.getByRole("img", { name: "Exception" })).toBeVisible();
+    expect(runs.getByText(/^Exception ·/)).toBeVisible();
+    expect(runs.queryByText(/Crashed/)).toBeNull();
+  });
+
   it("shows a run with no outcome as Not ended while its attempt runs", () => {
     const runs = show(sampleProject);
 
@@ -271,11 +288,11 @@ describe("a running attempt in the Runs column", () => {
     expect(runs.getByText("Runs · 5")).toBeVisible();
     expect(last.closest("a")).toBeNull();
     expect(within(last).getByRole("img", { name: "Running" })).toBeVisible();
-    expect(last).toHaveTextContent("Running · 1m 21s5");
+    expect(last).toHaveTextContent("Running · 1m 21s#5");
     act(() => {
       vi.advanceTimersByTime(3000);
     });
-    expect(last).toHaveTextContent("Running · 1m 24s5");
+    expect(last).toHaveTextContent("Running · 1m 24s#5");
   });
 
   it("shows a run its record holds with no outcome as Running", () => {

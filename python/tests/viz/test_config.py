@@ -123,6 +123,28 @@ def test_an_absolute_monitor_database_is_shown_by_its_name_alone(
   assert project.monitor_shown == "monitor.sqlite"
 
 
+def test_a_task_is_a_path_in_the_attempt_or_in_a_deliverable(
+  tree: Tree,
+) -> None:
+  _ = tree.project.write_text(PROJECT + "task: task/task.toml\n")
+  [in_attempt] = load_site(tree.site).projects
+  _ = tree.project.write_text(
+    PROJECT
+    + "deliverables: [{name: built, kind: files, title: Built}]\n"
+    + "task: {deliverable: built, file: task.toml}\n"
+  )
+  [in_deliverable] = load_site(tree.site).projects
+
+  assert in_attempt.public()["task"] == {
+    "file": "task/task.toml",
+    "deliverable": None,
+  }
+  assert in_deliverable.public()["task"] == {
+    "file": "task.toml",
+    "deliverable": "built",
+  }
+
+
 def test_a_project_with_no_monitor_says_so(tree: Tree) -> None:
   [project] = load_site(tree.site).projects
 
@@ -242,6 +264,38 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       (
         "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "default: 1}]",
+      ),
+      r"deliverables\[0\]\.default: not true or false",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "default: true}, {name: u, kind: k, title: U, default: true}]",
+      ),
+      r"deliverables\[1\]\.default: another deliverable of kind 'k'",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T}]\n"
+        + "kinds: {report: {title: Reviews}}",
+      ),
+      r"kinds\.report: no deliverable of this kind",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T}]\n"
+        + "kinds: {k: {label: K}}",
+      ),
+      r"kinds\.k\.label: unknown key",
+    ),
+    (
+      (
+        "name: Example",
         "name: Example\ndeliverables: [{name: t, kind: files, title: T, "
         + "no_trace: Why}]",
       ),
@@ -308,6 +362,33 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       ("name: Example", "name: Example\ntask: [task.toml]"),
       "task: not a non-empty string",
+    ),
+    (
+      ("name: Example", "name: Example\ntask: {deliverable: task}"),
+      r"task\.file: missing",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ntask: {deliverable: task, file: task.toml}",
+      ),
+      r"task\.deliverable: 'task' is not declared",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: k, kind: trials, title: K}]\n"
+        + "task: {deliverable: k, file: task.toml}",
+      ),
+      r"task\.deliverable: 'k' is of kind 'trials', not files",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: files, title: T}]\n"
+        + "task: {deliverable: t, file: ../task.toml}",
+      ),
+      r"task\.file: '\.\./task\.toml' is not",
     ),
     (("name: Example", "name: Example\nmonitor: {}"), r"monitor\.db: missing"),
     (("name: Example", "name: Example\nmonitor: {db: ''}"), r"monitor\.db"),

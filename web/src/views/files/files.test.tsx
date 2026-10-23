@@ -119,6 +119,31 @@ describe("the files view", () => {
     );
   });
 
+  it("opens the first file of the folder the page names, and that folder", async () => {
+    show(task, `${root}/src`);
+
+    expect(await preview()).toHaveTextContent("src/tinyparse/header.py");
+    expect(
+      await screen.findByRole("link", { name: "header.py" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "src" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.queryByText(/a directory, not a file/)).toBeNull();
+  });
+
+  it("opens a file chosen in the tree at once, not asking whether it is a folder", async () => {
+    show(task);
+    expect(await preview()).toHaveTextContent("instruction.md");
+
+    fireEvent.click(await screen.findByRole("link", { name: /^data\.bin/ }));
+
+    expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent(
+      "data.bin",
+    );
+  });
+
   it("ignores a named file outside its own path", async () => {
     show(task, "artifacts/review/1/report.md");
 
@@ -183,7 +208,7 @@ describe("the files view", () => {
         `${root}/${name}`,
       );
 
-      await screen.findByText(/^[12] lines/);
+      await screen.findByText(/^[12] lines?/);
       expect(
         screen
           .getByRole("link", { name })
@@ -210,7 +235,7 @@ describe("the files view", () => {
   it("highlights source by its extension", async () => {
     const { container } = show(task, `${root}/src/tinyparse/header.py`);
 
-    await screen.findByText("1 lines · 10 B");
+    await screen.findByText("1 line · 10 B");
     expect(container.querySelector(".hljs-keyword")).toHaveTextContent(
       "import",
     );
@@ -271,7 +296,7 @@ describe("the files view", () => {
   it("gives a text file a link that downloads it too", async () => {
     show(task, `${root}/src/tinyparse/header.py`);
 
-    await screen.findByText("1 lines · 10 B");
+    await screen.findByText("1 line · 10 B");
     expect(screen.getByRole("link", { name: "Download" })).toHaveAttribute(
       "download",
       "header.py",

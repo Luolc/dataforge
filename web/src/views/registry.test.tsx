@@ -41,6 +41,10 @@ const item = (name: string, kind: string): Deliverable => ({
   reason: "author was never visited",
 });
 
+/** The count a files tab says in full, as its pill's title has it. */
+const countSaid = () =>
+  screen.getByTestId("count").firstElementChild?.getAttribute("title");
+
 function show(kind: string, items: Deliverable[]) {
   return render(
     <KindTab
@@ -107,6 +111,7 @@ describe("a files tab's count", () => {
         <p data-testid="count">
           <KindCount
             kind="files"
+            title="Title of task"
             project="sample"
             attempt="counted/again"
             item={task}
@@ -117,15 +122,15 @@ describe("a files tab's count", () => {
     );
     const { rerender } = render(shown(0));
     await waitFor(() => {
-      expect(screen.getByTestId("count")).toHaveTextContent(/^2$/);
+      expect(countSaid()).toBe("2 files");
     });
 
     files[`${root}/src/c.txt`] = "c";
     rerender(shown(1));
-    expect(screen.getByTestId("count")).toHaveTextContent(/^2$/);
+    expect(countSaid()).toBe("2 files");
 
     await waitFor(() => {
-      expect(screen.getByTestId("count")).toHaveTextContent(/^3$/);
+      expect(countSaid()).toBe("3 files");
     });
   });
 });
@@ -155,6 +160,7 @@ describe("a files tab's count slower than the page's reads", () => {
         <p data-testid="count">
           <KindCount
             kind="files"
+            title="Title of task"
             project="sample"
             attempt="counted/slowly"
             item={task}
@@ -165,7 +171,7 @@ describe("a files tab's count slower than the page's reads", () => {
     );
     const { rerender } = render(shown(0));
     await waitFor(() => {
-      expect(screen.getByTestId("count")).toHaveTextContent(/^10$/);
+      expect(countSaid()).toBe("10 files");
     });
     files[`${root}/new.txt`] = "new";
     // A read every 50 ms, while a walk of 11 listings takes over 200 ms.
@@ -175,7 +181,7 @@ describe("a files tab's count slower than the page's reads", () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByTestId("count")).toHaveTextContent(/^11$/);
+      expect(countSaid()).toBe("11 files");
     });
     expect(most).toBe(1);
   });
@@ -207,6 +213,7 @@ describe("a files tab's count that takes longer than a read's limit", () => {
         <p data-testid="count">
           <KindCount
             kind="files"
+            title="Title of task"
             project="sample"
             attempt="counted/past-the-limit"
             item={task}
@@ -217,7 +224,7 @@ describe("a files tab's count that takes longer than a read's limit", () => {
     );
     const { rerender } = render(shown(0));
     await act(() => vi.advanceTimersByTimeAsync(7000));
-    expect(screen.getByTestId("count")).toHaveTextContent(/^10$/);
+    expect(countSaid()).toBe("10 files");
 
     files[`${root}/new.txt`] = "new";
     // A read just before the limit of the read before would give up.
@@ -226,6 +233,55 @@ describe("a files tab's count that takes longer than a read's limit", () => {
       await act(() => vi.advanceTimersByTimeAsync(READ_LIMIT_MS - 1));
     }
 
-    expect(screen.getByTestId("count")).toHaveTextContent(/^11$/);
+    expect(countSaid()).toBe("11 files");
+  });
+});
+
+describe("a trials tab's count", () => {
+  it("says in full that how many solved is not known when its value is not", () => {
+    const trials = {
+      ...item("pass_at_k", "trials"),
+      path: "artifacts/solve/1",
+      reason: null,
+      k: 4,
+    };
+    render(
+      <p data-testid="count">
+        <KindCount
+          kind="trials"
+          title="Title of pass_at_k"
+          project="sample"
+          attempt="a/b"
+          item={trials}
+          items={[trials]}
+        />
+      </p>,
+    );
+
+    expect(countSaid()).toBe("4 trials, solved not known");
+    expect(screen.getByTestId("count")).toHaveTextContent(/^— \/ 4/);
+  });
+
+  it("counts one trial as one", () => {
+    const one = {
+      ...item("pass_at_k", "trials"),
+      path: "artifacts/solve/1",
+      reason: null,
+      k: 1,
+    };
+    render(
+      <p data-testid="count">
+        <KindCount
+          kind="trials"
+          title="Title of pass_at_k"
+          project="sample"
+          attempt="a/b"
+          item={one}
+          items={[one]}
+        />
+      </p>,
+    );
+
+    expect(countSaid()).toBe("1 trial, solved not known");
   });
 });
