@@ -288,6 +288,43 @@ def test_never_gives_up_each_interrupted_row_and_starts_anew(
   )
 
 
+@pytest.mark.parametrize(
+  ("stop", "canceled", "word"),
+  [
+    (KeyboardInterrupt, "canceled", "canceled"),
+    (SystemExit, "canceled", "given_up"),
+    (KeyboardInterrupt, None, "given_up"),
+  ],
+)
+def test_a_row_a_person_stopped_is_given_up_with_the_datasets_canceled(
+  store: Store,
+  hooks: FakeHooks,
+  monkeypatch: pytest.MonkeyPatch,
+  stop: type[BaseException],
+  canceled: str | None,
+  word: str,
+) -> None:
+  # SIGINT stops a row as a person's stop, SIGTERM with no queue job as lost.
+  def stopped(*_args: object) -> object:
+    raise stop
+
+  with monkeypatch.context() as patched:
+    patched.setattr(FakeHooks, "set_up", stopped)
+    with pytest.raises(stop):
+      _ = run_attempt(store, ITEM, hooks)
+  old = _only(store)
+  hooks.canceled = canceled
+  ended = run_attempt(store, ITEM, hooks, go_on="never")
+  given_up = store.get(old.id)
+  assert given_up is not None
+  assert (given_up.state, given_up.outcome, given_up.reason) == (
+    "ended",
+    word,
+    f"Started again as a new attempt ({ended.id})",
+  )
+  assert given_up.stopped_by == old.stopped_by
+
+
 def test_an_on_ended_that_raises_for_a_given_up_row_leaves_the_new_attempt_be(
   store: Store, hooks: FakeHooks, monkeypatch: pytest.MonkeyPatch
 ) -> None:

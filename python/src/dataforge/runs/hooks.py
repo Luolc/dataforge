@@ -23,10 +23,13 @@ class Hooks(ABC):
   Attributes:
     given_up: The dataset's word for an interrupted attempt that no one goes
       on with, which a newer attempt of its item ends.
+    canceled: The dataset's word for such an attempt that a person stopped;
+      None gives it given_up too.
     record: The name of the record file in an attempt's root.
   """
 
   given_up: str = "given_up"
+  canceled: str | None = None
   record: str = "record.json"
 
   @abstractmethod
