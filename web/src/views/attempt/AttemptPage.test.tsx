@@ -313,6 +313,18 @@ describe("an attempt that runs", () => {
     expect(tabs()[0]).toHaveTextContent("Runs4");
   });
 
+  it("marks one that may have stopped as Stopped once the job that ran it has ended", async () => {
+    showLive({ ...mayHaveStopped, stopped: { job: 7, state: "failed" } });
+
+    const header = must(
+      (await screen.findByRole("heading", { name: /Attempt/ })).parentElement,
+    );
+    expect(within(header).getByRole("img", { name: "Stopped" })).toBeVisible();
+    expect(
+      within(header).queryByRole("img", { name: "May have stopped" }),
+    ).toBeNull();
+  });
+
   it("shows a record that has ended alone over a /live read before", async () => {
     // /live read while the attempt ran, the record once it had ended.
     const visits = records.passed.visits.length;
