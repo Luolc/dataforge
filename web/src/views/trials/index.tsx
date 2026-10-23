@@ -13,9 +13,11 @@ import { DiffView } from "../../ui/diff";
 import { duration, span, usd } from "../../ui/format";
 import { RunningIcon } from "../../ui/running";
 import { attemptStatus, toneGlyph, toneText } from "../../ui/status";
-import { StatusLabel } from "../../ui/status-mark";
+import { OutcomeLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
 import { DeliverableCard } from "../DeliverableCard";
+import { FromRun } from "../FromRun";
+import { fromARun } from "../source";
 import { size, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
 import { RUNNING, trialStatus } from "./status";
@@ -105,6 +107,16 @@ export default function TrialsView({
             <p className="text-xl font-semibold tabular-nums">
               {shown} / {deliverable.k ?? trials.length} solved
             </p>
+            {fromARun(deliverable) && (
+              <p className="text-xs text-fg-3">
+                <FromRun
+                  project={project}
+                  attempt={attempt}
+                  record={record}
+                  deliverable={deliverable}
+                />
+              </p>
+            )}
             {/* A visit that has not ended has no value to read yet. */}
             {value?.reason != null && visit?.outcome !== null && (
               <p className="text-xs text-fg-3">{value.reason}</p>
@@ -112,7 +124,7 @@ export default function TrialsView({
             {visit !== undefined && (
               <p className="flex items-center gap-2 text-xs text-fg-3">
                 Outcome{" "}
-                <StatusLabel
+                <OutcomeLabel
                   project={project}
                   word={visit.outcome}
                   ended={attemptStatus(project, record) !== null}

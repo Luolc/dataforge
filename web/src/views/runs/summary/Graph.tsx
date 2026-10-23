@@ -12,9 +12,8 @@ import {
 } from "react";
 import { Link } from "react-router";
 
-import type { Project } from "../../../api/types";
 import { Elapsed, RunningIcon } from "../../../ui/running";
-import { StatusIcon } from "../../../ui/status-mark";
+import { ToneIcon } from "../../../ui/status-mark";
 import {
   type Edge,
   labelLine,
@@ -57,11 +56,9 @@ const clamp = (v: number, lo: number, hi: number) =>
  * its last run.
  */
 export function Graph({
-  project,
   layout,
   runHref,
 }: {
-  project: Project;
   layout: Layout;
   runHref: (index: number) => string;
 }) {
@@ -329,7 +326,6 @@ export function Graph({
           {layout.nodes.map((node) => {
             const card = (
               <NodeCard
-                project={project}
                 node={node}
                 lit={active === node.key}
                 dim={dim(node.key)}
@@ -571,12 +567,10 @@ function accessibleName(node: Layout["nodes"][number]): string {
 }
 
 function NodeCard({
-  project,
   node,
   lit,
   dim,
 }: {
-  project: Project;
   node: Layout["nodes"][number];
   lit: boolean;
   dim: boolean;
@@ -616,7 +610,7 @@ function NodeCard({
         </foreignObject>
       ) : node.status !== null ? (
         <foreignObject x="12" y={icon} width="16" height="16">
-          <StatusIcon project={project} word={node.word} ended={node.ended} />
+          <ToneIcon {...node.status} />
         </foreignObject>
       ) : (
         // As big as a StatusIcon, its stroke as wide as that icon's glyph

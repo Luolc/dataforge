@@ -426,6 +426,32 @@ describe("the home page", () => {
     );
   });
 
+  it("shows a round's interrupted as Run interrupted, an attempt's status as the project file names it", async () => {
+    const cut = [{ round: 1, state: "solve", outcome: "interrupted" }];
+    const rows = [row("t-cut/1", { status: "interrupted", rounds: cut })];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show("/sample", {
+      ...project,
+      statuses: {
+        ...project.statuses,
+        interrupted: { label: "Cut short", tone: "neutral" },
+      },
+    });
+    const cells = must(
+      (await screen.findByText("t-cut")).closest("tr") ?? undefined,
+    );
+
+    expect(cells.querySelector("ol li")).toHaveTextContent(
+      "R1Pass@kRun interrupted",
+    );
+    expect(within(cells).getByText("Cut short")).toBeVisible();
+  });
+
   it("scrolls a table wider than the page sideways on its own, under the filters", async () => {
     show();
     const table = (await screen.findByText("t-run")).closest("table");
