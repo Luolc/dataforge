@@ -1163,7 +1163,7 @@ describe("the home page's columns", () => {
   });
 
   it("goes back to the rows' order when it hides the column they sort by", async () => {
-    show("/sample?sort=-spent", columns);
+    const { unmount } = show("/sample?sort=-spent", columns);
     await screen.findByText("t-run");
     expect(itemsOf("Ended")).toEqual(["t-old", "t-new"]);
     act(() => {
@@ -1173,6 +1173,12 @@ describe("the home page's columns", () => {
     toggle("Spent");
 
     expect(screen.getByLabelText("where")).toHaveTextContent(/^\/sample$/);
+    expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
+
+    // A link that sorts by a hidden column sorts by none.
+    unmount();
+    show("/sample?sort=-spent", columns);
+    await screen.findByText("t-run");
     expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
   });
 });
