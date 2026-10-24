@@ -329,7 +329,8 @@ describe("the share site's Pass@k tab", () => {
     const header = container.querySelector("section header");
     expect(header).toHaveTextContent("session 1m 24s");
     expect(header).toHaveTextContent("turns 6");
-    expect(header).toHaveTextContent("tokens 22K in · 900 out");
+    expect(header).toHaveTextContent("trace length 32K");
+    expect(header).not.toHaveTextContent(/tokens/);
     expect(header).toHaveTextContent(/\d+ tool calls/);
     expect(screen.getByText("7s")).toBeVisible();
     expect(container).not.toHaveTextContent(/cost|\$/i);

@@ -8,10 +8,12 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
 } from "lucide-react";
+import { Tooltip } from "radix-ui";
 import { createContext, type ReactNode, use, useId, useState } from "react";
 
 import type { Project } from "../api/types";
 import { duration, usd } from "../ui/format";
+import { Hint } from "../ui/hint";
 import { Markdown } from "../ui/markdown";
 import { toneGlyph, toneText } from "../ui/status";
 import type { BadLine, Block, Message, Session, ToolCall } from "./parse";
@@ -20,6 +22,19 @@ export type ThinkingMode = Project["session"]["thinking"];
 
 /** The totals a session's header shows: all of them, or all but its cost. */
 export type SessionTotals = "all" | "no cost";
+
+/**
+ * How long the session's context got: its last call's input and final
+ * output tokens; while its transcript is read; or why it is not known.
+ */
+export type TraceLength =
+  | { state: "ok"; tokens: number }
+  | { state: "loading" }
+  | { state: "none"; why: string };
+
+/** What the trace length is, on its hover and focus. */
+const TRACE_LENGTH =
+  "The tokens of the session's last call: its input, cached input counted, and its output; how long the session's context was at its end.";
 
 /** More tool calls than this in one message fold into one line. */
 const FOLD_OVER = 4;
@@ -36,6 +51,7 @@ const FoldContext = createContext({
 });
 
 const count = new Intl.NumberFormat("en-US", { notation: "compact" });
+const exact = new Intl.NumberFormat("en-US");
 
 export function SessionBody({
   session,
@@ -43,10 +59,13 @@ export function SessionBody({
   badge,
   startOpen = false,
   totals: shownTotals = "all",
+  traceLength,
 }: {
   session: Session;
   thinking: ThinkingMode;
   badge?: ReactNode;
+  /** How long the session's context got; not shown when not given. */
+  traceLength?: TraceLength;
   /** Whether every fold starts open; the buttons still change it after. */
   startOpen?: boolean;
   /** Which totals the header shows: all of them, or all but the cost. */
@@ -57,11 +76,7 @@ export function SessionBody({
   // The totals come from the session's result line, so a session that ended
   // without one has none of them.
   const noResult =
-    totals.seconds === null &&
-    totals.costUsd === null &&
-    totals.turns === null &&
-    totals.tokensIn === null &&
-    totals.tokensOut === null;
+    totals.seconds === null && totals.costUsd === null && totals.turns === null;
   // How thinking shows; null when the project hides all of it.
   const shownThinking = thinking === "hidden" ? null : thinking;
   return (
@@ -83,15 +98,10 @@ export function SessionBody({
                 </Total>
               )}
               <Total label="turns">{totals.turns ?? "—"}</Total>
-              <Total label="tokens">
-                {totals.tokensIn === null ? "—" : count.format(totals.tokensIn)}{" "}
-                in ·{" "}
-                {totals.tokensOut === null
-                  ? "—"
-                  : count.format(totals.tokensOut)}{" "}
-                out
-              </Total>
             </>
+          )}
+          {traceLength !== undefined && (
+            <TraceLengthTotal length={traceLength} />
           )}
           <Total label="model">
             <span className="font-mono">{totals.model ?? "—"}</span>
@@ -152,6 +162,26 @@ function FoldButton({
       <Icon className="size-3.5 flex-none text-icon" aria-hidden />
       {label}
     </button>
+  );
+}
+
+/** The trace length, its exact count and what it is on hover and focus. */
+function TraceLengthTotal({ length }: { length: TraceLength }) {
+  if (length.state === "loading") return <Total label="trace length">…</Total>;
+  const hint =
+    length.state === "ok"
+      ? `${exact.format(length.tokens)} tokens. ${TRACE_LENGTH}`
+      : `${length.why} ${TRACE_LENGTH}`;
+  return (
+    <Total label="trace length">
+      <Tooltip.Provider delayDuration={200}>
+        <Hint hint={hint}>
+          <span className="underline decoration-faint decoration-dotted underline-offset-3">
+            {length.state === "ok" ? count.format(length.tokens) : "—"}
+          </span>
+        </Hint>
+      </Tooltip.Provider>
+    </Total>
   );
 }
 
