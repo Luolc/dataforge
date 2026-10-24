@@ -24,6 +24,7 @@ import { POLL_MS } from "../../api/poll";
 import type { LiveInfo, Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
 import { fakeFiles } from "../files/fake-api";
+import { row as listed } from "../home/rows.test-data";
 import { AttemptPage } from "./AttemptPage";
 
 const project: Project = {
@@ -85,6 +86,47 @@ describe("the heading", () => {
       /^Attempt$/,
     );
     expect(screen.getAllByText("older/task-0301")).toHaveLength(1);
+  });
+});
+
+describe("the heading's tags", () => {
+  it("show the project's tag columns of the attempt beside the heading", async () => {
+    const fetch = vi.fn((url: string) => {
+      const body = url.includes("/attempts")
+        ? [listed("older/task-0301", { values: ["Rust"] })]
+        : older;
+      return Promise.resolve(
+        new Response(JSON.stringify(body), { status: 200 }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <ProjectsContext
+        value={{
+          state: "ok",
+          data: [
+            {
+              ...project,
+              columns: [
+                { title: "Language", field: ["x"], format: "text", tag: true },
+              ],
+            },
+          ],
+        }}
+      >
+        <MemoryRouter
+          initialEntries={[`/${project.id}/attempt?id=older/task-0301`]}
+        >
+          <Routes>
+            <Route path=":project/attempt" element={<AttemptPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ProjectsContext>,
+    );
+
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(await screen.findByText("Rust")).toBeVisible();
+    expect(heading.parentElement).toContainElement(screen.getByText("Rust"));
   });
 });
 

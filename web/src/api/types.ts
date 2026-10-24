@@ -55,6 +55,8 @@ export const project = z.looseObject({
       cases: z.array(z.string()).optional(),
       // Whether the page filters the items by its value.
       filter: z.boolean().optional(),
+      // Whether the attempt's page shows its value as a tag in its header.
+      tag: z.boolean().optional(),
     }),
   ),
   session: z.looseObject({
