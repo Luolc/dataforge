@@ -146,6 +146,55 @@ describe("the column picker", () => {
     expect(reset).toBeDisabled();
   });
 
+  it("keeps the focus on a column's switch as it moves to the other group", async () => {
+    render(<Picker />);
+    open();
+    const find = screen.getByRole("searchbox", { name: "Find a column" });
+    await waitFor(() => {
+      expect(find).toHaveFocus();
+    });
+    screen.getByRole("switch", { name: "Rounds" }).focus();
+
+    toggle("Rounds");
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole("switch", { name: "Rounds" }),
+      );
+    });
+    expect(document.activeElement).toHaveAttribute("aria-checked", "false");
+
+    toggle("Rounds");
+
+    await waitFor(() => {
+      expect(document.activeElement).toHaveAttribute("aria-checked", "true");
+    });
+    expect(document.activeElement).toHaveAccessibleName("Rounds");
+  });
+
+  it("puts the focus on the search once Hide all, Show all or Reset leaves", async () => {
+    render(<Picker />);
+    open();
+    const find = screen.getByRole("searchbox", { name: "Find a column" });
+    for (const name of ["Hide all", "Show all"]) {
+      const pressed = screen.getByRole("button", { name });
+      pressed.focus();
+      fireEvent.click(pressed);
+      await waitFor(() => {
+        expect(find).toHaveFocus();
+      });
+    }
+    toggle("Cost");
+    const reset = screen.getByRole("button", { name: "Reset to default" });
+    reset.focus();
+
+    fireEvent.click(reset);
+
+    await waitFor(() => {
+      expect(find).toHaveFocus();
+    });
+  });
+
   it("opens on its search, and closes on Escape back to its button", async () => {
     render(<Picker />);
     button().focus();

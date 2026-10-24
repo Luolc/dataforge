@@ -3,7 +3,7 @@
 // the table is not whole.
 import { Columns3, Eye, EyeOff, Lock, RotateCcw, Search } from "lucide-react";
 import { Popover } from "radix-ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { control } from "./chip";
 
@@ -62,6 +62,7 @@ function ColumnRow({
         role="switch"
         aria-checked={shown}
         aria-label={column.title}
+        data-key={column.key}
         disabled={locked}
         onClick={onToggle}
         className="flex target w-full items-center gap-2 rounded-row px-2 text-left text-xs hover:bg-hover disabled:hover:bg-transparent"
@@ -104,9 +105,35 @@ export function ColumnPicker({
   // Hide all and Show all move every column, not only those the search finds.
   const hideable = columns.filter((c) => c.locked !== true && !isHidden(c));
   const n = columns.filter(isHidden).length;
+  // A control pressed may leave the panel, a switch for its other group
+  // and Hide all, Show all and Reset for nothing left to do; the focus goes
+  // on, once the panel is drawn again, to the column's switch or the search.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const refocusRef = useRef<(() => HTMLElement | null | undefined) | null>(
+    null,
+  );
+  useEffect(() => {
+    const next = refocusRef.current?.();
+    refocusRef.current = null;
+    next?.focus();
+  });
+  const change = (
+    next: string[],
+    focus: () => HTMLElement | null | undefined,
+  ) => {
+    refocusRef.current = focus;
+    onChange(next);
+  };
+  const toSearch = () => searchRef.current;
   const toggle = (key: string) => {
-    onChange(
+    change(
       hidden.includes(key) ? hidden.filter((k) => k !== key) : [...hidden, key],
+      () =>
+        [
+          ...(panelRef.current?.querySelectorAll<HTMLElement>("[data-key]") ??
+            []),
+        ].find((e) => e.dataset["key"] === key),
     );
   };
   return (
@@ -121,7 +148,8 @@ export function ColumnPicker({
         <Columns3 className="size-3.5 text-icon" aria-hidden />
         Columns
         {n > 0 && (
-          // The space is for its name, the gap for its look.
+          // The leading space keeps the button's name "Columns · N hidden";
+          // the button's gap spaces it on the page.
           <span className="font-normal text-fg-2 tabular-nums">
             {` · ${n.toString()} hidden`}
           </span>
@@ -131,12 +159,14 @@ export function ColumnPicker({
         <Popover.Content
           align="end"
           sideOffset={4}
+          ref={panelRef}
           aria-label="Columns"
           className="z-10 flex max-h-(--radix-popover-content-available-height) w-64 flex-col gap-1 overflow-y-auto rounded-panel border border-line bg-panel p-1.5 text-fg"
         >
           <label className="flex target items-center gap-1.5 rounded-row border border-chip-line px-2 focus-within:border-fg-3">
             <Search className="size-3.5 flex-none text-icon" aria-hidden />
             <input
+              ref={searchRef}
               type="search"
               aria-label="Find a column"
               placeholder="Find a column"
@@ -156,7 +186,10 @@ export function ColumnPicker({
                   hideable.length === 0
                     ? null
                     : () => {
-                        onChange([...hidden, ...hideable.map((c) => c.key)]);
+                        change(
+                          [...hidden, ...hideable.map((c) => c.key)],
+                          toSearch,
+                        );
                       }
                 }
               />
@@ -184,7 +217,7 @@ export function ColumnPicker({
                 title="Hidden"
                 action="Show all"
                 onAction={() => {
-                  onChange([]);
+                  change([], toSearch);
                 }}
               />
               <ul className="flex flex-col">
@@ -209,7 +242,7 @@ export function ColumnPicker({
               type="button"
               disabled={n === 0}
               onClick={() => {
-                onChange([]);
+                change([], toSearch);
               }}
               className="flex target w-full items-center gap-2 rounded-row px-2 text-xs text-fg-2 hover:bg-hover disabled:text-fg-3 disabled:hover:bg-transparent"
             >

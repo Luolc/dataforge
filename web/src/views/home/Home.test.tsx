@@ -1175,7 +1175,8 @@ describe("the home page's columns", () => {
     expect(screen.getByLabelText("where")).toHaveTextContent(/^\/sample$/);
     expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
 
-    // A link that sorts by a hidden column sorts by none.
+    // A link that sorts by a hidden column sorts by none: the table has no
+    // such column to sort by, however the link's sort is read.
     unmount();
     show("/sample?sort=-spent", columns);
     await screen.findByText("t-run");
