@@ -1,5 +1,5 @@
 // The home page's model: attempt rows grouped into data items, the items
-// split into the page's groups, and what search and the chips keep.
+// split into the page's groups, and what search and the filter's rules keep.
 import type { AttemptRow, Column, Live, Project } from "../../api/types";
 import {
   isEnding,
@@ -8,6 +8,8 @@ import {
   statusOf,
   viewerStatus,
 } from "../../ui/status";
+import type { Rule } from "../../ui/rule";
+import { columnKey, STATUS_FIELD } from "./view";
 
 /**
  * Each live word as a status word of the home page; not ended is null, the
@@ -263,29 +265,44 @@ export interface ColumnChips {
   chips: ChipCount[];
 }
 
+/** The value of a row that has none in a field, in a rule and the URL. */
+export const NO_VALUE = "~none";
+
+/** A field a list filters by: its key, a row's value in it, its values' order. */
+export interface Field<T> {
+  key: string;
+  valueOf: (row: T) => string;
+  order: (a: string, b: string) => number;
+}
+
+/** A field's values over the rows the search and the other fields' rules keep. */
+export interface FieldCounts {
+  field: string;
+  /** How many rows those are. */
+  all: number;
+  /** One per value they have, and one per value its rule names, in the field's order. */
+  values: ChipCount[];
+}
+
 export interface Filtered {
-  /** The items the search and the chosen chips keep, in the page's order. */
+  /** The items the search and the rules keep, in the page's order. */
   shown: Item[];
-  /** Each status chip's key and the number of items it has. */
-  chips: ChipCount[];
-  /** The number of items the search and the column filters keep, the All chip's count. */
-  searched: number;
-  /** The chips of each column the page filters by, in the columns' order. */
-  columns: ColumnChips[];
-  /** How many items the search and the chips hide. */
+  /** Each field's values, in the fields' order, the status field first. */
+  fields: FieldCounts[];
+  /** How many items the search and the rules hide. */
   hidden: number;
 }
 
 // The chips of the live words come first, unreadable last.
 const FIRST = ["~running", "~may-have-stopped", STOPPED_KEY, NOT_ENDED_KEY];
 
-/** Each key's count over the items, the chosen key at 0 when none has it. */
+/** Each key's count over the items, a chosen key at 0 when none has it. */
 function countKeys<T>(
   items: T[],
   key: (item: T) => string | null,
-  chosen: string | null,
+  chosen: readonly string[],
 ): Map<string, number> {
-  const counts = new Map<string, number>(chosen === null ? [] : [[chosen, 0]]);
+  const counts = new Map<string, number>(chosen.map((c) => [c, 0]));
   for (const item of items) {
     const k = key(item);
     if (k !== null) counts.set(k, (counts.get(k) ?? 0) + 1);
@@ -293,24 +310,8 @@ function countKeys<T>(
   return counts;
 }
 
-/**
- * What a search and the chosen chips keep: a status chip, and a value of
- * each column the project filters by (`picked`, by the column's index); no
- * chip chosen (All) keeps every one. Each group of chips counts the items
- * the search and the other groups keep, so a chip says what choosing it
- * would show; a chosen chip stays when the rest leaves it none.
- */
-export function filterItems(
-  project: Project,
-  items: Item[],
-  q: string,
-  chosen: string | null,
-  picked: ReadonlyMap<number, string> = new Map(),
-): Filtered {
-  const searched = items.filter((i) => matches(i, q));
-  const byStatus = (i: Item) => chosen === null || filterKey(i) === chosen;
-  const unstatused = searched.filter((i) => byColumns(i, columnValue, picked));
-  const counts = countKeys(unstatused, filterKey, chosen);
+/** The status field: an item's status word, live words first, unreadable last. */
+function statusField(project: Project): Field<Item> {
   const declared = Object.keys(project.statuses);
   const order = (key: string) =>
     FIRST.includes(key)
@@ -320,28 +321,115 @@ export function filterItems(
         : declared.includes(key)
           ? declared.indexOf(key)
           : declared.length;
-  const chips = [...counts]
-    .map(([key, count]) => ({ key, count }))
-    .sort((a, b) => {
-      const byOrder = order(a.key) - order(b.key);
+  return {
+    key: STATUS_FIELD,
+    valueOf: filterKey,
+    order: (a, b) => {
+      const byOrder = order(a) - order(b);
       // Two unreadable keys give Infinity - Infinity, NaN; they are the
       // same key, so the name comparison settles them.
       return byOrder !== 0 && !Number.isNaN(byOrder)
         ? byOrder
-        : a.key.localeCompare(b.key);
+        : a.localeCompare(b);
+    },
+  };
+}
+
+/**
+ * A column's values in the order of its cases, then by label A to Z, and
+ * no value last.
+ */
+function columnOrder(column: Column): (a: string, b: string) => number {
+  const cases = column.cases ?? [];
+  const rank = (key: string) =>
+    key === NO_VALUE
+      ? cases.length + 1
+      : cases.includes(key)
+        ? cases.indexOf(key)
+        : cases.length;
+  const label = (key: string) => column.labels?.[key] ?? key;
+  return (a, b) => {
+    const byRank = rank(a) - rank(b);
+    return byRank !== 0 ? byRank : label(a).localeCompare(label(b));
+  };
+}
+
+/**
+ * The fields the home page filters by: the status, then each column with
+ * filter, by its key (columnKey), the first of two with one title.
+ */
+export function homeFields(project: Project): Field<Item>[] {
+  const fields = [statusField(project)];
+  project.columns.forEach((column, index) => {
+    const key = columnKey(column.title);
+    if (column.filter !== true || fields.some((f) => f.key === key)) return;
+    fields.push({
+      key,
+      valueOf: (i) => valueKey(columnValue(i, index)) ?? NO_VALUE,
+      order: columnOrder(column),
     });
-  const columns = columnChips(
-    project.columns,
-    searched.filter(byStatus),
-    columnValue,
-    picked,
-  );
-  const shown = unstatused.filter(byStatus);
+  });
+  return fields;
+}
+
+/**
+ * Whether a row keeps to every rule but that of the field but: its value in
+ * the rule's field is one of the rule's values (any) or none of them (none).
+ * A rule of a field not among fields keeps every row.
+ */
+export function byRules<T>(
+  row: T,
+  fields: readonly Field<T>[],
+  rules: readonly Rule[],
+  but?: string,
+): boolean {
+  return rules.every((rule) => {
+    const field = fields.find((f) => f.key === rule.field);
+    if (rule.field === but || field === undefined) return true;
+    return rule.values.includes(field.valueOf(row)) === (rule.op === "any");
+  });
+}
+
+/**
+ * Each field's values over the rows the other fields' rules keep, so a
+ * value's count says what choosing it would show; a value a rule names stays,
+ * at 0 when no such row has it.
+ */
+export function fieldCounts<T>(
+  fields: readonly Field<T>[],
+  rows: T[],
+  rules: readonly Rule[],
+): FieldCounts[] {
+  return fields.map((field) => {
+    const kept = rows.filter((r) => byRules(r, fields, rules, field.key));
+    const chosen = rules.find((r) => r.field === field.key)?.values ?? [];
+    return {
+      field: field.key,
+      all: kept.length,
+      values: [...countKeys(kept, field.valueOf, chosen)]
+        .map(([key, count]) => ({ key, count }))
+        .sort((a, b) => field.order(a.key, b.key)),
+    };
+  });
+}
+
+/**
+ * What a search and the rules keep: the items whose ID holds the search
+ * and that keep to every rule. Each field counts the items the search and
+ * the other fields' rules keep.
+ */
+export function filterItems(
+  project: Project,
+  items: Item[],
+  q: string,
+  rules: readonly Rule[],
+  fields: readonly Field<Item>[] = homeFields(project),
+): Filtered {
+  const searched = items.filter((i) => matches(i, q));
+  const shown = searched.filter((i) => byRules(i, fields, rules));
   return {
     shown,
-    chips,
-    searched: unstatused.length,
-    columns,
+    fields: fieldCounts(fields, searched, rules),
     hidden: items.length - shown.length,
   };
 }
@@ -375,27 +463,20 @@ export function columnChips<T>(
   return columns.flatMap((column, index): ColumnChips[] => {
     if (column.filter !== true) return [];
     const kept = rows.filter((r) => byColumns(r, valueOf, picked, index));
-    const cases = column.cases ?? [];
-    const rank = (key: string) =>
-      cases.includes(key) ? cases.indexOf(key) : cases.length;
-    const label = (key: string) => column.labels?.[key] ?? key;
+    const pick = picked.get(index);
     const counted = countKeys(
       kept,
       (r) => valueKey(valueOf(r, index)),
-      picked.get(index) ?? null,
+      pick === undefined ? [] : [pick],
     );
+    const order = columnOrder(column);
     return [
       {
         index,
         all: kept.length,
         chips: [...counted]
           .map(([key, count]) => ({ key, count }))
-          .sort((a, b) => {
-            const byCase = rank(a.key) - rank(b.key);
-            return byCase !== 0
-              ? byCase
-              : label(a.key).localeCompare(label(b.key));
-          }),
+          .sort((a, b) => order(a.key, b.key)),
       },
     ];
   });

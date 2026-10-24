@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POLL_MS } from "../../api/poll";
@@ -245,11 +245,13 @@ describe("the home page", () => {
         .click();
     });
 
-    expect(screen.getByLabelText("where")).toHaveTextContent("status=too_easy");
+    expect(screen.getByLabelText("where")).toHaveTextContent(
+      "f.status=any:too_easy",
+    );
     expect(itemsOf("Ended")).toEqual(["t-new"]);
     expect(screen.queryByRole("button", { name: /^Not ended/ })).toBeNull();
     expect(
-      screen.getByText("3 of 4 Tasks hidden by the status filter."),
+      screen.getByText("3 of 4 Tasks hidden by the Status filter."),
     ).toBeVisible();
   });
 
@@ -321,48 +323,16 @@ describe("the home page", () => {
       );
     });
 
-    it("filters by a value's chip, says it hides items, and shows all again", async () => {
+    it("draws no chips of its own, and leaves a cell no case holds empty", async () => {
       show("/sample", kinds);
       const none = (await screen.findByText("t-c")).closest("tr");
       // No case held: the cell is empty, with no dash.
       expect(none?.querySelector("td:last-child")?.textContent).toBe("");
-      const chips = screen.getByRole("group", { name: "Filter by Kind" });
+      // The column is a field of the Filter button's panel instead.
       expect(
-        within(chips)
-          .getAllByRole("button")
-          .map((b) => b.textContent),
-      ).toEqual(["All3", "First1", "second1"]);
-
-      act(() => {
-        within(chips)
-          .getByRole("button", { name: /^First/ })
-          .click();
-      });
-
-      expect(screen.getByLabelText("where")).toHaveTextContent(
-        "column-0=first",
-      );
-      expect(itemsOf("Ended")).toEqual(["t-a"]);
-      expect(
-        screen.getByText("2 of 3 Tasks hidden by the Kind filter."),
-      ).toBeVisible();
-
-      act(() => {
-        screen.getByRole("button", { name: "Show all" }).click();
-      });
-
-      expect(screen.getByLabelText("where")).not.toHaveTextContent("column-0");
-      expect(itemsOf("Ended")).toHaveLength(3);
-    });
-
-    it("says on a value's chip what the value stands for, and what it counts", async () => {
-      show("/sample", kinds);
-      await screen.findByText("t-a");
-      const chips = screen.getByRole("group", { name: "Filter by Kind" });
-      fireEvent.focus(within(chips).getByRole("button", { name: /^First/ }));
-      expect(await screen.findByRole("tooltip")).toHaveTextContent(
-        /^It went the first way\. 1 Task$/,
-      );
+        screen.queryByRole("group", { name: "Filter by Kind" }),
+      ).toBeNull();
+      expect(screen.queryByRole("button", { name: /^First/ })).toBeNull();
     });
 
     it("shows a dash where no case holds when the column says what that stands for", async () => {
@@ -382,7 +352,7 @@ describe("the home page", () => {
       show("/sample?q=t-&status=passed&column-0=first", kinds);
       expect(
         await screen.findByText(
-          "2 of 3 Tasks hidden by the search, the status filter and the Kind filter.",
+          "2 of 3 Tasks hidden by the search, the Status filter and the Kind filter.",
         ),
       ).toBeVisible();
     });
@@ -392,7 +362,7 @@ describe("the home page", () => {
     show("/sample?q=t-&status=too_easy&older=1");
     expect(
       await screen.findByText(
-        "3 of 4 Tasks hidden by the search and the status filter.",
+        "3 of 4 Tasks hidden by the search and the Status filter.",
       ),
     ).toBeVisible();
   });
@@ -1145,7 +1115,8 @@ describe("the home page's columns", () => {
       JSON.stringify({ version: 1, hidden: ["col.Gone", "spent"], rules }),
     );
     show("/sample", columns);
-    await screen.findByText("t-run");
+    // Its rule keeps the passed items alone.
+    await screen.findByText("t-old");
 
     expect(headings()).not.toContain("Spent");
     expect(picker()).toHaveTextContent("Columns · 1 hidden");
@@ -1181,6 +1152,420 @@ describe("the home page's columns", () => {
     show("/sample?sort=-spent", columns);
     await screen.findByText("t-run");
     expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
+  });
+});
+
+describe("the home page's filter", () => {
+  const fields: Project = {
+    ...project,
+    columns: [
+      {
+        title: "Kind",
+        field: [],
+        format: "text",
+        cases: ["first", "second"],
+        labels: { first: "First" },
+        filter: true,
+      },
+      { title: "Area", field: ["area"], format: "text", filter: true },
+      { title: "Cap", field: ["cap"], format: "usd" },
+    ],
+  };
+  const rows: AttemptRow[] = [
+    row("t-a/1", { values: ["first", "north", 1] }),
+    row("t-b/1", { values: ["second", "south", 1], status: "too_easy" }),
+    row("t-c/1", { values: [null, "north", 1] }),
+    row("t-d/1", { values: ["first", "a,b", 1], status: "too_easy" }),
+  ];
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+  });
+
+  const where = () => screen.getByLabelText("where").textContent;
+  const filterButton = () => screen.getByRole("button", { name: /^Filter/ });
+  const click = (element: HTMLElement) => {
+    act(() => {
+      element.focus();
+      element.click();
+    });
+  };
+  const panel = (name: string) => screen.getByRole("dialog", { name });
+  const texts = (elements: HTMLElement[]) => elements.map((e) => e.textContent);
+  const ruleChips = () =>
+    texts(
+      within(screen.getByRole("group", { name: "Filters" })).getAllByRole(
+        "button",
+        { expanded: false },
+      ),
+    );
+  const statusChips = () =>
+    within(screen.getByRole("group", { name: "Filter by status" }));
+  const keptView = (): unknown =>
+    JSON.parse(localStorage.getItem("viz.home.sample") ?? "null");
+
+  it("lists the fields, then a field's values with their counts and No value, keeping the op chosen before them", async () => {
+    show("/sample", fields);
+    await screen.findByText("t-a");
+
+    click(filterButton());
+    const fieldsPanel = panel("Filter");
+    expect(texts(within(fieldsPanel).getAllByRole("button"))).toEqual([
+      "Status",
+      "Kind",
+      "Area",
+    ]);
+    expect(document.activeElement).toBe(
+      within(fieldsPanel).getByRole("searchbox", { name: "Filter by" }),
+    );
+
+    click(within(fieldsPanel).getByRole("button", { name: "Kind" }));
+    expect(texts(within(fieldsPanel).getAllByRole("checkbox"))).toEqual([
+      "First2",
+      "second1",
+      "No value1",
+    ]);
+    // The panel took the place of the field's button: the focus is in it.
+    expect(document.activeElement).toBe(
+      within(fieldsPanel).getByRole("button", { name: "is any of" }),
+    );
+
+    // The op chosen before any value holds for the values picked after it.
+    click(within(fieldsPanel).getByRole("button", { name: "is none of" }));
+    const first = within(fieldsPanel).getByRole("checkbox", { name: /^First/ });
+    click(first);
+
+    expect(where()).toBe("/sample?f.col.Kind=none:first");
+    expect(itemsOf("Ended")).toEqual(["t-b", "t-c"]);
+    expect(first).toHaveAttribute("aria-checked", "true");
+    expect(document.activeElement).toBe(first);
+    expect(filterButton()).toHaveTextContent("Filter · 1");
+    expect(keptView()).toHaveProperty("rules", [
+      { field: "col.Kind", op: "none", values: ["first"] },
+    ]);
+
+    // Another field's values count what the Kind rule keeps.
+    click(
+      within(fieldsPanel).getByRole("button", { name: "Back to the fields" }),
+    );
+    expect(document.activeElement).toBe(
+      within(fieldsPanel).getByRole("searchbox", { name: "Filter by" }),
+    );
+    click(within(fieldsPanel).getByRole("button", { name: /^Area/ }));
+    expect(texts(within(fieldsPanel).getAllByRole("checkbox"))).toEqual([
+      "north1",
+      "south1",
+    ]);
+    click(within(fieldsPanel).getByRole("checkbox", { name: /^south/ }));
+
+    expect(where()).toBe("/sample?f.col.Kind=none:first&f.col.Area=any:south");
+    expect(itemsOf("Ended")).toEqual(["t-b"]);
+    expect(filterButton()).toHaveTextContent("Filter · 2");
+  });
+
+  it("shows the rules as chips: one opens its rule, its × takes out that rule alone, Add filter opens a field's rule", async () => {
+    show("/sample?f.col.Kind=any:first&f.col.Area=any:north", fields);
+    await screen.findByText("t-a");
+    expect(ruleChips()).toEqual([
+      "Kind is any of First",
+      "Area is any of north",
+      "Add filter",
+    ]);
+    expect(filterButton()).toHaveTextContent("Filter · 2");
+
+    click(screen.getByRole("button", { name: "Kind is any of First" }));
+    const kind = panel("Filter by Kind");
+    const first = within(kind).getByRole("checkbox", { name: /^First/ });
+    expect(first).toHaveAttribute("aria-checked", "true");
+    // Its last value taken out, the chip stays while its panel is open.
+    click(first);
+    expect(where()).toBe("/sample?f.col.Area=any:north");
+    expect(document.activeElement).toBe(first);
+    click(within(kind).getByRole("checkbox", { name: /^No value/ }));
+    expect(where()).toBe("/sample?f.col.Area=any:north&f.col.Kind=any:~none");
+    expect(itemsOf("Ended")).toEqual(["t-c"]);
+    act(() => {
+      fireEvent.keyDown(first, { key: "Escape" });
+    });
+
+    click(screen.getByRole("button", { name: "Remove the Area filter" }));
+    expect(where()).toBe("/sample?f.col.Kind=any:~none");
+    expect(ruleChips()).toEqual(["Kind is any of No value", "Add filter"]);
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Add filter" }),
+    );
+
+    click(screen.getByRole("button", { name: "Add filter" }));
+    const add = panel("Add filter");
+    click(within(add).getByRole("button", { name: /^Kind/ }));
+    expect(
+      within(add).getByRole("checkbox", { name: /^No value/ }),
+    ).toHaveAttribute("aria-checked", "true");
+    act(() => {
+      fireEvent.keyDown(document.activeElement ?? document.body, {
+        key: "Escape",
+      });
+    });
+
+    // The last rule gone, the focus goes to the Filter button.
+    click(screen.getByRole("button", { name: "Remove the Kind filter" }));
+    expect(where()).toBe("/sample");
+    expect(screen.queryByRole("group", { name: "Filters" })).toBeNull();
+    expect(document.activeElement).toBe(filterButton());
+    expect(filterButton()).toHaveTextContent(/^Filter$/);
+  });
+
+  it("takes a status chip for the Status rule, pressed only while it is any of that status alone", async () => {
+    show("/sample", fields);
+    await screen.findByText("t-a");
+    const pressed = () =>
+      texts(statusChips().queryAllByRole("button", { pressed: true }));
+
+    click(statusChips().getByRole("button", { name: /^Too easy/ }));
+    expect(where()).toBe("/sample?f.status=any:too_easy");
+    expect(pressed()).toEqual(["Too easy2"]);
+    expect(ruleChips()).toEqual(["Status is any of Too easy", "Add filter"]);
+
+    // A Status rule of two values, or of none, presses no chip.
+    click(screen.getByRole("button", { name: "Status is any of Too easy" }));
+    click(
+      within(panel("Filter by Status")).getByRole("checkbox", {
+        name: /^Passed/,
+      }),
+    );
+    expect(where()).toBe("/sample?f.status=any:too_easy,passed");
+    expect(pressed()).toEqual([]);
+    click(
+      within(panel("Filter by Status")).getByRole("button", {
+        name: "is none of",
+      }),
+    );
+    expect(where()).toBe("/sample?f.status=none:too_easy,passed");
+    expect(pressed()).toEqual([]);
+    act(() => {
+      fireEvent.keyDown(document.activeElement ?? document.body, {
+        key: "Escape",
+      });
+    });
+
+    // A chip sets the rule; again, or All, takes it out.
+    click(statusChips().getByRole("button", { name: /^Passed/ }));
+    expect(where()).toBe("/sample?f.status=any:passed");
+    expect(pressed()).toEqual(["Passed2"]);
+    click(statusChips().getByRole("button", { name: /^Passed/ }));
+    expect(where()).toBe("/sample");
+    expect(pressed()).toEqual(["All4"]);
+    click(statusChips().getByRole("button", { name: /^Passed/ }));
+    click(statusChips().getByRole("button", { name: /^All/ }));
+    expect(where()).toBe("/sample");
+    expect(keptView()).toHaveProperty("rules", []);
+  });
+
+  it("says when no item is left, under the table's header, and what hides them all, and Show all clears the search and every rule", async () => {
+    show("/sample?q=t-b&f.col.Kind=any:first&f.col.Area=any:north", fields);
+    expect(
+      await screen.findByText(
+        "No Task matches the search, the Kind filter and the Area filter.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "4 of 4 Tasks hidden by the search, the Kind filter and the Area filter.",
+      ),
+    ).toBeVisible();
+    expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0);
+
+    const [, inTable] = screen.getAllByRole("button", { name: "Show all" });
+    click(must(inTable));
+
+    expect(where()).toBe("/sample");
+    expect(itemsOf("Ended")).toEqual(["t-a", "t-b", "t-c", "t-d"]);
+    expect(keptView()).toHaveProperty("rules", []);
+    expect(screen.queryByText(/hidden by/)).toBeNull();
+  });
+
+  it("names on the line under the filters each rule that hides items, and Show all clears them", async () => {
+    show("/sample?f.status=none:passed&f.col.Area=any:a%2Cb", fields);
+    expect(
+      await screen.findByText(
+        "3 of 4 Tasks hidden by the Status filter and the Area filter.",
+      ),
+    ).toBeVisible();
+    expect(itemsOf("Ended")).toEqual(["t-d"]);
+    expect(ruleChips()).toEqual([
+      "Status is none of Passed",
+      "Area is any of a,b",
+      "Add filter",
+    ]);
+
+    click(screen.getByRole("button", { name: "Show all" }));
+
+    expect(where()).toBe("/sample");
+    expect(itemsOf("Ended")).toHaveLength(4);
+  });
+
+  it("opens with the URL's rules, kept as the project's, else with those kept, written to the URL", async () => {
+    localStorage.setItem(
+      "viz.home.sample",
+      JSON.stringify({
+        version: 1,
+        hidden: ["col.Cap"],
+        rules: [{ field: "col.Kind", op: "any", values: ["first"] }],
+      }),
+    );
+    const { unmount } = show("/sample", fields);
+    await screen.findByText("t-a");
+    await waitFor(() => {
+      expect(where()).toBe("/sample?f.col.Kind=any:first");
+    });
+    expect(itemsOf("Ended")).toEqual(["t-a", "t-d"]);
+
+    unmount();
+    show("/sample?f.col.Area=any:south", fields);
+    await screen.findByText("t-b");
+    expect(itemsOf("Ended")).toEqual(["t-b"]);
+    await waitFor(() => {
+      expect(keptView()).toHaveProperty("rules", [
+        { field: "col.Area", op: "any", values: ["south"] },
+      ]);
+    });
+    // What else the view keeps stays.
+    expect(keptView()).toHaveProperty("hidden", ["col.Cap"]);
+  });
+
+  it("drops an f. key of a field it does not filter by, or with another op, and opens with the rules kept", async () => {
+    localStorage.setItem(
+      "viz.home.sample",
+      JSON.stringify({
+        version: 1,
+        rules: [{ field: "status", op: "any", values: ["too_easy"] }],
+      }),
+    );
+    show(
+      "/sample?f.col.Cap=any:1&f.col.Gone=any:x&f.status=some:passed&older=1",
+      fields,
+    );
+    await screen.findByText("t-b");
+    await waitFor(() => {
+      expect(where()).toBe("/sample?older=1&f.status=any:too_easy");
+    });
+  });
+
+  it("rewrites a link of the older kind as the rules it stands for, a column by its place", async () => {
+    show(
+      "/sample?status=too_easy&column-0=first&column-2=1&column-9=x&q=t",
+      fields,
+    );
+    await screen.findByText("t-d");
+    await waitFor(() => {
+      expect(where()).toBe(
+        "/sample?q=t&f.status=any:too_easy&f.col.Kind=any:first",
+      );
+    });
+    expect(itemsOf("Ended")).toEqual(["t-d"]);
+  });
+
+  it("keeps a rule whose value no item has, at 0, and drops one of a field it no longer filters by", async () => {
+    localStorage.setItem(
+      "viz.home.sample",
+      JSON.stringify({
+        version: 1,
+        rules: [
+          { field: "col.Gone", op: "any", values: ["x"] },
+          { field: "col.Kind", op: "any", values: ["third"] },
+        ],
+      }),
+    );
+    show("/sample", fields);
+    expect(
+      await screen.findByText("No Task matches the Kind filter."),
+    ).toBeVisible();
+    expect(where()).toBe("/sample?f.col.Kind=any:third");
+    click(screen.getByRole("button", { name: "Kind is any of third" }));
+    const third = within(panel("Filter by Kind")).getByRole("checkbox", {
+      name: /^third/,
+    });
+    expect(third).toHaveTextContent("third0");
+
+    // Taken out of the rule, it stays in its place while the panel is open,
+    // and keeps the focus.
+    click(third);
+    expect(where()).toBe("/sample");
+    expect(
+      texts(within(panel("Filter by Kind")).getAllByRole("checkbox")),
+    ).toEqual(["First2", "second1", "third0", "No value1"]);
+    expect(document.activeElement).toBe(third);
+    expect(third).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("reads the rules kept only as the page opens, a link to it followed too, and not as it changes its own URL", async () => {
+    const keep = (values: string[]) => {
+      localStorage.setItem(
+        "viz.home.sample",
+        JSON.stringify({
+          version: 1,
+          rules: [{ field: "col.Area", op: "any", values }],
+        }),
+      );
+    };
+    render(
+      <MemoryRouter initialEntries={["/sample"]}>
+        <Routes>
+          <Route
+            path=":project"
+            element={
+              <>
+                <Home project={fields} />
+                <Link to="/sample">Open again</Link>
+                <Where />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("t-a");
+    expect(where()).toBe("/sample");
+
+    // As another tab would keep its rules: this page's change of its URL
+    // does not take them.
+    keep(["south"]);
+    click(screen.getByRole("button", { name: "Spent" }));
+    expect(where()).toBe("/sample?sort=-spent");
+    expect(itemsOf("Ended")).toHaveLength(4);
+
+    // Its rules taken out where they cannot be kept, they do not come back.
+    click(screen.getByRole("link", { name: "Open again" }));
+    expect(where()).toBe("/sample?f.col.Area=any:south");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("full");
+    });
+    click(screen.getByRole("button", { name: "Show all" }));
+    expect(where()).toBe("/sample");
+    expect(itemsOf("Ended")).toHaveLength(4);
+    vi.restoreAllMocks();
+  });
+
+  it("keeps the search, the sort and older in the URL alone, and the columns shown never in it", async () => {
+    show("/sample?q=t&sort=-spent&older=1&f.col.Kind=any:first", fields);
+    await screen.findByText("t-a");
+    click(screen.getByRole("button", { name: /^Columns/ }));
+    click(screen.getByRole("switch", { name: "Cap" }));
+
+    expect(where()).toBe(
+      "/sample?q=t&sort=-spent&older=1&f.col.Kind=any:first",
+    );
+    expect(JSON.parse(localStorage.getItem("viz.home.sample") ?? "{}")).toEqual(
+      {
+        version: 1,
+        hidden: ["col.Cap"],
+        rules: [{ field: "col.Kind", op: "any", values: ["first"] }],
+      },
+    );
   });
 });
 
@@ -1257,7 +1642,7 @@ describe("the home page's empty attempts", () => {
     await screen.findByText("5 older attempts hidden (4 Tasks)");
 
     expect(
-      screen.getByText("Nothing matches the search and the status filter."),
+      screen.getByText("No Task matches the Status filter."),
     ).toBeVisible();
     const chips = screen
       .getAllByRole("button", { pressed: true })

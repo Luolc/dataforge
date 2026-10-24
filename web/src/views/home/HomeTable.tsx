@@ -18,8 +18,21 @@ import {
   Search,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { type ReactNode, useId, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import {
+  type ReactNode,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Link,
+  NavigationType,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router";
 
 import type { AttemptRow, Project } from "../../api/types";
 import { duration, time, usd } from "../../ui/format";
@@ -33,6 +46,8 @@ import {
 } from "../../ui/status";
 import { Chip, control } from "../../ui/chip";
 import { ColumnPicker } from "../../ui/column-picker";
+import { type FilterField, FilterButton, FilterRules } from "../../ui/filter";
+import { type Rule, withRule } from "../../ui/rule";
 import { Hint } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
@@ -42,7 +57,6 @@ import { attemptHref } from "../attempt/href";
 import { stoppedWhy } from "../queue/status";
 import {
   type Cell,
-  columnParam,
   columnSpec,
   compareValues,
   joined,
@@ -53,14 +67,16 @@ import {
   useOpenRow,
   type Value,
 } from "./columns";
-import { ColumnFilter, SortHeading } from "./ColumnControls";
+import { SortHeading } from "./ColumnControls";
 import {
   counted,
   filterItems,
   flagged,
   GROUPS,
+  homeFields,
   isEmptyAttempt,
   keyWord,
+  NO_VALUE,
   notEnded,
   rowSeconds,
   roundRuns,
@@ -70,7 +86,17 @@ import {
   type Item,
   withHomeStatuses,
 } from "./items";
-import { columnKey, loadHidden, saveHidden } from "./view";
+import {
+  columnKey,
+  filterFields,
+  loadHidden,
+  loadRules,
+  readQuery,
+  saveHidden,
+  saveRules,
+  STATUS_FIELD,
+  writeQuery,
+} from "./view";
 
 /** When the listing was read, and what it held. */
 export interface Read {
@@ -381,11 +407,40 @@ export function HomeTable({
   onRefresh: () => void;
 }) {
   const project = useMemo(() => withHomeStatuses(given), [given]);
-  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const open = useOpenRow();
   const baseId = useId();
+  const filterRef = useRef<HTMLButtonElement>(null);
+  const query = useMemo(
+    () => readQuery(location.search, project.columns),
+    [location.search, project.columns],
+  );
+  const params = query.others;
   const q = params.get("q") ?? "";
-  const chosen = params.get("status");
+  const rules = query.rules;
+  // The page opens as it mounts and as a link to it is followed, back and
+  // forward too, but not as it changes its own URL. On opening, the URL's
+  // rules, if it gives any, become the project's; else those kept for it are
+  // written to the URL (design-viz.md section 5, "Columns and filter").
+  // After that the URL alone gives the rules.
+  const navigationType = useNavigationType();
+  const openedRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (openedRef.current === location.key) return;
+    if (openedRef.current !== null && navigationType === NavigationType.Replace)
+      return;
+    openedRef.current = location.key;
+    if (query.rules.length > 0) saveRules(project.id, query.rules);
+    const opened =
+      query.rules.length > 0
+        ? query.rules
+        : loadRules(project.id, filterFields(project.columns));
+    // A key of the older kind, or one dropped, goes from the URL too.
+    const search = writeQuery(query.others, opened);
+    if (search !== location.search)
+      void navigate({ search }, { replace: true });
+  }, [location, navigationType, query, project, navigate]);
 
   const showOlder = params.get("older") === "1";
   const older = useMemo(() => {
@@ -403,19 +458,54 @@ export function HomeTable({
       ),
     [read.rows, showOlder],
   );
-  // ?column-<index>=<value> for each column the page filters by.
-  const picked = useMemo(() => {
-    const found = new Map<number, string>();
-    project.columns.forEach((c, index) => {
-      const key = c.filter === true ? params.get(columnParam(index)) : null;
-      if (key !== null) found.set(index, key);
-    });
-    return found;
-  }, [project.columns, params]);
+  const fields = useMemo(() => homeFields(project), [project]);
   const filtered = useMemo(
-    () => filterItems(project, items, q, chosen, picked),
-    [project, items, q, chosen, picked],
+    () => filterItems(project, items, q, rules, fields),
+    [project, items, q, rules, fields],
   );
+  // Each field as the Filter panel shows it, its title and its values'.
+  const filterPanel = useMemo(
+    (): FilterField[] =>
+      fields.map((field, i) => {
+        const column = project.columns.find(
+          (c) => columnKey(c.title) === field.key,
+        );
+        return {
+          key: field.key,
+          title: column?.title ?? "Status",
+          values: (filtered.fields[i]?.values ?? []).map(({ key, count }) => {
+            if (column !== undefined)
+              return {
+                key,
+                count,
+                label:
+                  key === NO_VALUE ? "No value" : (column.labels?.[key] ?? key),
+              };
+            const { label, tone } = statusOf(project, keyWord(key));
+            const Glyph = toneGlyph[tone];
+            return {
+              key,
+              count,
+              label,
+              icon: (
+                <Glyph
+                  className={`size-icon-sm flex-none ${toneText[tone]}`}
+                  aria-hidden
+                />
+              ),
+            };
+          }),
+        };
+      }),
+    [fields, filtered.fields, project],
+  );
+  const statusCounts = filtered.fields[0];
+  const statusRule = rules.find((r) => r.field === STATUS_FIELD);
+  // A status chip is pressed while the Status rule is any of its status alone.
+  const chosen =
+    statusRule?.op === "any" && statusRule.values.length === 1
+      ? (statusRule.values[0] ?? null)
+      : null;
   const allSpecs = useMemo(() => specs(project), [project]);
   const pickable = useMemo(
     () =>
@@ -458,15 +548,18 @@ export function HomeTable({
     [sortParam, columnSpecs],
   );
 
-  const update = (change: (next: URLSearchParams) => void) => {
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        change(next);
-        return next;
-      },
-      { replace: true },
-    );
+  const update = (
+    change: (next: URLSearchParams) => void,
+    nextRules: readonly Rule[] = rules,
+  ) => {
+    const next = new URLSearchParams(params);
+    change(next);
+    void navigate({ search: writeQuery(next, nextRules) }, { replace: true });
+  };
+  // Each change of the rules is kept and written to the URL.
+  const setRules = (next: Rule[]) => {
+    saveRules(project.id, next);
+    update(() => undefined, next);
   };
   const onSortingChange = (updater: Updater<SortingState>) => {
     const next = typeof updater === "function" ? updater(sorting) : updater;
@@ -488,23 +581,26 @@ export function HomeTable({
       });
   };
   const choose = (key: string | null) => {
-    update((p) => {
-      if (key === null) p.delete("status");
-      else p.set("status", key);
-    });
+    setRules(
+      withRule(
+        rules,
+        STATUS_FIELD,
+        key === null ? null : { field: STATUS_FIELD, op: "any", values: [key] },
+      ),
+    );
   };
-  const pick = (index: number, key: string | null) => {
+  const showAll = () => {
+    saveRules(project.id, []);
     update((p) => {
-      if (key === null) p.delete(columnParam(index));
-      else p.set(columnParam(index), key);
-    });
+      p.delete("q");
+    }, []);
   };
   // What hides items, as the line under the filters names it.
   const filters = [
     ...(q.trim() !== "" ? ["the search"] : []),
-    ...(chosen !== null ? ["the status filter"] : []),
-    ...[...picked.keys()].map(
-      (index) => `the ${project.columns[index]?.title ?? ""} filter`,
+    ...rules.map(
+      (r) =>
+        `the ${filterPanel.find((f) => f.key === r.field)?.title ?? r.field} filter`,
     ),
   ];
 
@@ -610,15 +706,15 @@ export function HomeTable({
             className="flex flex-wrap gap-1.5"
           >
             <Chip
-              pressed={chosen === null}
+              pressed={statusRule === undefined}
               onClick={() => {
                 choose(null);
               }}
               label="All"
-              count={filtered.searched}
-              hint={counted(filtered.searched, itemTitle)}
+              count={statusCounts?.all ?? 0}
+              hint={counted(statusCounts?.all ?? 0, itemTitle)}
             />
-            {filtered.chips.map(({ key, count }) => {
+            {(statusCounts?.values ?? []).map(({ key, count }) => {
               const { label, tone } = statusOf(project, keyWord(key));
               const Glyph = toneGlyph[tone];
               return (
@@ -641,22 +737,6 @@ export function HomeTable({
               );
             })}
           </div>
-          {filtered.columns.map((chips) => {
-            const column = project.columns[chips.index];
-            if (column === undefined) return null;
-            return (
-              <ColumnFilter
-                key={chips.index}
-                column={column}
-                chips={chips}
-                picked={picked.get(chips.index) ?? null}
-                onPick={(key) => {
-                  pick(chips.index, key);
-                }}
-                unit={itemTitle}
-              />
-            );
-          })}
           <label className="inline-flex target items-center gap-1.5 rounded-row border border-chip-line px-2 focus-within:border-fg-3">
             <Search className="size-3.5 text-icon" aria-hidden />
             <input
@@ -692,6 +772,12 @@ export function HomeTable({
               <RefreshCw className="size-3.5 text-icon" aria-hidden />
               Refresh
             </button>
+            <FilterButton
+              ref={filterRef}
+              fields={filterPanel}
+              rules={rules}
+              onChange={setRules}
+            />
             <ColumnPicker
               columns={pickable}
               hidden={hidden}
@@ -699,26 +785,23 @@ export function HomeTable({
             />
           </div>
         </div>
-        {filtered.hidden > 0 && (
-          <p className="flex items-center gap-2 text-xs text-fg-3">
-            {filtered.hidden} of {counted(items.length, itemTitle)} hidden by{" "}
-            {joined(filters)}.
-            <button
-              type="button"
-              className={control}
-              onClick={() => {
-                update((p) => {
-                  p.delete("q");
-                  p.delete("status");
-                  for (const index of picked.keys())
-                    p.delete(columnParam(index));
-                });
-              }}
-            >
-              Show all
-            </button>
-          </p>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
+          <FilterRules
+            fields={filterPanel}
+            rules={rules}
+            onChange={setRules}
+            fallback={filterRef}
+          />
+          {filtered.hidden > 0 && (
+            <p className="flex items-center gap-2 text-xs text-fg-3">
+              {filtered.hidden} of {counted(items.length, itemTitle)} hidden by{" "}
+              {joined(filters)}.
+              <button type="button" className={control} onClick={showAll}>
+                Show all
+              </button>
+            </p>
+          )}
+        </div>
         {/* The table scrolls sideways on its own, under the filters. */}
         <Sideways label="the table">
           <table className="w-full border-collapse text-sm">
@@ -778,12 +861,19 @@ export function HomeTable({
           </table>
         </Sideways>
         {rows.length === 0 && (
-          <p className="py-6 text-center text-fg-3">
-            {read.rows.length === 0
-              ? "The project has no attempts."
-              : items.length === 0
-                ? "Every attempt of the project is an older attempt."
-                : "Nothing matches the search and the status filter."}
+          <p className="flex items-center justify-center gap-2 py-6 text-fg-3">
+            {read.rows.length === 0 ? (
+              "The project has no attempts."
+            ) : items.length === 0 ? (
+              "Every attempt of the project is an older attempt."
+            ) : (
+              <>
+                {`No ${itemTitle} matches ${joined(filters)}.`}
+                <button type="button" className={control} onClick={showAll}>
+                  Show all
+                </button>
+              </>
+            )}
           </p>
         )}
         {older.attempts > 0 && (

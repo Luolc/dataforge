@@ -48,6 +48,18 @@ columns:
       - value: again
         when: [{ field: [status], equals: passed }]
     labels: { first: First round, again: Later round }
+  # A second column of cases the page filters by, so that two rules combine:
+  # the round an attempt ended in, whatever its status.
+  - title: Effort
+    filter: true
+    cases:
+      - value: one
+        when: [{ field: [round], equals: 1 }]
+      - value: two
+        when: [{ field: [round], equals: 2 }]
+      - value: three
+        when: [{ field: [round], equals: 3 }]
+    labels: { one: One round, two: Two rounds, three: Three rounds }
 # Notes of a few attempts, to read the Verdict column from; made up.
 tabs:
   - name: notes
