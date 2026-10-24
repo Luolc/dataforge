@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import time
 from typing import cast
 
 from fastapi.testclient import TestClient
@@ -15,6 +16,7 @@ from dataforge.viz.config import load_site
 from tests.viz.sites import FIXTURES, make_tree, Tree
 
 URL = "/api/projects/example/attempts"
+OLD_NS = 1_000_000_000_000_000_000
 
 
 @pytest.fixture
@@ -24,6 +26,7 @@ def tree(tmp_path: Path) -> Tree:
 
 @pytest.fixture
 def web(tree: Tree, tmp_path: Path) -> TestClient:
+  settle(tree.attempt / "record.json")
   dist = tmp_path / "dist"
   dist.mkdir()
   _ = (dist / "index.html").write_text("<!doctype html>")
@@ -42,6 +45,11 @@ def reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
   monkeypatch.setattr(viz_app, "read_record", counting, raising=True)
   return seen
+
+
+def settle(path: Path) -> None:
+  # The record was written long enough ago to be kept (not racy).
+  os.utime(path, ns=(OLD_NS, OLD_NS))
 
 
 def rows(web: TestClient) -> list[dict[str, object]]:
@@ -104,6 +112,7 @@ def test_an_added_and_a_removed_attempt_change_the_listing(
   other = tree.root / "batch-1" / "task-2"
   other.mkdir()
   _ = shutil.copy(FIXTURES / "record.json", other / "record.json")
+  settle(other / "record.json")
 
   assert {r["id"] for r in rows(web)} == {"batch-1/task-1", "batch-1/task-2"}
   assert len(reads) == 2
@@ -118,6 +127,7 @@ def test_an_added_and_a_removed_attempt_change_the_listing(
 def test_a_row_changed_by_the_caller_does_not_change_the_next(
   tree: Tree,
 ) -> None:
+  settle(tree.attempt / "record.json")
   project = load_site(tree.site).projects[0]
   first = viz_app._row(project, "batch-1/task-1")[0]
   cast(list[object], first["rounds"]).clear()
@@ -147,3 +157,18 @@ def test_a_record_that_is_not_an_object_shows_its_error(
   _ = (tree.attempt / "record.json").write_text(json.dumps([1]))
 
   assert rows(web)[0]["error"] == "the record is not a JSON object"
+
+
+def test_a_record_written_just_before_it_is_read_is_not_kept(
+  tree: Tree, web: TestClient, reads: list[str]
+) -> None:
+  path = tree.attempt / "record.json"
+  now = time.time_ns()
+  os.utime(path, ns=(now, now))
+  assert rows(web)[0]["status"] == "passed"
+
+  _ = path.write_bytes(path.read_bytes().replace(b"passed", b"failed"))
+  os.utime(path, ns=(now, now))
+
+  assert rows(web)[0]["status"] == "failed"
+  assert len(reads) == 2

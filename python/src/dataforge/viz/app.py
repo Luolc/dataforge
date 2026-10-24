@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import sqlite3
 import threading
+import time
 from typing import cast
 
 from fastapi import FastAPI, Request
@@ -787,6 +788,8 @@ class _Summaries:
 
 
 _SUMMARIES = _Summaries()
+# Longer than the grain of any file system's timestamps, as git's racy check.
+_RACY_NS = 2_000_000_000
 
 
 def _signature(status: os.stat_result) -> tuple[int, int, int, int]:
@@ -856,7 +859,10 @@ def _row(project: Project, attempt: str, record: bool = False) -> _Read:
       return row | {"error": "the record is not a JSON object"}, None, None
     data = cast(dict[str, object], parsed)
     summary = _summarize(project, data, read.mtime, signature)
-    _SUMMARIES.put(attempt, summary)
+    # A file written within the file system's timestamp grain of this read
+    # may be written again without its mtime_ns changing: no summary yet.
+    if time.time_ns() - signature[3] > _RACY_NS:
+      _SUMMARIES.put(attempt, summary)
   assert summary is not None
   row["modified"] = datetime.fromtimestamp(summary.mtime, UTC).isoformat()
   values = copy.deepcopy(summary.values)
