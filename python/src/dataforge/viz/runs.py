@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import sqlite3
 
 from dataforge.queue.proc import alive
-from dataforge.runs.store import AttemptRow, SCHEMA_MAJOR, Store
+from dataforge.runs.store import ListingRow, SCHEMA_MAJOR, Store
 from dataforge.viz import live
 from dataforge.viz.config import Action, Project, Runs
 
@@ -43,7 +43,7 @@ class Found:
       made it interrupted: the at of its newest event into interrupted.
   """
 
-  rows: list[AttemptRow]
+  rows: list[ListingRow]
   error: str | None = None
   stopped_at: dict[str, str] = field(default_factory=dict[str, str])
 
@@ -72,7 +72,7 @@ def read(runs: Runs, item: str | None = None) -> Found:
         f"the store's schema_major {major} is newer than this viewer's"
         + f" {SCHEMA_MAJOR}",
       )
-    rows = store.rows(item=item)
+    rows = store.listing(item=item)
     return Found(
       rows,
       stopped_at={
@@ -85,7 +85,7 @@ def read(runs: Runs, item: str | None = None) -> Found:
     return Found([], f"the store cannot be read: {error}")
 
 
-def status(runs: Runs, row: AttemptRow) -> str | None:
+def status(runs: Runs, row: ListingRow) -> str | None:
   """Give a row's status word.
 
   Args:
@@ -103,7 +103,7 @@ def status(runs: Runs, row: AttemptRow) -> str | None:
   return None
 
 
-def has_ended(row: AttemptRow) -> bool:
+def has_ended(row: ListingRow) -> bool:
   """Say whether a row has ended for the viewer.
 
   Args:
@@ -117,7 +117,7 @@ def has_ended(row: AttemptRow) -> bool:
   )
 
 
-def _stopped_at(store: Store, row: AttemptRow) -> str | None:
+def _stopped_at(store: Store, row: ListingRow) -> str | None:
   # When the store last made a row a person stopped interrupted; None for
   # any other row, or one with no such event.
   if row.state != "interrupted" or row.stopped_by != "person":
@@ -132,7 +132,7 @@ def _stopped_at(store: Store, row: AttemptRow) -> str | None:
   )
 
 
-def holder_gone(row: AttemptRow) -> bool:
+def holder_gone(row: ListingRow) -> bool:
   """Say whether a running row's holder is no longer alive.
 
   Args:
@@ -147,7 +147,7 @@ def holder_gone(row: AttemptRow) -> bool:
   )
 
 
-def note(row: AttemptRow, gone: bool) -> str | None:
+def note(row: ListingRow, gone: bool) -> str | None:
   """Say what a reconcile has yet to do with a row.
 
   Args:
@@ -252,7 +252,7 @@ def unavailable(
 
 
 def _not_going_on(
-  project: Project, action: Action, item: str, newest: AttemptRow
+  project: Project, action: Action, item: str, newest: ListingRow
 ) -> str | None:
   # Why the item's newest row may not go on, or None when it may.
   if newest.state == "running":
@@ -269,7 +269,7 @@ def _not_going_on(
 
 
 def _ended(
-  project: Project, action: Action, item: str, newest: AttemptRow
+  project: Project, action: Action, item: str, newest: ListingRow
 ) -> str:
   # Why an action with when "stopped" may not go on with the item's newest
   # row, which has ended: what it needs, and how that one ended and why.

@@ -181,6 +181,14 @@ ORDER BY created_at, id
 _BUSY_MS = 30_000
 
 
+_LISTING = (
+  "id, item, state, outcome, reason, machine_status, stopped_by, cost_usd,"
+  " progress_at, holder_pid, holder_starttime, holder_boot_id, resumable,"
+  " resume_problem, created_at"
+)
+"""The columns of the table attempt that Store.listing reads."""
+
+
 class NewerSchemaError(Exception):
   """A store whose schema_major is newer than this module's, so not written."""
 
@@ -288,6 +296,45 @@ class AttemptRow:
 
 
 @dataclass(frozen=True, slots=True)
+class ListingRow:
+  """The columns of a row of the table attempt that a listing reads.
+
+  It has no record and no extra, the two columns that are JSON a read has to
+  parse; Store.listing leaves them unread.
+
+  Attributes:
+    id: The attempt's ID, `<item>/<stamp>`.
+    item: The data item it makes.
+    state: One of STATES.
+    outcome: The dataset's word for how it ended, once it has.
+    reason: Why it ended so, as the dataset says.
+    machine_status: The record's status as last written.
+    stopped_by: One of STOPPED_BY while it is interrupted, else None.
+    cost_usd: The record's budget.cost_usd as last written, or the dataset's
+      meter as last read for an interrupted row: a snapshot.
+    progress_at: When its holder last wrote a step, or took it.
+    holder: The process that runs it, or ran it last.
+    resumable: Whether it may go on, as last checked; None when not checked.
+    resume_problem: Why it may not go on.
+    created_at: When its row was inserted.
+  """
+
+  id: str
+  item: str
+  state: str
+  outcome: str | None
+  reason: str | None
+  machine_status: str | None
+  stopped_by: str | None
+  cost_usd: float | None
+  progress_at: str | None
+  holder: Leader | None
+  resumable: bool | None
+  resume_problem: str | None
+  created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class Event:
   """A row of the table event: a change of an attempt's state, or a cleanup.
 
@@ -382,6 +429,30 @@ class Store:
     with self._read() as conn:
       found = cast(list[sqlite3.Row], conn.execute(sql, params).fetchall())
     return [_row(one) for one in found]
+
+  def listing(self, *, item: str | None = None) -> list[ListingRow]:
+    """List the columns of rows that a listing reads, the oldest first.
+
+    It opens the store read-only and writes nothing, and parses no JSON.
+
+    Args:
+      item: Only this item's rows; None for every item.
+
+    Returns:
+      The rows, by created_at, then ID; none when the store does not exist
+      yet.
+    """
+    where, params = "1", list[object]()
+    if item is not None:
+      where, params = "item = ?", [item]
+    sql = (
+      f"SELECT {_LISTING} FROM attempt WHERE {where} ORDER BY created_at, id"
+    )
+    if not self.path.exists():
+      return []
+    with self._read() as conn:
+      found = cast(list[sqlite3.Row], conn.execute(sql, params).fetchall())
+    return [_listing_row(one) for one in found]
 
   def uncleaned(self) -> list[AttemptRow]:
     """List the settled rows that have no cleanup event.
@@ -972,10 +1043,37 @@ def _event(
   )
 
 
-def _row(found: sqlite3.Row) -> AttemptRow:
+def _holder(found: sqlite3.Row) -> Leader | None:
   pid = cast(int | None, found["holder_pid"])
   start = cast(int | None, found["holder_starttime"])
   boot = cast(str | None, found["holder_boot_id"])
+  return (
+    None
+    if pid is None or start is None or boot is None
+    else Leader(pid, start, boot)
+  )
+
+
+def _listing_row(found: sqlite3.Row) -> ListingRow:
+  resumable = cast(int | None, found["resumable"])
+  return ListingRow(
+    id=cast(str, found["id"]),
+    item=cast(str, found["item"]),
+    state=cast(str, found["state"]),
+    outcome=cast(str | None, found["outcome"]),
+    reason=cast(str | None, found["reason"]),
+    machine_status=cast(str | None, found["machine_status"]),
+    stopped_by=cast(str | None, found["stopped_by"]),
+    cost_usd=cast(float | None, found["cost_usd"]),
+    progress_at=cast(str | None, found["progress_at"]),
+    holder=_holder(found),
+    resumable=None if resumable is None else bool(resumable),
+    resume_problem=cast(str | None, found["resume_problem"]),
+    created_at=cast(str, found["created_at"]),
+  )
+
+
+def _row(found: sqlite3.Row) -> AttemptRow:
   record = cast(str | None, found["record"])
   resumable = cast(int | None, found["resumable"])
   return AttemptRow(
@@ -992,9 +1090,7 @@ def _row(found: sqlite3.Row) -> AttemptRow:
     else cast(dict[str, object], json.loads(record)),
     cost_usd=cast(float | None, found["cost_usd"]),
     progress_at=cast(str | None, found["progress_at"]),
-    holder=None
-    if pid is None or start is None or boot is None
-    else Leader(pid, start, boot),
+    holder=_holder(found),
     job_id=cast(int | None, found["job_id"]),
     job_db=cast(str | None, found["job_db"]),
     resumable=None if resumable is None else bool(resumable),
