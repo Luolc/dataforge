@@ -27,16 +27,17 @@ const columns: Project["columns"] = [
 ];
 const project: Project = { ...base, columns };
 
-function show(shown: Project, id: string) {
+function show(shown: Project, id: string, answer?: Response) {
   const fetch = vi.fn(() =>
     Promise.resolve(
-      new Response(
-        JSON.stringify([
-          row("a/1", { values: ["py", "vuln", "$1"] }),
-          row("a/2", { values: ["py", null, "$2"], status: "exhausted" }),
-        ]),
-        { status: 200 },
-      ),
+      answer ??
+        new Response(
+          JSON.stringify([
+            row("a/1", { values: ["py", "vuln", "$1"] }),
+            row("a/2", { values: ["py", null, "$2"], status: "exhausted" }),
+          ]),
+          { status: 200 },
+        ),
     ),
   );
   vi.stubGlobal("fetch", fetch);
@@ -67,6 +68,25 @@ describe("an attempt's tags", () => {
 
     expect(await screen.findByText("Python")).toBeVisible();
     expect(screen.queryByText(/Kind/)).toBeNull();
+  });
+
+  it("says so when the listing cannot be read, instead of drawing no tag", async () => {
+    show(
+      project,
+      "a/1",
+      new Response(JSON.stringify({ error: "the store is down" }), {
+        status: 500,
+      }),
+    );
+
+    expect(await screen.findByText(/The tags cannot be read/)).toBeVisible();
+    expect(screen.queryByText("Python")).toBeNull();
+  });
+
+  it("says so when the listing has no row for the attempt", async () => {
+    show(project, "a/9");
+
+    expect(await screen.findByText(/no row for this attempt/)).toBeVisible();
   });
 
   it("reads nothing when no column asks for a tag", () => {

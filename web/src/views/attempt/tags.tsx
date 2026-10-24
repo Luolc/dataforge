@@ -4,6 +4,7 @@ import { Tooltip } from "radix-ui";
 
 import { urls, useJson, useRefresh } from "../../api/client";
 import { attemptRows, type Project } from "../../api/types";
+import { toneText } from "../../ui/status";
 import { Tag } from "../../ui/tag";
 import { columnSpec } from "../home/columns";
 
@@ -20,9 +21,17 @@ export function AttemptTags({
     attemptRows,
     useRefresh(),
   );
-  if (!wanted || rows.state !== "ok") return null;
+  if (!wanted || rows.state === "loading") return null;
+  // A tag that is not drawn is told from one that could not be read.
+  if (rows.state === "error")
+    return <Unread>{`The tags cannot be read: ${rows.message}`}</Unread>;
   const row = rows.data.find((r) => r.id === attempt);
-  if (row === undefined) return null;
+  if (row === undefined)
+    return (
+      <Unread>
+        The listing has no row for this attempt, so it has no tags.
+      </Unread>
+    );
   const tags = project.columns.flatMap((column, index) => {
     if (column.tag !== true) return [];
     const cell = columnSpec(column, index, () => ({
@@ -44,4 +53,8 @@ export function AttemptTags({
       <div className="flex flex-wrap items-center gap-1.5">{tags}</div>
     </Tooltip.Provider>
   );
+}
+
+function Unread({ children }: { children: string }) {
+  return <span className={`text-xs ${toneText.bad}`}>{children}</span>;
 }
