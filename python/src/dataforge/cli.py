@@ -19,6 +19,7 @@ from dataforge.formats import command as formats_command
 from dataforge.queue import command as queue_command
 from dataforge.runs import command as runs_command
 from dataforge.share import command as share_command
+from dataforge.viz import screenshot
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -47,7 +48,10 @@ def main(argv: Sequence[str] | None = None) -> int:
   dataforge.runs.command. "dataforge share
   serve|site|token" serves the read-only site of exports, writes it as a
   static site, or makes, lists or revokes its access tokens; see
-  dataforge.share.command.
+  dataforge.share.command. "dataforge viz screenshot --url <address>
+  --project <id> --attempt <id> [--tab <name>] [--panel <name>] [--width <px>]
+  --theme light|dark --out <file.png>" takes a PNG of one panel of the
+  running viewer; see dataforge.viz.screenshot.
 
   Args:
     argv: The arguments; None for the command line's.
@@ -129,8 +133,14 @@ def main(argv: Sequence[str] | None = None) -> int:
   viz = commands.add_parser(
     "viz", help="the viewer of attempts and the job queue"
   )
-  serve = viz.add_subparsers(dest="viz", required=True).add_parser(
+  verbs = viz.add_subparsers(dest="viz", required=True)
+  serve = verbs.add_parser(
     "serve", help="serve the viewer at the site file's address"
+  )
+  screenshot.add_arguments(
+    verbs.add_parser(
+      "screenshot", help="take a PNG of one panel of the viewer's page"
+    )
   )
   _ = serve.add_argument(
     "--config", type=Path, required=True, help="the site file (YAML)"
@@ -157,6 +167,8 @@ def main(argv: Sequence[str] | None = None) -> int:
   if (run := _COMMANDS.get(command)) is not None:
     return run(args)
   if command == "viz":
+    if cast(str, args.viz) == "screenshot":
+      return screenshot.run(args)
     return _viz(cast(Path, args.config), cast(Path, args.static))
   file = cast(Path, args.file)
   try:
