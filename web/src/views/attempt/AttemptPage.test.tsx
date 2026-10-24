@@ -513,6 +513,11 @@ describe("an attempt read again while it runs", () => {
     live: runningIn({ state: "solve", index: 5, since: null }),
   };
 
+  // The reads of the record and /live; the listing the heading reads is
+  // another, with its own cadence.
+  const recordReads = (fetch: ReturnType<typeof showReads>) =>
+    fetch.mock.calls.filter(([url]) => !url.endsWith("/attempts")).length;
+
   const tick = async () => {
     // Let the effects of what has landed run first, the poll's timer among
     // them: a page found on screen may not have set it yet.
@@ -540,14 +545,14 @@ describe("an attempt read again while it runs", () => {
     await waitFor(() => {
       expect(tabs()[0]).toHaveTextContent("Runs5");
     });
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(recordReads(fetch)).toBe(2);
 
     await tick();
 
     await waitFor(() => {
       expect(tabs()[0]).toHaveTextContent("Runs6");
     });
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(recordReads(fetch)).toBe(4);
   });
 
   it("stops reading once the record has ended", async () => {
@@ -564,10 +569,10 @@ describe("an attempt read again while it runs", () => {
     await waitFor(() => {
       expect(within(header).getByRole("img", { name: "Passed" })).toBeVisible();
     });
-    const reads = fetch.mock.calls.length;
+    const reads = recordReads(fetch);
     await tick();
     await tick();
-    expect(fetch).toHaveBeenCalledTimes(reads);
+    expect(recordReads(fetch)).toBe(reads);
   });
 
   it("does not read again one that may have stopped", async () => {
@@ -576,7 +581,7 @@ describe("an attempt read again while it runs", () => {
 
     await tick();
     await tick();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(recordReads(fetch)).toBe(2);
   });
 
   it("says when two reads again in a row fail, until one lands", async () => {
@@ -760,7 +765,7 @@ describe("an attempt whose server stops answering", () => {
     let out = 0;
     let most = 0;
     const fetch = vi.fn((url: string, init?: RequestInit) => {
-      if (!answering) {
+      if (!answering && !url.endsWith("/attempts")) {
         most = Math.max(most, ++out);
         init?.signal?.addEventListener("abort", () => {
           out--;
