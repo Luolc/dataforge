@@ -152,8 +152,22 @@ export const project = z.looseObject({
       }),
     )
     .optional(),
+  // The pages under the project's entry in the sidebar, in order, the first
+  // the one the entry opens: its attempts, the home page, and snapshot
+  // pages, each with the names of the roots its rows may open.
+  pages: z
+    .array(
+      z.looseObject({
+        kind: z.enum(["attempts", "snapshot"]),
+        name: z.string().nullable(),
+        title: z.string(),
+        roots: z.array(z.string()),
+      }),
+    )
+    .optional(),
 });
 export type Project = z.infer<typeof project>;
+export type Page = NonNullable<Project["pages"]>[number];
 export type Column = Project["columns"][number];
 export type ProjectTab = NonNullable<Project["tabs"]>[number];
 export type TabPart = ProjectTab["parts"][number];

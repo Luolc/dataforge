@@ -1,5 +1,6 @@
 import { useParams } from "react-router";
 
+import { attemptsPage, projectCrumbs } from "../shell/pages";
 import { Frame } from "../shell/Shell";
 import { useProject } from "../shell/projects";
 import { Note } from "../ui/card";
@@ -9,10 +10,7 @@ import Home from "./home";
 export function HomePage() {
   const { project: id } = useParams();
   const project = useProject(id);
-  const crumbs = [
-    { label: "Projects", to: "/" },
-    { label: project.state === "ok" ? project.data.name : (id ?? "") },
-  ];
+  const crumbs = projectCrumbs(project, id, attemptsPage, true);
   return (
     <Frame crumbs={crumbs}>
       {project.state === "ok" ? (

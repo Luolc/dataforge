@@ -64,6 +64,11 @@ export function duration(seconds: number, fine = false): string {
   return `${s}s`;
 }
 
+/** A count or a measure as "1,000" or "12.5", at most 2 decimal places. */
+export function figure(value: number): string {
+  return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
 /** US dollars as "$21.42". */
 export function usd(value: number): string {
   return `$${value.toFixed(2)}`;

@@ -8,6 +8,7 @@ import { DefinitionPage } from "./views/definition/DefinitionPage";
 import { HomePage } from "./views/HomePage";
 import { ProjectsPage } from "./views/ProjectsPage";
 import { QueuePage } from "./views/queue/QueuePage";
+import { SnapshotPage } from "./views/snapshot/SnapshotPage";
 
 // uPlot loads with the Monitor page only, the one page that draws charts.
 const Monitor = lazy(() => import("./views/monitor/Monitor"));
@@ -35,6 +36,7 @@ export function App() {
         <Route path=":project" element={<HomePage />} />
         <Route path=":project/attempt" element={<AttemptPage />} />
         <Route path=":project/definition" element={<DefinitionPage />} />
+        <Route path=":project/:page" element={<SnapshotPage />} />
         <Route
           path="*"
           element={

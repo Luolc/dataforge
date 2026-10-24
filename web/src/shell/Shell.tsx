@@ -9,10 +9,15 @@ import {
 } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import type { ReactNode } from "react";
-import { Link, NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 
 import { useJson, urls } from "../api/client";
-import { projects as projectsSchema } from "../api/types";
+import {
+  type Page,
+  type Project,
+  projects as projectsSchema,
+} from "../api/types";
+import { firstPath, homePath, pagePath } from "./pages";
 import { ProjectsContext } from "./projects";
 import { TemplateSwitch } from "../ui/template-switch";
 import { Sidebar, SidebarButton } from "./sidebar";
@@ -48,17 +53,14 @@ export function Shell() {
               {projects.state === "ok" &&
                 projects.data.map((p) => (
                   <li key={p.id}>
-                    <NavLink
-                      to={`/${encodeURIComponent(p.id)}`}
-                      className={navItem}
-                    >
-                      <Diamond
-                        className="size-3 flex-none fill-current"
-                        style={{ color: p.color }}
-                        aria-hidden
-                      />
-                      <span className="min-w-0 break-words">{p.name}</span>
-                    </NavLink>
+                    {p.pages === undefined || p.pages.length === 0 ? (
+                      <NavLink to={homePath(p.id)} className={navItem}>
+                        <ProjectDot project={p} />
+                        <span className="min-w-0 break-words">{p.name}</span>
+                      </NavLink>
+                    ) : (
+                      <ProjectPages project={p} pages={p.pages} />
+                    )}
                   </li>
                 ))}
               {projects.state === "error" && (
@@ -69,6 +71,58 @@ export function Shell() {
         </Collapsible.Root>
       </Sidebar>
     </ProjectsContext>
+  );
+}
+
+function ProjectDot({ project }: { project: Project }) {
+  return (
+    <Diamond
+      className="size-3 flex-none fill-current"
+      style={{ color: project.color }}
+      aria-hidden
+    />
+  );
+}
+
+/**
+ * A project that names pages: its name in bold, a link to its first page,
+ * and its pages indented under it beside a line, the page shown in the
+ * accent, the attempts page also while one of its attempts or its
+ * Definition page is shown.
+ */
+function ProjectPages({ project, pages }: { project: Project; pages: Page[] }) {
+  const { pathname } = useLocation();
+  const home = homePath(project.id);
+  const under = [`${home}/attempt`, `${home}/definition`];
+  return (
+    <>
+      <Link to={firstPath(project)} className={`${navItem} font-semibold`}>
+        <ProjectDot project={project} />
+        <span className="min-w-0 break-words">{project.name}</span>
+      </Link>
+      <ul className="mt-0.5 ml-3 flex flex-col border-l border-line">
+        {pages.map((page) => {
+          const path = pagePath(project.id, page);
+          const current =
+            pathname === path
+              ? "page"
+              : page.kind === "attempts" && under.includes(pathname)
+                ? "true"
+                : undefined;
+          return (
+            <li key={page.name ?? page.kind}>
+              <Link
+                to={path}
+                aria-current={current}
+                className="-ml-px flex target min-h-row w-full items-center rounded-r-row pr-1.5 pl-3 text-faint hover:bg-hover hover:text-fg aria-[current=page]:text-accent aria-[current=page]:shadow-current aria-[current=true]:text-accent aria-[current=true]:shadow-current"
+              >
+                <span className="min-w-0 break-words">{page.title}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

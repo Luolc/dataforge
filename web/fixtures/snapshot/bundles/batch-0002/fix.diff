@@ -1,0 +1,6 @@
+--- a/greet.py
++++ b/greet.py
+@@ -1,2 +1,2 @@
+ def greet(name):
+-    return "hi " + name
++    return f"hi {name}"
