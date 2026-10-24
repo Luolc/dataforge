@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POLL_MS } from "../../api/poll";
@@ -1486,9 +1486,68 @@ describe("the home page's filter", () => {
     ).toBeVisible();
     expect(where()).toBe("/sample?f.col.Kind=any:third");
     click(screen.getByRole("button", { name: "Kind is any of third" }));
+    const third = within(panel("Filter by Kind")).getByRole("checkbox", {
+      name: /^third/,
+    });
+    expect(third).toHaveTextContent("third0");
+
+    // Taken out of the rule, it stays in its place while the panel is open,
+    // and keeps the focus.
+    click(third);
+    expect(where()).toBe("/sample");
     expect(
-      within(panel("Filter by Kind")).getByRole("checkbox", { name: /^third/ }),
-    ).toHaveTextContent("third0");
+      texts(within(panel("Filter by Kind")).getAllByRole("checkbox")),
+    ).toEqual(["First2", "second1", "third0", "No value1"]);
+    expect(document.activeElement).toBe(third);
+    expect(third).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("reads the rules kept only as the page opens, a link to it followed too, and not as it changes its own URL", async () => {
+    const keep = (values: string[]) => {
+      localStorage.setItem(
+        "viz.home.sample",
+        JSON.stringify({
+          version: 1,
+          rules: [{ field: "col.Area", op: "any", values }],
+        }),
+      );
+    };
+    render(
+      <MemoryRouter initialEntries={["/sample"]}>
+        <Routes>
+          <Route
+            path=":project"
+            element={
+              <>
+                <Home project={fields} />
+                <Link to="/sample">Open again</Link>
+                <Where />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("t-a");
+    expect(where()).toBe("/sample");
+
+    // As another tab would keep its rules: this page's change of its URL
+    // does not take them.
+    keep(["south"]);
+    click(screen.getByRole("button", { name: "Spent" }));
+    expect(where()).toBe("/sample?sort=-spent");
+    expect(itemsOf("Ended")).toHaveLength(4);
+
+    // Its rules taken out where they cannot be kept, they do not come back.
+    click(screen.getByRole("link", { name: "Open again" }));
+    expect(where()).toBe("/sample?f.col.Area=any:south");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("full");
+    });
+    click(screen.getByRole("button", { name: "Show all" }));
+    expect(where()).toBe("/sample");
+    expect(itemsOf("Ended")).toHaveLength(4);
+    vi.restoreAllMocks();
   });
 
   it("keeps the search, the sort and older in the URL alone, and the columns shown never in it", async () => {

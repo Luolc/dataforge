@@ -9,7 +9,7 @@ import {
   viewerStatus,
 } from "../../ui/status";
 import type { Rule } from "../../ui/rule";
-import { columnKey } from "./view";
+import { columnKey, STATUS_FIELD } from "./view";
 
 /**
  * Each live word as a status word of the home page; not ended is null, the
@@ -264,9 +264,6 @@ export interface ColumnChips {
   /** One per value those items have, in the order of the column's cases, then A to Z. */
   chips: ChipCount[];
 }
-
-/** The key of the status field, as a rule names it. */
-export const STATUS_FIELD = "status";
 
 /** The value of a row that has none in a field, in a rule and the URL. */
 export const NO_VALUE = "~none";

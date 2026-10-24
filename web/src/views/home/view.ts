@@ -6,10 +6,12 @@
 // carries them.
 import type { Column } from "../../api/types";
 import type { Rule } from "../../ui/rule";
-import { STATUS_FIELD } from "./items";
 
 /** Where a project's view is kept in localStorage. */
 export const viewKey = (project: string) => `viz.home.${project}`;
+
+/** The key of the status field, as a rule names it. */
+export const STATUS_FIELD = "status";
 
 /** The key of a project column in the view: by its title. */
 export const columnKey = (title: string) => `col.${title}`;

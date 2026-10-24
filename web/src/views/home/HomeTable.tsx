@@ -20,13 +20,19 @@ import {
 import { Tooltip } from "radix-ui";
 import {
   type ReactNode,
-  useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import {
+  Link,
+  NavigationType,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router";
 
 import type { AttemptRow, Project } from "../../api/types";
 import { duration, time, usd } from "../../ui/format";
@@ -76,7 +82,6 @@ import {
   roundRuns,
   rowStatus,
   spent,
-  STATUS_FIELD,
   toItems,
   type Item,
   withHomeStatuses,
@@ -89,6 +94,7 @@ import {
   readQuery,
   saveHidden,
   saveRules,
+  STATUS_FIELD,
   writeQuery,
 } from "./view";
 
@@ -412,23 +418,29 @@ export function HomeTable({
   );
   const params = query.others;
   const q = params.get("q") ?? "";
-  // The URL's rules, else those kept for the project (design-viz.md
-  // section 5, "Columns and filter").
-  const rules = useMemo(
-    () =>
+  const rules = query.rules;
+  // The page opens as it mounts and as a link to it is followed, back and
+  // forward too, but not as it changes its own URL. On opening, the URL's
+  // rules, if it gives any, become the project's; else those kept for it are
+  // written to the URL (design-viz.md section 5, "Columns and filter").
+  // After that the URL alone gives the rules.
+  const navigationType = useNavigationType();
+  const openedRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (openedRef.current === location.key) return;
+    if (openedRef.current !== null && navigationType === NavigationType.Replace)
+      return;
+    openedRef.current = location.key;
+    if (query.rules.length > 0) saveRules(project.id, query.rules);
+    const opened =
       query.rules.length > 0
         ? query.rules
-        : loadRules(project.id, filterFields(project.columns)),
-    [query, project.id, project.columns],
-  );
-  const search = writeQuery(params, rules);
-  // A link's rules become the project's; the URL gives the rules, those of
-  // a link of the older kind rewritten, and none it drops.
-  useEffect(() => {
-    if (query.rules.length > 0) saveRules(project.id, query.rules);
+        : loadRules(project.id, filterFields(project.columns));
+    // A key of the older kind, or one dropped, goes from the URL too.
+    const search = writeQuery(query.others, opened);
     if (search !== location.search)
       void navigate({ search }, { replace: true });
-  }, [query, search, location.search, project.id, navigate]);
+  }, [location, navigationType, query, project, navigate]);
 
   const showOlder = params.get("older") === "1";
   const older = useMemo(() => {

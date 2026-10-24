@@ -64,13 +64,24 @@ function RulePanel({
   const [draft, setDraft] = useState<Op>(rule?.op ?? "any");
   const op = rule?.op ?? draft;
   const values = rule?.values ?? [];
+  // A value no row has is listed only while a rule names it; once taken out
+  // of the rule, it stays in its place, at 0, while the panel is open, so the
+  // focus stays on its check box.
+  const [left, setLeft] = useState<{ value: FilterValue; at: number }[]>([]);
+  const listed = [...field.values];
+  for (const { value, at } of left)
+    if (!listed.some((v) => v.key === value.key))
+      listed.splice(Math.min(at, listed.length), 0, { ...value, count: 0 });
   const firstRef = useRef<HTMLButtonElement>(null);
   // The panel takes the place of the control that opened it, so the focus
   // goes on to its first control.
   useEffect(() => {
     firstRef.current?.focus();
   }, []);
-  const toggle = (key: string) => {
+  const toggle = (value: FilterValue, at: number) => {
+    const { key } = value;
+    if (values.includes(key) && value.count === 0)
+      setLeft((l) => [...l.filter((x) => x.value.key !== key), { value, at }]);
     const next = values.includes(key)
       ? values.filter((v) => v !== key)
       : [...values, key];
@@ -117,7 +128,7 @@ function RulePanel({
         aria-label={`Values of ${field.title}`}
         className="flex flex-col"
       >
-        {field.values.map((v) => {
+        {listed.map((v, at) => {
           const on = values.includes(v.key);
           return (
             <li key={v.key}>
@@ -126,7 +137,7 @@ function RulePanel({
                 role="checkbox"
                 aria-checked={on}
                 onClick={() => {
-                  toggle(v.key);
+                  toggle(v, at);
                 }}
                 className={ROW}
               >
@@ -144,7 +155,7 @@ function RulePanel({
           );
         })}
       </ul>
-      {field.values.length === 0 && (
+      {listed.length === 0 && (
         <p className="px-2 py-1 text-fg-3">No value to filter by.</p>
       )}
     </>

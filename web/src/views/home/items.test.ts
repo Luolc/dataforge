@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { attemptRow, type Project } from "../../api/types";
+import { attemptRow, type Column, type Project } from "../../api/types";
 import type { Rule } from "../../ui/rule";
 import {
   byRules,
+  columnChips,
   type Field,
   fieldCounts,
   filterItems,
@@ -15,12 +16,12 @@ import {
   notEnded,
   roundRuns,
   rowStatus,
-  STATUS_FIELD,
   toItems,
   UNREADABLE_KEY,
   withHomeStatuses,
 } from "./items";
 import { project, row, unreadable } from "./rows.test-data";
+import { STATUS_FIELD } from "./view";
 
 const at = (hour: number) =>
   `2026-03-02T${hour.toString().padStart(2, "0")}:00:00+00:00`;
@@ -385,6 +386,33 @@ describe("filterItems by the rules", () => {
         values: [
           { key: "big", count: 2 },
           { key: "small", count: 1 },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("columnChips", () => {
+  const kind: Column = {
+    title: "Kind",
+    field: [],
+    format: "text",
+    cases: ["second", "first"],
+    filter: true,
+  };
+  const rows = [{ kind: "first" }, { kind: "second" }, { kind: null }];
+  const valueOf = (r: { kind: string | null }) => r.kind;
+
+  it("keeps a chosen value's chip at 0 when the rows leave it none", () => {
+    expect(
+      columnChips([kind], rows.slice(1), valueOf, new Map([[0, "first"]])),
+    ).toEqual([
+      {
+        index: 0,
+        all: 2,
+        chips: [
+          { key: "second", count: 1 },
+          { key: "first", count: 0 },
         ],
       },
     ]);
