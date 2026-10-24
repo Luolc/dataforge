@@ -9,7 +9,7 @@ import pytest
 
 from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
-from tests.viz.sites import FIXTURES, make_tree, PROJECT, Tree
+from tests.viz.sites import FIXTURES, make_tree, PROJECT, Tree, with_pages
 
 API = "/api/projects/example"
 QUERY = {"attempt": "batch-1/task-1"}
@@ -48,11 +48,14 @@ def snapshot(root: Path) -> dict[str, tuple[int, int, int]]:
 def test_every_route_is_a_get_and_writes_nothing(
   tree: Tree, static: Path
 ) -> None:
+  _ = with_pages(tree)
   app = create_app(load_site(tree.site), static)
   web = TestClient(app)
   before = snapshot(tree.root.parent.parent)
   urls = [
     "/api/projects",
+    f"{API}/pages/steps/snapshot",
+    f"{API}/pages/steps/files?root=bundles&path=batch-1/summary.md",
     f"{API}/attempts",
     f"{API}/record?attempt=batch-1/task-1",
     f"{API}/live?attempt=batch-1/task-1",
@@ -188,7 +191,29 @@ def test_projects_leave_out_where_the_files_are(
     "actions": [],
     "jobs": [],
     "tabs": [],
+    "pages": [],
   }
+
+
+def test_projects_carry_their_pages_without_paths(
+  tree: Tree, static: Path
+) -> None:
+  made = with_pages(tree)
+
+  response = client(made.tree, static).get("/api/projects")
+
+  [project] = cast(list[dict[str, object]], response.json())
+  assert project["pages"] == [
+    {
+      "kind": "snapshot",
+      "name": "steps",
+      "title": "Steps",
+      "roots": ["bundles"],
+    },
+    {"kind": "attempts", "name": "attempts", "title": "Attempts", "roots": []},
+  ]
+  assert "steps.json" not in response.text
+  assert "../bundles" not in response.text
 
 
 def test_projects_carry_not_ended(tree: Tree, static: Path) -> None:

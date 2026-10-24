@@ -49,6 +49,10 @@ SUBJECTS = ("item", "attempt")
 """What the item label of a job another tool queues names: a data item's ID,
 or an attempt's."""
 
+PAGE_KINDS = ("attempts", "snapshot")
+"""The kinds a project's page may take: its attempts, the home page, or a
+snapshot of counts the dataset writes."""
+
 PARAM_FORMATS = ("number", "usd")
 """The formats an action's parameter may take."""
 
@@ -69,6 +73,9 @@ _ITEM_PARAM = "item"
 # The frontend's own pages, at /monitor and /queue, where a project's home
 # page would be.
 _PAGES = ("monitor", "queue")
+# The paths under a project's own that the frontend takes, which no page of a
+# project may take.
+_PROJECT_PATHS = ("attempt", "definition")
 # The attempt page's own tab, which no tab of a project may take.
 _RUNS = "runs"
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
@@ -444,6 +451,35 @@ class Trials:
   kinds: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
+NO_ROOTS: Mapping[str, Path] = MappingProxyType({})
+"""The roots of a page that names none."""
+
+
+@dataclass(frozen=True, slots=True)
+class Page:
+  """A page under a project's entry in the sidebar.
+
+  Attributes:
+    kind: One of PAGE_KINDS.
+    name: Its name: a snapshot page's path under the project's, or the name
+      a step of a snapshot opens the attempts page by; None for an attempts
+      page that names none.
+    title: Its title, in the sidebar and the breadcrumb.
+    file: A snapshot page's file; None for the attempts page.
+    file_shown: The file as a page may show it: as the project file writes
+      it, or its name alone when that is absolute; None with file.
+    roots: The directories a snapshot page's rows may open, by name, in the
+      project file's order.
+  """
+
+  kind: str
+  name: str | None
+  title: str
+  file: Path | None = None
+  file_shown: str | None = None
+  roots: Mapping[str, Path] = NO_ROOTS
+
+
 @dataclass(frozen=True, slots=True)
 class Project:
   """A dataset's project file, as loaded.
@@ -484,6 +520,8 @@ class Project:
     actions: What a data item's page may put in a queue, in order.
     jobs: The jobs another tool puts in the queue for the project.
     tabs: The attempt page's tabs of Markdown files, in order.
+    pages: The pages under its entry in the sidebar, in order; none when the
+      dataset names none, and then the home page alone.
   """
 
   id: str
@@ -510,14 +548,27 @@ class Project:
   actions: tuple[Action, ...] = ()
   jobs: tuple[JobKind, ...] = ()
   tabs: tuple[Tab, ...] = ()
+  pages: tuple[Page, ...] = ()
+
+  def page(self, name: str) -> Page | None:
+    """Find a page by its name.
+
+    Args:
+      name: The page's name.
+
+    Returns:
+      The page; None when the project has none of that name.
+    """
+    return next((p for p in self.pages if p.name == name), None)
 
   def public(self) -> dict[str, object]:
     """Return what the frontend reads: all but where the files are.
 
     Returns:
       The project as JSON data, without attempts_dir, attempts, record,
-      lock, the paths of the monitor and the store, item.pattern and each
-      action's command, directory, memory and key.
+      lock, the paths of the monitor and the store, item.pattern, each
+      action's command, directory, memory and key, and each page's file and
+      its roots' paths.
     """
     return {
       "id": self.id,
@@ -608,6 +659,15 @@ class Project:
           "subject": j.subject,
         }
         for j in self.jobs
+      ],
+      "pages": [
+        {
+          "kind": page.kind,
+          "name": page.name,
+          "title": page.title,
+          "roots": list(page.roots),
+        }
+        for page in self.pages
       ],
     }
 
@@ -719,6 +779,7 @@ def load_project(path: Path) -> Project:
       "actions",
       "jobs",
       "tabs",
+      "pages",
     },
   )
   id_ = _str(path, "id", data["id"])
@@ -777,6 +838,7 @@ def load_project(path: Path) -> Project:
     actions=actions,
     jobs=jobs,
     tabs=tabs,
+    pages=_pages(path, data.get("pages"), attempts_dir),
   )
 
 
@@ -1498,6 +1560,85 @@ def _monitor(
     raise ConfigError(f"{path}: monitor.db: holds a NUL")
   shown = Path(db).name if os.path.isabs(db) else db
   return Path(os.path.abspath(attempts_dir / db)), shown
+
+
+def _pages(path: Path, value: object, attempts_dir: Path) -> tuple[Page, ...]:
+  if value is None:
+    return ()
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: pages: not a non-empty list")
+  pages: list[Page] = []
+  for i, entry in enumerate(cast(list[object], value)):
+    page = _page(path, f"pages[{i}]", entry, attempts_dir)
+    if page.name is not None and any(p.name == page.name for p in pages):
+      raise ConfigError(f"{path}: pages[{i}].name: {page.name!r} is repeated")
+    pages.append(page)
+  if sum(p.kind == "attempts" for p in pages) != 1:
+    raise ConfigError(f"{path}: pages: not exactly one of kind attempts")
+  return tuple(pages)
+
+
+def _page(path: Path, where: str, value: object, attempts_dir: Path) -> Page:
+  # A snapshot page's file and roots are configuration, opened as given and
+  # relative to attempts_dir, as monitor.db is; they are not checked here,
+  # since the dataset may not have written them yet.
+  mapping = _mapping(path, where, value)
+  kind = _str(path, f"{where}.kind", mapping.get("kind"))
+  _one_of(path, f"{where}.kind", kind, PAGE_KINDS)
+  if kind == "attempts":
+    _keys(path, where, mapping, required={"kind", "title"}, optional={"name"})
+  else:
+    _keys(
+      path,
+      where,
+      mapping,
+      required={"kind", "name", "title", "file"},
+      optional={"roots"},
+    )
+  name = None
+  if "name" in mapping:
+    name = _str(path, f"{where}.name", mapping["name"])
+    if not _ID.fullmatch(name):
+      raise ConfigError(f"{path}: {where}.name: {name!r} is not of [a-z0-9-]")
+    if name in _PROJECT_PATHS:
+      raise ConfigError(f"{path}: {where}.name: {name!r} is a page's path")
+  title = _str(path, f"{where}.title", mapping["title"])
+  if kind == "attempts":
+    return Page(kind, name, title)
+  file = _path(path, f"{where}.file", mapping["file"])
+  return Page(
+    kind,
+    name,
+    title,
+    Path(os.path.abspath(attempts_dir / file)),
+    Path(file).name if os.path.isabs(file) else file,
+    _roots(path, f"{where}.roots", mapping.get("roots"), attempts_dir),
+  )
+
+
+def _roots(
+  path: Path, where: str, value: object, attempts_dir: Path
+) -> Mapping[str, Path]:
+  if value is None:
+    return NO_ROOTS
+  found = _mapping(path, where, value)
+  if not found:
+    raise ConfigError(f"{path}: {where}: empty")
+  roots: dict[str, Path] = {}
+  for root, dir_ in found.items():
+    if not _ID.fullmatch(root):
+      raise ConfigError(f"{path}: {where}: {root!r} is not of [a-z0-9-]")
+    roots[root] = Path(
+      os.path.abspath(attempts_dir / _path(path, f"{where}.{root}", dir_))
+    )
+  return MappingProxyType(roots)
+
+
+def _path(path: Path, key: str, value: object) -> str:
+  text = _str(path, key, value)
+  if "\0" in text:
+    raise ConfigError(f"{path}: {key}: holds a NUL")
+  return text
 
 
 def _check_queues(
