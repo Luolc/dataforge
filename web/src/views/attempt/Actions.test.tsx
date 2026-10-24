@@ -103,9 +103,10 @@ describe("a data item's actions", () => {
     expect(goOn).toBeDisabled();
     expect(goOn).toHaveAccessibleDescription(ENDED);
     expect(screen.getByRole("button", { name: "Run again" })).toBeEnabled();
-    expect(screen.getByText("batch-1/task-0001")).toBeVisible();
+    // The ID is in the crumbs; the actions' line does not repeat it.
+    expect(screen.queryByText("batch-1/task-0001")).toBeNull();
     // The page is of the newest attempt: no other is named.
-    expect(screen.queryByText(/newest attempt/)).toBeNull();
+    expect(screen.queryByText(/newest attempt/i)).toBeNull();
   });
 
   it("names and links the newest attempt on an older one's page", async () => {
@@ -120,9 +121,7 @@ describe("a data item's actions", () => {
       "href",
       "/sample/attempt?id=batch-1%2Ftask-0001%2Fa2",
     );
-    expect(newest.parentElement).toHaveTextContent(
-      "Task batch-1/task-0001, newest attempt a2",
-    );
+    expect(newest.parentElement).toHaveTextContent("Newest attempt a2");
   });
 
   it("asks before it queues, then posts the action's name and the item alone", async () => {
