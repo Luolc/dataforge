@@ -53,3 +53,12 @@ tabs:
           - { title: Outcome, file: status.json, field: [outcome] }
           - { title: Spent, file: status.json, field: [cost_usd], format: usd }
       - { name: prompt, title: Prompt, file: prompt.md }
+# The sample's pages: a snapshot of made-up counts of the steps before its
+# attempts, whose rows open the bundles beside it, and the attempts.
+pages:
+  - kind: snapshot
+    name: steps
+    title: Steps
+    file: ../snapshot/steps.json
+    roots: { bundles: ../snapshot/bundles }
+  - { kind: attempts, name: attempts, title: Attempts }

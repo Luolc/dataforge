@@ -73,18 +73,23 @@ export function FilesCard({
 /** Where the file tree's width a reader sets is kept in localStorage. */
 export const WIDTH_KEY = "viz.treeWidth";
 
-/** A file tree of root and the preview of the file chosen in it. */
+/**
+ * A file tree of root and the preview of the file chosen in it; first, the
+ * file chosen while the page's address names none.
+ */
 export function Files({
   project,
   attempt,
   root,
+  first: given,
 }: {
   project: string;
   attempt: string;
   root: string;
+  first?: string;
 }) {
   const [query] = useSearchParams();
-  const asked = query.get("file");
+  const asked = query.get("file") ?? given ?? null;
   const chosen = asked?.startsWith(`${root}/`) === true ? asked : null;
   const source = useFileSource();
   const first = useLoaded(

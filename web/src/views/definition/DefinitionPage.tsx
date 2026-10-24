@@ -4,6 +4,7 @@ import { useParams } from "react-router";
 
 import { useLoaded } from "../../api/client";
 import type { Project } from "../../api/types";
+import { attemptsPage, projectCrumbs } from "../../shell/pages";
 import { Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
@@ -16,11 +17,7 @@ export function DefinitionPage() {
   const { project: id } = useParams();
   const project = useProject(id);
   const crumbs = [
-    { label: "Projects", to: "/" },
-    {
-      label: project.state === "ok" ? project.data.name : (id ?? ""),
-      to: `/${encodeURIComponent(id ?? "")}`,
-    },
+    ...projectCrumbs(project, id, attemptsPage, false),
     { label: "Definition" },
   ];
   return (

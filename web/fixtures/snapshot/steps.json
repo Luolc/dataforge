@@ -1,0 +1,1809 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-03T11:15:00Z",
+  "statuses": {
+    "complete": {
+      "label": "Complete",
+      "tone": "good"
+    },
+    "partial": {
+      "label": "Partial",
+      "tone": "warn"
+    },
+    "missing": {
+      "label": "Missing a file",
+      "tone": "bad"
+    },
+    "chosen": {
+      "label": "Chosen",
+      "tone": "neutral"
+    },
+    "other": {
+      "label": "Not chosen",
+      "tone": "neutral"
+    },
+    "sound": {
+      "label": "Sound",
+      "tone": "good"
+    },
+    "unsound": {
+      "label": "Unsound",
+      "tone": "bad"
+    },
+    "unclear": {
+      "label": "Unclear",
+      "tone": "warn"
+    }
+  },
+  "steps": [
+    {
+      "name": "gather",
+      "title": "Gather",
+      "value": 14,
+      "unit": "sources",
+      "note": "3 kinds of source \u00b7 2 refreshed today"
+    },
+    {
+      "name": "load",
+      "title": "Load",
+      "value": 41250,
+      "unit": "records",
+      "note": "32,610 with a link \u00b7 18,904 with a fix"
+    },
+    {
+      "name": "choose",
+      "title": "Choose",
+      "value": 80,
+      "of": 2400,
+      "unit": "chosen",
+      "note": "2,400 that pass every condition"
+    },
+    {
+      "name": "bundle",
+      "title": "Bundle",
+      "value": 64,
+      "of": 80,
+      "unit": "chosen",
+      "note": "120 bundles in all \u00b7 10 partial",
+      "generated_at": "2026-03-03T12:40:00Z",
+      "entries": {
+        "id_title": "Batch",
+        "columns": [
+          {
+            "name": "state",
+            "title": "Bundle",
+            "format": "status",
+            "filter": true
+          },
+          {
+            "name": "chosen",
+            "title": "Today",
+            "format": "status",
+            "filter": true
+          },
+          {
+            "name": "files",
+            "title": "Files",
+            "format": "number"
+          },
+          {
+            "name": "cost",
+            "title": "Cost",
+            "format": "usd"
+          },
+          {
+            "name": "took",
+            "title": "Took",
+            "format": "duration"
+          },
+          {
+            "name": "built",
+            "title": "Built",
+            "format": "time"
+          }
+        ],
+        "rows": [
+          {
+            "id": "batch-0001",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 8,
+              "cost": 0.15,
+              "took": 43,
+              "built": "2026-03-02T09:07:00Z"
+            },
+            "dir": {
+              "root": "bundles",
+              "path": "batch-0001",
+              "open": "summary.md"
+            }
+          },
+          {
+            "id": "batch-0002",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 15,
+              "cost": 0.2,
+              "took": 56,
+              "built": "2026-03-03T10:14:00Z"
+            },
+            "dir": {
+              "root": "bundles",
+              "path": "batch-0002",
+              "open": "summary.md"
+            }
+          },
+          {
+            "id": "batch-0003",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 22,
+              "cost": 0.25,
+              "took": 69,
+              "built": "2026-03-01T11:21:00Z"
+            },
+            "dir": {
+              "root": "bundles",
+              "path": "batch-0003",
+              "open": "summary.md"
+            }
+          },
+          {
+            "id": "batch-0004",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 6,
+              "cost": 0.3,
+              "took": 82,
+              "built": "2026-03-02T12:28:00Z"
+            }
+          },
+          {
+            "id": "batch-0005",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 13,
+              "cost": 0.35,
+              "took": 95,
+              "built": "2026-03-03T13:35:00Z"
+            }
+          },
+          {
+            "id": "batch-0006",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 20,
+              "cost": 0.4,
+              "took": 108,
+              "built": "2026-03-01T14:42:00Z"
+            }
+          },
+          {
+            "id": "batch-0007",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 4,
+              "cost": 0.45,
+              "took": 121,
+              "built": "2026-03-02T15:49:00Z"
+            }
+          },
+          {
+            "id": "batch-0008",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 11,
+              "cost": 0.5,
+              "took": 134,
+              "built": "2026-03-03T16:56:00Z"
+            }
+          },
+          {
+            "id": "batch-0009",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 18,
+              "cost": 0.1,
+              "took": 147,
+              "built": "2026-03-01T17:03:00Z"
+            }
+          },
+          {
+            "id": "batch-0010",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 2,
+              "cost": 0.15,
+              "took": 160,
+              "built": "2026-03-02T08:10:00Z"
+            }
+          },
+          {
+            "id": "batch-0011",
+            "values": {
+              "state": "missing",
+              "chosen": "chosen",
+              "files": 9,
+              "cost": 0.2,
+              "took": 173,
+              "built": "2026-03-03T09:17:00Z"
+            }
+          },
+          {
+            "id": "batch-0012",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 16,
+              "cost": 0.25,
+              "took": 186,
+              "built": "2026-03-01T10:24:00Z"
+            }
+          },
+          {
+            "id": "batch-0013",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 23,
+              "cost": 0.3,
+              "took": 199,
+              "built": "2026-03-02T11:31:00Z"
+            }
+          },
+          {
+            "id": "batch-0014",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 7,
+              "cost": 0.35,
+              "took": 212,
+              "built": "2026-03-03T12:38:00Z"
+            }
+          },
+          {
+            "id": "batch-0015",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 14,
+              "cost": 0.4,
+              "took": 225,
+              "built": "2026-03-01T13:45:00Z"
+            }
+          },
+          {
+            "id": "batch-0016",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 21,
+              "cost": 0.45,
+              "took": 238,
+              "built": "2026-03-02T14:52:00Z"
+            }
+          },
+          {
+            "id": "batch-0017",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 5,
+              "cost": 0.5,
+              "took": 251,
+              "built": "2026-03-03T15:59:00Z"
+            }
+          },
+          {
+            "id": "batch-0018",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 12,
+              "cost": 0.1,
+              "took": 264,
+              "built": "2026-03-01T16:06:00Z"
+            }
+          },
+          {
+            "id": "batch-0019",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 19,
+              "cost": 0.15,
+              "took": 277,
+              "built": "2026-03-02T17:13:00Z"
+            }
+          },
+          {
+            "id": "batch-0020",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 3,
+              "cost": 0.2,
+              "took": 290,
+              "built": "2026-03-03T08:20:00Z"
+            }
+          },
+          {
+            "id": "batch-0021",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 10,
+              "cost": 0.25,
+              "took": 303,
+              "built": "2026-03-01T09:27:00Z"
+            }
+          },
+          {
+            "id": "batch-0022",
+            "values": {
+              "state": "missing",
+              "chosen": "chosen",
+              "files": 17,
+              "cost": 0.3,
+              "took": 316,
+              "built": "2026-03-02T10:34:00Z"
+            }
+          },
+          {
+            "id": "batch-0023",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 1,
+              "cost": 0.35,
+              "took": 329,
+              "built": "2026-03-03T11:41:00Z"
+            }
+          },
+          {
+            "id": "batch-0024",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 8,
+              "cost": 0.4,
+              "took": 42,
+              "built": "2026-03-01T12:48:00Z"
+            }
+          },
+          {
+            "id": "batch-0025",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 15,
+              "cost": 0.45,
+              "took": 55,
+              "built": "2026-03-02T13:55:00Z"
+            }
+          },
+          {
+            "id": "batch-0026",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 22,
+              "cost": 0.5,
+              "took": 68,
+              "built": "2026-03-03T14:02:00Z"
+            }
+          },
+          {
+            "id": "batch-0027",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 6,
+              "cost": 0.1,
+              "took": 81,
+              "built": "2026-03-01T15:09:00Z"
+            }
+          },
+          {
+            "id": "batch-0028",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 13,
+              "cost": 0.15,
+              "took": 94,
+              "built": "2026-03-02T16:16:00Z"
+            }
+          },
+          {
+            "id": "batch-0029",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 20,
+              "cost": 0.2,
+              "took": 107,
+              "built": "2026-03-03T17:23:00Z"
+            }
+          },
+          {
+            "id": "batch-0030",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 4,
+              "cost": 0.25,
+              "took": 120,
+              "built": "2026-03-01T08:30:00Z"
+            }
+          },
+          {
+            "id": "batch-0031",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 11,
+              "cost": 0.3,
+              "took": 133,
+              "built": "2026-03-02T09:37:00Z"
+            }
+          },
+          {
+            "id": "batch-0032",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 18,
+              "cost": 0.35,
+              "took": 146,
+              "built": "2026-03-03T10:44:00Z"
+            }
+          },
+          {
+            "id": "batch-0033",
+            "values": {
+              "state": "missing",
+              "chosen": "chosen",
+              "files": 2,
+              "cost": 0.4,
+              "took": 159,
+              "built": "2026-03-01T11:51:00Z"
+            }
+          },
+          {
+            "id": "batch-0034",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 9,
+              "cost": 0.45,
+              "took": 172,
+              "built": "2026-03-02T12:58:00Z"
+            }
+          },
+          {
+            "id": "batch-0035",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 16,
+              "cost": 0.5,
+              "took": 185,
+              "built": "2026-03-03T13:05:00Z"
+            }
+          },
+          {
+            "id": "batch-0036",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 23,
+              "cost": 0.1,
+              "took": 198,
+              "built": "2026-03-01T14:12:00Z"
+            }
+          },
+          {
+            "id": "batch-0037",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 7,
+              "cost": 0.15,
+              "took": 211,
+              "built": "2026-03-02T15:19:00Z"
+            }
+          },
+          {
+            "id": "batch-0038",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 14,
+              "cost": 0.2,
+              "took": 224,
+              "built": "2026-03-03T16:26:00Z"
+            }
+          },
+          {
+            "id": "batch-0039",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 21,
+              "cost": 0.25,
+              "took": 237,
+              "built": "2026-03-01T17:33:00Z"
+            }
+          },
+          {
+            "id": "batch-0040",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 5,
+              "cost": 0.3,
+              "took": 250,
+              "built": "2026-03-02T08:40:00Z"
+            }
+          },
+          {
+            "id": "batch-0041",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 12,
+              "cost": 0.35,
+              "took": 263,
+              "built": "2026-03-03T09:47:00Z"
+            }
+          },
+          {
+            "id": "batch-0042",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 19,
+              "cost": 0.4,
+              "took": 276,
+              "built": "2026-03-01T10:54:00Z"
+            }
+          },
+          {
+            "id": "batch-0043",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 3,
+              "cost": 0.45,
+              "took": 289,
+              "built": "2026-03-02T11:01:00Z"
+            }
+          },
+          {
+            "id": "batch-0044",
+            "values": {
+              "state": "missing",
+              "chosen": "chosen",
+              "files": 10,
+              "cost": 0.5,
+              "took": 302,
+              "built": "2026-03-03T12:08:00Z"
+            }
+          },
+          {
+            "id": "batch-0045",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 17,
+              "cost": 0.1,
+              "took": 315,
+              "built": "2026-03-01T13:15:00Z"
+            }
+          },
+          {
+            "id": "batch-0046",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 1,
+              "cost": 0.15,
+              "took": 328,
+              "built": "2026-03-02T14:22:00Z"
+            }
+          },
+          {
+            "id": "batch-0047",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 8,
+              "cost": 0.2,
+              "took": 41,
+              "built": "2026-03-03T15:29:00Z"
+            }
+          },
+          {
+            "id": "batch-0048",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 15,
+              "cost": 0.25,
+              "took": 54,
+              "built": "2026-03-01T16:36:00Z"
+            }
+          },
+          {
+            "id": "batch-0049",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 22,
+              "cost": 0.3,
+              "took": 67,
+              "built": "2026-03-02T17:43:00Z"
+            }
+          },
+          {
+            "id": "batch-0050",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 6,
+              "cost": 0.35,
+              "took": 80,
+              "built": "2026-03-03T08:50:00Z"
+            }
+          },
+          {
+            "id": "batch-0051",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 13,
+              "cost": 0.4,
+              "took": 93,
+              "built": "2026-03-01T09:57:00Z"
+            }
+          },
+          {
+            "id": "batch-0052",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 20,
+              "cost": 0.45,
+              "took": 106,
+              "built": "2026-03-02T10:04:00Z"
+            }
+          },
+          {
+            "id": "batch-0053",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 4,
+              "cost": 0.5,
+              "took": 119,
+              "built": "2026-03-03T11:11:00Z"
+            }
+          },
+          {
+            "id": "batch-0054",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 11,
+              "cost": 0.1,
+              "took": 132,
+              "built": "2026-03-01T12:18:00Z"
+            }
+          },
+          {
+            "id": "batch-0055",
+            "values": {
+              "state": "missing",
+              "chosen": "chosen",
+              "files": 18,
+              "cost": 0.15,
+              "took": 145,
+              "built": "2026-03-02T13:25:00Z"
+            }
+          },
+          {
+            "id": "batch-0056",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 2,
+              "cost": 0.2,
+              "took": 158,
+              "built": "2026-03-03T14:32:00Z"
+            }
+          },
+          {
+            "id": "batch-0057",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 9,
+              "cost": 0.25,
+              "took": 171,
+              "built": "2026-03-01T15:39:00Z"
+            }
+          },
+          {
+            "id": "batch-0058",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 16,
+              "cost": 0.3,
+              "took": 184,
+              "built": "2026-03-02T16:46:00Z"
+            }
+          },
+          {
+            "id": "batch-0059",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 23,
+              "cost": 0.35,
+              "took": 197,
+              "built": "2026-03-03T17:53:00Z"
+            }
+          },
+          {
+            "id": "batch-0060",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 7,
+              "cost": 0.4,
+              "took": 210,
+              "built": "2026-03-01T08:00:00Z"
+            }
+          },
+          {
+            "id": "batch-0061",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 14,
+              "cost": 0.45,
+              "took": 223,
+              "built": "2026-03-02T09:07:00Z"
+            }
+          },
+          {
+            "id": "batch-0062",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 21,
+              "cost": 0.5,
+              "took": 236,
+              "built": "2026-03-03T10:14:00Z"
+            }
+          },
+          {
+            "id": "batch-0063",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 5,
+              "cost": 0.1,
+              "took": 249,
+              "built": "2026-03-01T11:21:00Z"
+            }
+          },
+          {
+            "id": "batch-0064",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 12,
+              "cost": 0.15,
+              "took": 262,
+              "built": "2026-03-02T12:28:00Z"
+            }
+          },
+          {
+            "id": "batch-0065",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 19,
+              "cost": 0.2,
+              "took": 275,
+              "built": "2026-03-03T13:35:00Z"
+            }
+          },
+          {
+            "id": "batch-0066",
+            "values": {
+              "state": "missing",
+              "chosen": "chosen",
+              "files": 3,
+              "cost": 0.25,
+              "took": 288,
+              "built": "2026-03-01T14:42:00Z"
+            }
+          },
+          {
+            "id": "batch-0067",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 10,
+              "cost": 0.3,
+              "took": 301,
+              "built": "2026-03-02T15:49:00Z"
+            }
+          },
+          {
+            "id": "batch-0068",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 17,
+              "cost": 0.35,
+              "took": 314,
+              "built": "2026-03-03T16:56:00Z"
+            }
+          },
+          {
+            "id": "batch-0069",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 1,
+              "cost": 0.4,
+              "took": 327,
+              "built": "2026-03-01T17:03:00Z"
+            }
+          },
+          {
+            "id": "batch-0070",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 8,
+              "cost": 0.45,
+              "took": 40,
+              "built": "2026-03-02T08:10:00Z"
+            }
+          },
+          {
+            "id": "batch-0071",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 15,
+              "cost": 0.5,
+              "took": 53,
+              "built": "2026-03-03T09:17:00Z"
+            }
+          },
+          {
+            "id": "batch-0072",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 22,
+              "cost": 0.1,
+              "took": 66,
+              "built": "2026-03-01T10:24:00Z"
+            }
+          },
+          {
+            "id": "batch-0073",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 6,
+              "cost": 0.15,
+              "took": 79,
+              "built": "2026-03-02T11:31:00Z"
+            }
+          },
+          {
+            "id": "batch-0074",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 13,
+              "cost": 0.2,
+              "took": 92,
+              "built": "2026-03-03T12:38:00Z"
+            }
+          },
+          {
+            "id": "batch-0075",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 20,
+              "cost": 0.25,
+              "took": 105,
+              "built": "2026-03-01T13:45:00Z"
+            }
+          },
+          {
+            "id": "batch-0076",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 4,
+              "cost": 0.3,
+              "took": 118,
+              "built": "2026-03-02T14:52:00Z"
+            }
+          },
+          {
+            "id": "batch-0077",
+            "values": {
+              "state": "partial",
+              "chosen": "chosen",
+              "files": 11,
+              "cost": 0.35,
+              "took": 131,
+              "built": "2026-03-03T15:59:00Z"
+            }
+          },
+          {
+            "id": "batch-0078",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 18,
+              "cost": 0.4,
+              "took": 144,
+              "built": "2026-03-01T16:06:00Z"
+            }
+          },
+          {
+            "id": "batch-0079",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 2,
+              "cost": 0.45,
+              "took": 157,
+              "built": "2026-03-02T17:13:00Z"
+            }
+          },
+          {
+            "id": "batch-0080",
+            "values": {
+              "state": "complete",
+              "chosen": "chosen",
+              "files": 9,
+              "cost": 0.5,
+              "took": 170,
+              "built": "2026-03-03T08:20:00Z"
+            }
+          },
+          {
+            "id": "batch-0081",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 16,
+              "cost": 0.1,
+              "took": 183,
+              "built": "2026-03-01T09:27:00Z"
+            }
+          },
+          {
+            "id": "batch-0082",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 23,
+              "cost": 0.15,
+              "took": 196,
+              "built": "2026-03-02T10:34:00Z"
+            }
+          },
+          {
+            "id": "batch-0083",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 7,
+              "cost": 0.2,
+              "took": 209,
+              "built": "2026-03-03T11:41:00Z"
+            }
+          },
+          {
+            "id": "batch-0084",
+            "values": {
+              "state": "partial",
+              "chosen": "other",
+              "files": 14,
+              "cost": 0.25,
+              "took": 222,
+              "built": "2026-03-01T12:48:00Z"
+            }
+          },
+          {
+            "id": "batch-0085",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 21,
+              "cost": 0.3,
+              "took": 235,
+              "built": "2026-03-02T13:55:00Z"
+            }
+          },
+          {
+            "id": "batch-0086",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 5,
+              "cost": 0.35,
+              "took": 248,
+              "built": "2026-03-03T14:02:00Z"
+            }
+          },
+          {
+            "id": "batch-0087",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 12,
+              "cost": 0.4,
+              "took": 261,
+              "built": "2026-03-01T15:09:00Z"
+            }
+          },
+          {
+            "id": "batch-0088",
+            "values": {
+              "state": "missing",
+              "chosen": "other",
+              "files": 19,
+              "cost": 0.45,
+              "took": 274,
+              "built": "2026-03-02T16:16:00Z"
+            }
+          },
+          {
+            "id": "batch-0089",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 3,
+              "cost": 0.5,
+              "took": 287,
+              "built": "2026-03-03T17:23:00Z"
+            }
+          },
+          {
+            "id": "batch-0090",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 10,
+              "cost": 0.1,
+              "took": 300,
+              "built": "2026-03-01T08:30:00Z"
+            }
+          },
+          {
+            "id": "batch-0091",
+            "values": {
+              "state": "partial",
+              "chosen": "other",
+              "files": 17,
+              "cost": 0.15,
+              "took": 313,
+              "built": "2026-03-02T09:37:00Z"
+            }
+          },
+          {
+            "id": "batch-0092",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 1,
+              "cost": 0.2,
+              "took": 326,
+              "built": "2026-03-03T10:44:00Z"
+            }
+          },
+          {
+            "id": "batch-0093",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 8,
+              "cost": 0.25,
+              "took": 39,
+              "built": "2026-03-01T11:51:00Z"
+            }
+          },
+          {
+            "id": "batch-0094",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 15,
+              "cost": 0.3,
+              "took": 52,
+              "built": "2026-03-02T12:58:00Z"
+            }
+          },
+          {
+            "id": "batch-0095",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 22,
+              "cost": 0.35,
+              "took": 65,
+              "built": "2026-03-03T13:05:00Z"
+            }
+          },
+          {
+            "id": "batch-0096",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 6,
+              "cost": 0.4,
+              "took": 78,
+              "built": "2026-03-01T14:12:00Z"
+            }
+          },
+          {
+            "id": "batch-0097",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 13,
+              "cost": 0.45,
+              "took": 91,
+              "built": "2026-03-02T15:19:00Z"
+            }
+          },
+          {
+            "id": "batch-0098",
+            "values": {
+              "state": "partial",
+              "chosen": "other",
+              "files": 20,
+              "cost": 0.5,
+              "took": 104,
+              "built": "2026-03-03T16:26:00Z"
+            }
+          },
+          {
+            "id": "batch-0099",
+            "values": {
+              "state": "missing",
+              "chosen": "other",
+              "files": 4,
+              "cost": 0.1,
+              "took": 117,
+              "built": "2026-03-01T17:33:00Z"
+            }
+          },
+          {
+            "id": "batch-0100",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 11,
+              "cost": 0.15,
+              "took": 130,
+              "built": "2026-03-02T08:40:00Z"
+            }
+          },
+          {
+            "id": "batch-0101",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 18,
+              "cost": 0.2,
+              "took": 143,
+              "built": "2026-03-03T09:47:00Z"
+            }
+          },
+          {
+            "id": "batch-0102",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 2,
+              "cost": 0.25,
+              "took": 156,
+              "built": "2026-03-01T10:54:00Z"
+            }
+          },
+          {
+            "id": "batch-0103",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 9,
+              "cost": 0.3,
+              "took": 169,
+              "built": "2026-03-02T11:01:00Z"
+            }
+          },
+          {
+            "id": "batch-0104",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 16,
+              "cost": 0.35,
+              "took": 182,
+              "built": "2026-03-03T12:08:00Z"
+            }
+          },
+          {
+            "id": "batch-0105",
+            "values": {
+              "state": "partial",
+              "chosen": "other",
+              "files": 23,
+              "cost": 0.4,
+              "took": 195,
+              "built": "2026-03-01T13:15:00Z"
+            }
+          },
+          {
+            "id": "batch-0106",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 7,
+              "cost": 0.45,
+              "took": 208,
+              "built": "2026-03-02T14:22:00Z"
+            }
+          },
+          {
+            "id": "batch-0107",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 14,
+              "cost": 0.5,
+              "took": 221,
+              "built": "2026-03-03T15:29:00Z"
+            }
+          },
+          {
+            "id": "batch-0108",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 21,
+              "cost": 0.1,
+              "took": 234,
+              "built": "2026-03-01T16:36:00Z"
+            }
+          },
+          {
+            "id": "batch-0109",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 5,
+              "cost": 0.15,
+              "took": 247,
+              "built": "2026-03-02T17:43:00Z"
+            }
+          },
+          {
+            "id": "batch-0110",
+            "values": {
+              "state": "missing",
+              "chosen": "other",
+              "files": 12,
+              "cost": 0.2,
+              "took": 260,
+              "built": "2026-03-03T08:50:00Z"
+            }
+          },
+          {
+            "id": "batch-0111",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 19,
+              "cost": 0.25,
+              "took": 273,
+              "built": "2026-03-01T09:57:00Z"
+            }
+          },
+          {
+            "id": "batch-0112",
+            "values": {
+              "state": "partial",
+              "chosen": "other",
+              "files": 3,
+              "cost": 0.3,
+              "took": 286,
+              "built": "2026-03-02T10:04:00Z"
+            }
+          },
+          {
+            "id": "batch-0113",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 10,
+              "cost": 0.35,
+              "took": 299,
+              "built": "2026-03-03T11:11:00Z"
+            }
+          },
+          {
+            "id": "batch-0114",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 17,
+              "cost": 0.4,
+              "took": 312,
+              "built": "2026-03-01T12:18:00Z"
+            }
+          },
+          {
+            "id": "batch-0115",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 1,
+              "cost": 0.45,
+              "took": 325,
+              "built": "2026-03-02T13:25:00Z"
+            }
+          },
+          {
+            "id": "batch-0116",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 8,
+              "cost": 0.5,
+              "took": 38,
+              "built": "2026-03-03T14:32:00Z"
+            }
+          },
+          {
+            "id": "batch-0117",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 15,
+              "cost": 0.1,
+              "took": 51,
+              "built": "2026-03-01T15:39:00Z"
+            }
+          },
+          {
+            "id": "batch-0118",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 22,
+              "cost": 0.15,
+              "took": 64,
+              "built": "2026-03-02T16:46:00Z"
+            }
+          },
+          {
+            "id": "batch-0119",
+            "values": {
+              "state": "partial",
+              "chosen": "other",
+              "files": 6,
+              "cost": 0.2,
+              "took": 77,
+              "built": "2026-03-03T17:53:00Z"
+            }
+          },
+          {
+            "id": "batch-0120",
+            "values": {
+              "state": "complete",
+              "chosen": "other",
+              "files": 13,
+              "cost": 0.25,
+              "took": 90,
+              "built": "2026-03-01T08:00:00Z"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "review",
+      "title": "Review",
+      "value": 27,
+      "of": 80,
+      "unit": "chosen",
+      "note": "40 batches in all",
+      "entries": {
+        "id_title": "Batch",
+        "columns": [
+          {
+            "name": "verdict",
+            "title": "Verdict",
+            "format": "status",
+            "filter": true
+          },
+          {
+            "name": "runs",
+            "title": "Runs",
+            "format": "number"
+          },
+          {
+            "name": "cost",
+            "title": "Cost",
+            "format": "usd"
+          }
+        ],
+        "rows": [
+          {
+            "id": "batch-0003",
+            "values": {
+              "verdict": "unsound",
+              "runs": 2,
+              "cost": 0.37
+            },
+            "dir": {
+              "root": "bundles",
+              "path": "batch-0003"
+            }
+          },
+          {
+            "id": "batch-0006",
+            "values": {
+              "verdict": "sound",
+              "runs": 3,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0009",
+            "values": {
+              "verdict": "unclear",
+              "runs": 1,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0012",
+            "values": {
+              "verdict": "sound",
+              "runs": 2,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0015",
+            "values": {
+              "verdict": "unsound",
+              "runs": 3,
+              "cost": 0.3
+            }
+          },
+          {
+            "id": "batch-0018",
+            "values": {
+              "verdict": "sound",
+              "runs": 1,
+              "cost": 0.37
+            }
+          },
+          {
+            "id": "batch-0021",
+            "values": {
+              "verdict": "unclear",
+              "runs": 2,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0024",
+            "values": {
+              "verdict": "sound",
+              "runs": 3,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0027",
+            "values": {
+              "verdict": "unsound",
+              "runs": 1,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0030",
+            "values": {
+              "verdict": "sound",
+              "runs": 2,
+              "cost": 0.3
+            }
+          },
+          {
+            "id": "batch-0033",
+            "values": {
+              "verdict": "unclear",
+              "runs": 3,
+              "cost": 0.37
+            }
+          },
+          {
+            "id": "batch-0036",
+            "values": {
+              "verdict": "sound",
+              "runs": 1,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0039",
+            "values": {
+              "verdict": "unsound",
+              "runs": 2,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0042",
+            "values": {
+              "verdict": "sound",
+              "runs": 3,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0045",
+            "values": {
+              "verdict": "unclear",
+              "runs": 1,
+              "cost": 0.3
+            }
+          },
+          {
+            "id": "batch-0048",
+            "values": {
+              "verdict": "sound",
+              "runs": 2,
+              "cost": 0.37
+            }
+          },
+          {
+            "id": "batch-0051",
+            "values": {
+              "verdict": "unsound",
+              "runs": 3,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0054",
+            "values": {
+              "verdict": "sound",
+              "runs": 1,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0057",
+            "values": {
+              "verdict": "unclear",
+              "runs": 2,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0060",
+            "values": {
+              "verdict": "sound",
+              "runs": 3,
+              "cost": 0.3
+            }
+          },
+          {
+            "id": "batch-0063",
+            "values": {
+              "verdict": "unsound",
+              "runs": 1,
+              "cost": 0.37
+            }
+          },
+          {
+            "id": "batch-0066",
+            "values": {
+              "verdict": "sound",
+              "runs": 2,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0069",
+            "values": {
+              "verdict": "unclear",
+              "runs": 3,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0072",
+            "values": {
+              "verdict": "sound",
+              "runs": 1,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0075",
+            "values": {
+              "verdict": "unsound",
+              "runs": 2,
+              "cost": 0.3
+            }
+          },
+          {
+            "id": "batch-0078",
+            "values": {
+              "verdict": "sound",
+              "runs": 3,
+              "cost": 0.37
+            }
+          },
+          {
+            "id": "batch-0081",
+            "values": {
+              "verdict": "unclear",
+              "runs": 1,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0084",
+            "values": {
+              "verdict": "sound",
+              "runs": 2,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0087",
+            "values": {
+              "verdict": "unsound",
+              "runs": 3,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0090",
+            "values": {
+              "verdict": "sound",
+              "runs": 1,
+              "cost": 0.3
+            }
+          },
+          {
+            "id": "batch-0093",
+            "values": {
+              "verdict": "unclear",
+              "runs": 2,
+              "cost": 0.37
+            }
+          },
+          {
+            "id": "batch-0096",
+            "values": {
+              "verdict": "sound",
+              "runs": 3,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0099",
+            "values": {
+              "verdict": "unsound",
+              "runs": 1,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0102",
+            "values": {
+              "verdict": "sound",
+              "runs": 2,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0105",
+            "values": {
+              "verdict": "unclear",
+              "runs": 3,
+              "cost": 0.3
+            }
+          },
+          {
+            "id": "batch-0108",
+            "values": {
+              "verdict": "sound",
+              "runs": 1,
+              "cost": 0.37
+            }
+          },
+          {
+            "id": "batch-0111",
+            "values": {
+              "verdict": "unsound",
+              "runs": 2,
+              "cost": 0.44
+            }
+          },
+          {
+            "id": "batch-0114",
+            "values": {
+              "verdict": "sound",
+              "runs": 3,
+              "cost": 0.51
+            }
+          },
+          {
+            "id": "batch-0117",
+            "values": {
+              "verdict": "unclear",
+              "runs": 1,
+              "cost": 0.58
+            }
+          },
+          {
+            "id": "batch-0120",
+            "values": {
+              "verdict": "sound",
+              "runs": 2,
+              "cost": 0.3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "attempts",
+      "title": "Attempts",
+      "value": 9,
+      "of": 80,
+      "unit": "chosen",
+      "note": "12 items in all",
+      "page": "attempts"
+    }
+  ]
+}

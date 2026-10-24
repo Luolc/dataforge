@@ -2,6 +2,7 @@ import { Diamond } from "lucide-react";
 import { use } from "react";
 import { Link } from "react-router";
 
+import { firstPath } from "../shell/pages";
 import { Frame } from "../shell/Shell";
 import { ProjectsContext } from "../shell/projects";
 import { Note } from "../ui/card";
@@ -20,7 +21,7 @@ export function ProjectsPage() {
         {projects.data.map((p) => (
           <li key={p.id}>
             <Link
-              to={`/${encodeURIComponent(p.id)}`}
+              to={firstPath(p)}
               className="flex target min-h-row items-center gap-2 rounded-row px-2 font-medium link hover:bg-hover hover:underline"
             >
               <Diamond
