@@ -37,6 +37,10 @@
           "output": "1",
           "path": "trials/1",
           "model": "example-model",
+          "harness": {
+            "name": "claude-code",
+            "version": "2.1.0"
+          },
           "trace": {
             "path": "trials/1/trace.jsonl",
             "format": "claude-code-stream-json"
@@ -55,6 +59,10 @@
           "output": "2",
           "path": "trials/2",
           "model": "example-model",
+          "harness": {
+            "name": "claude-code",
+            "version": "2.1.0"
+          },
           "trace": {
             "path": "trials/2/trace.jsonl",
             "format": "claude-code-stream-json"
@@ -89,6 +97,10 @@
           "output": "4",
           "path": "trials/4",
           "model": "example-model",
+          "harness": {
+            "name": "claude-code",
+            "version": "2.1.0"
+          },
           "trace": {
             "path": "trials/4/trace.jsonl",
             "format": "claude-code-stream-json"
