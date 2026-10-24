@@ -1,0 +1,28 @@
+<!doctype html><html><body>
+<script>
+const params = new URLSearchParams(location.search);
+const saved = localStorage.getItem("viz.template") ?? "ac";
+document.documentElement.dataset.template = __APPLIED__;
+document.body.style.background = saved === "dark" ? "#111" : "#fff";
+document.body.style.color = saved === "dark" ? "#eee" : "#111";
+document.body.textContent = "Loading…";
+setTimeout(() => {
+  if (location.pathname === "/") { document.body.textContent = "Projects"; return; }
+  const tab = params.get("tab") ?? "runs";
+  const part = params.get("part") ?? "summary";
+  const link = (q, text, on) =>
+    `<a href="/example/attempt?id=a&${q}" ${on ? 'aria-current="page"' : ""}>${text}</a>`;
+  let html = '<nav aria-label="Attempt">'
+    + ["runs", "report"].map((t) => link(`tab=${t}`, t, t === tab)).join("")
+    + "</nav>";
+  if (tab === "report") {
+    const shown = ["summary", "details"].includes(part) ? part : "summary";
+    html += "<nav aria-label=\"Panels\">" + ["summary", "details"]
+      .map((p) => link(`tab=report&part=${p}`, p, p === shown)).join("") + "</nav>";
+    html += `<main>The ${shown} panel</main>`;
+  } else {
+    html += "<main>Runs of the attempt</main>";
+  }
+  document.body.innerHTML = html;
+}, 300);
+</script></body></html>
