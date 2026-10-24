@@ -14,7 +14,6 @@ import os
 from pathlib import Path
 import select
 import signal
-import subprocess
 import sys
 import tempfile
 import time
@@ -262,36 +261,39 @@ def chrome(path: str, width: int, height: int) -> Generator[Browser]:
     back_read, back_write = os.pipe()
     log = Path(tmp) / "chrome.log"
 
-    def fds() -> None:
-      # Moved out of the way first, so that neither dup2 overwrites the other
-      # when a pipe's own end is 3 or 4.
-      _ = os.dup2(to_read, SPARE)
-      _ = os.dup2(back_write, SPARE + 1)
-      _ = os.dup2(SPARE, 3)
-      _ = os.dup2(SPARE + 1, 4)
-      os.close(SPARE)
-      os.close(SPARE + 1)
-
+    # Started with posix_spawn, which moves the pipes to fd 3 and 4 in the
+    # child alone, with no code run between fork and exec in this process, a
+    # threaded one. They go through two spare descriptors first, so that
+    # neither dup2 overwrites the other when a pipe's own end is 3 or 4.
+    actions: list[
+      tuple[int, int] | tuple[int, int, int] | tuple[int, int, str, int, int]
+    ] = [
+      (os.POSIX_SPAWN_OPEN, 0, os.devnull, os.O_RDONLY, 0),
+      (os.POSIX_SPAWN_DUP2, to_read, SPARE),
+      (os.POSIX_SPAWN_DUP2, back_write, SPARE + 1),
+      (os.POSIX_SPAWN_DUP2, SPARE, 3),
+      (os.POSIX_SPAWN_DUP2, SPARE + 1, 4),
+      (os.POSIX_SPAWN_CLOSE, SPARE),
+      (os.POSIX_SPAWN_CLOSE, SPARE + 1),
+    ]
     try:
       with log.open("wb") as err:
-        proc = subprocess.Popen(
-          [
-            path,
-            "--headless=new",
-            "--remote-debugging-pipe",
-            f"--user-data-dir={tmp}/profile",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-extensions",
-            "--hide-scrollbars",
-            "about:blank",
-          ],
-          stdin=subprocess.DEVNULL,
-          stdout=err,
-          stderr=err,
-          close_fds=False,
-          preexec_fn=fds,
-        )
+        actions += [
+          (os.POSIX_SPAWN_DUP2, err.fileno(), 1),
+          (os.POSIX_SPAWN_DUP2, err.fileno(), 2),
+        ]
+        argv = [
+          path,
+          "--headless=new",
+          "--remote-debugging-pipe",
+          f"--user-data-dir={tmp}/profile",
+          "--no-first-run",
+          "--no-default-browser-check",
+          "--disable-extensions",
+          "--hide-scrollbars",
+          "about:blank",
+        ]
+        pid = os.posix_spawn(path, argv, os.environ, file_actions=actions)
     except OSError as error:
       for fd in (to_read, to_write, back_read, back_write):
         os.close(fd)
@@ -307,21 +309,29 @@ def chrome(path: str, width: int, height: int) -> Generator[Browser]:
         tail = log.read_text(errors="replace")[-2000:]
         raise ShotError(f"Chrome did not start: {error}\n{tail}") from error
       yield browser
-      under = _children(proc.pid)
+      under = _children(pid)
     finally:
-      under = under or _children(proc.pid)
+      under = under or _children(pid)
       with contextlib.suppress(ShotError):
         _ = browser.call("Browser.close", timeout=5)
-      try:
-        _ = proc.wait(timeout=10)
-      except subprocess.TimeoutExpired:
-        proc.kill()
-        _ = proc.wait()
+      _wait(pid, 10)
       os.close(to_write)
       os.close(back_read)
       left = _reap(under)
     if left:
       raise ShotError(f"processes of Chrome are left: {sorted(left)}")
+
+
+def _wait(pid: int, timeout: float) -> None:
+  # Waits for the process this one started; kills it, by the PID that
+  # waitpid has not yet reaped, when it does not end in time.
+  deadline = time.monotonic() + timeout
+  while os.waitpid(pid, os.WNOHANG) == (0, 0):
+    if time.monotonic() >= deadline:
+      os.kill(pid, signal.SIGKILL)
+      _ = os.waitpid(pid, 0)
+      return
+    time.sleep(POLL)
 
 
 def _reap(under: dict[int, str]) -> list[int]:

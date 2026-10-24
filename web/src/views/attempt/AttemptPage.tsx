@@ -327,7 +327,7 @@ function Attempt({
   ];
   return (
     <>
-      <Header attempt={attempt}>
+      <Header>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
       <AttemptFacts project={project} record={record} live={live} />
@@ -448,22 +448,12 @@ interface Tab {
   count?: ReactNode;
 }
 
-function Header({
-  attempt,
-  children,
-}: {
-  attempt: string;
-  children?: ReactNode;
-}) {
+/** The page's heading; the attempt's ID is the last crumb above it. */
+function Header({ children }: { children?: ReactNode }) {
   return (
     <div className="flex items-center gap-2 px-7 pt-5">
       {children}
-      <h1 className="text-xl font-semibold tracking-tight">
-        Attempt{" "}
-        <span className="font-mono text-lg font-normal tracking-normal text-fg-3">
-          {attempt}
-        </span>
-      </h1>
+      <h1 className="text-xl font-semibold tracking-tight">Attempt</h1>
     </div>
   );
 }
@@ -502,7 +492,7 @@ function RowOnly({
 }) {
   return (
     <>
-      <Header attempt={attempt} />
+      <Header />
       <Actions project={project} attempt={attempt} />
       <div className="flex flex-col gap-2 px-7 pt-5 pb-12">
         <p className="text-fg-2">
@@ -541,7 +531,7 @@ function OtherRecord({
 }) {
   return (
     <>
-      <Header attempt={attempt} />
+      <Header />
       <Actions project={project} attempt={attempt} />
       <Tabs
         project={project}
