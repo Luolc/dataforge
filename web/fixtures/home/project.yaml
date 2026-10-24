@@ -25,7 +25,8 @@ statuses:
 item: { depth: 1, title: Item }
 columns:
   - { title: Cap, field: [budget, max_usd], format: usd }
-  - { title: Round, field: [round], format: number }
+  # A second column the page filters by, so that two rules combine.
+  - { title: Round, field: [round], format: number, filter: true }
   - { title: Kept visit, field: [kept_visit], format: number }
   - { title: Cost, field: [budget, cost_usd], format: usd }
   # A value's hint, and what a cell with no value stands for.
