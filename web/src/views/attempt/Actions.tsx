@@ -95,22 +95,19 @@ export function ItemActions({
       className="flex flex-col gap-1.5 px-7 pt-3"
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="text-xs text-fg-3">
-          {project.item.title} <span className="font-mono">{item}</span>
-          {states.state === "ok" &&
-            states.data.newest !== null &&
-            states.data.newest !== attempt && (
-              <>
-                {", newest attempt "}
-                <Link
-                  to={attemptHref(project.id, states.data.newest)}
-                  className="inline-flex target items-center font-mono link hover:underline"
-                >
-                  {states.data.newest.slice(item.length + 1)}
-                </Link>
-              </>
-            )}
-        </span>
+        {states.state === "ok" &&
+          states.data.newest !== null &&
+          states.data.newest !== attempt && (
+            <span className="text-xs text-fg-3">
+              {"Newest attempt "}
+              <Link
+                to={attemptHref(project.id, states.data.newest)}
+                className="inline-flex target items-center font-mono link hover:underline"
+              >
+                {states.data.newest.slice(item.length + 1)}
+              </Link>
+            </span>
+          )}
         {states.state === "error" && (
           <span className={`text-xs ${toneText.bad}`}>
             The actions cannot be read: {states.message}
