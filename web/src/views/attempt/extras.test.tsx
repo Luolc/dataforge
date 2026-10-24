@@ -116,7 +116,7 @@ describe("the menu of the item's attempts", () => {
   ];
   const open = async () => {
     const button = await screen.findByRole("button", {
-      name: "Attempts of this task",
+      name: "2 attempts of this task",
     });
     fireEvent.pointerDown(button, { button: 0, ctrlKey: false });
     return screen.findByRole("menu");
@@ -132,6 +132,8 @@ describe("the menu of the item's attempts", () => {
       expect.stringMatching(/^2.*Too easy$/),
       expect.stringMatching(/^1.*Passed$/),
     ]);
+    expect(links[0]).toHaveTextContent("2026-03-03");
+    expect(links[1]).toHaveTextContent("2026-03-01");
     expect(links[0]).toHaveAttribute("href", "/sample/attempt?id=a%2F2");
     expect(links[1]).toHaveAttribute("aria-current", "page");
     expect(links[0]).not.toHaveAttribute("aria-current");

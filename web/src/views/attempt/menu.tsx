@@ -31,7 +31,7 @@ export function AttemptMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
-        aria-label={`Attempts of this ${project.item.title.toLowerCase()}`}
+        aria-label={`${counted(same.length, "attempt")} of this ${project.item.title.toLowerCase()}`}
         className="inline-flex target items-center gap-1.5 rounded-row border border-chip-line bg-chip px-2 text-xs font-medium text-fg outline-none focus-visible:outline-2 focus-visible:outline-focus data-[state=open]:border-fg-3 [@media(hover:hover)_and_(pointer:fine)]:hover:border-fg-3"
       >
         {counted(same.length, "attempt")}
