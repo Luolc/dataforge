@@ -385,8 +385,8 @@ function TrialPane({
               attempt={attempt}
               path={trial.trace.path}
               format={trial.trace.format}
-              startOpen={outside}
-              totals={outside ? "model" : "all"}
+              totals={outside ? "no cost" : "all"}
+              output={outside ? "trace" : "transcript"}
               badge={
                 <span className="flex items-center gap-2">
                   <span className="text-sm font-medium text-fg">{name}</span>
@@ -512,8 +512,8 @@ function NoTrace({
         attempt={attempt}
         path={sourceTrace.path}
         format={sourceTrace.format}
-        startOpen={outside}
-        totals={outside ? "model" : "all"}
+        totals={outside ? "no cost" : "all"}
+        output={outside ? "trace" : "transcript"}
         badge={
           <span className="text-sm font-medium text-fg">
             {source.listed.deliverable.title} · {trialName(source.listed.index)}

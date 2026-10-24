@@ -7,12 +7,16 @@ import { sampleProject } from "../../fixtures/sample";
 import type { Project } from "../api/types";
 import { SessionView } from ".";
 import { parseTrace } from "./parse";
-import { SessionBody, type ThinkingMode } from "./Session";
+import { SessionBody, type ThinkingMode, type TraceLength } from "./Session";
 
 function show(
   text: string,
   thinking: ThinkingMode = "collapsed",
-  options: { startOpen?: boolean; totals?: "all" | "model" } = {},
+  options: {
+    startOpen?: boolean;
+    totals?: "all" | "no cost";
+    traceLength?: TraceLength;
+  } = {},
 ) {
   return render(
     <SessionBody
@@ -247,18 +251,43 @@ describe("the session view", () => {
   });
 
   it("shows every total in the header by default", () => {
-    const { container } = show(solved);
+    const { container } = show(solved, "collapsed", {
+      traceLength: { state: "ok", tokens: 40637 },
+    });
 
     const header = container.querySelector("header");
     expect(header).toHaveTextContent("session 9m 3s");
     expect(header).toHaveTextContent("cost $0.31");
     expect(header).toHaveTextContent("turns 9");
-    expect(header).toHaveTextContent("tokens 195K in · 14K out");
+    expect(header).toHaveTextContent("trace length 41K");
+    expect(header).not.toHaveTextContent(/tokens|\bin\b|\bout\b/);
     expect(header).toHaveTextContent("model example-model");
     expect(header).toHaveTextContent("12 tool calls · 1 failed");
     expect(
       gutter(container).filter((cell) => cell !== "").length,
     ).toBeGreaterThan(0);
+  });
+
+  it("gives the trace length's exact count and meaning on focus, or why it is not known", async () => {
+    const { unmount } = show(solved, "collapsed", {
+      traceLength: { state: "ok", tokens: 40637 },
+    });
+    fireEvent.focus(screen.getByText("41K"));
+    expect(
+      (
+        await screen.findAllByText(
+          /^40,637 tokens\. The tokens of the session's last call/,
+        )
+      )[0],
+    ).toBeInTheDocument();
+    unmount();
+
+    show(solved, "collapsed", {
+      traceLength: { state: "none", why: "Not recorded." },
+    });
+    expect(screen.getByText("trace length").parentElement).toHaveTextContent(
+      "trace length —",
+    );
   });
 
   it("says a session without a result line has no totals, not a row of dashes", () => {
@@ -271,17 +300,19 @@ describe("the session view", () => {
     expect(header).not.toHaveTextContent(/cost|turns|tokens/);
   });
 
-  it("shows the model alone in the header when told to", () => {
-    const { container } = show(solved, "collapsed", { totals: "model" });
+  it("shows every total but the cost when told to", () => {
+    const { container } = show(solved, "collapsed", { totals: "no cost" });
 
     const header = container.querySelector("header");
+    expect(header).toHaveTextContent("session 9m 3s");
+    expect(header).toHaveTextContent("turns 9");
     expect(header).toHaveTextContent("model example-model");
-    expect(header).not.toHaveTextContent(
-      /duration|cost|turns|tokens|tool calls/,
-    );
+    expect(header).toHaveTextContent("12 tool calls · 1 failed");
+    expect(header).not.toHaveTextContent(/cost|\$/);
     expect(header).toHaveTextContent("the badge");
-    expect(screen.getByRole("button", { name: "Expand all" })).toBeVisible();
-    expect(gutter(container).every((cell) => cell === "")).toBe(true);
+    expect(
+      gutter(container).filter((cell) => cell !== "").length,
+    ).toBeGreaterThan(0);
   });
 
   it("renders a trace with no thinking as usual", () => {
@@ -430,5 +461,86 @@ describe("SessionView", () => {
       await screen.findByText(/\{"type": "assistant"\}\s+<b>log<\/b>/),
     ).toBeVisible();
     expect(screen.queryByText("Expand all")).toBeNull();
+  });
+
+  it("reads the trace length's output from the session's transcript beside the trace", async () => {
+    const trace = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "s-1" }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "m9",
+          content: [{ type: "text", text: "Done." }],
+          usage: {
+            input_tokens: 2,
+            cache_read_input_tokens: 38852,
+            cache_creation_input_tokens: 897,
+            output_tokens: 3,
+          },
+        },
+      }),
+    ].join("\n");
+    const transcript = JSON.stringify({
+      type: "assistant",
+      message: { id: "m9", usage: { output_tokens: 886 } },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const path = new URL(url, "http://viz").searchParams.get("path");
+        if (path === "agent/sessions/projects")
+          return Promise.resolve(
+            Response.json({
+              entries: [{ name: "-app", type: "dir", size: null }],
+            }),
+          );
+        if (path === "agent/sessions/projects/-app/s-1.jsonl")
+          return Promise.resolve(new Response(transcript));
+        if (path === "agent/claude-code.txt")
+          return Promise.resolve(new Response(trace));
+        return Promise.resolve(
+          Response.json({ error: "not found", reason: "" }, { status: 404 }),
+        );
+      }),
+    );
+    const { unmount } = render(
+      <SessionView
+        project={project}
+        attempt="a/b"
+        path="agent/claude-code.txt"
+        format="claude-code-stream-json"
+      />,
+    );
+    expect(await screen.findByText("41K")).toBeVisible();
+    unmount();
+
+    // The trace's own count when told it is final; none without a transcript.
+    render(
+      <SessionView
+        project={project}
+        attempt="a/b"
+        path="agent/claude-code.txt"
+        format="claude-code-stream-json"
+        output="trace"
+      />,
+    );
+    expect(await screen.findByText("40K")).toBeVisible();
+  });
+
+  it("shows no trace length when no transcript records the last call", async () => {
+    respond(new Response(solved));
+    render(
+      <SessionView
+        project={project}
+        attempt="a/b"
+        path="t"
+        format="claude-code-stream-json"
+      />,
+    );
+
+    await screen.findByText("Expand all");
+    expect(
+      await screen.findByText((_, el) => el?.textContent === "trace length —"),
+    ).toBeVisible();
   });
 });

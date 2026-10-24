@@ -43,14 +43,26 @@ interface Totals {
   seconds: number | null;
   costUsd: number | null;
   turns: number | null;
-  /** Input tokens, cached ones counted, and output tokens. */
-  tokensIn: number | null;
-  tokensOut: number | null;
   model: string | null;
+}
+
+/**
+ * The session's last call, its last assistant event at the top level that
+ * a fallback did not retract: its message ID, its input tokens, cached ones
+ * counted, and the output tokens the event gives, which is how far its
+ * output had got when the event was written, not its final count.
+ */
+interface LastCall {
+  id: string | null;
+  input: number | null;
+  output: number | null;
 }
 
 export interface Session {
   totals: Totals;
+  /** The session's ID, from its init event. */
+  sessionId: string | null;
+  last: LastCall | null;
   /**
    * The lines before the first JSON object that are not one, such as a
    * notice the command printed before the session began.
@@ -120,6 +132,11 @@ export function parseTrace(text: string): Session {
   let first: number | null = null;
   let init: Json | null = null;
   let result: Json | null = null;
+  // Each top-level assistant event's uuid and usage, in order, and the
+  // uuids a model fallback retracted.
+  const assistants: { uuid: string | null; id: string | null; usage: Json }[] =
+    [];
+  const retracted = new Set<string>();
 
   for (const [index, line] of text.split("\n").entries()) {
     if (line.trim() === "") continue;
@@ -143,10 +160,22 @@ export function parseTrace(text: string): Session {
     const at = Number.isNaN(time) || first === null ? null : time - first;
     if (event["type"] === "system" && event["subtype"] === "init") init = event;
     if (event["type"] === "result") result = event;
+    if (
+      event["type"] === "system" &&
+      event["subtype"] === "model_refusal_fallback"
+    )
+      for (const uuid of list(event["retracted_message_uuids"]))
+        if (typeof uuid === "string") retracted.add(uuid);
     if (event["type"] !== "assistant" && event["type"] !== "user") continue;
 
     const message = isObject(event["message"]) ? event["message"] : {};
     const parentId = str(event["parent_tool_use_id"]) ?? "";
+    if (event["type"] === "assistant" && parentId === "")
+      assistants.push({
+        uuid: str(event["uuid"]),
+        id: str(message["id"]),
+        usage: isObject(message["usage"]) ? message["usage"] : {},
+      });
     const parent = parentId === "" ? null : (calls.get(parentId) ?? null);
     const thread = parent === null ? "" : parentId;
     const into = parent === null ? entries : parent.children;
@@ -193,29 +222,69 @@ export function parseTrace(text: string): Session {
   }
 
   const all = [...calls.values()];
-  const usage = isObject(result?.["usage"]) ? result["usage"] : null;
-  const tokensIn =
-    usage === null
-      ? null
-      : (num(usage["input_tokens"]) ?? 0) +
-        (num(usage["cache_read_input_tokens"]) ?? 0) +
-        (num(usage["cache_creation_input_tokens"]) ?? 0);
   const ms = num(result?.["duration_ms"]);
+  const kept = assistants.filter(
+    (c) => c.uuid === null || !retracted.has(c.uuid),
+  );
+  const last = kept.at(-1);
   return {
     totals: {
       seconds: ms === null ? null : ms / 1000,
       costUsd: num(result?.["total_cost_usd"]),
       turns: num(result?.["num_turns"]),
-      tokensIn,
-      tokensOut: usage === null ? null : num(usage["output_tokens"]),
       model: str(init?.["model"]),
     },
+    sessionId: str(init?.["session_id"]),
+    last:
+      last === undefined
+        ? null
+        : {
+            id: last.id,
+            input: inputOf(last.usage),
+            output: num(last.usage["output_tokens"]),
+          },
     preamble: begun ? preamble : [],
     entries: begun ? entries : preamble,
     tools: all.length,
     failed: all.filter((call) => call.failed).length,
     thinking: countThinking(entries),
   };
+}
+
+/** A call's input tokens, cached ones counted; null when it gives none. */
+function inputOf(usage: Json): number | null {
+  const parts = [
+    num(usage["input_tokens"]),
+    num(usage["cache_read_input_tokens"]),
+    num(usage["cache_creation_input_tokens"]),
+  ];
+  return parts.every((n) => n === null)
+    ? null
+    : parts.reduce<number>((sum, n) => sum + (n ?? 0), 0);
+}
+
+/**
+ * A call's final output tokens, from the session's transcript, the record
+ * Claude Code writes of a session once each call has ended: those of its
+ * assistant events with the call's message ID; null when it has none.
+ */
+export function transcriptOutput(text: string, id: string): number | null {
+  for (const line of text.split("\n")) {
+    if (!line.includes(id)) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isObject(event) || event["type"] !== "assistant") continue;
+    const message = isObject(event["message"]) ? event["message"] : {};
+    if (message["id"] !== id) continue;
+    const usage = isObject(message["usage"]) ? message["usage"] : {};
+    const output = num(usage["output_tokens"]);
+    if (output !== null) return output;
+  }
+  return null;
 }
 
 function countThinking(entries: (Message | BadLine)[]): number {
