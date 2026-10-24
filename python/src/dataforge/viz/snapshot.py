@@ -216,13 +216,16 @@ def _text(where: str, value: object) -> str:
 
 
 def _number(where: str, value: object) -> float:
-  if (
-    not isinstance(value, int | float)
-    or isinstance(value, bool)
-    or not math.isfinite(value)
-  ):
+  if not isinstance(value, int | float) or isinstance(value, bool):
     raise SnapshotError(f"{where}: not a finite number")
-  return value
+  try:
+    number = float(value)
+  except OverflowError:
+    # An integer too large for a double, which a page could not show.
+    raise SnapshotError(f"{where}: not a finite number") from None
+  if not math.isfinite(number):
+    raise SnapshotError(f"{where}: not a finite number")
+  return number
 
 
 def _time(where: str, value: object) -> None:

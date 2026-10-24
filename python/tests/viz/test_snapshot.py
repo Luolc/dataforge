@@ -90,6 +90,19 @@ def test_a_symlinked_or_irregular_snapshot_is_never_read(
     (b'{"version": NaN}', "NaN is not JSON"),
     (b"\xff\xfe", "the snapshot: "),
     (b'{"version": 2}', "version: 2 is not 1"),
+    (b"[" * 100_000 + b"]" * 100_000, "the snapshot: "),
+    (
+      (FIXTURES / "snapshot.json")
+      .read_bytes()
+      .replace(b'"value": 12,', b'"value": 1' + b"0" * 400 + b","),
+      "steps[0].value: not a finite number",
+    ),
+    (
+      (FIXTURES / "snapshot.json")
+      .read_bytes()
+      .replace(b'"page": "attempts"', b'"page": "steps"'),
+      "steps[2].page: 'steps' is no other page",
+    ),
   ],
 )
 def test_a_snapshot_that_is_not_json_of_the_shape_says_why(

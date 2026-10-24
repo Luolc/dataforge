@@ -220,8 +220,9 @@ class _Api:
       parsed = cast(object, json.loads(data, parse_constant=_no_constant))
       others = [q.name for q in project.pages if q.name not in (None, name)]
       snapshot.check(parsed, list(page.roots), others)
-    except (ValueError, snapshot.SnapshotError) as error:
-      # UnicodeDecodeError and json's errors are ValueErrors.
+    except (ValueError, RecursionError, snapshot.SnapshotError) as error:
+      # UnicodeDecodeError and json's errors are ValueErrors; JSON nested
+      # too deep for the parser is a RecursionError.
       raise RefusedError(503, f"the snapshot: {error}") from None
     return Response(data, media_type="application/json")
 
