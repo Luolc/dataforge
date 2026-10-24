@@ -23,6 +23,10 @@ const exportJson = z.looseObject({
   project: z.looseObject({ id: z.string() }),
   session: z.unknown(),
   statuses: z.unknown(),
+  columns: z.array(z.unknown()).default([]),
+  trials: z.unknown().default(null),
+  deliverables: z.array(z.unknown()).default([]),
+  kinds: z.unknown().default({}),
   items: z.array(z.unknown()),
 });
 
@@ -77,11 +81,12 @@ function answer(state: Fake, input: string, init?: RequestInit): Response {
     return new Response(null, { status: 204 });
   }
   if (!state.signedIn) return refused(state);
-  const { project } = exported;
+  const { project, session, statuses, columns, trials, deliverables, kinds } =
+    exported;
   const base = `/api/projects/${project.id}`;
   if (url.pathname === "/api/projects")
     return Response.json([
-      { ...project, session: exported.session, statuses: exported.statuses },
+      { ...project, session, statuses, columns, trials, deliverables, kinds },
     ]);
   if (url.pathname === `${base}/items`) return Response.json(exported.items);
   const item = url.searchParams.get("attempt") ?? "";

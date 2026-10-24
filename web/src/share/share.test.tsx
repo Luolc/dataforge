@@ -111,7 +111,7 @@ describe("the share site's sign-in", () => {
 });
 
 describe("the share site's list of items", () => {
-  it("has one column, of each item's ID with its revision", async () => {
+  it("shows each item's ID, then the export's columns with their labels", async () => {
     open("/demo");
 
     const table = await screen.findByRole("table");
@@ -120,15 +120,69 @@ describe("the share site's list of items", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["ID"]);
+    ).toEqual(["ID", "Kind", "Language"]);
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((r) => r.textContent),
+    ).toEqual([
+      "k7m2q9xr4t-r2plain·tightenedPython",
+      "p3w8n5c2vd-r1plainGo",
+      "h6t1z4b9qm-r1principle—",
+    ]);
+    expect(
+      within(table).getByRole("link", { name: "p3w8n5c2vd-r1" }),
+    ).toHaveAttribute("href", "/demo/items/p3w8n5c2vd");
+  });
+
+  it("opens an item from a click anywhere on its row", async () => {
+    open("/demo");
+
+    fireEvent.click(await screen.findByText("Go"));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "p3w8n5c2vd-r1" }),
+    ).toBeVisible();
+  });
+
+  it("filters by a column's chips and says how many they hide", async () => {
+    open("/demo");
+
+    const kind = await screen.findByRole("group", { name: "Filter by Kind" });
+    expect(
+      within(kind)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["All3", "plain1", "plain·tightened1", "principle1"]);
+    fireEvent.click(within(kind).getByRole("button", { name: /^plain1$/ }));
+
+    const table = screen.getByRole("table");
     expect(
       within(table)
         .getAllByRole("link")
         .map((a) => a.textContent),
-    ).toEqual(["k7m2q9xr4t-r2", "p3w8n5c2vd-r1", "h6t1z4b9qm-r1"]);
+    ).toEqual(["p3w8n5c2vd-r1"]);
     expect(
-      within(table).getByRole("link", { name: "p3w8n5c2vd-r1" }),
-    ).toHaveAttribute("href", "/demo/items/p3w8n5c2vd");
+      screen.getByText(/2 of 3 items hidden by the Kind filter/),
+    ).toBeVisible();
+  });
+
+  it("sorts by a column when its heading is pressed", async () => {
+    open("/demo");
+
+    const table = await screen.findByRole("table");
+    await within(table).findByRole("link", { name: "k7m2q9xr4t-r2" });
+    fireEvent.click(within(table).getByRole("button", { name: "Language" }));
+
+    expect(
+      within(table).getByRole("columnheader", { name: "Language" }),
+    ).toHaveAttribute("aria-sort", "ascending");
+    expect(
+      within(table)
+        .getAllByRole("link")
+        .map((a) => a.textContent),
+    ).toEqual(["p3w8n5c2vd-r1", "k7m2q9xr4t-r2", "h6t1z4b9qm-r1"]);
   });
 
   it("searches the IDs and says how many the search hides", async () => {
@@ -143,21 +197,15 @@ describe("the share site's list of items", () => {
         .getAllByRole("link")
         .map((a) => a.textContent),
     ).toEqual(["p3w8n5c2vd-r1"]);
-    expect(screen.getByText(/2 of 3 hidden by the search/)).toBeVisible();
+    expect(screen.getByText(/2 of 3 items hidden by the search/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     expect(within(table).getAllByRole("link")).toHaveLength(3);
   });
 
-  it("has a refresh and a colour template switch, and no filter", async () => {
+  it("reads the items again on a refresh", async () => {
     const { fetch } = open("/demo");
 
     await screen.findByRole("table");
-    expect(pageButtons().map((b) => b.textContent)).toEqual([
-      "Light",
-      "Refresh",
-    ]);
-    expect(screen.queryByRole("group")).toBeNull();
-
     const reads = () =>
       requested(fetch).filter((url) => url.endsWith("/items")).length;
     const before = reads();
@@ -167,18 +215,25 @@ describe("the share site's list of items", () => {
 });
 
 describe("the share site's item page", () => {
-  it("has exactly the three tabs of the item's deliverables, and nothing to act on", async () => {
-    open("/demo/items/k7m2q9xr4t?tab=reviews");
+  it("has a tab for each kind with its count, and nothing to act on", async () => {
+    open("/demo/items/k7m2q9xr4t?tab=report");
 
-    await screen.findByRole("heading", { name: "Quality reviews" });
+    await screen.findByRole("heading", { name: "Reviews (Tighten)" });
     const tabs = screen.getByRole("navigation", { name: "Item" });
+    expect(
+      await within(tabs).findByRole("link", { name: /^Harbor task/ }),
+    ).toHaveTextContent("9 files");
     expect(
       within(tabs)
         .getAllByRole("link")
         .map((a) => a.textContent),
-    ).toEqual(["Harbor task", "Pass@K", "Quality reviews"]);
+    ).toEqual([
+      "Harbor task9 9 files",
+      "Pass@k3 / 4 3 of 4 solved",
+      "Reviews2 2 reports",
+    ]);
     expect(
-      within(tabs).getByRole("link", { name: "Quality reviews" }),
+      within(tabs).getByRole("link", { name: /^Reviews/ }),
     ).toHaveAttribute("aria-current", "page");
     expect(pageButtons().map((b) => b.textContent)).toEqual(["Light"]);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
@@ -186,15 +241,18 @@ describe("the share site's item page", () => {
     );
   });
 
-  it("draws the reviews' result cells as status labels", async () => {
-    open("/demo/items/k7m2q9xr4t?tab=reviews");
+  it("stacks the reviews in one tab, their result cells as status labels", async () => {
+    open("/demo/items/k7m2q9xr4t?tab=report");
 
-    await screen.findByRole("heading", { name: "Quality reviews" });
+    expect(
+      await screen.findByRole("heading", { name: "Reviews (Tighten)" }),
+    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Reviews" })).toBeVisible();
     expect((await screen.findAllByText("Pass")).length).toBeGreaterThan(0);
     expect(screen.getByText("Fail")).toBeVisible();
   });
 
-  it("shows the task's files in the viewer's file view", async () => {
+  it("opens the tab of a deliverable a link names", async () => {
     open("/demo/items/k7m2q9xr4t?tab=task");
 
     expect(
@@ -207,9 +265,9 @@ describe("the share site's item page", () => {
   });
 });
 
-describe("the share site's Pass@K tab", () => {
-  it("gives each trial its number, reward, exception and model", async () => {
-    open("/demo/items/k7m2q9xr4t?tab=pass_at_k");
+describe("the share site's Pass@k tab", () => {
+  it("gives each trial its status, ID, reward and exception", async () => {
+    open("/demo/items/k7m2q9xr4t?tab=trials");
 
     expect(await screen.findByText("3 / 4 solved")).toBeVisible();
     const trials = screen.getByRole("navigation", { name: "Trials" });
@@ -223,26 +281,57 @@ describe("the share site's Pass@K tab", () => {
       "Trial 3not solved·exception",
       "Trial 4solved",
     ]);
-
     expect(screen.getByText("Reward").closest("dl")).toHaveTextContent(
-      "Reward1Exception—Modelexample-model",
+      "ID1Output1Reward1Exception—",
     );
     fireEvent.click(within(trials).getByRole("button", { name: /^Trial 3/ }));
-    const fields = screen.getByText("Reward").closest("dl");
-    expect(fields).toHaveTextContent(
-      "Reward0ExceptionAgentTimeoutErrorModelexample-model",
+    expect(screen.getByText("Reward").closest("dl")).toHaveTextContent(
+      "ID3Output3Reward0ExceptionAgentTimeoutError",
     );
   });
 
-  it("shows no duration, cost, turns, tokens or diff anywhere", async () => {
-    const { container } = open("/demo/items/k7m2q9xr4t?tab=pass_at_k");
+  it("shows a trial's verdict when its deliverable gives them", async () => {
+    open("/demo/items/h6t1z4b9qm?tab=trials");
+
+    const trials = await screen.findByRole("navigation", { name: "Trials" });
+    expect(
+      within(trials)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual([
+      "Trial 1solved",
+      "Trial 2not solved",
+      "Trial 3Suspect",
+      "Trial 4not solved",
+    ]);
+  });
+
+  it("has a trial's trace, diff and tests, and no log", async () => {
+    open("/demo/items/k7m2q9xr4t?tab=trials");
+
+    const panes = await screen.findByRole("tablist", { name: "Trial" });
+    expect(
+      within(panes)
+        .getAllByRole("tab")
+        .map((t) => t.textContent),
+    ).toEqual(["Trace", "Diff", "Tests"]);
+    fireEvent.mouseDown(within(panes).getByRole("tab", { name: "Diff" }));
+    expect(await screen.findByText(/empty header name/)).toBeVisible();
+    fireEvent.mouseDown(within(panes).getByRole("tab", { name: "Tests" }));
+    expect(
+      await screen.findByText("tests/test_header.py::test_reads_one_header"),
+    ).toBeVisible();
+  });
+
+  it("shows no duration, cost, turns or tokens anywhere", async () => {
+    const { container } = open("/demo/items/k7m2q9xr4t?tab=trials");
 
     await screen.findByRole("button", { name: "Expand all" });
-    expect(container).not.toHaveTextContent(/duration|cost|turns|tokens|diff/i);
+    expect(container).not.toHaveTextContent(/duration|cost|turns|tokens/i);
   });
 
   it("opens every fold of the trace from the start", async () => {
-    open("/demo/items/k7m2q9xr4t?tab=pass_at_k");
+    open("/demo/items/k7m2q9xr4t?tab=trials");
 
     await screen.findByRole("button", { name: "Expand all" });
     const folds = pageButtons().filter((b) => b.hasAttribute("aria-controls"));

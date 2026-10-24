@@ -37,8 +37,8 @@ export default function ReportView({
   );
 }
 
-/** The report view's card, for a caller with no record, as the share site. */
-export function ReportCard({
+/** The report view's card. */
+function ReportCard({
   project,
   attempt,
   deliverable,

@@ -1,29 +1,35 @@
-// The route /<p>/items/<id>: one item, its deliverables each in a tab, with
-// nothing to act on but a link to download all of it, where the site has
-// one. A deliverable of a kind the site does not draw is left out.
+// The route /<p>/items/<id>: one item, with nothing to act on but a link to
+// download all of it, where the site has one; then a tab for each kind of
+// its deliverables, as the viewer's attempt page has, each with its count and
+// drawn by the viewer's view of the kind, as for people outside the machine
+// (OutsideContext). A deliverable of a kind the site does not draw is left
+// out.
 import { Download } from "lucide-react";
-import { use } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { use, useMemo } from "react";
+import { useParams, useSearchParams } from "react-router";
 
 import { useLoaded } from "../api/client";
 import { Frame } from "../shell/Shell";
 import { Note } from "../ui/card";
-import { FilesCard } from "../views/files";
+import { tabKinds } from "../views/attempt/declared";
+import { TabNav } from "../views/attempt/TabNav";
 import { size } from "../views/files/file";
-import { ReportCard } from "../views/report";
+import { declared, kindTitle, leading } from "../views/kind";
+import { OutsideContext } from "../views/outside";
+import { KindCount, KindTab } from "../views/registry";
 import {
+  asProject,
+  asRecord,
   itemHref,
   type ItemRecord,
   itemRecord,
   read,
-  type ShareDeliverable,
   type ShareProject,
   shownId,
   SignedContext,
   useShareProject,
   useShareSource,
 } from "./api";
-import { PassAtK } from "./PassAtK";
 
 /** The kinds of deliverable the site draws, in their tabs. */
 const KINDS = new Set(["files", "trials", "report"]);
@@ -63,7 +69,7 @@ function Item({ project, item }: { project: ShareProject; item: string }) {
 }
 
 function Shown({
-  project,
+  project: shared,
   record,
   tab,
 }: {
@@ -71,10 +77,39 @@ function Shown({
   record: ItemRecord;
   tab: string | null;
 }) {
-  const tabs = record.deliverables.filter((d) => KINDS.has(d.kind));
-  const current = tabs.find((d) => d.name === tab) ?? tabs[0];
+  const project = useMemo(() => asProject(shared), [shared]);
+  const attempt = useMemo(() => asRecord(record), [record]);
+  const deliverables = record.deliverables;
+  const kinds = tabKinds(project, deliverables).filter((k) => KINDS.has(k));
+  const itemsOf = (kind: string) => deliverables.filter((d) => d.kind === kind);
+  // A link made when a tab was keyed by a deliverable's name opens the tab
+  // of that deliverable's kind.
+  const named = deliverables.find((d) => d.name === tab)?.kind;
+  const current =
+    kinds.find((k) => k === tab) ?? kinds.find((k) => k === named) ?? kinds[0];
   const shown = shownId(record);
   const { download } = useShareSource();
+  const tabs = kinds.map((kind) => {
+    const items = itemsOf(kind);
+    const title = kindTitle(project, attempt, kind, items);
+    const one = leading(project, attempt, items);
+    return {
+      key: kind,
+      title,
+      to: itemHref(project.id, record.id, kind),
+      count: one && (
+        <KindCount
+          kind={kind}
+          title={title}
+          project={project.id}
+          attempt={record.id}
+          item={one}
+          items={items}
+          word={declared(project, one.name)?.count}
+        />
+      ),
+    };
+  });
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-7 pt-5">
@@ -93,68 +128,23 @@ function Shown({
           </a>
         )}
       </div>
-      <nav
-        aria-label="Item"
-        className="sticky top-0 z-10 mt-3 flex h-tabs gap-1 border-b border-line bg-panel px-5"
-      >
-        {tabs.map((d) => (
-          <Link
-            key={d.name}
-            to={itemHref(project.id, record.id, d.name)}
-            aria-current={d === current ? "page" : undefined}
-            className="relative flex target items-center gap-2 px-3 font-medium text-fg-2 hover:text-fg aria-[current=page]:text-fg aria-[current=page]:after:absolute aria-[current=page]:after:inset-x-1.5 aria-[current=page]:after:-bottom-px aria-[current=page]:after:h-0.5 aria-[current=page]:after:rounded-full aria-[current=page]:after:bg-accent"
-          >
-            {d.title}
-          </Link>
-        ))}
-      </nav>
-      <div className="flex flex-col gap-3 px-7 pt-5 pb-12">
-        {current === undefined ? (
+      <TabNav label="Item" tabs={tabs} current={current} />
+      {current === undefined ? (
+        <div className="px-7 pt-5 pb-12">
           <Note>This item has nothing to show.</Note>
-        ) : (
-          <Deliverable
-            key={current.name}
+        </div>
+      ) : (
+        <OutsideContext value={true}>
+          <KindTab
+            key={current}
+            kind={current}
             project={project}
-            item={record.id}
-            deliverable={current}
+            attempt={record.id}
+            record={attempt}
+            items={itemsOf(current)}
           />
-        )}
-      </div>
+        </OutsideContext>
+      )}
     </>
   );
-}
-
-function Deliverable({
-  project,
-  item,
-  deliverable,
-}: {
-  project: ShareProject;
-  item: string;
-  deliverable: ShareDeliverable;
-}) {
-  switch (deliverable.kind) {
-    case "files":
-      return (
-        <FilesCard
-          project={project.id}
-          attempt={item}
-          deliverable={deliverable}
-        />
-      );
-    case "report":
-      return (
-        <ReportCard
-          project={project}
-          attempt={item}
-          deliverable={deliverable}
-        />
-      );
-    case "trials":
-      return (
-        <PassAtK project={project} item={item} deliverable={deliverable} />
-      );
-    default:
-      return null;
-  }
 }

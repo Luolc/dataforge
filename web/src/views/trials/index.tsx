@@ -4,7 +4,7 @@
 // chosen trial is the page's `trial`, by its output, else the first.
 import { CircleDashed } from "lucide-react";
 import { Tabs } from "radix-ui";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, use, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import type {
@@ -28,6 +28,7 @@ import { fromARun } from "../source";
 import { size, useFile } from "../files/file";
 import { FromRun } from "../FromRun";
 import { declared, type DeliverableProps, notRun } from "../kind";
+import { OutsideContext } from "../outside";
 import {
   COUNTED,
   NO_VERDICT,
@@ -277,12 +278,18 @@ function TrialPane({
   pane: Pane;
   onPane: (pane: Pane) => void;
 }) {
+  const outside = use(OutsideContext);
   const seconds =
     action === undefined ? null : span(action.started_at, action.ended_at);
   const tests = project.trials?.tests ?? null;
-  // Only a project that names its trials' tests has the Tests tab.
+  // Only a project that names its trials' tests has the Tests tab; outside,
+  // only one that names their diffs has the Diff tab, and none has the Log.
+  const diffs = !outside || project.trials?.diff != null;
   const panes = PANES.filter(
-    (p) => (p.key !== "tests" || tests !== null) && (p.key !== "log" || logs),
+    (p) =>
+      (p.key !== "tests" || tests !== null) &&
+      (p.key !== "diff" || diffs) &&
+      (p.key !== "log" || (logs && !outside)),
   );
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -296,33 +303,37 @@ function TrialPane({
         <Field label="Reward">
           {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
-        <Field label="Trial time">
-          {seconds === null ? (
-            "—"
-          ) : (
-            <>
-              {duration(seconds)}
-              <span className="block text-xs text-fg-3">
-                Environment, agent and verifier.
-              </span>
-            </>
-          )}
-        </Field>
-        <Field label="Cost">
-          {action === undefined ? (
-            "—"
-          ) : (
-            <>
-              {usd(action.cost_usd)}
-              {/* A runner that reports no cost reports 0. */}
-              {action.cost_usd === 0 && (
+        {!outside && (
+          <Field label="Trial time">
+            {seconds === null ? (
+              "—"
+            ) : (
+              <>
+                {duration(seconds)}
                 <span className="block text-xs text-fg-3">
-                  No cost reported.
+                  Environment, agent and verifier.
                 </span>
-              )}
-            </>
-          )}
-        </Field>
+              </>
+            )}
+          </Field>
+        )}
+        {!outside && (
+          <Field label="Cost">
+            {action === undefined ? (
+              "—"
+            ) : (
+              <>
+                {usd(action.cost_usd)}
+                {/* A runner that reports no cost reports 0. */}
+                {action.cost_usd === 0 && (
+                  <span className="block text-xs text-fg-3">
+                    No cost reported.
+                  </span>
+                )}
+              </>
+            )}
+          </Field>
+        )}
         {source !== undefined && (
           <Field label="Source trial">
             <SourceName
@@ -374,6 +385,8 @@ function TrialPane({
               attempt={attempt}
               path={trial.trace.path}
               format={trial.trace.format}
+              startOpen={outside}
+              totals={outside ? "model" : "all"}
               badge={
                 <span className="flex items-center gap-2">
                   <span className="text-sm font-medium text-fg">{name}</span>
@@ -389,14 +402,16 @@ function TrialPane({
             />
           )}
         </Tabs.Content>
-        <Tabs.Content value="diff">
-          {trial.result === null ? (
-            <Unfinished live={live} />
-          ) : (
-            <TrialDiff project={project} attempt={attempt} trial={trial} />
-          )}
-        </Tabs.Content>
-        {logs && (
+        {diffs && (
+          <Tabs.Content value="diff">
+            {trial.result === null ? (
+              <Unfinished live={live} />
+            ) : (
+              <TrialDiff project={project} attempt={attempt} trial={trial} />
+            )}
+          </Tabs.Content>
+        )}
+        {logs && !outside && (
           <Tabs.Content value="log">
             {trial.result === null ? (
               <Unfinished live={live} />
@@ -488,6 +503,7 @@ function NoTrace({
   source: Source | undefined;
   noTrace: string | null;
 }) {
+  const outside = use(OutsideContext);
   const sourceTrace = source?.listed?.trial.trace ?? null;
   if (source?.listed != null && sourceTrace !== null) {
     return (
@@ -496,6 +512,8 @@ function NoTrace({
         attempt={attempt}
         path={sourceTrace.path}
         format={sourceTrace.format}
+        startOpen={outside}
+        totals={outside ? "model" : "all"}
         badge={
           <span className="text-sm font-medium text-fg">
             {source.listed.deliverable.title} · {trialName(source.listed.index)}

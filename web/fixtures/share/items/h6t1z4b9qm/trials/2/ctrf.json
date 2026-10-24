@@ -1,0 +1,60 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.1.0",
+  "results": {
+    "tool": {
+      "name": "testrunner"
+    },
+    "summary": {
+      "tests": 4,
+      "passed": 3,
+      "failed": 1,
+      "skipped": 0,
+      "pending": 0,
+      "other": 0
+    },
+    "tests": [
+      {
+        "name": "tests/test_header.py::test_reads_one_header",
+        "status": "passed",
+        "duration": 12,
+        "suite": ["f2p"],
+        "labels": {
+          "runner": "pytest",
+          "kind": "behavior"
+        }
+      },
+      {
+        "name": "tests/test_header.py::test_refuses_an_empty_name",
+        "status": "failed",
+        "duration": 19,
+        "suite": ["f2p"],
+        "labels": {
+          "runner": "pytest",
+          "kind": "security"
+        },
+        "message": "AssertionError: ParseError not raised"
+      },
+      {
+        "name": "tests/test_header.py::test_folds_a_continuation",
+        "status": "passed",
+        "duration": 26,
+        "suite": ["p2p"],
+        "labels": {
+          "runner": "pytest",
+          "kind": "behavior"
+        }
+      },
+      {
+        "name": "tests/test_header.py::test_keeps_the_value_spaces",
+        "status": "passed",
+        "duration": 33,
+        "suite": ["p2p"],
+        "labels": {
+          "runner": "pytest",
+          "kind": "behavior"
+        }
+      }
+    ]
+  }
+}
