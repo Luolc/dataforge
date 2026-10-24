@@ -11,7 +11,7 @@ export type Tone = (typeof TONES)[number];
  * run, its file or the tab's version it is in not there; missing, the file
  * there but refused, not JSON or without the keys.
  */
-const READS = ["found", "not run", "missing"] as const;
+export const READS = ["found", "not run", "missing"] as const;
 export type Read = (typeof READS)[number];
 
 const FORMAT = z.enum(["text", "number", "usd", "duration", "time"]);

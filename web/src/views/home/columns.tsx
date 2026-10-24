@@ -1,9 +1,12 @@
 // What the home page's table shares with every other list of items drawn the
 // same way, the share site's among them: a project's columns, each with its
-// value and its cell, and a row that opens its item wherever it is clicked.
+// value and its cell, how the page's address sorts them, and a row that opens
+// its item wherever it is clicked.
 // Their headings and filters are in ColumnControls.tsx.
 import type { MouseEvent, ReactNode } from "react";
 import { useNavigate } from "react-router";
+
+import type { SortingState } from "@tanstack/react-table";
 
 import type { Column, Queued } from "../../api/types";
 import { formatValue, labelOf, readValue } from "../../ui/format";
@@ -135,4 +138,19 @@ export function columnSpec<L>(
       return hint === null ? word : <Hint hint={hint}>{word}</Hint>;
     },
   };
+}
+
+/** ?sort=<column> ascending, ?sort=-<column> descending. */
+export function parseSort(param: string | null, ids: string[]): SortingState {
+  if (param === null) return [];
+  const desc = param.startsWith("-");
+  const id = desc ? param.slice(1) : param;
+  return ids.includes(id) ? [{ id, desc }] : [];
+}
+
+/** Words joined as a sentence lists them: "a", "a and b", "a, b and c". */
+export function joined(words: string[]): string {
+  return words.length <= 1
+    ? (words[0] ?? "")
+    : `${words.slice(0, -1).join(", ")} and ${words.at(-1) ?? ""}`;
 }

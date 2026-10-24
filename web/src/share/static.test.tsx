@@ -6,8 +6,8 @@ import { ShareApp } from "./App";
 import { fakeStatic } from "./fake-static";
 import { staticSource } from "./static-source";
 
-function open(path: string) {
-  const fetch = fakeStatic();
+function open(path: string, older = false) {
+  const fetch = fakeStatic({ older });
   render(
     <MemoryRouter initialEntries={[path]}>
       <ShareApp source={staticSource} />
@@ -45,17 +45,44 @@ describe("the share site as a static site", () => {
   });
 
   it("draws an item's three tabs from its files", async () => {
-    const fetch = open("/demo/items/k7m2q9xr4t?tab=reviews");
+    const fetch = open("/demo/items/k7m2q9xr4t?tab=report");
 
     expect((await screen.findAllByText("Pass")).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("link", { name: "Pass@K" }));
+    fireEvent.click(screen.getByRole("link", { name: /^Pass@k/ }));
     expect(await screen.findByText("3 / 4 solved")).toBeVisible();
     await screen.findByRole("button", { name: "Expand all" });
-    fireEvent.click(screen.getByRole("link", { name: "Harbor task" }));
+    fireEvent.click(screen.getByRole("link", { name: /^Harbor task/ }));
     expect(await screen.findByText(/Fix the header reader/)).toBeVisible();
+    expect(
+      await screen.findByRole("link", { name: /^Harbor task9/ }),
+    ).toBeVisible();
     expect(requested(fetch).every((url) => url.startsWith("/data/"))).toBe(
       true,
     );
+  });
+
+  it("lists an older export's items by their IDs alone", async () => {
+    open("/demo", true);
+
+    const table = await screen.findByRole("table");
+    await within(table).findByRole("link", { name: "k7m2q9xr4t-r2" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent),
+    ).toEqual(["ID"]);
+    expect(screen.queryByRole("group")).toBeNull();
+  });
+
+  it("gives an older export's trials their trace alone", async () => {
+    open("/demo/items/k7m2q9xr4t?tab=trials", true);
+
+    const panes = await screen.findByRole("tablist", { name: "Trial" });
+    expect(
+      within(panes)
+        .getAllByRole("tab")
+        .map((t) => t.textContent),
+    ).toEqual(["Trace"]);
   });
 
   it("lists a file listed only by its name and size, with no way to open it", async () => {

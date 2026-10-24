@@ -6,56 +6,112 @@ import { type ComponentType, createContext, use } from "react";
 import { z } from "zod";
 
 import { ApiError, type FileSource, getJson, type Loaded } from "../api/client";
-import { project } from "../api/types";
+import { type AttemptRecord, project, type Project, READS } from "../api/types";
 
-/** A project as /api/projects serves it, from its export.json. */
-const shareProject = project.pick({
-  id: true,
-  name: true,
-  color: true,
-  session: true,
-  statuses: true,
+// A column as an export gives it: its values are in each item's row, so it
+// names no field to read them from.
+const column = project.shape.columns.element.extend({
+  field: z.array(z.string()).default([]),
 });
+
+/**
+ * A project as /api/projects serves it, from its export.json: an older
+ * export's has no columns, trials, deliverables or kinds.
+ */
+const shareProject = project
+  .pick({
+    id: true,
+    name: true,
+    color: true,
+    session: true,
+    statuses: true,
+    deliverables: true,
+    kinds: true,
+    trials: true,
+  })
+  .extend({ columns: z.array(column).default([]) });
 export type ShareProject = z.infer<typeof shareProject>;
 export const shareProjects = z.array(shareProject);
 
-/** An item of a project: its ID and its revision, from 1. */
-const listed = z.looseObject({ id: z.string(), revision: z.number() });
+/**
+ * A project as the viewer's views take one: it has no states, and its items
+ * are one level deep.
+ */
+export const asProject = (p: ShareProject): Project => ({
+  ...p,
+  states: {},
+  item: { depth: 1, title: "ID" },
+});
+
+/**
+ * An item of a project: its ID, its revision, from 1, and its value in each
+ * of the project's columns with how it was read, as the viewer's listing
+ * gives an attempt's; none from an older export.
+ */
+const listed = z.looseObject({
+  id: z.string(),
+  revision: z.number(),
+  values: z.array(z.unknown()).nullable().default(null),
+  reads: z.array(z.enum(READS).nullable()).nullable().default(null),
+});
 export type Listed = z.infer<typeof listed>;
 export const listedItems = z.array(listed);
 
-// A trial of an item's trials deliverable: an export writes no output and no
-// rewards, and gives the trial's model.
-const trial = z.looseObject({
-  id: z.string(),
-  path: z.string(),
-  model: z.string().nullable().default(null),
-  trace: z
-    .looseObject({ path: z.string(), format: z.string().nullable() })
-    .nullable(),
-  result: z
-    .looseObject({
-      reward: z.number().nullable(),
-      exception: z.string().nullable(),
-    })
-    .nullable(),
-});
-export type ShareTrial = z.infer<typeof trial>;
+// A trial of an item's trials deliverable, of the record's shape; an older
+// export wrote no output, the trial's path standing in for it, and no rewards.
+const trial = z
+  .looseObject({
+    id: z.string().nullable(),
+    output: z.string().optional(),
+    path: z.string(),
+    trace: z
+      .looseObject({ path: z.string(), format: z.string().nullable() })
+      .nullable(),
+    source: z.string().nullable().optional(),
+    verdict: z.string().nullable().optional(),
+    result: z
+      .looseObject({
+        reward: z.number().nullable(),
+        rewards: z.record(z.string(), z.number()).default({}),
+        exception: z.string().nullable(),
+      })
+      .nullable(),
+  })
+  .transform((t) => ({ ...t, output: t.output ?? t.path }));
 
 // A deliverable as an export writes it: of the shape of design.md's "The
-// record", without the keys that say where in a run it was made.
+// record", the keys that say where in a run it was made null, as they are
+// for one made by no run.
 const deliverable = z.looseObject({
   name: z.string(),
   kind: z.string(),
   title: z.string(),
-  // A trials deliverable has none: each trial has its own.
+  state: z.string().default(""),
+  output: z.string().nullable().default(null),
+  visit: z.number().nullable().default(null),
+  visit_index: z.number().nullable().default(null),
   path: z.string().nullable().default(null),
   reason: z.string().nullable().default(null),
   k: z.number().optional(),
-  value: z.looseObject({ value: z.unknown() }).nullable().optional(),
+  value: z
+    .looseObject({
+      output: z.string().nullable().default(null),
+      field: z.array(z.string()).default([]),
+      value: z.unknown(),
+      reason: z.string().nullable().default(null),
+    })
+    .nullable()
+    .optional(),
+  verdicts: z
+    .looseObject({
+      output: z.string().nullable().default(null),
+      field: z.array(z.string()).default([]),
+      reason: z.string().nullable().default(null),
+    })
+    .nullable()
+    .optional(),
   trials: z.array(trial).optional(),
 });
-export type ShareDeliverable = z.infer<typeof deliverable>;
 
 /** An item's record.json; download is the file that holds all of it. */
 export const itemRecord = z.looseObject({
@@ -69,8 +125,22 @@ export const itemRecord = z.looseObject({
 });
 export type ItemRecord = z.infer<typeof itemRecord>;
 
+/**
+ * An item's record as the viewer's views take an attempt's: its
+ * deliverables, and no runs.
+ */
+export const asRecord = (record: ItemRecord): AttemptRecord => ({
+  visits: [],
+  status: null,
+  reason: null,
+  kept_visit: null,
+  final: {},
+  deliverables: record.deliverables,
+});
+
 /** An item's ID as the site shows it and searches it: with its revision. */
-export const shownId = (item: Listed) => `${item.id}-r${String(item.revision)}`;
+export const shownId = (item: Pick<Listed, "id" | "revision">) =>
+  `${item.id}-r${String(item.revision)}`;
 
 /** The URL of an item's page, with its tab when given. */
 export function itemHref(p: string, item: string, tab?: string): string {

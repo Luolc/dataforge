@@ -1,0 +1,12 @@
+diff --git a/tinyparse/header.py b/tinyparse/header.py
+--- a/tinyparse/header.py
++++ b/tinyparse/header.py
+@@ -12,7 +12,10 @@ def _split_line(line):
+     name, sep, value = line.partition(":")
+     if not sep:
+         raise ParseError(f"no colon in {line!r}")
+-    return name.strip(), value.strip()
++    name = name.strip()
++    if not name:
++        raise ParseError("empty header name")
++    return name, value.strip()

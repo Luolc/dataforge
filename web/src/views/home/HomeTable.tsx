@@ -44,6 +44,8 @@ import {
   columnParam,
   columnSpec,
   compareValues,
+  joined,
+  parseSort,
   ROW_CLASS,
   type Spec as ColumnSpec,
   timeValue,
@@ -108,13 +110,6 @@ const itemLine = (item: Item): Line => ({
   row: item.newest,
   sub: false,
 });
-
-/** Words joined as a sentence lists them: "a", "a and b", "a, b and c". */
-function joined(words: string[]): string {
-  return words.length <= 1
-    ? (words[0] ?? "")
-    : `${words.slice(0, -1).join(", ")} and ${words.at(-1) ?? ""}`;
-}
 
 /** A row's end, null while it has not ended. */
 const lineEnded = (l: Line) => (notEnded(l.row) ? null : l.row.ended_at);
@@ -255,14 +250,6 @@ const STUCK: Partial<Record<string, string>> = {
 function stuckHead(id: string): string {
   const at = STUCK[id];
   return at === undefined ? "" : `${at} bg-head`;
-}
-
-/** ?sort=<column> ascending, ?sort=-<column> descending. */
-function parseSort(param: string | null, ids: string[]): SortingState {
-  if (param === null) return [];
-  const desc = param.startsWith("-");
-  const id = desc ? param.slice(1) : param;
-  return ids.includes(id) ? [{ id, desc }] : [];
 }
 
 /**

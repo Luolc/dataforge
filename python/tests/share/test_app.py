@@ -142,8 +142,8 @@ def test_a_sign_in_sets_a_cookie_no_script_or_other_site_reads(
     "samesite=strict",
   }
   assert web.get(f"{API}/items").json() == [
-    {"id": "item-1", "revision": 1},
-    {"id": "item-2", "revision": 1},
+    {"id": "item-1", "revision": 1, "values": None, "reads": None},
+    {"id": "item-2", "revision": 1, "values": None, "reads": None},
   ]
 
 
@@ -270,6 +270,10 @@ def test_a_token_sees_only_the_projects_it_names(tree: Tree) -> None:
       "color": "#3a7bd5",
       "session": {"thinking": "collapsed"},
       "statuses": {"pass": {"label": "Pass", "tone": "good"}},
+      "columns": [],
+      "trials": None,
+      "deliverables": [],
+      "kinds": {},
     }
   ]
   assert one.get("/api/projects/other/items").status_code == 401

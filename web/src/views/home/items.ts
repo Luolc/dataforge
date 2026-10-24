@@ -350,7 +350,7 @@ export function filterItems(
  * Whether a row has the value picked in each column of picked (by the
  * column's index) but the column at but.
  */
-function byColumns<T>(
+export function byColumns<T>(
   row: T,
   valueOf: (row: T, index: number) => unknown,
   picked: ReadonlyMap<number, string>,
@@ -366,7 +366,7 @@ function byColumns<T>(
  * other filters keep: each column's counts the rows the other columns'
  * picks keep, in the order of the column's cases, then by label A to Z.
  */
-function columnChips<T>(
+export function columnChips<T>(
   columns: Column[],
   rows: T[],
   valueOf: (row: T, index: number) => unknown,
