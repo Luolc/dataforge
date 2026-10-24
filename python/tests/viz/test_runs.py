@@ -14,6 +14,7 @@ import pytest
 from dataforge import queue
 from dataforge.queue.proc import Leader, leader
 from dataforge.runs import AttemptRow, SCHEMA_MAJOR, Store
+from dataforge.runs.store import ListingRow
 from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
 from dataforge.viz.runs import HOLDER_GONE, NO_ROW
@@ -403,6 +404,94 @@ def test_a_store_of_a_newer_schema_major_is_not_read(
   assert reasons(web)["go-on"] == (
     f"The store of attempts cannot be read: {newer}."
   )
+
+
+def test_the_listing_reads_no_record_or_extra(
+  made: QueueTree, static: Path, store: Store
+) -> None:
+  # The two JSON columns hold what no JSON parser reads; the listing does not
+  # parse them, so it gives the row's own columns.
+  ended = attempt(made, "task-1", {"status": "running"})
+  add(
+    store,
+    kept(
+      ended,
+      "ended",
+      outcome="too_easy",
+      cost_usd=2.0,
+      record={"status": "passed"},
+      ended_at=ENDED_AT,
+    ),
+  )
+  with closing(sqlite3.connect(store.path)) as conn, conn:
+    _ = conn.execute("UPDATE attempt SET record = '{', extra = 'not json'")
+
+  rows = listing(client(made, static))
+
+  assert rows[ended]["status"] == "too_easy"
+  assert rows[ended]["cost_usd"] == 2.0
+  assert rows[ended]["error"] is None
+
+
+def test_the_listing_marks_as_the_whole_rows_do(
+  made: QueueTree,
+  static: Path,
+  store: Store,
+  me: Leader,
+  gone: Leader,
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  ended = attempt(made, "task-1", {"status": "running"})
+  person = attempt(made, "task-2", {"status": "running"})
+  lost = attempt(made, "task-3", {"status": "passed"})
+  running = attempt(made, "task-4", {"status": "canceled"})
+  dead = attempt(made, "task-5", {"status": "running"})
+  record = {"status": "passed", "budget": {"cost_usd": 3.5}}
+  add(
+    store,
+    kept(
+      ended,
+      "ended",
+      outcome="too_easy",
+      reason="solved",
+      record=record,
+      cost_usd=3.5,
+      progress_at="2026-01-02T03:00:00+00:00",
+      ended_at=ENDED_AT,
+      extra={"k": "v"},
+    ),
+  )
+  add(store, kept(person, "interrupted", stopped_by="person", cost_usd=1.25))
+  add(store, kept(lost, "interrupted", stopped_by="lost", machine_status="x"))
+  assert store.insert(running, "batch-2", Path("/r"), me, None)
+  assert store.insert(dead, "batch-1", Path("/r"), gone, None)
+  web = client(made, static)
+
+  fresh = listing(web)
+
+  def whole(self: Store, *, item: str | None = None) -> list[ListingRow]:
+    return [
+      ListingRow(
+        id=row.id,
+        item=row.item,
+        state=row.state,
+        outcome=row.outcome,
+        reason=row.reason,
+        machine_status=row.machine_status,
+        stopped_by=row.stopped_by,
+        cost_usd=row.cost_usd,
+        progress_at=row.progress_at,
+        holder=row.holder,
+        resumable=row.resumable,
+        resume_problem=row.resume_problem,
+        created_at=row.created_at,
+      )
+      for row in self.rows(item=item)
+    ]
+
+  monkeypatch.setattr(Store, "listing", whole)
+  assert listing(web) == fresh
+  assert len(fresh) == 5
 
 
 def test_the_store_is_opened_read_only_and_never_written(
