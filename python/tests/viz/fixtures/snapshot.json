@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-03T11:15:00Z",
+  "statuses": {
+    "complete": {"label": "Complete", "tone": "good"},
+    "partial": {"label": "Partial", "tone": "warn"}
+  },
+  "steps": [
+    {"name": "gather", "title": "Gather", "value": 12, "unit": "sources",
+     "note": "3 kinds of source"},
+    {"name": "bundle", "title": "Bundle", "value": 2, "of": 3, "unit": "batches",
+     "note": "4 bundles in all", "generated_at": "2026-03-03T12:00:00+00:00",
+     "entries": {
+       "id_title": "Batch",
+       "columns": [
+         {"name": "state", "title": "State", "format": "status", "filter": true},
+         {"name": "files", "title": "Files", "format": "number"},
+         {"name": "cost", "title": "Cost", "format": "usd"},
+         {"name": "took", "title": "Took", "format": "duration"},
+         {"name": "built", "title": "Built", "format": "time"},
+         {"name": "note", "title": "Note"}
+       ],
+       "rows": [
+         {"id": "batch-1",
+          "values": {"state": "complete", "files": 2, "cost": 0.5, "took": 61.5,
+                     "built": "2026-03-03T11:00:00Z", "note": "first"},
+          "dir": {"root": "bundles", "path": "batch-1", "open": "summary.md"}},
+         {"id": "batch-2", "values": {"state": "partial", "files": null}}
+       ]
+     }},
+    {"name": "attempts", "title": "Attempts", "value": 1, "page": "attempts"}
+  ]
+}

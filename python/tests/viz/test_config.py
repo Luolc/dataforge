@@ -930,3 +930,110 @@ def test_parameters_are_a_non_empty_list(
     return
   with pytest.raises(ConfigError, match=key):
     _ = load_site(made.tree.site)
+
+
+@pytest.mark.parametrize(
+  ("pages", "key"),
+  [
+    ("pages: []", r"pages: not a non-empty list"),
+    (
+      "pages: [{kind: attempts, title: A}, {kind: attempts, title: B}]",
+      r"pages: not exactly one of kind attempts",
+    ),
+    (
+      "pages: [{kind: snapshot, name: s, title: S, file: s.json}]",
+      r"pages: not exactly one of kind attempts",
+    ),
+    ("pages: [{kind: board, title: A}]", r"pages\[0\]\.kind: 'board' is not"),
+    ("pages: [{title: A}]", r"pages\[0\]\.kind: not a non-empty string"),
+    (
+      "pages: [{kind: attempts, title: A, file: a.json}]",
+      r"pages\[0\]\.file: unknown key",
+    ),
+    ("pages: [{kind: attempts}]", r"pages\[0\]\.title: missing"),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, title: S, file: s.json}]",
+      r"pages\[1\]\.name: missing",
+    ),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, name: s, title: S}]",
+      r"pages\[1\]\.file: missing",
+    ),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, name: Steps, title: S, file: s.json}]",
+      r"pages\[1\]\.name: 'Steps' is not of",
+    ),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, name: definition, title: S, file: s.json}]",
+      r"pages\[1\]\.name: 'definition' is a page's path",
+    ),
+    (
+      "pages: [{kind: attempts, name: attempt, title: A}]",
+      r"pages\[0\]\.name: 'attempt' is a page's path",
+    ),
+    (
+      "pages: [{kind: attempts, name: s, title: A},"
+      + " {kind: snapshot, name: s, title: S, file: s.json}]",
+      r"pages\[1\]\.name: 's' is repeated",
+    ),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, name: s, title: '', file: s.json}]",
+      r"pages\[1\]\.title: not a non-empty string",
+    ),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, name: s, title: S, file: s.json, roots: {}}]",
+      r"pages\[1\]\.roots: empty",
+    ),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, name: s, title: S, file: s.json, roots: {Up: x}}]",
+      r"pages\[1\]\.roots: 'Up' is not of",
+    ),
+    (
+      "pages: [{kind: attempts, title: A},"
+      + " {kind: snapshot, name: s, title: S, file: s.json, roots: {up: ''}}]",
+      r"pages\[1\]\.roots\.up: not a non-empty string",
+    ),
+  ],
+)
+def test_a_page_that_breaks_a_rule_is_refused(
+  tree: Tree, pages: str, key: str
+) -> None:
+  _ = tree.project.write_text(PROJECT + pages + "\n")
+
+  with pytest.raises(ConfigError, match=key) as error:
+    _ = load_site(tree.site)
+  assert str(tree.project) in str(error.value)
+
+
+def test_a_snapshot_page_s_paths_are_relative_to_attempts_dir(
+  tree: Tree,
+) -> None:
+  _ = tree.project.write_text(
+    PROJECT
+    + "pages: [{kind: attempts, title: A}, {kind: snapshot, name: s,"
+    + " title: S, file: ../snap/s.json, roots: {up: ../up, abs: /srv/x}}]\n"
+  )
+
+  [project] = load_site(tree.site).projects
+
+  [attempts, page] = project.pages
+  assert (attempts.kind, attempts.name, attempts.file) == (
+    "attempts",
+    None,
+    None,
+  )
+  assert page.file == tree.root.parent / "snap" / "s.json"
+  assert page.file_shown == "../snap/s.json"
+  assert dict(page.roots) == {
+    "up": tree.root.parent / "up",
+    "abs": Path("/srv/x"),
+  }
+  assert project.page("s") is page
+  assert project.page("attempts") is None

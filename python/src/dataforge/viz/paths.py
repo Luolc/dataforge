@@ -13,7 +13,7 @@ import errno
 import os
 import stat
 
-from dataforge.viz.config import Project, split_relative
+from dataforge.viz.config import Page, Project, split_relative
 
 RECORD_LIMIT = 64 * 1024 * 1024
 """The most bytes of a record file the viewer reads."""
@@ -132,12 +132,15 @@ def open_attempt(project: Project, attempt: str) -> Generator[int]:
 
 
 @contextmanager
-def open_path(attempt: int, path: str) -> Generator[int]:
+def open_path(
+  attempt: int, path: str, within: str = "the attempt"
+) -> Generator[int]:
   """Open a path in an attempt's directory, a file or a directory.
 
   Args:
-    attempt: The attempt's directory.
+    attempt: The attempt's directory, or a snapshot page's root.
     path: The path relative to it, "" for the directory itself.
+    within: What the directory is, as a refusal names it.
 
   Yields:
     A file descriptor, opened without following a symlink and closed on exit.
@@ -147,7 +150,7 @@ def open_path(attempt: int, path: str) -> Generator[int]:
   """
   parts = split_relative(path)
   if parts is None:
-    raise RefusedError(404, f"{path!r} is not a path in the attempt")
+    raise RefusedError(404, f"{path!r} is not a path in {within}")
   if not parts:
     yield attempt
     return
@@ -170,6 +173,68 @@ def read_record(project: Project, attempt: int) -> Read:
   """  # noqa: DOC502
   with _open_at(attempt, project.record, _ANY) as fd:
     return read_regular(fd, RECORD_LIMIT)
+
+
+def read_snapshot(page: Page) -> bytes:
+  """Read a snapshot page's file as it is written.
+
+  The file is configuration, opened as given, but never when it is itself a
+  symlink.
+
+  Args:
+    page: The snapshot page.
+
+  Returns:
+    The file's bytes.
+
+  Raises:
+    RefusedError: 404, absent, when the file is not there; 503 when it is a
+      symlink or not a regular file; 413 when it is too large.
+  """
+  if page.file is None:
+    raise RefusedError(404, f"the page {page.name!r} has no snapshot")
+  try:
+    fd = os.open(page.file, _ANY)
+  except OSError as error:
+    if error.errno == errno.ENOENT:
+      raise RefusedError(
+        404, "no snapshot has been written", absent=True
+      ) from None
+    raise RefusedError(503, _why(page.file_shown or "", error)) from None
+  try:
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+      raise RefusedError(503, f"{page.file_shown}: not a regular file")
+    return read_regular(fd, FILE_LIMIT).data
+  finally:
+    os.close(fd)
+
+
+@contextmanager
+def open_root(page: Page, root: str) -> Generator[int]:
+  """Open one of a snapshot page's roots.
+
+  Args:
+    page: The snapshot page.
+    root: The root's name.
+
+  Yields:
+    A file descriptor of the directory, closed on exit.
+
+  Raises:
+    RefusedError: When the page names no such root, or it cannot be opened.
+  """
+  if root not in page.roots:
+    raise RefusedError(404, f"the page {page.name!r} has no root {root!r}")
+  # A root is configuration, opened as given; only what is under it is
+  # opened component by component.
+  try:
+    fd = os.open(page.roots[root], os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+  except OSError as error:
+    raise RefusedError(404, f"root {root}: {error.strerror}") from None
+  try:
+    yield fd
+  finally:
+    os.close(fd)
 
 
 def stat_lock(project: Project, item: str) -> os.stat_result | None:

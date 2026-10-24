@@ -147,3 +147,53 @@ def with_params(made: QueueTree, params: str = PARAMS) -> None:
   _ = made.tree.project.write_text(
     text.replace("    when: idle\n", "    when: idle\n" + params, 1)
   )
+
+
+PAGES = """\
+pages:
+  - kind: snapshot
+    name: steps
+    title: Steps
+    file: ../snapshot/steps.json
+    roots: {bundles: ../bundles}
+  - {kind: attempts, name: attempts, title: Attempts}
+"""
+
+
+@dataclass(frozen=True)
+class PagesTree:
+  tree: Tree
+  snapshot: Path
+  bundles: Path
+
+
+def make_pages_tree(tmp_path: Path) -> PagesTree:
+  """Make the site of make_tree with a snapshot page and one root.
+
+  Args:
+    tmp_path: The directory to make it in.
+
+  Returns:
+    Where its files are, as with_pages gives them.
+  """
+  return with_pages(make_tree(tmp_path))
+
+
+def with_pages(tree: Tree) -> PagesTree:
+  """Give the project of make_tree a snapshot page and one root.
+
+  Args:
+    tree: The site of make_tree.
+
+  Returns:
+    Where its files are: the snapshot, fixtures/snapshot.json, and the root
+    bundles, holding batch-1/summary.md.
+  """
+  _ = tree.project.write_text(PROJECT + PAGES)
+  snapshot = tree.project.parent / "snapshot" / "steps.json"
+  snapshot.parent.mkdir()
+  _ = shutil.copy(FIXTURES / "snapshot.json", snapshot)
+  bundles = tree.project.parent / "bundles"
+  (bundles / "batch-1").mkdir(parents=True)
+  _ = (bundles / "batch-1" / "summary.md").write_text("# Batch 1\n")
+  return PagesTree(tree, snapshot, bundles)

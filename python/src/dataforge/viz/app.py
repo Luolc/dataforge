@@ -19,10 +19,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 from dataforge import queue
-from dataforge.viz import actions, live, monitor, runs, tabs
+from dataforge.viz import actions, live, monitor, runs, snapshot, tabs
 from dataforge.viz.config import (
   Action,
   case_value,
+  Page,
   Project,
   Site,
   split_relative,
@@ -36,8 +37,10 @@ from dataforge.viz.paths import (
   list_dir,
   open_attempt,
   open_path,
+  open_root,
   read_record,
   read_regular,
+  read_snapshot,
   RefusedError,
 )
 from dataforge.viz.task import read_task
@@ -97,6 +100,8 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/api/projects/{p}/monitor/runs", api.monitor_runs),
     ("/api/projects/{p}/monitor/window", api.monitor_window),
     ("/api/projects/{p}/monitor/curve", api.monitor_curve),
+    ("/api/projects/{p}/pages/{name}/snapshot", api.snapshot),
+    ("/api/projects/{p}/pages/{name}/files", api.page_files),
     ("/api/queue", api.queue_jobs),
     ("/api/{rest:path}", api.no_route),
     ("/{rest:path}", api.static),
@@ -191,13 +196,44 @@ class _Api:
       open_attempt(project, _attempt(attempt)) as root,
       open_path(root, path) as fd,
     ):
-      if is_dir(fd):
-        entries = [
-          {"name": e.name, "type": e.type, "size": e.size} for e in list_dir(fd)
-        ]
-        return JSONResponse({"entries": entries})
-      data = read_regular(fd, FILE_LIMIT).data
-    return Response(data, media_type="application/octet-stream")
+      return _file(fd)
+
+  def snapshot(self, p: str, name: str) -> Response:
+    project = self._project(p)
+    page = _snapshot_page(project, name)
+    try:
+      data = read_snapshot(page)
+    except RefusedError as refused:
+      if not refused.absent:
+        raise
+      # Not an error to show but a state of its own, as a monitor database
+      # not written yet is.
+      return JSONResponse(
+        {
+          "error": "no snapshot",
+          "reason": refused.reason,
+          "file": page.file_shown,
+        },
+        status_code=404,
+      )
+    try:
+      parsed = cast(object, json.loads(data, parse_constant=_no_constant))
+      others = [q.name for q in project.pages if q.name not in (None, name)]
+      snapshot.check(parsed, list(page.roots), others)
+    except (ValueError, snapshot.SnapshotError) as error:
+      # UnicodeDecodeError and json's errors are ValueErrors.
+      raise RefusedError(503, f"the snapshot: {error}") from None
+    return Response(data, media_type="application/json")
+
+  def page_files(
+    self, p: str, name: str, root: str | None = None, path: str = ""
+  ) -> Response:
+    page = _snapshot_page(self._project(p), name)
+    with (
+      open_root(page, _required("root", root)) as top,
+      open_path(top, path, f"the root {root}") as fd,
+    ):
+      return _file(fd)
 
   def tabs(self, p: str, attempt: str | None = None) -> Response:
     project = self._project(p)
@@ -547,6 +583,28 @@ def _only(request: Request, params: set[str]) -> None:
   if any(n not in params for n in names) or len(names) != len(set(names)):
     allowed = ", ".join(sorted(params)) or "none"
     raise RefusedError(400, f"a write takes its parameters once: {allowed}")
+
+
+def _file(fd: int) -> Response:
+  # A directory's listing, or a regular file's bytes, never to be run.
+  if is_dir(fd):
+    entries = [
+      {"name": e.name, "type": e.type, "size": e.size} for e in list_dir(fd)
+    ]
+    return JSONResponse({"entries": entries})
+  data = read_regular(fd, FILE_LIMIT).data
+  return Response(data, media_type="application/octet-stream")
+
+
+def _snapshot_page(project: Project, name: str) -> Page:
+  page = project.page(name)
+  if page is None or page.kind != "snapshot":
+    raise RefusedError(404, f"no snapshot page {name!r} in {project.id}")
+  return page
+
+
+def _no_constant(name: str) -> object:
+  raise ValueError(f"{name} is not JSON")
 
 
 def _attempt(value: str | None) -> str:
