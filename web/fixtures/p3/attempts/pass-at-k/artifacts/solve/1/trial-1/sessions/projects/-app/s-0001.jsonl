@@ -1,0 +1,3 @@
+{"type": "user", "sessionId": "s-0001", "message": {"role": "user", "content": "Fix the folded-header parser."}}
+{"type": "assistant", "sessionId": "s-0001", "message": {"id": "msg_0001", "role": "assistant", "content": [{"type": "text", "text": "I'll reproduce the problem first, then look at how `parse` splits lines."}], "usage": {"input_tokens": 12, "output_tokens": 236}}}
+{"type": "assistant", "sessionId": "s-0001", "message": {"id": "msg_0009", "role": "assistant", "content": [{"type": "text", "text": "Fixed: `parse` now rejects folded lines, and **41 tests pass**."}], "usage": {"input_tokens": 12, "output_tokens": 412}}}
