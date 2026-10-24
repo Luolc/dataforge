@@ -100,6 +100,20 @@ def test_a_column_of_cases_gives_the_page_its_values_and_filter(
   assert (status["cases"], status["filter"]) == ([], False)
 
 
+def test_a_column_may_ask_for_its_value_as_a_tag_of_the_attempts_header(
+  tree: Tree,
+) -> None:
+  _ = tree.project.write_text(
+    PROJECT.replace("field: [status]}", "field: [status], tag: true}", 1)
+  )
+
+  [project] = load_site(tree.site).projects
+
+  [status, *rest] = cast(list[dict[str, object]], project.public()["columns"])
+  assert status["tag"] is True
+  assert [c["tag"] for c in rest] == [False] * len(rest)
+
+
 def test_a_session_view_shows_thinking_as_the_project_file_says(
   tree: Tree,
 ) -> None:
@@ -443,6 +457,10 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       ("format: usd", "format: usd, filter: true"),
       r"columns\[1\]\.filter: only with format text",
+    ),
+    (
+      ("field: [status]}", "field: [status], tag: yes please}"),
+      r"columns\[0\]\.tag: not true or false",
     ),
     (("name: Example", "name: Example\nextra: 1"), "extra: unknown key"),
     (("name: Example", "name: Example\nname: Again"), "key name repeated"),
