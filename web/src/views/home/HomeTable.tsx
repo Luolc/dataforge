@@ -270,6 +270,7 @@ function specs(project: Project): Spec[] {
         // A value with a label sorts by it, as it shows.
         const label = labelOf(v, column.labels);
         if (label !== undefined) return label;
+        if (Array.isArray(v) && v.length > 0) return formatValue(v, column);
         return typeof v === "number" || typeof v === "string" ? v : undefined;
       },
       cell: (l) => {
