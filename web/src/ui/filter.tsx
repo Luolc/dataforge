@@ -276,10 +276,16 @@ export function FilterButton({
 }
 
 /** A rule's words: "Path is any of First round, Later round". */
-function ruleWords(field: FilterField, rule: Rule): string {
+function RuleWords({ field, rule }: { field: FilterField; rule: Rule }) {
   const label = (key: string) =>
     field.values.find((v) => v.key === key)?.label ?? key;
-  return `${field.title} ${opTitle(rule.op)} ${rule.values.map(label).join(", ")}`;
+  return (
+    <span>
+      <span className="font-medium">{field.title}</span>{" "}
+      <span className="text-fg-3">{opTitle(rule.op)}</span>{" "}
+      <span className="font-medium">{rule.values.map(label).join(", ")}</span>
+    </span>
+  );
 }
 
 /**
@@ -333,7 +339,7 @@ export function FilterRules({
                 {rule === undefined ? (
                   <span className="font-medium">{field.title}</span>
                 ) : (
-                  ruleWords(field, rule)
+                  <RuleWords field={field} rule={rule} />
                 )}
               </Popover.Trigger>
               <Popover.Portal>
