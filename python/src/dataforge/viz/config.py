@@ -153,6 +153,8 @@ class Column:
       conditions all hold of the record, else none; empty for a column
       with field.
     filter: Whether the page filters the items by the column's value.
+    tag: Whether the attempt's page shows the column's value as a tag in its
+      header.
   """
 
   title: str
@@ -166,6 +168,7 @@ class Column:
   none: str | None = None
   cases: tuple[Case, ...] = ()
   filter: bool = False
+  tag: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -588,6 +591,7 @@ class Project:
           "none": c.none,
           "cases": [case.value for case in c.cases],
           "filter": c.filter,
+          "tag": c.tag,
         }
         for c in self.columns
       ],
@@ -1078,6 +1082,7 @@ def _columns(
         "hints",
         "none",
         "filter",
+        "tag",
       },
     )
     if ("field" in entry) == ("cases" in entry):
@@ -1091,9 +1096,7 @@ def _columns(
       if format_ != "text":
         raise ConfigError(f"{path}: {where}.cases: only with format text")
       cases = _cases(path, f"{where}.cases", entry["cases"])
-    filter_ = entry.get("filter", False)
-    if not isinstance(filter_, bool):
-      raise ConfigError(f"{path}: {where}.filter: not true or false")
+    filter_ = _flag(path, where, entry, "filter")
     if filter_ and format_ != "text":
       raise ConfigError(f"{path}: {where}.filter: only with format text")
     columns.append(
@@ -1111,9 +1114,19 @@ def _columns(
         _optional_str(path, where, entry, "none"),
         cases,
         filter_,
+        _flag(path, where, entry, "tag"),
       )
     )
   return tuple(columns)
+
+
+def _flag(
+  path: Path, where: str, entry: Mapping[str, object], key: str
+) -> bool:
+  value = entry.get(key, False)
+  if not isinstance(value, bool):
+    raise ConfigError(f"{path}: {where}.{key}: not true or false")
+  return value
 
 
 def _column_file(

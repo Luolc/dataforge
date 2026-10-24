@@ -29,6 +29,30 @@ item: { depth: 2, title: Task }
 columns:
   - { title: Cap, field: [budget, max_usd], format: usd }
   - { title: Verdict, tab: notes, file: tags.json, field: [verdict, value] }
+  # Tags in the heading of an attempt's page; Kind is empty for an attempt
+  # that did not pass.
+  - title: Kind
+    tag: true
+    description: How the task of an attempt that passed was made.
+    cases:
+      - value: tightened
+        when:
+          - { field: [status], equals: passed }
+          - { field: [round], equals: 2 }
+      - value: plain
+        when: [{ field: [status], equals: passed }]
+    labels: { plain: plain, tightened: plain·tightened }
+    hints:
+      plain: Passed in its first round.
+      tightened: Passed in its second round.
+  - title: Language
+    tag: true
+    file: meta.json
+    field: [language]
+    description: The language of the sample's project.
+    labels: { "": "—" }
+    hints: { "": Its research found no language for the project. }
+    none: The attempt has no meta.json.
 # What an attempt delivers once it ends, so a running one shows its tabs.
 deliverables:
   - { name: task, kind: files, title: Task }

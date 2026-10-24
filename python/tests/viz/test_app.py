@@ -184,6 +184,7 @@ def test_projects_leave_out_where_the_files_are(
         "none": None,
         "cases": [],
         "filter": False,
+        "tag": False,
       },
       {
         "title": "Cost",
@@ -195,6 +196,7 @@ def test_projects_leave_out_where_the_files_are(
         "none": None,
         "cases": [],
         "filter": False,
+        "tag": False,
       },
       {
         "title": "Missing",
@@ -206,6 +208,7 @@ def test_projects_leave_out_where_the_files_are(
         "none": None,
         "cases": [],
         "filter": False,
+        "tag": False,
       },
     ],
     "session": {"thinking": "hidden"},

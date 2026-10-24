@@ -52,6 +52,7 @@ import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
 import { asShown, declaredMissing, tabKinds } from "./declared";
 import { AttemptFacts } from "./facts";
+import { AttemptTags } from "./tags";
 import { attemptHref } from "./href";
 import { TabNav } from "./TabNav";
 import { TabCount, TabView } from "../tabs";
@@ -327,7 +328,7 @@ function Attempt({
   ];
   return (
     <>
-      <Header>
+      <Header tags={<AttemptTags project={project} attempt={attempt} />}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
       <AttemptFacts project={project} record={record} live={live} />
@@ -449,11 +450,18 @@ interface Tab {
 }
 
 /** The page's heading; the attempt's ID is the last crumb above it. */
-function Header({ children }: { children?: ReactNode }) {
+function Header({
+  children,
+  tags,
+}: {
+  children?: ReactNode;
+  tags?: ReactNode;
+}) {
   return (
     <div className="flex items-center gap-2 px-7 pt-5">
       {children}
       <h1 className="text-xl font-semibold tracking-tight">Attempt</h1>
+      {tags}
     </div>
   );
 }
