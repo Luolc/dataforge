@@ -11,8 +11,6 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import {
-  ArrowDown,
-  ArrowUp,
   ChevronDown,
   ChevronRight,
   RefreshCw,
@@ -20,18 +18,11 @@ import {
   Search,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { type MouseEvent, type ReactNode, useId, useMemo } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { type ReactNode, useId, useMemo } from "react";
+import { Link, useSearchParams } from "react-router";
 
 import type { AttemptRow, Project } from "../../api/types";
-import {
-  duration,
-  formatValue,
-  labelOf,
-  readValue,
-  time,
-  usd,
-} from "../../ui/format";
+import { duration, time, usd } from "../../ui/format";
 import {
   liveStatus,
   outcomeOf,
@@ -41,13 +32,25 @@ import {
   toneText,
 } from "../../ui/status";
 import { Chip, control } from "../../ui/chip";
-import { Hint, HintContent } from "../../ui/hint";
+import { Hint } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
 import { Elapsed, RunningIcon } from "../../ui/running";
 import { StatusIcon, StatusLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
-import { queuedShort, stoppedWhy } from "../queue/status";
+import { stoppedWhy } from "../queue/status";
+import {
+  type Cell,
+  columnParam,
+  columnSpec,
+  compareValues,
+  ROW_CLASS,
+  type Spec as ColumnSpec,
+  timeValue,
+  useOpenRow,
+  type Value,
+} from "./columns";
+import { ColumnFilter, SortHeading } from "./ColumnControls";
 import {
   counted,
   filterItems,
@@ -79,18 +82,7 @@ interface Line {
   sub: boolean;
 }
 
-type Value = number | string | undefined;
-
-/** A column: its heading, the value it sorts by and its cell. */
-interface Spec {
-  id: string;
-  title: string;
-  numeric: boolean;
-  /** What the column holds, on its heading's hover and focus. */
-  description?: string | null;
-  value: (line: Line) => Value;
-  cell: (line: Line) => ReactNode;
-}
+type Spec = ColumnSpec<Line>;
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -102,12 +94,8 @@ type TableRow = Row<typeof features, Item>;
 
 // The values of one column are all numbers or all strings; sortUndefined
 // places undefined before this is called.
-const compare: SortFn<typeof features, Item> = (a, b, id) => {
-  const x = a.getValue<Value>(id);
-  const y = b.getValue<Value>(id);
-  if (typeof x === "number" && typeof y === "number") return x - y;
-  return String(x).localeCompare(String(y), undefined, { numeric: true });
-};
+const compare: SortFn<typeof features, Item> = (a, b, id) =>
+  compareValues(a.getValue<Value>(id), b.getValue<Value>(id));
 
 /** An attempt's ID below its item's row: the part after the item's ID. */
 function attemptName(item: Item, row: AttemptRow): string {
@@ -121,26 +109,12 @@ const itemLine = (item: Item): Line => ({
   sub: false,
 });
 
-function timeValue(iso: string | null): Value {
-  const t = iso === null ? NaN : Date.parse(iso);
-  return Number.isNaN(t) ? undefined : t;
-}
-
-const NUMERIC_FORMATS = new Set(["number", "usd", "duration", "time"]);
-
-/** The key in the URL of the filter of the column at index. */
-const columnParam = (index: number) => `column-${index.toString()}`;
-
 /** Words joined as a sentence lists them: "a", "a and b", "a, b and c". */
 function joined(words: string[]): string {
   return words.length <= 1
     ? (words[0] ?? "")
     : `${words.slice(0, -1).join(", ")} and ${words.at(-1) ?? ""}`;
 }
-
-/** Dotted, as a hint's sign. */
-const DOTTED =
-  "underline decoration-faint decoration-dotted underline-offset-3";
 
 /** A row's end, null while it has not ended. */
 const lineEnded = (l: Line) => (notEnded(l.row) ? null : l.row.ended_at);
@@ -256,68 +230,16 @@ function specs(project: Project): Spec[] {
       },
     },
   ];
-  const extra = project.columns.map((column, index): Spec => {
-    const raw = (l: Line) => l.row.values?.[index];
-    return {
-      id: `column-${index.toString()}`,
-      title: column.title,
-      description: column.description ?? null,
-      numeric: NUMERIC_FORMATS.has(column.format),
-      value: (l) => {
-        const v = raw(l);
-        if (column.format === "time" && typeof v === "string")
-          return timeValue(v);
-        // A value with a label sorts by it, as it shows.
-        const label = labelOf(v, column.labels);
-        if (label !== undefined) return label;
-        if (Array.isArray(v) && v.length > 0) return formatValue(v, column);
-        return typeof v === "number" || typeof v === "string" ? v : undefined;
-      },
-      cell: (l) => {
-        const v = raw(l);
-        const read = l.row.reads?.[index] ?? null;
-        const queued = read === null ? null : (l.row.queued?.[index] ?? null);
-        // A tab not run yet says how its job stands, when it names one.
-        const job = queued === null ? null : queuedShort(queued);
-        const given =
-          read === null
-            ? v !== null && v !== undefined
-            : read === "found" && v !== null;
-        if (given) {
-          const shown = job ?? formatValue(v, column);
-          const hint = labelOf(v, column.hints);
-          return hint === undefined ? (
-            shown
-          ) : (
-            <Hint hint={hint}>
-              <span className={DOTTED}>{shown}</span>
-            </Hint>
-          );
-        }
-        // A column of cases is empty where none of them holds, unless it
-        // says what that stands for.
-        if ((column.cases ?? []).length > 0 && column.none == null) return null;
-        if (read === null && column.none == null) return "—";
-        // A value it has not read, or null, is a word of the viewer's, kept
-        // whole, or "—" when the column says what no value stands for; null,
-        // or that, says on hover what it stands for.
-        const hint =
-          column.none ??
-          (read === "found" ? "Its file gives null for this value." : null);
-        const word = (
-          <span
-            className={`whitespace-nowrap text-fg-3 ${hint === null ? "" : DOTTED}`}
-          >
-            {job ??
-              (column.none != null || read === null
-                ? "—"
-                : readValue(read, v, column))}
-          </span>
-        );
-        return hint === null ? word : <Hint hint={hint}>{word}</Hint>;
-      },
-    };
-  });
+  const extra = project.columns.map((column, index) =>
+    columnSpec(column, index, (l: Line): Cell => {
+      const read = l.row.reads?.[index] ?? null;
+      return {
+        value: l.row.values?.[index],
+        read,
+        queued: l.row.queued?.[index] ?? null,
+      };
+    }),
+  );
   return [...fixed, ...extra];
 }
 
@@ -341,23 +263,6 @@ function parseSort(param: string | null, ids: string[]): SortingState {
   const desc = param.startsWith("-");
   const id = desc ? param.slice(1) : param;
   return ids.includes(id) ? [{ id, desc }] : [];
-}
-
-/** A heading's button, with what its column holds on hover and focus. */
-function Described({
-  description,
-  children,
-}: {
-  description: string | null | undefined;
-  children: ReactNode;
-}) {
-  if (description == null) return children;
-  return (
-    <Tooltip.Root>
-      <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
-      <HintContent>{description}</HintContent>
-    </Tooltip.Root>
-  );
 }
 
 /**
@@ -481,7 +386,7 @@ export function HomeTable({
 }) {
   const project = useMemo(() => withHomeStatuses(given), [given]);
   const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
+  const open = useOpenRow();
   const baseId = useId();
   const q = params.get("q") ?? "";
   const chosen = params.get("status");
@@ -593,16 +498,6 @@ export function HomeTable({
   });
   const rows = table.getRowModel().rows;
 
-  // A click on a row opens its attempt, but not one on a control in it.
-  const open = (event: MouseEvent, href: string) => {
-    if (
-      event.target instanceof Element &&
-      event.target.closest("a, button, [tabindex]")
-    )
-      return;
-    void navigate(href);
-  };
-
   const cellClass = (s: Spec, sub: boolean) => {
     // On the row's own surface, which the cells it stands over pass under.
     const at = STUCK[s.id];
@@ -667,16 +562,14 @@ export function HomeTable({
     );
     return [
       lineRow(itemLine(item), attempts, {
-        className:
-          "group/row cursor-pointer border-b border-line-subtle hover:bg-hover",
+        className: ROW_CLASS,
       }),
       ...(row.getCanExpand()
         ? item.attempts.map((attempt, a) =>
             lineRow({ item, row: attempt, sub: true }, null, {
               id: subId(a),
               hidden: !expanded,
-              className:
-                "group/row cursor-pointer border-b border-line-subtle bg-app hover:bg-hover",
+              className: `${ROW_CLASS} bg-app`,
             }),
           )
         : []),
@@ -724,45 +617,20 @@ export function HomeTable({
               );
             })}
           </div>
-          {filtered.columns.map(({ index, all, chips }) => {
-            const column = project.columns[index];
+          {filtered.columns.map((chips) => {
+            const column = project.columns[chips.index];
             if (column === undefined) return null;
-            const at = picked.get(index) ?? null;
             return (
-              <div
-                key={index}
-                role="group"
-                aria-label={`Filter by ${column.title}`}
-                className="flex flex-wrap items-center gap-1.5"
-              >
-                {/* Names the group, whose All would read as the status filter's. */}
-                <span aria-hidden className="text-xs text-fg-3">
-                  {column.title}
-                </span>
-                <Chip
-                  pressed={at === null}
-                  onClick={() => {
-                    pick(index, null);
-                  }}
-                  label="All"
-                  count={all}
-                  hint={counted(all, itemTitle)}
-                />
-                {chips.map(({ key, count }) => (
-                  <Chip
-                    key={key}
-                    pressed={at === key}
-                    onClick={() => {
-                      pick(index, at === key ? null : key);
-                    }}
-                    label={column.labels?.[key] ?? key}
-                    count={count}
-                    hint={[column.hints?.[key], counted(count, itemTitle)]
-                      .filter((h) => h !== undefined)
-                      .join(" ")}
-                  />
-                ))}
-              </div>
+              <ColumnFilter
+                key={chips.index}
+                column={column}
+                chips={chips}
+                picked={picked.get(chips.index) ?? null}
+                onPick={(key) => {
+                  pick(chips.index, key);
+                }}
+                unit={itemTitle}
+              />
             );
           })}
           <label className="inline-flex target items-center gap-1.5 rounded-row border border-chip-line px-2 focus-within:border-fg-3">
@@ -830,7 +698,6 @@ export function HomeTable({
                 {table.getHeaderGroups()[0]?.headers.map((header, i) => {
                   const spec = columnSpecs[i];
                   const sorted = header.column.getIsSorted();
-                  const Arrow = sorted === "desc" ? ArrowDown : ArrowUp;
                   if (spec?.id === "icon")
                     return (
                       <th
@@ -842,40 +709,13 @@ export function HomeTable({
                       </th>
                     );
                   return (
-                    <th
+                    <SortHeading
                       key={header.id}
-                      scope="col"
-                      aria-sort={
-                        sorted === "asc"
-                          ? "ascending"
-                          : sorted === "desc"
-                            ? "descending"
-                            : "none"
-                      }
-                      className={`px-3 py-1 font-medium ${spec?.numeric === true ? "text-right" : "text-left"} ${spec === undefined ? "" : stuckHead(spec.id)}`}
-                    >
-                      <Described description={spec?.description}>
-                        <button
-                          type="button"
-                          onClick={header.column.getToggleSortingHandler()}
-                          className={`inline-flex target items-center gap-1 rounded-row hover:text-fg-2 ${spec?.numeric === true ? "flex-row-reverse" : ""}`}
-                        >
-                          {/* Dotted, as a hint's sign, when it has one. */}
-                          <span
-                            className={
-                              spec?.description == null
-                                ? ""
-                                : "underline decoration-faint decoration-dotted underline-offset-3"
-                            }
-                          >
-                            {spec?.title}
-                          </span>
-                          {sorted !== false && (
-                            <Arrow className="size-3" aria-hidden />
-                          )}
-                        </button>
-                      </Described>
-                    </th>
+                      spec={spec}
+                      sorted={sorted}
+                      onSort={header.column.getToggleSortingHandler()}
+                      className={spec === undefined ? "" : stuckHead(spec.id)}
+                    />
                   );
                 })}
               </tr>
