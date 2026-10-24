@@ -115,7 +115,7 @@ describe("the column picker", () => {
     expect(button()).toHaveTextContent(/^Columns$/);
   });
 
-  it("finds a column by its title, and moves only those it finds", () => {
+  it("finds a column by its title; Hide all still hides every column", () => {
     render(<Picker />);
     open();
     const find = screen.getByRole("searchbox", { name: "Find a column" });
@@ -125,7 +125,7 @@ describe("the column picker", () => {
     expect(group("Shown in the table")).toEqual(["Status", "Cost"]);
     fireEvent.click(screen.getByRole("button", { name: "Hide all" }));
     expect(screen.getByLabelText("hidden")).toHaveTextContent(
-      /^status,col\.Cost$/,
+      /^status,rounds,col\.Cost$/,
     );
 
     fireEvent.change(find, { target: { value: "none of them" } });

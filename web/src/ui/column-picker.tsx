@@ -101,9 +101,8 @@ export function ColumnPicker({
   const isHidden = (c: PickedColumn) => hidden.includes(c.key);
   const shown = matching.filter((c) => !isHidden(c));
   const hiddenShown = matching.filter(isHidden);
-  // Hide all and Show all move the columns the search finds, every column
-  // without one.
-  const hideable = shown.filter((c) => c.locked !== true);
+  // Hide all and Show all move every column, not only those the search finds.
+  const hideable = columns.filter((c) => c.locked !== true && !isHidden(c));
   const n = columns.filter(isHidden).length;
   const toggle = (key: string) => {
     onChange(
@@ -185,8 +184,7 @@ export function ColumnPicker({
                 title="Hidden"
                 action="Show all"
                 onAction={() => {
-                  const moved = new Set(hiddenShown.map((c) => c.key));
-                  onChange(hidden.filter((k) => !moved.has(k)));
+                  onChange([]);
                 }}
               />
               <ul className="flex flex-col">
