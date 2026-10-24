@@ -52,6 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  localStorage.clear();
 });
 
 function Where() {
@@ -1053,6 +1054,133 @@ describe("the home page", () => {
         screen.getByText("t-run").closest("tr") ?? document.body,
       ).getByRole("link", { name: "t-run" }),
     ).toHaveClass("target", "items-center");
+  });
+});
+
+describe("the home page's columns", () => {
+  const columns: Project = {
+    ...project,
+    columns: [
+      { title: "Kind", field: ["kind"], format: "text" },
+      { title: "Cap", field: ["cap"], format: "usd" },
+    ],
+  };
+  const headings = () =>
+    screen.getAllByRole("columnheader").map((h) => h.textContent);
+  const picker = () => screen.getByRole("button", { name: /^Columns/ });
+  const toggle = (title: string) => {
+    act(() => {
+      screen.getByRole("switch", { name: title }).click();
+    });
+  };
+  const kept = (): unknown =>
+    JSON.parse(localStorage.getItem("viz.home.sample") ?? "null");
+
+  it("draws only the columns shown, and keeps them for the next visit", async () => {
+    const { unmount } = show("/sample", columns);
+    await screen.findByText("t-run");
+    expect(headings()).toEqual([
+      "Status icon",
+      "Task",
+      "Status",
+      "Rounds",
+      "Attempts",
+      "Spent",
+      "Started",
+      "Ended",
+      "Duration",
+      "Kind",
+      "Cap",
+    ]);
+    act(() => {
+      picker().click();
+    });
+    // The item's ID cannot be hidden, and its status icon goes with it.
+    expect(screen.getByRole("switch", { name: "Task" })).toBeDisabled();
+    expect(screen.queryByRole("switch", { name: /icon/ })).toBeNull();
+
+    toggle("Rounds");
+    toggle("Cap");
+
+    expect(headings()).toEqual([
+      "Status icon",
+      "Task",
+      "Status",
+      "Attempts",
+      "Spent",
+      "Started",
+      "Ended",
+      "Duration",
+      "Kind",
+    ]);
+    expect(
+      screen.getByText("t-new").closest("tr")?.querySelectorAll("td"),
+    ).toHaveLength(9);
+    expect(picker()).toHaveTextContent("Columns · 2 hidden");
+    expect(kept()).toEqual({ version: 1, hidden: ["rounds", "col.Cap"] });
+
+    unmount();
+    show("/sample", columns);
+    await screen.findByText("t-run");
+
+    expect(headings()).not.toContain("Rounds");
+    expect(headings()).not.toContain("Cap");
+    expect(picker()).toHaveTextContent("Columns · 2 hidden");
+
+    act(() => {
+      picker().click();
+    });
+    act(() => {
+      screen.getByRole("button", { name: "Reset to default" }).click();
+    });
+
+    expect(headings()).toHaveLength(11);
+    expect(kept()).toEqual({ version: 1, hidden: [] });
+  });
+
+  it("reads a view kept before its project file dropped a column, and keeps its rules", async () => {
+    const rules = [{ field: "status", op: "any", values: ["passed"] }];
+    localStorage.setItem(
+      "viz.home.sample",
+      JSON.stringify({ version: 1, hidden: ["col.Gone", "spent"], rules }),
+    );
+    show("/sample", columns);
+    await screen.findByText("t-run");
+
+    expect(headings()).not.toContain("Spent");
+    expect(picker()).toHaveTextContent("Columns · 1 hidden");
+
+    act(() => {
+      picker().click();
+    });
+    toggle("Kind");
+
+    expect(kept()).toEqual({
+      version: 1,
+      hidden: ["spent", "col.Kind"],
+      rules,
+    });
+  });
+
+  it("goes back to the rows' order when it hides the column they sort by", async () => {
+    const { unmount } = show("/sample?sort=-spent", columns);
+    await screen.findByText("t-run");
+    expect(itemsOf("Ended")).toEqual(["t-old", "t-new"]);
+    act(() => {
+      picker().click();
+    });
+
+    toggle("Spent");
+
+    expect(screen.getByLabelText("where")).toHaveTextContent(/^\/sample$/);
+    expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
+
+    // A link that sorts by a hidden column sorts by none: the table has no
+    // such column to sort by, however the link's sort is read.
+    unmount();
+    show("/sample?sort=-spent", columns);
+    await screen.findByText("t-run");
+    expect(itemsOf("Ended")).toEqual(["t-new", "t-old"]);
   });
 });
 
