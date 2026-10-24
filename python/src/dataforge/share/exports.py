@@ -3,7 +3,9 @@
 An export directory holds:
 
   export.json          {format, project: {id, name, color},
-                        session: {thinking}, statuses, items: [{id, revision}],
+                        session: {thinking}, statuses, columns, trials,
+                        deliverables, kinds,
+                        items: [{id, revision, values, reads}],
                         listed_only: [<path>]}
   items/<id>/          each item export.json lists: its record.json and the
                        files its deliverables name
@@ -16,14 +18,14 @@ for every request, and an item it does not list is never served.
 
 from collections.abc import Generator
 from contextlib import contextmanager, ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
 import re
 from typing import cast
 
-from dataforge.viz.config import split_relative, THINKING, TONES
+from dataforge.viz.config import FORMATS, split_relative, THINKING, TONES
 from dataforge.viz.paths import (
   is_dir,
   open_path,
@@ -41,6 +43,16 @@ ITEM = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _PROJECT = re.compile(r"[a-z0-9-]+")
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 _NONE: set[str] = set()
+_READS = ("found", "not run", "missing")
+_COLUMN = {
+  "format",
+  "labels",
+  "description",
+  "hints",
+  "none",
+  "cases",
+  "filter",
+}
 
 
 class ExportError(Exception):
@@ -54,10 +66,30 @@ class Item:
   Attributes:
     id: Its ID, the name of its directory under items/.
     revision: Its revision, from 1.
+    values: Its value in each of the export's columns, in their order; None
+      when export.json gives none.
+    reads: How each value was read, as a viewer's row gives it: None for a
+      value of the record, else "found", "not run" or "missing"; None when
+      export.json gives none.
   """
 
   id: str
   revision: int
+  values: tuple[object, ...] | None = None
+  reads: tuple[str | None, ...] | None = None
+
+  def public(self) -> dict[str, object]:
+    """Return the item as the list of items gives it.
+
+    Returns:
+      The item as JSON data.
+    """
+    return {
+      "id": self.id,
+      "revision": self.revision,
+      "values": None if self.values is None else list(self.values),
+      "reads": None if self.reads is None else list(self.reads),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +106,13 @@ class Export:
     items: The items, in the file's order.
     listed_only: The paths, relative to an item's directory, of the files a
       static site lists by name and size but does not serve.
+    columns: The columns of the list of items, each as a viewer's project
+      gives it to its page, without its field.
+    trials: What a trial's view reads in its directory, as a viewer's
+      project gives it; None when export.json gives none.
+    deliverables: The entries of the deliverables, as a viewer's project
+      gives them.
+    kinds: The title of each deliverable kind's tab, by kind.
   """
 
   id: str
@@ -83,6 +122,10 @@ class Export:
   statuses: dict[str, dict[str, str]]
   items: tuple[Item, ...]
   listed_only: frozenset[str] = frozenset()
+  columns: tuple[dict[str, object], ...] = ()
+  trials: dict[str, object] | None = None
+  deliverables: tuple[dict[str, object], ...] = ()
+  kinds: dict[str, dict[str, str]] = field(default_factory=dict)
 
   def public(self) -> dict[str, object]:
     """Return the project as a page reads it, without its items.
@@ -96,6 +139,10 @@ class Export:
       "color": self.color,
       "session": {"thinking": self.thinking},
       "statuses": self.statuses,
+      "columns": list(self.columns),
+      "trials": self.trials,
+      "deliverables": list(self.deliverables),
+      "kinds": self.kinds,
     }
 
 
@@ -178,7 +225,15 @@ def parse(data: bytes) -> Export:
     "",
     value,
     {"format", "project", "items"},
-    {"session", "statuses", "listed_only"},
+    {
+      "session",
+      "statuses",
+      "listed_only",
+      "columns",
+      "trials",
+      "deliverables",
+      "kinds",
+    },
   )
   format_ = top["format"]
   if format_ != FORMAT or isinstance(format_, bool):
@@ -193,14 +248,19 @@ def parse(data: bytes) -> Export:
   session = _mapping("session", top.get("session", {}), set(), {"thinking"})
   thinking = _str("session.thinking", session.get("thinking", "hidden"))
   _one_of("session.thinking", thinking, THINKING)
+  columns = _columns(top.get("columns", []))
   return Export(
     id=id_,
     name=_str("project.name", project["name"]),
     color=color,
     thinking=thinking,
     statuses=_statuses(top.get("statuses", {})),
-    items=_items(top["items"]),
+    items=_items(top["items"], len(columns)),
     listed_only=_listed_only(top.get("listed_only", [])),
+    columns=columns,
+    trials=_trials(top.get("trials")),
+    deliverables=_deliverables(top.get("deliverables", [])),
+    kinds=_kinds(top.get("kinds", {})),
   )
 
 
@@ -220,12 +280,14 @@ def _statuses(value: object) -> dict[str, dict[str, str]]:
   return statuses
 
 
-def _items(value: object) -> tuple[Item, ...]:
+def _items(value: object, columns: int) -> tuple[Item, ...]:
   if not isinstance(value, list):
     raise ExportError("items: not a list")
   items: list[Item] = []
   for i, entry in enumerate(cast(list[object], value)):
-    fields = _mapping(f"items[{i}]", entry, {"id", "revision"})
+    fields = _mapping(
+      f"items[{i}]", entry, {"id", "revision"}, {"values", "reads"}
+    )
     id_ = _str(f"items[{i}].id", fields["id"])
     if not ITEM.fullmatch(id_):
       raise ExportError(f"items[{i}].id: {id_!r} is not a plain name")
@@ -238,8 +300,146 @@ def _items(value: object) -> tuple[Item, ...]:
       or revision < 1
     ):
       raise ExportError(f"items[{i}].revision: not a whole number from 1")
-    items.append(Item(id_, revision))
+    values = _row(f"items[{i}].values", fields.get("values"), columns)
+    reads = _row(f"items[{i}].reads", fields.get("reads"), columns)
+    for j, read in enumerate(reads or ()):
+      if read is not None and read not in _READS:
+        where = f"items[{i}].reads[{j}]"
+        raise ExportError(f"{where}: not null or one of {', '.join(_READS)}")
+    items.append(
+      Item(id_, revision, values, cast(tuple[str | None, ...] | None, reads))
+    )
   return tuple(items)
+
+
+def _row(where: str, value: object, columns: int) -> tuple[object, ...] | None:
+  if value is None:
+    return None
+  if not isinstance(value, list):
+    raise ExportError(f"{where}: not a list")
+  row = tuple(cast(list[object], value))
+  if len(row) != columns:
+    raise ExportError(f"{where}: {len(row)} values for {columns} columns")
+  return row
+
+
+def _columns(value: object) -> tuple[dict[str, object], ...]:
+  if not isinstance(value, list):
+    raise ExportError("columns: not a list")
+  columns: list[dict[str, object]] = []
+  for i, entry in enumerate(cast(list[object], value)):
+    where = f"columns[{i}]"
+    fields = _mapping(where, entry, {"title"}, _COLUMN)
+    format_ = _str(f"{where}.format", fields.get("format", "text"))
+    _one_of(f"{where}.format", format_, FORMATS)
+    filter_ = fields.get("filter", False)
+    if not isinstance(filter_, bool):
+      raise ExportError(f"{where}.filter: not a boolean")
+    columns.append(
+      {
+        "title": _str(f"{where}.title", fields["title"]),
+        "format": format_,
+        "labels": _words(f"{where}.labels", fields.get("labels", {})),
+        "description": _optional(f"{where}.description", fields, "description"),
+        "hints": _words(f"{where}.hints", fields.get("hints", {})),
+        "none": _optional(f"{where}.none", fields, "none"),
+        "cases": _strs(f"{where}.cases", fields.get("cases", [])),
+        "filter": filter_,
+      }
+    )
+  return tuple(columns)
+
+
+def _trials(value: object) -> dict[str, object] | None:
+  if value is None:
+    return None
+  fields = _mapping("trials", value, set(), {"diff", "tests", "kinds"})
+  paths: dict[str, object] = {}
+  for key in ("diff", "tests"):
+    path = _optional(f"trials.{key}", fields, key)
+    if path is not None and not split_relative(path):
+      raise ExportError(f"trials.{key}: {path!r} is not a relative path")
+    paths[key] = path
+  kinds = fields.get("kinds", {})
+  if not isinstance(kinds, dict):
+    raise ExportError("trials.kinds: not an object")
+  labels: dict[str, dict[str, str]] = {}
+  for kind, entry in cast(dict[str, object], kinds).items():
+    where = f"trials.kinds.{kind}"
+    label = _mapping(where, entry, {"label"})["label"]
+    labels[kind] = {"label": _str(f"{where}.label", label)}
+  return {**paths, "kinds": labels}
+
+
+def _deliverables(value: object) -> tuple[dict[str, object], ...]:
+  if not isinstance(value, list):
+    raise ExportError("deliverables: not a list")
+  entries: list[dict[str, object]] = []
+  for i, entry in enumerate(cast(list[object], value)):
+    where = f"deliverables[{i}]"
+    fields = _mapping(
+      where,
+      entry,
+      {"name", "kind", "title"},
+      {"no_trace", "count", "default"},
+    )
+    name = _str(f"{where}.name", fields["name"])
+    if any(e["name"] == name for e in entries):
+      raise ExportError(f"{where}.name: {name} is repeated")
+    entries.append(
+      {
+        "name": name,
+        "kind": _str(f"{where}.kind", fields["kind"]),
+        "title": _str(f"{where}.title", fields["title"]),
+        "no_trace": _optional(f"{where}.no_trace", fields, "no_trace"),
+        "count": _optional(f"{where}.count", fields, "count"),
+        "default": _default(f"{where}.default", fields.get("default", False)),
+      }
+    )
+  return tuple(entries)
+
+
+def _default(where: str, value: object) -> object:
+  if isinstance(value, bool):
+    return value
+  fields = _mapping(where, value, {"field", "equals"})
+  return {
+    "field": _strs(f"{where}.field", fields["field"]),
+    "equals": fields["equals"],
+  }
+
+
+def _kinds(value: object) -> dict[str, dict[str, str]]:
+  if not isinstance(value, dict):
+    raise ExportError("kinds: not an object")
+  kinds: dict[str, dict[str, str]] = {}
+  for kind, entry in cast(dict[str, object], value).items():
+    title = _mapping(f"kinds.{kind}", entry, {"title"})["title"]
+    kinds[kind] = {"title": _str(f"kinds.{kind}.title", title)}
+  return kinds
+
+
+def _words(where: str, value: object) -> dict[str, str]:
+  if not isinstance(value, dict):
+    raise ExportError(f"{where}: not an object")
+  words = cast(dict[str, object], value)
+  for key, word in words.items():
+    if not isinstance(word, str):
+      raise ExportError(f"{where}.{key}: not a string")
+  return cast(dict[str, str], dict(words))
+
+
+def _strs(where: str, value: object) -> list[str]:
+  if not isinstance(value, list):
+    raise ExportError(f"{where}: not a list")
+  return [
+    _str(f"{where}[{i}]", v) for i, v in enumerate(cast(list[object], value))
+  ]
+
+
+def _optional(where: str, fields: dict[str, object], key: str) -> str | None:
+  value = fields.get(key)
+  return None if value is None else _str(where, value)
 
 
 def _listed_only(value: object) -> frozenset[str]:

@@ -177,9 +177,7 @@ class _Api:
 
   def items(self, request: Request, p: str) -> Response:
     with self._export(request, p) as (_, export):
-      return JSONResponse(
-        [{"id": i.id, "revision": i.revision} for i in export.items]
-      )
+      return JSONResponse([i.public() for i in export.items])
 
   def record(
     self, request: Request, p: str, attempt: str | None = None
