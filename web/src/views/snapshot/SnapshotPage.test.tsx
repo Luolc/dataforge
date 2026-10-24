@@ -79,6 +79,7 @@ const snapshot = (n = 3): Snapshot => ({
       },
     },
     { name: "attempts", title: "Attempts", value: 1, page: "attempts" },
+    { name: "over", title: "Over", value: 5, of: 3 },
   ],
 });
 
@@ -145,6 +146,9 @@ describe("the snapshot page", () => {
       width: `${((2 / 3) * 100).toString()}%`,
     });
     expect(gather?.querySelector(".bg-accent")).toBeNull();
+    const over = within(steps).getAllByRole("listitem")[3];
+    expect(over).toHaveTextContent("Over5/ 3");
+    expect(over?.querySelector(".bg-accent")).toHaveStyle({ width: "100%" });
     expect(screen.getByText(/^Snapshot of 2026-03-03/)).toBeInTheDocument();
     expect(within(gather ?? document.body).queryByRole("link")).toBeNull();
     expect(within(bundle ?? document.body).getByRole("link")).toHaveAttribute(
@@ -191,7 +195,7 @@ describe("the snapshot page", () => {
 
     expect(
       await screen.findByText(
-        "The snapshot cannot be read: 503: the snapshot: steps: empty",
+        "The snapshot cannot be read: the snapshot: steps: empty",
       ),
     ).toBeInTheDocument();
   });
@@ -327,7 +331,10 @@ describe("a row's directory", () => {
       "/api/projects/example/pages/steps/files?root=bundles&path=batch-001"
     ] = () =>
       Response.json({
-        entries: [{ name: "summary.md", type: "file", size: 10 }],
+        entries: [
+          { name: "a.json", type: "file", size: 9 },
+          { name: "summary.md", type: "file", size: 10 },
+        ],
       });
     answers[
       "/api/projects/example/pages/steps/files?root=bundles&path=batch-001%2Fsummary.md"
@@ -335,8 +342,15 @@ describe("a row's directory", () => {
       new Response("# Batch 1\n", {
         headers: { "content-type": "application/octet-stream" },
       });
+    answers[
+      "/api/projects/example/pages/steps/files?root=bundles&path=batch-001%2Fa.json"
+    ] = () =>
+      new Response('{"a": 1}\n', {
+        headers: { "content-type": "application/octet-stream" },
+      });
     show("/example/steps?step=bundle&entry=batch-001");
 
+    // summary.md, the file the row names, though a.json comes first.
     expect(
       await screen.findByRole("heading", { name: "Batch 1" }),
     ).toBeInTheDocument();

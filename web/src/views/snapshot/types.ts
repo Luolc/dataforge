@@ -58,6 +58,9 @@ export type Entries = NonNullable<Step["entries"]>;
 export type SnapshotColumn = Entries["columns"][number];
 export type Row = Entries["rows"][number];
 
+/** Why the backend refused the snapshot. */
+export const reason = z.looseObject({ reason: z.string() });
+
 /** What the backend answers for a snapshot that is not there yet. */
 export const noSnapshot = z.looseObject({
   error: z.literal("no snapshot"),

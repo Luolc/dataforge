@@ -39,6 +39,7 @@ import {
 } from "./table";
 import {
   noSnapshot,
+  reason,
   type Row,
   snapshot as snapshotSchema,
   type Snapshot,
@@ -71,6 +72,12 @@ export function SnapshotPage() {
         const missing =
           e instanceof ApiError ? noSnapshot.safeParse(e.body) : null;
         if (missing?.success === true) return { missing: missing.data.file };
+        // The backend's reason alone, without the status it came with.
+        if (e instanceof ApiError && e.status !== null) {
+          const refused = reason.safeParse(e.body);
+          if (refused.success)
+            throw new Error(refused.data.reason, { cause: e });
+        }
         throw e;
       }
     },
