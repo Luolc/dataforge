@@ -6,7 +6,13 @@ import { type ComponentType, createContext, use } from "react";
 import { z } from "zod";
 
 import { ApiError, type FileSource, getJson, type Loaded } from "../api/client";
-import { type AttemptRecord, project, type Project, READS } from "../api/types";
+import {
+  type AttemptRecord,
+  harness,
+  project,
+  type Project,
+  READS,
+} from "../api/types";
 
 // A column as an export gives it: its values are in each item's row, so it
 // names no field to read them from.
@@ -69,6 +75,7 @@ const trial = z
       .nullable(),
     source: z.string().nullable().optional(),
     verdict: z.string().nullable().optional(),
+    harness: harness.nullable().optional(),
     result: z
       .looseObject({
         reward: z.number().nullable(),

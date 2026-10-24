@@ -47,14 +47,22 @@ async function finalOutput(
   signal: AbortSignal,
 ): Promise<number | null> {
   const root = dir === "" ? TRANSCRIPTS : `${dir}/${TRANSCRIPTS}`;
+  // A trace with no transcripts beside it has no such directory; any other
+  // failure to read them is not the same as their not being there.
   const listed = await source
     .listing(project, attempt, root, signal)
-    .catch(() => ({ entries: [] }));
+    .catch((error: unknown) => {
+      if (error instanceof ApiError && error.status === 404)
+        return { entries: [] };
+      throw error;
+    });
   for (const entry of listed.entries) {
     if (entry.type !== "dir") continue;
     const path = `${root}/${entry.name}/${sessionId}.jsonl`;
     const response = await source.file(project, attempt, path, signal);
-    if (!response.ok) continue;
+    if (response.status === 404) continue;
+    if (!response.ok)
+      throw new ApiError(`${path}: ${response.status.toString()}`);
     const output = transcriptOutput(await response.text(), id);
     if (output !== null) return output;
   }
@@ -105,8 +113,12 @@ function useTraceLength(
       : { state: "ok", tokens: last.input + last.output };
   if (!reads) return { state: "none", why: NOT_FINAL };
   if (loaded.state === "loading") return { state: "loading" };
-  if (loaded.state === "error" || loaded.data === null)
-    return { state: "none", why: NOT_FINAL };
+  if (loaded.state === "error")
+    return {
+      state: "none",
+      why: `The session's transcripts could not be read: ${loaded.message}.`,
+    };
+  if (loaded.data === null) return { state: "none", why: NOT_FINAL };
   return { state: "ok", tokens: last.input + loaded.data };
 }
 

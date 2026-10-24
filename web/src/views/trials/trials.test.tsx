@@ -13,6 +13,7 @@ import midway from "../../../fixtures/live-deliverables/attempts/task-0301/2026-
 import passAtK from "../../../fixtures/p3/attempts/pass-at-k/record.json";
 import solved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-1/trace.jsonl?raw";
 import unsolved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-2/trace.jsonl?raw";
+import ran from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-1/result.json?raw";
 import diff from "../../../fixtures/trialdiff/attempts/pass-at-k/artifacts/solve/1/trial-1/verifier/patch.diff?raw";
 import { must, sampleProject } from "../../../fixtures/sample";
 import { type LiveInfo, type Project, record } from "../../api/types";
@@ -29,6 +30,7 @@ const attempt = record.parse(passAtK);
 const traces: Record<string, string> = {
   "artifacts/solve/1/trial-1/trace.jsonl": solved,
   "artifacts/solve/1/trial-2/trace.jsonl": unsolved,
+  "artifacts/solve/1/trial-1/result.json": ran,
 };
 
 beforeEach(() => {
@@ -169,6 +171,42 @@ describe("the trials view", () => {
     expect(screen.getByText("9m 3s")).toBeVisible();
     expect(field("Cost")).toHaveTextContent(/^\$0\.31$/);
     expect(await screen.findByText("Expand all")).toBeVisible();
+  });
+
+  it("names a trial's harness and its version from its result.json, and has no Harness where it gives none", async () => {
+    show();
+
+    expect(await screen.findByText("Claude Code 2.1.0")).toBeVisible();
+    expect(field("Harness")).toHaveTextContent(/^Claude Code 2\.1\.0$/);
+    // Trial 2's files give no harness.
+    fireEvent.click(trial("Trial 2"));
+    expect(screen.queryByText("Harness")).toBeNull();
+  });
+
+  it("takes a trial's harness from its record when the record gives it, reading no file", () => {
+    const deliverable = must(attempt.deliverables?.[0]);
+    const trials = (deliverable.trials ?? []).map((t) => ({
+      ...t,
+      harness: { name: "other-agent", version: null },
+    }));
+    render(
+      <TrialsView
+        project={project}
+        attempt="pass-at-k"
+        record={attempt}
+        deliverable={{ ...deliverable, trials }}
+      />,
+    );
+
+    expect(field("Harness")).toHaveTextContent(/^other-agent$/);
+    const paths = vi
+      .mocked(fetch)
+      .mock.calls.map(([url]) =>
+        typeof url === "string"
+          ? new URL(url, "http://x").searchParams.get("path")
+          : null,
+      );
+    expect(paths).not.toContain("artifacts/solve/1/trial-1/result.json");
   });
 
   it("takes each trial's duration and cost from its own action", () => {

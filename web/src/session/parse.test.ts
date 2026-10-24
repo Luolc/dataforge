@@ -170,6 +170,8 @@ describe("parseTrace", () => {
     const transcript = [
       line("m1", 89),
       JSON.stringify({ type: "user", message: { content: "m2" } }),
+      // Another call whose ID holds this one's.
+      line("m21", 5),
       line("m2", 886),
       line("m2", 886),
     ].join("\n");
