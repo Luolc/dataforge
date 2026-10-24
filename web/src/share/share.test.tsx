@@ -322,26 +322,16 @@ describe("the share site's Pass@k tab", () => {
     ).toBeVisible();
   });
 
-  it("shows no duration, cost, turns, tokens, tool calls or times anywhere", async () => {
+  it("shows the trace's times and totals as the viewer does, but no cost", async () => {
     const { container } = open("/demo/items/k7m2q9xr4t?tab=trials");
 
     await screen.findByRole("button", { name: "Expand all" });
-    expect(container).not.toHaveTextContent(/duration|cost|turns|tokens/i);
     const header = container.querySelector("section header");
-    expect(header).toHaveTextContent("model example-model");
-    expect(header).not.toHaveTextContent(/tool calls|No totals/);
-    // The trace's events have timestamps, 7s apart; the gutter shows none.
-    expect(screen.queryByText("7s")).toBeNull();
-  });
-
-  it("opens every fold of the trace from the start", async () => {
-    open("/demo/items/k7m2q9xr4t?tab=trials");
-
-    await screen.findByRole("button", { name: "Expand all" });
-    const folds = pageButtons().filter((b) => b.hasAttribute("aria-controls"));
-    expect(folds.length).toBeGreaterThan(3);
-    expect(folds.every((b) => b.getAttribute("aria-expanded") === "true")).toBe(
-      true,
-    );
+    expect(header).toHaveTextContent("session 1m 24s");
+    expect(header).toHaveTextContent("turns 6");
+    expect(header).toHaveTextContent("tokens 22K in · 900 out");
+    expect(header).toHaveTextContent(/\d+ tool calls/);
+    expect(screen.getByText("7s")).toBeVisible();
+    expect(container).not.toHaveTextContent(/cost|\$/i);
   });
 });

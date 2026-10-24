@@ -12,7 +12,7 @@ import { SessionBody, type ThinkingMode } from "./Session";
 function show(
   text: string,
   thinking: ThinkingMode = "collapsed",
-  options: { startOpen?: boolean; totals?: "all" | "model" } = {},
+  options: { startOpen?: boolean; totals?: "all" | "no cost" } = {},
 ) {
   return render(
     <SessionBody
@@ -271,17 +271,20 @@ describe("the session view", () => {
     expect(header).not.toHaveTextContent(/cost|turns|tokens/);
   });
 
-  it("shows the model alone in the header when told to", () => {
-    const { container } = show(solved, "collapsed", { totals: "model" });
+  it("shows every total but the cost when told to", () => {
+    const { container } = show(solved, "collapsed", { totals: "no cost" });
 
     const header = container.querySelector("header");
+    expect(header).toHaveTextContent("session 9m 3s");
+    expect(header).toHaveTextContent("turns 9");
+    expect(header).toHaveTextContent("tokens 195K in · 14K out");
     expect(header).toHaveTextContent("model example-model");
-    expect(header).not.toHaveTextContent(
-      /duration|cost|turns|tokens|tool calls/,
-    );
+    expect(header).toHaveTextContent("12 tool calls · 1 failed");
+    expect(header).not.toHaveTextContent(/cost|\$/);
     expect(header).toHaveTextContent("the badge");
-    expect(screen.getByRole("button", { name: "Expand all" })).toBeVisible();
-    expect(gutter(container).every((cell) => cell === "")).toBe(true);
+    expect(
+      gutter(container).filter((cell) => cell !== "").length,
+    ).toBeGreaterThan(0);
   });
 
   it("renders a trace with no thinking as usual", () => {
