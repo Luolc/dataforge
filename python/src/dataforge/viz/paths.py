@@ -175,6 +175,23 @@ def read_record(project: Project, attempt: int) -> Read:
     return read_regular(fd, RECORD_LIMIT)
 
 
+def stat_record(project: Project, attempt: int) -> os.stat_result:
+  """Stat an attempt's record file, as read_record would open it.
+
+  Args:
+    project: The project, which names the record file.
+    attempt: The attempt's directory.
+
+  Returns:
+    The status of the opened file.
+
+  Raises:
+    RefusedError: When the record cannot be opened.
+  """  # noqa: DOC502
+  with _open_at(attempt, project.record, _ANY) as fd:
+    return os.fstat(fd)
+
+
 def read_snapshot(page: Page) -> bytes:
   """Read a snapshot page's file as it is written.
 
