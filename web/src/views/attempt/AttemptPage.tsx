@@ -29,6 +29,7 @@ import {
   readRecord,
   type ReadRecord,
 } from "../../api/types";
+import { attemptsPage, projectCrumbs } from "../../shell/pages";
 import { type Crumb, Frame } from "../../shell/Shell";
 import { useProject } from "../../shell/projects";
 import { Note } from "../../ui/card";
@@ -172,11 +173,7 @@ export function AttemptPage() {
   const summary =
     tab === "runs" && run === null && discarded === null && defn === null;
   const crumbs: Crumb[] = [
-    { label: "Projects", to: "/" },
-    {
-      label: project.state === "ok" ? project.data.name : (id ?? ""),
-      to: `/${encodeURIComponent(id ?? "")}`,
-    },
+    ...projectCrumbs(project, id, attemptsPage, false),
     {
       label: attempt ?? "",
       ...(id !== undefined && attempt !== null && !summary

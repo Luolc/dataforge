@@ -27,6 +27,8 @@
   --text-code: 12.5px;
   --text-code--line-height: 1.65;
   --text-graph: 10.5px;
+  /* The large number of a snapshot page's card. */
+  --text-figure: 24px;
 
   --font-weight-normal: 450;
   --font-weight-medium: 520;
@@ -72,12 +74,16 @@
   /* The least width a container's bar is drawn at, how far from the
      pointer a bar is still found, and the bar tooltip's offset from it. */
   --spacing-bar-least: 2px;
+  /* A snapshot page's card of a step, and the height of its bar. */
+  --spacing-step-card: 216px;
+  --spacing-meter: 6px;
   --spacing-bar-reach: 3px;
   --spacing-tip-offset: 12px;
 
   --radius-row: 4px;
   --radius-panel: 6px;
   --radius-code: 4px;
+  --radius-meter: 3px;
 
   --shadow-current: inset 2px 0 0 var(--color-accent);
   /* The right edge of a column that stays as a table scrolls sideways. */

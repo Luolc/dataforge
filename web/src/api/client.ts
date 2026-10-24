@@ -50,6 +50,10 @@ export const urls = {
     `${api(p)}/live?${new URLSearchParams({ attempt }).toString()}`,
   files: (p: string, attempt: string, path: string) =>
     `${api(p)}/files?${new URLSearchParams({ attempt, path }).toString()}`,
+  snapshot: (p: string, page: string) =>
+    `${api(p)}/pages/${encodeURIComponent(page)}/snapshot`,
+  pageFiles: (p: string, page: string, root: string, path: string) =>
+    `${api(p)}/pages/${encodeURIComponent(page)}/files?${new URLSearchParams({ root, path }).toString()}`,
   tabs: (p: string, attempt: string) =>
     `${api(p)}/tabs?${new URLSearchParams({ attempt }).toString()}`,
   task: (p: string, attempt: string) =>
@@ -90,29 +94,46 @@ export interface FileSource {
   href?: (p: string, attempt: string, path: string) => string;
 }
 
+/**
+ * The files of a route that answers a directory with its listing and a file
+ * with its bytes, at the URL of a path under an attempt or a root.
+ */
+function routeFiles(
+  url: (p: string, attempt: string, path: string) => string,
+): FileSource {
+  return {
+    href: url,
+    listing: (p, attempt, dir, signal) =>
+      getJson(url(p, attempt, dir), listing, signal),
+    file: (p, attempt, path, signal) =>
+      fetchFile(url(p, attempt, path), path, signal),
+  };
+}
+
 /** The files of the viewer's and the share server's files route. */
-export const apiFiles: FileSource = {
-  href: urls.files,
-  listing: (p, attempt, dir, signal) =>
-    getJson(urls.files(p, attempt, dir), listing, signal),
-  file: async (p, attempt, path, signal) => {
-    const response = await fetch(
-      urls.files(p, attempt, path),
-      signal ? { signal } : {},
+export const apiFiles: FileSource = routeFiles(urls.files);
+
+/**
+ * The files under the roots of a snapshot page, where a source's attempt is
+ * the name of a root.
+ */
+export const pageFiles = (page: string): FileSource =>
+  routeFiles((p, root, path) => urls.pageFiles(p, page, root, path));
+
+async function fetchFile(url: string, path: string, signal?: AbortSignal) {
+  const response = await fetch(url, signal ? { signal } : {});
+  // The route answers a directory with its listing, as JSON.
+  if (
+    response.ok &&
+    response.headers.get("content-type")?.startsWith("application/json") ===
+      true
+  )
+    return Response.json(
+      { error: "not found", reason: `${path}: a directory, not a file` },
+      { status: 404 },
     );
-    // The route answers a directory with its listing, as JSON.
-    if (
-      response.ok &&
-      response.headers.get("content-type")?.startsWith("application/json") ===
-        true
-    )
-      return Response.json(
-        { error: "not found", reason: `${path}: a directory, not a file` },
-        { status: 404 },
-      );
-    return response;
-  },
-};
+  return response;
+}
 
 /** The source the views read files from: the files route, unless given. */
 export const FileSourceContext = createContext<FileSource>(apiFiles);
