@@ -44,13 +44,20 @@ One row per finding, in a table kept in the PR description or in a scratch direc
 
 ## 4. Take screenshots
 
-Headless Chrome through the DevTools protocol, so the shot is of the page after its scripts ran:
+Use `dataforge viz screenshot`, which drives headless Chrome over the DevTools protocol, so the shot is of the page after its scripts ran, in the theme the page itself applied:
 
-1. Start Chrome with `--headless --remote-debugging-port=<free port> --user-data-dir=<new empty dir>` and a fixed window size. Record the PID you started.
-2. Connect to the port, open the target URL, wait until the panel's content is in the DOM (not a fixed sleep), then call `Page.captureScreenshot`. Scroll or set the clip to the problem's panel.
-3. Take one shot per finding, and one per theme and language when the finding differs between them (R244).
-4. Stop Chrome, and any test server you started, by the PID you recorded; never by name with `pkill` or `killall`, which would stop another agent's process. Afterwards count what is left of your PIDs and report the cleanup only when the count is zero (R67).
-5. Use synthetic fixtures for dataforge's own tests, demos and screenshots (L48); never start a real Claude from a test (L25).
+```
+dataforge viz screenshot --url <viewer address> --project <id> --attempt <id> \
+  [--tab <name>] [--panel <name>] [--width <px>] [--height <px>] \
+  --theme light|dark --out <file.png>
+```
+
+1. Start the test server of section 1 on a free port and record its PID. The tool starts its own Chrome with a new empty profile.
+2. Take one shot per finding, and one per theme (`--theme light` and `--theme dark`) and per language when the finding differs between them (R244). Keep the window size the same (`--width`, `--height`) between a shot and the one that checks it (section 6).
+3. `--tab` is a tab's name (default `runs`). `--panel` is the `part` of the tab, a panel of the column beside the tab's content; a tab with a single part has no such column and refuses `--panel`.
+4. The tool waits until the page has loaded, shows no `Loading…` and marks the tab and panel as current, reads the theme back from the page, and exits non-zero without writing the file when the theme the page applied is not the one asked, when the tab or panel is not on the page, or when the page does not settle. A failure is a finding about the page or the command line, never a reason to take the shot by another route.
+5. Stop the test server by the PID you recorded; never by name with `pkill` or `killall`, which would stop another agent's process. The tool stops its Chrome by PID itself and fails if a process of it is left; afterwards count what is left of your own PIDs and report the cleanup only when the count is zero (R67).
+6. Use synthetic fixtures for dataforge's own tests, demos and screenshots (L48); never start a real Claude from a test (L25).
 
 ## 5. Fix and review
 
