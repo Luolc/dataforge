@@ -74,6 +74,20 @@ describe("the tab bar", () => {
   });
 });
 
+describe("the heading", () => {
+  it("does not repeat the attempt's ID, which the crumbs give", async () => {
+    show(older, "", {
+      ...project,
+      actions: [{ name: "again", label: "Run again", queue: "fast" }],
+    });
+    await screen.findByText("Passed");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      /^Attempt$/,
+    );
+    expect(screen.getAllByText("older/task-0301")).toHaveLength(1);
+  });
+});
+
 describe("a data item's actions", () => {
   it("show under the heading only when the project names any", async () => {
     show(older);
