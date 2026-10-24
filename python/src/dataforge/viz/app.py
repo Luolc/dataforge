@@ -17,6 +17,7 @@ from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.middleware.gzip import GZipMiddleware
 
 from dataforge import queue
 from dataforge.viz import actions, live, monitor, runs, snapshot, tabs
@@ -57,6 +58,13 @@ WRITE_HEADER = "X-Viz-Write"
 """The header a write must carry, as 1: a page of another origin cannot send
 it without the browser first asking, which the viewer never allows."""
 
+IMMUTABLE = "public, max-age=31536000, immutable"
+"""The Cache-Control of a built file under assets/, whose name holds the hash
+of its content."""
+
+GZIP_MIN = 500
+"""The size in bytes under which a response is not compressed."""
+
 ENDED_LIMIT = 50
 """How many of the jobs that have ended the queue route lists, unless the
 request asks for more."""
@@ -81,6 +89,8 @@ def create_app(site: Site, static: Path) -> FastAPI:
   api = _Api(site, static)
   app.add_exception_handler(RefusedError, _refused)
   _ = app.middleware("http")(_headers)
+  # Added after _headers, so outside it: a compressed response has its headers.
+  app.add_middleware(GZipMiddleware, minimum_size=GZIP_MIN)
   app.add_api_route(
     "/api/projects/{p}/actions/{name}", api.submit, methods=["POST"]
   )
@@ -880,11 +890,15 @@ def _static(static: Path, rest: str) -> Response:
     found = _static_file(static, parts)
     if found is not None:
       kind = mimetypes.guess_type(parts[-1])[0] or "application/octet-stream"
-      return Response(found, media_type=kind)
+      # Only a file under assets/ is named by its hash; any other may change.
+      cache = IMMUTABLE if parts[0] == "assets" else "no-cache"
+      return Response(found, media_type=kind, headers={"Cache-Control": cache})
   index = _static_file(static, ("index.html",))
   if index is None:
     return _error(404, "the frontend is not built")
-  return Response(index, media_type="text/html")
+  return Response(
+    index, media_type="text/html", headers={"Cache-Control": "no-cache"}
+  )
 
 
 def _static_file(static: Path, parts: tuple[str, ...]) -> bytes | None:

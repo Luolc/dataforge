@@ -130,6 +130,35 @@ def test_every_response_has_the_csp(tree: Tree, static: Path) -> None:
     assert response.headers["x-content-type-options"] == "nosniff", url
 
 
+def test_json_is_gzipped_only_when_asked(tree: Tree, static: Path) -> None:
+  web = client(tree, static)
+  url = f"{API}/record"
+
+  plain = web.get(url, params=QUERY, headers={"Accept-Encoding": "identity"})
+  packed = web.get(url, params=QUERY, headers={"Accept-Encoding": "gzip"})
+
+  assert "content-encoding" not in plain.headers
+  assert packed.headers["content-encoding"] == "gzip"
+  assert packed.content == plain.content
+  assert packed.headers["content-security-policy"] == CSP
+  assert packed.headers["x-content-type-options"] == "nosniff"
+
+
+def test_hashed_assets_are_immutable_and_the_index_is_not(
+  tree: Tree, static: Path
+) -> None:
+  _ = (static / "template.js").write_text("1")
+  web = client(tree, static)
+
+  asset = web.get("/assets/app.js").headers["cache-control"]
+  assert asset == "public, max-age=31536000, immutable"
+  for url in ("/", "/index.html", "/projects/example/attempts"):
+    cache = web.get(url).headers["cache-control"]
+    assert cache == "no-cache", url
+  assert web.get("/template.js").headers["cache-control"] == "no-cache"
+  assert "cache-control" not in web.get("/api/projects").headers
+
+
 def test_projects_leave_out_where_the_files_are(
   tree: Tree, static: Path
 ) -> None:
