@@ -787,6 +787,42 @@ describe("the home page", () => {
     expect(itemsOf("Ended")).toEqual(["b", "c", "a"]);
   });
 
+  it("shows a column's list value as its items joined with commas, and sorts by that", async () => {
+    const withColumns: Project = {
+      ...project,
+      columns: [
+        {
+          title: "Tags",
+          field: ["tags"],
+          format: "text",
+          labels: { "X-9": "Nine" },
+        },
+      ],
+    };
+    const rows = [
+      row("a/1", {
+        started_at: at(5),
+        ended_at: at(6),
+        values: [["X-2", "X-9"]],
+      }),
+      row("b/1", { started_at: at(6), ended_at: at(7), values: [["X-1"]] }),
+      row("c/1", { started_at: at(7), ended_at: at(8), values: [[]] }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(rows), { status: 200 })),
+      ),
+    );
+    show("/sample?sort=column-0", withColumns);
+    await screen.findByText("a");
+
+    expect(screen.getByText("X-2, Nine")).toBeVisible();
+    expect(screen.getByText("X-1")).toBeVisible();
+    // "X-1" before "X-2, Nine"; the empty list is no value.
+    expect(itemsOf("Ended")).toEqual(["b", "a", "c"]);
+  });
+
   it("says what a column holds on its heading's focus", async () => {
     const withColumns: Project = {
       ...project,

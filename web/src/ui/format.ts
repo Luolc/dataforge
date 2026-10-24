@@ -84,12 +84,23 @@ export function labelOf(
   return labels?.[typeof value === "string" ? value : JSON.stringify(value)];
 }
 
+const isScalar = (v: unknown): boolean =>
+  typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+
 /**
  * A value a project's column or tab field reads, as its labels name it
- * (labelOf), else as its format says; "—" when there is none.
+ * (labelOf), else as its format says; "—" when there is none. A list of
+ * strings, numbers and booleans shows each item so, joined with ", ", and an
+ * empty list is none; a list holding anything else shows as its JSON text.
  */
-export function formatValue(value: unknown, { format, labels }: Shown): string {
+export function formatValue(value: unknown, shown: Shown): string {
+  const { format, labels } = shown;
   if (value === null || value === undefined) return "—";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    if (value.every(isScalar))
+      return value.map((item) => formatValue(item, shown)).join(", ");
+  }
   const label = labelOf(value, labels);
   if (label !== undefined) return label;
   if (typeof value === "number") {

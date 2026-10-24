@@ -199,6 +199,31 @@ describe("a project's tab of a Markdown file", () => {
     expect(value("Verdict")).toBe("n/a");
   });
 
+  it("shows a field's list value as its items joined with commas", async () => {
+    const listed = three.map((t) => ({
+      ...t,
+      versions: t.versions.map((v) =>
+        v.dir === "notes"
+          ? {
+              ...v,
+              parts: v.parts.map((p) => ({
+                ...p,
+                fields: [field(["X-1", "done"]), ...p.fields.slice(1)],
+              })),
+            }
+          : v,
+      ),
+    }));
+    serve(listed, { "notes/out/notes.md": "# First notes\n" });
+    show();
+
+    await screen.findByRole("heading", { name: "First notes" });
+    const fields = within(screen.getByRole("region", { name: "Notes fields" }));
+    expect(fields.getByText("Verdict").nextElementSibling?.textContent).toBe(
+      "X-1, done",
+    );
+  });
+
   it("tells a field whose file is there without its keys from one not run", async () => {
     serve(three, { "notes-1/out/notes.md": "# Old notes\n" });
     show();

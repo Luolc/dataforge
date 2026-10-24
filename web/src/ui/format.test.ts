@@ -8,6 +8,7 @@ import {
   cores,
   duration,
   epoch,
+  formatValue,
   instant,
   moment,
   time,
@@ -59,5 +60,23 @@ describe("a duration", () => {
     expect(duration(0, true)).toBe("0ms");
     expect(duration(1.42, true)).toBe("1.4s");
     expect(duration(75, true)).toBe("1m 15s");
+  });
+});
+
+describe("a list value of a column or a tab field", () => {
+  const text = { format: "text" as const, labels: { "X-1": "First" } };
+
+  it("shows each item as it would alone, joined with commas", () => {
+    expect(formatValue(["X-1", "X-2"], text)).toBe("First, X-2");
+    expect(formatValue(["X-2"], text)).toBe("X-2");
+    expect(formatValue([1, true, "a"], { format: "text" })).toBe("1, true, a");
+    expect(formatValue([1.5, 2], { format: "usd" })).toBe("$1.50, $2.00");
+  });
+
+  it("is no value when empty, and keeps its JSON text when it holds a list or an object", () => {
+    expect(formatValue([], text)).toBe("—");
+    expect(formatValue([["X-1"]], text)).toBe('[["X-1"]]');
+    expect(formatValue(["X-1", { a: 1 }], text)).toBe('["X-1",{"a":1}]');
+    expect(formatValue(["X-1", null], text)).toBe('["X-1",null]');
   });
 });
