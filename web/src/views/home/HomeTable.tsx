@@ -18,7 +18,7 @@ import {
   Search,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { type ReactNode, useId, useMemo } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import type { AttemptRow, Project } from "../../api/types";
@@ -32,6 +32,7 @@ import {
   toneText,
 } from "../../ui/status";
 import { Chip, control } from "../../ui/chip";
+import { ColumnPicker } from "../../ui/column-picker";
 import { Hint } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
@@ -69,6 +70,7 @@ import {
   type Item,
   withHomeStatuses,
 } from "./items";
+import { columnKey, loadHidden, saveHidden } from "./view";
 
 /** When the listing was read, and what it held. */
 export interface Read {
@@ -84,7 +86,13 @@ interface Line {
   sub: boolean;
 }
 
-type Spec = ColumnSpec<Line>;
+/** A column, with its key in the view a reader sets (view.ts). */
+interface Spec extends ColumnSpec<Line> {
+  key: string;
+}
+
+/** The columns a reader cannot hide: the item's ID, and its status icon beside it. */
+const LOCKED = new Set(["icon", "item"]);
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -115,7 +123,7 @@ const itemLine = (item: Item): Line => ({
 const lineEnded = (l: Line) => (notEnded(l.row) ? null : l.row.ended_at);
 
 function specs(project: Project): Spec[] {
-  const fixed: Spec[] = [
+  const fixed: ColumnSpec<Line>[] = [
     {
       id: "icon",
       title: "",
@@ -225,8 +233,8 @@ function specs(project: Project): Spec[] {
       },
     },
   ];
-  const extra = project.columns.map((column, index) =>
-    columnSpec(column, index, (l: Line): Cell => {
+  const extra = project.columns.map((column, index) => ({
+    ...columnSpec(column, index, (l: Line): Cell => {
       const read = l.row.reads?.[index] ?? null;
       return {
         value: l.row.values?.[index],
@@ -234,8 +242,9 @@ function specs(project: Project): Spec[] {
         queued: l.row.queued?.[index] ?? null,
       };
     }),
-  );
-  return [...fixed, ...extra];
+    key: columnKey(column.title),
+  }));
+  return [...fixed.map((s) => ({ ...s, key: s.id })), ...extra];
 }
 
 // The status icon and the item stay at the left as the table scrolls
@@ -407,7 +416,24 @@ export function HomeTable({
     () => filterItems(project, items, q, chosen, picked),
     [project, items, q, chosen, picked],
   );
-  const columnSpecs = useMemo(() => specs(project), [project]);
+  const allSpecs = useMemo(() => specs(project), [project]);
+  const pickable = useMemo(
+    () =>
+      allSpecs
+        .filter((s) => s.id !== "icon")
+        .map((s) => ({ key: s.key, title: s.title, locked: LOCKED.has(s.id) })),
+    [allSpecs],
+  );
+  const [hidden, setHidden] = useState(() =>
+    loadHidden(
+      project.id,
+      pickable.filter((c) => !c.locked).map((c) => c.key),
+    ),
+  );
+  const columnSpecs = useMemo(
+    () => allSpecs.filter((s) => !hidden.includes(s.key)),
+    [allSpecs, hidden],
+  );
   const columns = useMemo(
     () =>
       helper.columns(
@@ -449,6 +475,17 @@ export function HomeTable({
       if (first) p.set("sort", `${first.desc ? "-" : ""}${first.id}`);
       else p.delete("sort");
     });
+  };
+  const onHide = (next: string[]) => {
+    setHidden(next);
+    saveHidden(project.id, next);
+    // A column hidden takes its sort with it, and the rows go back to their
+    // order: a sort by a hidden column, which no heading would show, is none.
+    const by = allSpecs.find((s) => s.id === sorting[0]?.id);
+    if (by !== undefined && next.includes(by.key))
+      update((p) => {
+        p.delete("sort");
+      });
   };
   const choose = (key: string | null) => {
     update((p) => {
@@ -655,6 +692,11 @@ export function HomeTable({
               <RefreshCw className="size-3.5 text-icon" aria-hidden />
               Refresh
             </button>
+            <ColumnPicker
+              columns={pickable}
+              hidden={hidden}
+              onChange={onHide}
+            />
           </div>
         </div>
         {filtered.hidden > 0 && (

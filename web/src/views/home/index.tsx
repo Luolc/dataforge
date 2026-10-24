@@ -53,6 +53,8 @@ export default function Home({ project }: { project: Project }) {
   if (read === null) return <Note>{error ?? "Loading…"}</Note>;
   return (
     <HomeTable
+      // Each project has its own view (view.ts), read as its table mounts.
+      key={project.id}
       project={project}
       read={read}
       reading={reading}
