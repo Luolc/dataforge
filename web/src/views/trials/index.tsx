@@ -36,6 +36,7 @@ import {
   trialStatus,
   WITH_EXCEPTION,
 } from "./status";
+import { harnessName, useHarness } from "./harness";
 import { inTrial } from "./path";
 import { type Listed, sourceOf, trialName } from "./source";
 import { TrialTests } from "./tests";
@@ -279,6 +280,13 @@ function TrialPane({
   onPane: (pane: Pane) => void;
 }) {
   const outside = use(OutsideContext);
+  // A trial not recorded yet has no result.json to read.
+  const harness = useHarness(
+    project.id,
+    attempt,
+    trial,
+    !outside && trial.id !== null,
+  );
   const seconds =
     action === undefined ? null : span(action.started_at, action.ended_at);
   const tests = project.trials?.tests ?? null;
@@ -303,6 +311,9 @@ function TrialPane({
         <Field label="Reward">
           {trial.result?.reward == null ? "—" : String(trial.result.reward)}
         </Field>
+        {harness !== null && (
+          <Field label="Harness">{harnessName(harness)}</Field>
+        )}
         {!outside && (
           <Field label="Trial time">
             {seconds === null ? (

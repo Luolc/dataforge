@@ -3,6 +3,8 @@ from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
+import threading
+import time
 
 import pytest
 
@@ -415,6 +417,32 @@ def test_of_two_processes_that_insert_one_item_at_once_one_runs_it(
 
   assert sorted(at_once(start("a"), start("b"))) == [0, 1]
   assert [row.state for row in store.rows()] == ["running"]
+
+
+@pytest.mark.parametrize("mode", ["delete", "wal"])
+def test_a_write_waits_for_a_connection_that_holds_the_write_lock(
+  store: Store, me: Leader, mode: str
+) -> None:
+  # In rollback mode, switching to WAL while another connection holds the write
+  # lock fails at once and never reaches the busy handler.
+  store.path.parent.mkdir(parents=True)
+  with closing(sqlite3.connect(store.path, autocommit=True)) as other:
+    _ = other.execute(f"PRAGMA journal_mode = {mode}")
+    _ = other.execute("CREATE TABLE t (x)")
+    _ = other.execute("BEGIN IMMEDIATE")
+    result: list[bool] = []
+    started = time.monotonic()
+    writer = threading.Thread(
+      target=lambda: result.append(
+        store.insert(ITEM, ITEM, Path("/r"), me, None)
+      )
+    )
+    writer.start()
+    time.sleep(0.2)
+    _ = other.execute("COMMIT")
+    writer.join(timeout=10)
+  assert result == [True]
+  assert time.monotonic() - started >= 0.2
 
 
 def test_a_writer_of_schema_1_0_runs_every_transition_on_this_schema(

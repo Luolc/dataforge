@@ -513,10 +513,18 @@ const source = {
   reason: z.string().nullable(),
 };
 
+/** The harness that ran a trial, by its name in Harbor, and its version. */
+export const harness = z.looseObject({
+  name: z.string(),
+  version: z.string().nullable(),
+});
+export type Harness = z.infer<typeof harness>;
+
 // A trial that has started and not been recorded yet has no id, trace or
 // result (design.md section 5, "The record"). source is the path of the
 // trial whose output it judged again, log its runner's log and verdict the
 // dataset's word for it; a record written before one of them has none.
+// harness is a share export's; the viewer reads it from the trial's files.
 const trial = z.looseObject({
   id: z.string().nullable(),
   output: z.string(),
@@ -527,6 +535,7 @@ const trial = z.looseObject({
   source: z.string().nullable().optional(),
   log: z.string().nullable().optional(),
   verdict: z.string().nullable().optional(),
+  harness: harness.nullable().optional(),
   result: z
     .looseObject({
       reward: z.number().nullable(),

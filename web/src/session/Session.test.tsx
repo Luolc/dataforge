@@ -527,20 +527,90 @@ describe("SessionView", () => {
     expect(await screen.findByText("40K")).toBeVisible();
   });
 
-  it("shows no trace length when no transcript records the last call", async () => {
-    respond(new Response(solved));
-    render(
+  /** The trace at trial/trace.jsonl, its transcripts' listing and one. */
+  function serveTrace(
+    transcripts: () => Response,
+    transcript: () => Response = () =>
+      Response.json({ error: "not found", reason: "" }, { status: 404 }),
+  ) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const path = new URL(url, "http://viz").searchParams.get("path");
+        if (path === "trial/trace.jsonl")
+          return Promise.resolve(new Response(solved));
+        if (path === "trial/sessions/projects")
+          return Promise.resolve(transcripts());
+        if (path === "trial/sessions/projects/-app/s-0001.jsonl")
+          return Promise.resolve(transcript());
+        return Promise.resolve(
+          Response.json({ error: "not found", reason: "" }, { status: 404 }),
+        );
+      }),
+    );
+    return render(
       <SessionView
         project={project}
         attempt="a/b"
-        path="t"
+        path="trial/trace.jsonl"
         format="claude-code-stream-json"
       />,
     );
+  }
 
-    await screen.findByText("Expand all");
+  /** Focus the trace length's dash, once its read has ended. */
+  async function focusDash() {
+    const shown = await screen.findByText(
+      (_, el) => el?.textContent === "trace length —",
+    );
+    fireEvent.focus(within(shown).getByText("—"));
+  }
+
+  it("shows no trace length when no transcript records the last call", async () => {
+    serveTrace(() =>
+      Response.json({ entries: [{ name: "-app", type: "dir", size: null }] }),
+    );
+
+    await focusDash();
     expect(
-      await screen.findByText((_, el) => el?.textContent === "trace length —"),
-    ).toBeVisible();
+      (
+        await screen.findAllByText(
+          /^The final output of its last call is not known: no transcript/,
+        )
+      )[0],
+    ).toBeInTheDocument();
+  });
+
+  it("says the transcripts could not be read when listing or reading them fails, not that there are none", async () => {
+    const { unmount } = serveTrace(() =>
+      Response.json(
+        { error: "unreadable", reason: "Permission denied" },
+        { status: 503 },
+      ),
+    );
+
+    await focusDash();
+    expect(
+      (
+        await screen.findAllByText(
+          /^The session's transcripts could not be read: 503: Permission denied\. /,
+        )
+      )[0],
+    ).toBeInTheDocument();
+    unmount();
+
+    serveTrace(
+      () =>
+        Response.json({ entries: [{ name: "-app", type: "dir", size: null }] }),
+      () => new Response("", { status: 503 }),
+    );
+    await focusDash();
+    expect(
+      (
+        await screen.findAllByText(
+          /^The session's transcripts could not be read: trial\/sessions\/projects\/-app\/s-0001\.jsonl: 503\. /,
+        )
+      )[0],
+    ).toBeInTheDocument();
   });
 });

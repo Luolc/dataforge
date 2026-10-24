@@ -52,7 +52,7 @@ import { ItemActions } from "./Actions";
 import { RunsView } from "../runs/RunsView";
 import { asShown, declaredMissing, tabKinds } from "./declared";
 import { AttemptFacts } from "./facts";
-import { AttemptTags } from "./tags";
+import { HeaderExtras } from "./extras";
 import { attemptHref } from "./href";
 import { TabNav } from "./TabNav";
 import { TabCount, TabView } from "../tabs";
@@ -328,7 +328,7 @@ function Attempt({
   ];
   return (
     <>
-      <Header tags={<AttemptTags project={project} attempt={attempt} />}>
+      <Header tags={<HeaderExtras project={project} attempt={attempt} />}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
       <AttemptFacts project={project} record={record} live={live} />

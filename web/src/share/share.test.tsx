@@ -281,12 +281,24 @@ describe("the share site's Pass@k tab", () => {
       "Trial 4solved",
     ]);
     expect(screen.getByText("Reward").closest("dl")).toHaveTextContent(
-      "ID1Output1Reward1Exception—",
+      "ID1Output1Reward1HarnessClaude Code 2.1.0Exception—",
     );
     fireEvent.click(within(trials).getByRole("button", { name: /^Trial 3/ }));
     expect(screen.getByText("Reward").closest("dl")).toHaveTextContent(
       "ID3Output3Reward0ExceptionAgentTimeoutError",
     );
+  });
+
+  it("takes a trial's harness from its record alone, and has no Harness where the record gives none", async () => {
+    const { fetch } = open("/demo/items/k7m2q9xr4t?tab=trials");
+
+    expect(await screen.findByText("Claude Code 2.1.0")).toBeVisible();
+    const trials = screen.getByRole("navigation", { name: "Trials" });
+    fireEvent.click(within(trials).getByRole("button", { name: /^Trial 3/ }));
+    expect(screen.queryByText("Harness")).toBeNull();
+    expect(
+      requested(fetch).filter((url) => url.includes("result.json")),
+    ).toEqual([]);
   });
 
   it("shows a trial's verdict when its deliverable gives them", async () => {
