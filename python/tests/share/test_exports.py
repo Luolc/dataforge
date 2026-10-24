@@ -1,9 +1,13 @@
 import json
+from pathlib import Path
+from typing import cast
 
 import pytest
 
 from dataforge.share.exports import ExportError, parse
+from dataforge.viz.config import load_site
 from tests.share.sites import export_json
+from tests.viz.sites import make_tree, PROJECT
 
 COLUMNS = [
   {
@@ -115,6 +119,36 @@ def test_columns_trials_and_deliverables_reach_the_page() -> None:
       "reads": [None, "not run"],
     }
   ]
+
+
+def test_the_columns_the_viewer_gives_are_read_back_with_a_tag_among_them(
+  tmp_path: Path,
+) -> None:
+  tree = make_tree(tmp_path)
+  _ = tree.project.write_text(
+    PROJECT.split("columns:")[0]
+    + "columns:\n  - {title: Kind, field: [status], tag: true}\n"
+  )
+  [project] = load_site(tree.site).projects
+  viewer = cast(list[dict[str, object]], project.public()["columns"])
+  columns = [{k: v for k, v in c.items() if k != "field"} for c in viewer]
+  data = export_json("example", ["item-1"])
+  data["columns"] = columns
+
+  export = parse(json.dumps(data).encode())
+
+  shown = cast(list[dict[str, object]], export.public()["columns"])
+  assert [c["title"] for c in shown] == ["Kind"]
+  assert columns[0]["tag"] is True
+
+
+def test_a_tag_that_is_not_a_boolean_is_refused() -> None:
+  data = with_columns()
+  data["columns"] = [{"title": "Kind", "tag": "yes"}]
+  data["items"] = [{"id": "item-1", "revision": 1}]
+
+  with pytest.raises(ExportError, match=r"columns\[0\]\.tag: not a boolean"):
+    _ = parse(json.dumps(data).encode())
 
 
 def test_an_export_without_them_has_none() -> None:

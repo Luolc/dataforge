@@ -52,6 +52,7 @@ _COLUMN = {
   "none",
   "cases",
   "filter",
+  "tag",
 }
 
 
@@ -335,6 +336,10 @@ def _columns(value: object) -> tuple[dict[str, object], ...]:
     filter_ = fields.get("filter", False)
     if not isinstance(filter_, bool):
       raise ExportError(f"{where}.filter: not a boolean")
+    # The viewer's attempt page shows a tag column in its heading; the share
+    # site has no such heading, so the key is read and not kept.
+    if not isinstance(fields.get("tag", False), bool):
+      raise ExportError(f"{where}.tag: not a boolean")
     columns.append(
       {
         "title": _str(f"{where}.title", fields["title"]),
