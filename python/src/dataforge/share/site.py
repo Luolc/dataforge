@@ -6,7 +6,8 @@ generated:
 
   _headers                              the host's response headers
   data/projects.json                    [each export's project]
-  data/<project>/items.json             [{id, revision}], from export.json
+  data/<project>/items.json             [{id, revision, values, reads}], from
+                                        export.json
   data/<project>/items/<id>/tree.json   {<dir>: [{name, type, size,
                                         listed_only?}]}, every directory of
                                         the item, "" for the item's own
@@ -237,7 +238,7 @@ def _write_export(
       base = f"data/{export.id}"
       site.write_json(
         f"{base}/items.json",
-        [{"id": i.id, "revision": i.revision} for i in export.items],
+        [i.public() for i in export.items],
       )
       for item in export.items:
         _write_item(site, top, export, item, f"{base}/items/{item.id}")

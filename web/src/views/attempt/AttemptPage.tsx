@@ -4,7 +4,6 @@
 // POLL_MS.
 import { type ReactNode, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { Link } from "react-router";
 
 import {
   ApiError,
@@ -54,6 +53,7 @@ import { RunsView } from "../runs/RunsView";
 import { asShown, declaredMissing, tabKinds } from "./declared";
 import { AttemptFacts } from "./facts";
 import { attemptHref } from "./href";
+import { TabNav } from "./TabNav";
 import { TabCount, TabView } from "../tabs";
 import { useTabVersions } from "../tabs/versions";
 import { WORKFLOW } from "../definition/details";
@@ -470,22 +470,14 @@ function Tabs({
   current: string;
 }) {
   return (
-    <nav
-      aria-label="Attempt"
-      className="sticky top-0 z-10 mt-3 flex h-tabs gap-1 border-b border-line bg-panel px-5"
-    >
-      {tabs.map((t) => (
-        <Link
-          key={t.key}
-          to={attemptHref(project.id, attempt, { tab: t.key })}
-          aria-current={t.key === current ? "page" : undefined}
-          className="relative flex target flex-none items-center gap-2 px-3 font-medium whitespace-nowrap text-fg-2 hover:text-fg aria-[current=page]:text-fg aria-[current=page]:after:absolute aria-[current=page]:after:inset-x-1.5 aria-[current=page]:after:-bottom-px aria-[current=page]:after:h-0.5 aria-[current=page]:after:rounded-full aria-[current=page]:after:bg-accent"
-        >
-          {t.title}
-          {t.count}
-        </Link>
-      ))}
-    </nav>
+    <TabNav
+      label="Attempt"
+      tabs={tabs.map((t) => ({
+        ...t,
+        to: attemptHref(project.id, attempt, { tab: t.key }),
+      }))}
+      current={current}
+    />
   );
 }
 

@@ -6,19 +6,35 @@
       "name": "task",
       "kind": "files",
       "title": "Harbor task",
+      "state": "",
+      "output": null,
+      "visit": null,
+      "visit_index": null,
+      "reason": null,
       "path": "task"
     },
     {
       "name": "pass_at_k",
       "kind": "trials",
-      "title": "Pass@K",
+      "title": "Pass@k",
+      "state": "",
+      "output": null,
+      "visit": null,
+      "visit_index": null,
+      "reason": null,
+      "path": "trials",
       "k": 4,
       "value": {
-        "value": 3
+        "output": null,
+        "field": ["solved"],
+        "value": 3,
+        "reason": null
       },
+      "verdicts": null,
       "trials": [
         {
           "id": "1",
+          "output": "1",
           "path": "trials/1",
           "model": "example-model",
           "trace": {
@@ -26,12 +42,17 @@
             "format": "claude-code-stream-json"
           },
           "result": {
-            "reward": 1,
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
             "exception": null
-          }
+          },
+          "log": "trials/1/trial.log"
         },
         {
           "id": "2",
+          "output": "2",
           "path": "trials/2",
           "model": "example-model",
           "trace": {
@@ -39,12 +60,16 @@
             "format": "claude-code-stream-json"
           },
           "result": {
-            "reward": 1,
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
             "exception": null
           }
         },
         {
           "id": "3",
+          "output": "3",
           "path": "trials/3",
           "model": "example-model",
           "trace": {
@@ -52,12 +77,16 @@
             "format": "claude-code-stream-json"
           },
           "result": {
-            "reward": 0,
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
             "exception": "AgentTimeoutError"
           }
         },
         {
           "id": "4",
+          "output": "4",
           "path": "trials/4",
           "model": "example-model",
           "trace": {
@@ -65,17 +94,36 @@
             "format": "claude-code-stream-json"
           },
           "result": {
-            "reward": 1,
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
             "exception": null
           }
         }
       ]
     },
     {
-      "name": "reviews",
+      "name": "tighten_rubrics",
       "kind": "report",
-      "title": "Quality reviews",
-      "path": "review.md"
+      "title": "Reviews (Tighten)",
+      "state": "",
+      "output": null,
+      "visit": null,
+      "visit_index": null,
+      "reason": null,
+      "path": "reviews/tighten_rubrics.md"
+    },
+    {
+      "name": "rubrics",
+      "kind": "report",
+      "title": "Reviews",
+      "state": "",
+      "output": null,
+      "visit": null,
+      "visit_index": null,
+      "reason": null,
+      "path": "reviews/rubrics.md"
     }
   ],
   "download": {

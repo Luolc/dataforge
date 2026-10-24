@@ -43,8 +43,8 @@ export default function FilesView({
   );
 }
 
-/** The files view's card, for a caller with no record, as the share site. */
-export function FilesCard({
+/** The files view's card. */
+function FilesCard({
   project,
   attempt,
   deliverable,

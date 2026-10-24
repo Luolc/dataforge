@@ -21,7 +21,18 @@ const exported = z
     project: z.looseObject({ id: z.string() }),
     session: z.unknown(),
     statuses: z.unknown(),
-    items: z.array(z.looseObject({ id: z.string() })),
+    columns: z.array(z.unknown()).default([]),
+    trials: z.unknown().default(null),
+    deliverables: z.array(z.unknown()).default([]),
+    kinds: z.unknown().default({}),
+    items: z.array(
+      z.looseObject({
+        id: z.string(),
+        revision: z.number(),
+        values: z.array(z.unknown()).nullable().default(null),
+        reads: z.array(z.unknown()).nullable().default(null),
+      }),
+    ),
     listed_only: z.array(z.string()).default([]),
   })
   .parse(JSON.parse(files["export.json"] ?? "{}"));
@@ -68,18 +79,40 @@ function treeOf(id: string, only: Set<string>): Record<string, Row[]> {
   );
 }
 
-/** Each path of the site, by URL, and its body. */
-function site(): Map<string, string> {
-  const { project, items } = exported;
+/**
+ * Each path of the site, by URL, and its body; as an older export would
+ * give them, with no columns, trials, deliverables or kinds and no item's
+ * values, when older.
+ */
+function site(older: boolean): Map<string, string> {
+  const { project, session, statuses, items } = exported;
+  const { columns, trials, deliverables, kinds } = exported;
   const base = `/data/${project.id}`;
   const paths = new Map<string, string>([
     [
       "/data/projects.json",
       JSON.stringify([
-        { ...project, session: exported.session, statuses: exported.statuses },
+        older
+          ? { ...project, session, statuses }
+          : {
+              ...project,
+              session,
+              statuses,
+              columns,
+              trials,
+              deliverables,
+              kinds,
+            },
       ]),
     ],
-    [`${base}/items.json`, JSON.stringify(items)],
+    [
+      `${base}/items.json`,
+      JSON.stringify(
+        items.map(({ id, revision, values, reads }) =>
+          older ? { id, revision } : { id, revision, values, reads },
+        ),
+      ),
+    ],
   ]);
   for (const { id } of items) {
     const record = files[`items/${id}/record.json`] ?? "{}";
@@ -109,8 +142,8 @@ const TYPES: Record<string, string> = {
 };
 
 /** Stub the global fetch with the static host; returns its spy. */
-export function fakeStatic() {
-  const paths = site();
+export function fakeStatic({ older = false } = {}) {
+  const paths = site(older);
   const fetch = vi.fn((input: string) => {
     const path = decodeURIComponent(new URL(input, "http://static").pathname);
     const body = paths.get(path);

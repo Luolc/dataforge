@@ -125,11 +125,15 @@ def test_the_site_has_its_layout(tmp_path: Path) -> None:
       "color": "#3a7bd5",
       "session": {"thinking": "collapsed"},
       "statuses": {"pass": {"label": "Pass", "tone": "good"}},
+      "columns": [],
+      "trials": None,
+      "deliverables": [],
+      "kinds": {},
     }
   ]
   assert json.loads((inputs.out / "data/example/items.json").read_text()) == [
-    {"id": "item-1", "revision": 1},
-    {"id": "item-2", "revision": 1},
+    {"id": "item-1", "revision": 1, "values": None, "reads": None},
+    {"id": "item-2", "revision": 1, "values": None, "reads": None},
   ]
 
 
@@ -241,6 +245,48 @@ def test_an_export_without_a_download_or_listed_only_is_written_whole(
   assert (files / "item-1-r1.zip").exists()
   tree = (inputs.out / "data/example/items/item-1/tree.json").read_text()
   assert "listed_only" not in tree
+
+
+def test_the_site_gives_an_export_s_columns_and_each_item_s_values(
+  tmp_path: Path,
+) -> None:
+  inputs = make_inputs(tmp_path)
+  content = export_json("example", ["item-1", "item-2"])
+  content["columns"] = [{"title": "Language", "filter": True}]
+  content["trials"] = {"diff": "diff.patch"}
+  content["items"] = [
+    {"id": "item-1", "revision": 1, "values": ["c"], "reads": ["found"]},
+    {"id": "item-2", "revision": 1},
+  ]
+  write_export(inputs.export, content)
+
+  _ = write_site(inputs.frontend, inputs.out, [inputs.export])
+
+  projects = cast(
+    list[dict[str, object]],
+    json.loads((inputs.out / "data/projects.json").read_text()),
+  )
+  assert [p["columns"] for p in projects] == [
+    [
+      {
+        "title": "Language",
+        "format": "text",
+        "labels": {},
+        "description": None,
+        "hints": {},
+        "none": None,
+        "cases": [],
+        "filter": True,
+      }
+    ]
+  ]
+  assert [p["trials"] for p in projects] == [
+    {"diff": "diff.patch", "tests": None, "kinds": {}}
+  ]
+  assert json.loads((inputs.out / "data/example/items.json").read_text()) == [
+    {"id": "item-1", "revision": 1, "values": ["c"], "reads": ["found"]},
+    {"id": "item-2", "revision": 1, "values": None, "reads": None},
+  ]
 
 
 def assert_refused(inputs: Inputs, words: str) -> None:

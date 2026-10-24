@@ -1,15 +1,128 @@
 {
   "format": 1,
-  "project": { "id": "demo", "name": "Sample collection", "color": "#4b8be5" },
-  "session": { "thinking": "expanded" },
+  "project": {
+    "id": "demo",
+    "name": "Sample collection",
+    "color": "#4b8be5"
+  },
+  "session": {
+    "thinking": "expanded"
+  },
   "statuses": {
-    "pass": { "label": "Pass", "tone": "good" },
-    "fail": { "label": "Fail", "tone": "bad" }
+    "pass": {
+      "label": "Pass",
+      "tone": "good"
+    },
+    "fail": {
+      "label": "Fail",
+      "tone": "bad"
+    },
+    "solved": {
+      "label": "solved",
+      "tone": "good"
+    },
+    "unsolved": {
+      "label": "not solved",
+      "tone": "bad"
+    },
+    "suspect": {
+      "label": "Suspect",
+      "tone": "warn"
+    }
+  },
+  "columns": [
+    {
+      "title": "Kind",
+      "format": "text",
+      "labels": {
+        "plain": "plain",
+        "tightened": "plain·tightened",
+        "principle": "principle"
+      },
+      "description": "How the item's task was made.",
+      "hints": {
+        "plain": "No principle: its first pass@k solved it 1 to 3 times in 4.",
+        "tightened": "No principle: too easy at first, it came into range once its tests were tightened.",
+        "principle": "It has a principle, which the solver is told at the head of the task."
+      },
+      "none": null,
+      "cases": ["plain", "tightened", "principle"],
+      "filter": true
+    },
+    {
+      "title": "Language",
+      "format": "text",
+      "labels": {
+        "": "—"
+      },
+      "description": "The language of the item's project.",
+      "hints": {
+        "": "No language was found for the project."
+      },
+      "none": "The item records no language.",
+      "cases": [],
+      "filter": false
+    }
+  ],
+  "trials": {
+    "diff": "diff.patch",
+    "tests": "ctrf.json",
+    "kinds": {
+      "security": {
+        "label": "Security"
+      },
+      "behavior": {
+        "label": "Behavior"
+      }
+    }
+  },
+  "deliverables": [
+    {
+      "name": "task",
+      "kind": "files",
+      "title": "Harbor task"
+    },
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "default": true
+    },
+    {
+      "name": "tighten_rubrics",
+      "kind": "report",
+      "title": "Reviews (Tighten)"
+    },
+    {
+      "name": "rubrics",
+      "kind": "report",
+      "title": "Reviews"
+    }
+  ],
+  "kinds": {
+    "report": {
+      "title": "Reviews"
+    }
   },
   "items": [
-    { "id": "k7m2q9xr4t", "revision": 2 },
-    { "id": "p3w8n5c2vd", "revision": 1 },
-    { "id": "h6t1z4b9qm", "revision": 1 }
+    {
+      "id": "k7m2q9xr4t",
+      "revision": 2,
+      "values": ["tightened", "Python"],
+      "reads": [null, "found"]
+    },
+    {
+      "id": "p3w8n5c2vd",
+      "revision": 1,
+      "values": ["plain", "Go"],
+      "reads": [null, "found"]
+    },
+    {
+      "id": "h6t1z4b9qm",
+      "revision": 1,
+      "values": ["principle", null],
+      "reads": [null, "not run"]
+    }
   ],
   "listed_only": ["task/environment/source.tar.gz"]
 }

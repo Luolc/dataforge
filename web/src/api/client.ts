@@ -322,6 +322,7 @@ const MAX_DIRS = 200;
  * MAX_DIRS directories; complete is false when it stopped there.
  */
 async function countFiles(
+  source: FileSource,
   p: string,
   attempt: string,
   path: string,
@@ -332,7 +333,7 @@ async function countFiles(
   for (let walked = 0; walked < MAX_DIRS; walked++) {
     const dir = queue.shift();
     if (dir === undefined) return { files, complete: true };
-    const found = await getJson(urls.files(p, attempt, dir), listing, signal);
+    const found = await source.listing(p, attempt, dir, signal);
     for (const entry of found.entries) {
       if (entry.type === "file") files++;
       if (entry.type === "dir") queue.push(`${dir}/${entry.name}`);
@@ -353,6 +354,7 @@ const fileCounts = new Map<
 /** countFiles as a hook, for a tab's count and a deliverable's card. */
 export function useFileCount(p: string, attempt: string, path: string | null) {
   const refresh = useRefresh();
+  const source = useFileSource();
   const key = path === null ? null : JSON.stringify([p, attempt, path]);
   return useLoaded(
     key,
@@ -363,7 +365,7 @@ export function useFileCount(p: string, attempt: string, path: string | null) {
         return last.count;
       const walk = {
         refresh,
-        count: countFiles(p, attempt, path),
+        count: countFiles(source, p, attempt, path),
         settled: false,
       };
       fileCounts.set(key, walk);
