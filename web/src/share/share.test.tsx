@@ -253,15 +253,14 @@ describe("the share site's item page", () => {
   });
 
   it("opens the tab of a deliverable a link names", async () => {
-    open("/demo/items/k7m2q9xr4t?tab=task");
+    open("/demo/items/k7m2q9xr4t?tab=pass_at_k");
 
-    expect(
-      await screen.findByRole("heading", { name: "Harbor task" }),
-    ).toBeVisible();
-    expect(
-      await screen.findByRole("heading", { level: 3, name: "instruction.md" }),
-    ).toBeVisible();
-    expect(await screen.findByText(/Fix the header reader/)).toBeVisible();
+    expect(await screen.findByText("3 / 4 solved")).toBeVisible();
+    const tabs = screen.getByRole("navigation", { name: "Item" });
+    expect(within(tabs).getByRole("link", { name: /^Pass@k/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 });
 
@@ -323,11 +322,16 @@ describe("the share site's Pass@k tab", () => {
     ).toBeVisible();
   });
 
-  it("shows no duration, cost, turns or tokens anywhere", async () => {
+  it("shows no duration, cost, turns, tokens, tool calls or times anywhere", async () => {
     const { container } = open("/demo/items/k7m2q9xr4t?tab=trials");
 
     await screen.findByRole("button", { name: "Expand all" });
     expect(container).not.toHaveTextContent(/duration|cost|turns|tokens/i);
+    const header = container.querySelector("section header");
+    expect(header).toHaveTextContent("model example-model");
+    expect(header).not.toHaveTextContent(/tool calls|No totals/);
+    // The trace's events have timestamps, 7s apart; the gutter shows none.
+    expect(screen.queryByText("7s")).toBeNull();
   });
 
   it("opens every fold of the trace from the start", async () => {

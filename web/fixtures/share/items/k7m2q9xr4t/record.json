@@ -47,7 +47,8 @@
               "reward": 1.0
             },
             "exception": null
-          }
+          },
+          "log": "trials/1/trial.log"
         },
         {
           "id": "2",
