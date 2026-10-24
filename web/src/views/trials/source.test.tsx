@@ -8,6 +8,7 @@ import { sampleProject } from "../../../fixtures/sample";
 import type { Project } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
 import { AttemptPage } from "../attempt/AttemptPage";
+import { OutsideContext } from "../outside";
 
 // As web/fixtures/regrade/project.yaml gives it.
 const NO_TRACE =
@@ -59,23 +60,25 @@ function Where() {
   return <output data-testid="where">{useLocation().search}</output>;
 }
 
-function show(at: string) {
+function show(at: string, outside = false) {
   render(
-    <ProjectsContext value={{ state: "ok", data: [project] }}>
-      <MemoryRouter initialEntries={[`/regrade/attempt?id=regrade${at}`]}>
-        <Routes>
-          <Route
-            path=":project/attempt"
-            element={
-              <>
-                <AttemptPage />
-                <Where />
-              </>
-            }
-          />
-        </Routes>
-      </MemoryRouter>
-    </ProjectsContext>,
+    <OutsideContext value={outside}>
+      <ProjectsContext value={{ state: "ok", data: [project] }}>
+        <MemoryRouter initialEntries={[`/regrade/attempt?id=regrade${at}`]}>
+          <Routes>
+            <Route
+              path=":project/attempt"
+              element={
+                <>
+                  <AttemptPage />
+                  <Where />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </ProjectsContext>
+    </OutsideContext>,
   );
 }
 
@@ -124,6 +127,24 @@ describe("a trial that judged another trial's output again", () => {
     expect(screen.getByRole("button", { name: "Pass@k" })).toBeVisible();
     expect(trial("Trial 1")).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByText("Expand all")).toBeVisible();
+  });
+
+  it("in the viewer, heads the trace it judged with its cost, and with no trace length when no transcript gives it", async () => {
+    show("&tab=trials&deliverable=regrade&trial=regrade-1");
+    const inside = await screen.findByRole("tabpanel", { name: "Trace" });
+    expect(await within(inside).findByText("Expand all")).toBeVisible();
+    // No transcript beside it gives the final output of its last call.
+    expect(inside).toHaveTextContent("cost $0.31");
+    expect(await within(inside).findByText("—")).toBeVisible();
+    expect(inside).toHaveTextContent("trace length —");
+  });
+
+  it("outside the viewer, heads the trace it judged with no cost and the trace's own trace length", async () => {
+    show("&tab=trials&deliverable=regrade&trial=regrade-1", true);
+    const outside = await screen.findByRole("tabpanel", { name: "Trace" });
+    expect(await within(outside).findByText("Expand all")).toBeVisible();
+    expect(outside).toHaveTextContent("trace length 92");
+    expect(outside).not.toHaveTextContent("$0.31");
   });
 
   it("says that the trace of the trial it judged could not be read, and why, when its file is not there", async () => {

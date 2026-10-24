@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import solved from "../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-1/trace.jsonl?raw";
 import unsolved from "../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-2/trace.jsonl?raw";
 import { must } from "../../fixtures/sample";
-import { type Block, type Message, parseTrace, type ToolCall } from "./parse";
+import {
+  type Block,
+  type Message,
+  parseTrace,
+  type ToolCall,
+  transcriptOutput,
+} from "./parse";
 
 const messages = (entries: ReturnType<typeof parseTrace>["entries"]) =>
   entries.filter((e): e is Message => e.kind === "message");
@@ -34,10 +40,9 @@ describe("parseTrace", () => {
       seconds: 543,
       costUsd: 0.31,
       turns: 9,
-      tokensIn: 3200 + 182000 + 9400,
-      tokensOut: 14100,
       model: "example-model",
     });
+    expect(session.last).toEqual({ id: "msg_0009", input: 12, output: 80 });
   });
 
   it("marks a call whose result is an error as failed", () => {
@@ -119,6 +124,57 @@ describe("parseTrace", () => {
 
     expect(session.entries).toEqual([]);
     expect(session.totals.seconds).toBeNull();
-    expect(session.totals.tokensIn).toBeNull();
+    expect(session.totals.turns).toBeNull();
+    expect(session.last).toBeNull();
+  });
+
+  it("takes the last top-level call, past a subagent's and a retracted one", () => {
+    const event = (id: string, usage: object, more: object = {}): string =>
+      JSON.stringify({
+        type: "assistant",
+        message: { id, content: [{ type: "text", text: id }], usage },
+        ...more,
+      });
+    const usage = {
+      input_tokens: 2,
+      cache_read_input_tokens: 38852,
+      cache_creation_input_tokens: 897,
+      output_tokens: 3,
+    };
+    const session = parseTrace(
+      [
+        JSON.stringify({ type: "system", subtype: "init", session_id: "s-9" }),
+        event("m1", { input_tokens: 5, output_tokens: 9 }),
+        event("m2", usage, { uuid: "u2a" }),
+        event("m2", usage, { uuid: "u2b" }),
+        event("m3", { input_tokens: 7 }, { parent_tool_use_id: "t1" }),
+        event("m4", { input_tokens: 1 }, { uuid: "u4" }),
+        JSON.stringify({
+          type: "system",
+          subtype: "model_refusal_fallback",
+          retracted_message_uuids: ["u4"],
+        }),
+      ].join("\n"),
+    );
+
+    expect(session.sessionId).toBe("s-9");
+    expect(session.last).toEqual({ id: "m2", input: 39751, output: 3 });
+  });
+
+  it("reads a call's final output from a transcript, and none for a call it lacks", () => {
+    const line = (id: string, output: number) =>
+      JSON.stringify({
+        type: "assistant",
+        message: { id, usage: { input_tokens: 2, output_tokens: output } },
+      });
+    const transcript = [
+      line("m1", 89),
+      JSON.stringify({ type: "user", message: { content: "m2" } }),
+      line("m2", 886),
+      line("m2", 886),
+    ].join("\n");
+
+    expect(transcriptOutput(transcript, "m2")).toBe(886);
+    expect(transcriptOutput(transcript, "m3")).toBeNull();
   });
 });
