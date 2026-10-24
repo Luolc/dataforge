@@ -29,6 +29,7 @@ from datetime import datetime, UTC
 import json
 from pathlib import Path
 import sqlite3
+import time
 from typing import cast
 
 from dataforge.curation.engine import Attempt
@@ -375,6 +376,26 @@ def now() -> str:
     The UTC time as ISO 8601, with +00:00.
   """
   return datetime.now(UTC).isoformat()
+
+
+def _wal(conn: sqlite3.Connection) -> None:
+  # Switching a database out of rollback mode while another connection holds
+  # its write lock returns SQLITE_BUSY at once, without calling the busy
+  # handler, so the timeout does not cover it: retry until the same budget.
+  if conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
+    return
+  deadline = time.monotonic() + _BUSY_MS / 1000
+  while True:
+    try:
+      _ = conn.execute("PRAGMA journal_mode = WAL").fetchall()
+      return
+    except sqlite3.OperationalError as error:
+      if (
+        error.sqlite_errorcode != sqlite3.SQLITE_BUSY
+        or time.monotonic() >= deadline
+      ):
+        raise
+      time.sleep(0.005)
 
 
 class Store:
@@ -981,7 +1002,7 @@ class Store:
       sqlite3.connect(self.path, timeout=_BUSY_MS / 1000, autocommit=True)
     ) as conn:
       conn.row_factory = sqlite3.Row
-      _ = conn.execute("PRAGMA journal_mode = WAL").fetchall()
+      _wal(conn)
       if not _has_meta(conn):
         _ = conn.executescript(_SCHEMA)
       _ = conn.execute("BEGIN IMMEDIATE")
