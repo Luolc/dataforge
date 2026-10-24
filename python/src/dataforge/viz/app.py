@@ -5,6 +5,8 @@ else: one puts a data item's action in its queue, one cancels a job.
 """
 
 from collections.abc import Awaitable, Callable
+import copy
+from dataclasses import dataclass
 from datetime import datetime, UTC
 import ipaddress
 import json
@@ -13,6 +15,8 @@ import mimetypes
 import os
 from pathlib import Path
 import sqlite3
+import threading
+import time
 from typing import cast
 
 from fastapi import FastAPI, Request
@@ -39,10 +43,12 @@ from dataforge.viz.paths import (
   open_attempt,
   open_path,
   open_root,
+  Read,
   read_record,
   read_regular,
   read_snapshot,
   RefusedError,
+  stat_record,
 )
 from dataforge.viz.task import read_task
 
@@ -141,7 +147,9 @@ class _Api:
 
   def attempts(self, p: str) -> Response:
     project = self._project(p)
-    read = [_row(project, attempt) for attempt in list_attempts(project)]
+    attempts = list_attempts(project)
+    _SUMMARIES.keep(project, attempts)
+    read = [_row(project, attempt) for attempt in attempts]
     rows = [row for row, _, _ in read]
     _mark(project, rows, _touched(read))
     self._stopped(project, rows)
@@ -164,7 +172,7 @@ class _Api:
     # live as the listing gives it, from the attempts of its item alone.
     item = _item(project, attempt)
     read = {
-      a: _row(project, a)
+      a: _row(project, a, a == attempt)
       for a in list_attempts(project)
       if _item(project, a) == item
     }
@@ -726,11 +734,75 @@ def _item(project: Project, attempt: str) -> str:
   return "/".join(attempt.split("/")[: project.item.depth])
 
 
-def _row(project: Project, attempt: str) -> _Read:
+@dataclass(frozen=True, slots=True)
+class _Summary:
+  # What the listing takes from one record file, for the file as it was
+  # stat-ed: `project` is the one it was made for, `signature` the file's
+  # (device, inode, size, mtime_ns), `mtime` its modification time.
+  project: Project
+  signature: tuple[int, int, int, int]
+  mtime: float
+  ended: bool
+  fields: dict[str, object]
+  rounds: list[dict[str, object]]
+  # Each column's value as the record alone gives it.
+  values: list[object]
+
+
+class _Summaries:
+  # The summaries by project and attempt, shared by the requests, which may
+  # run in different threads. A summary is never handed out: a caller gets a
+  # copy of its parts, so that nothing a caller changes reaches the next.
+  def __init__(self) -> None:
+    self._lock: threading.Lock = threading.Lock()
+    self._by_attempt: dict[tuple[str, str], _Summary] = {}
+
+  def __len__(self) -> int:
+    with self._lock:
+      return len(self._by_attempt)
+
+  def get(
+    self, project: Project, attempt: str, signature: tuple[int, int, int, int]
+  ) -> _Summary | None:
+    with self._lock:
+      found = self._by_attempt.get((project.id, attempt))
+    if (
+      found is not None
+      and found.project is project
+      and found.signature == signature
+    ):
+      return found
+    return None
+
+  def put(self, attempt: str, summary: _Summary) -> None:
+    with self._lock:
+      self._by_attempt[(summary.project.id, attempt)] = summary
+
+  def keep(self, project: Project, attempts: list[str]) -> None:
+    # Forget the project's attempts that are not in the listing any more.
+    kept = set(attempts)
+    with self._lock:
+      for key in [k for k in self._by_attempt if k[0] == project.id]:
+        if key[1] not in kept:
+          del self._by_attempt[key]
+
+
+_SUMMARIES = _Summaries()
+# Longer than the grain of any file system's timestamps, as git's racy check.
+_RACY_NS = 2_000_000_000
+
+
+def _signature(status: os.stat_result) -> tuple[int, int, int, int]:
+  return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns)
+
+
+def _row(project: Project, attempt: str, record: bool = False) -> _Read:
   # A row of the listing, the record it read, None when there is none, and,
   # for an attempt its item's lock may be held for, when it last wrote: the
   # record's mtime for one that has not ended, its directory's for one that
-  # has no record yet, as one that has just started; else None.
+  # has no record yet, as one that has just started; else None. The record
+  # file is read and parsed only when `record` asks for the record, or when
+  # it changed since the summary of it was made.
   row: dict[str, object] = {
     "id": attempt,
     "item": _item(project, attempt),
@@ -755,10 +827,16 @@ def _row(project: Project, attempt: str) -> _Read:
     "error": None,
   }
   made: float | None = None
+  summary: _Summary | None = None
+  read: Read | None = None
   try:
     with open_attempt(project, attempt) as fd:
       made = os.fstat(fd).st_mtime
-      read = read_record(project, fd)
+      signature = _signature(stat_record(project, fd))
+      if not record:
+        summary = _SUMMARIES.get(project, attempt, signature)
+      if summary is None:
+        read = read_record(project, fd)
       from_files = [
         None if c.file is None else tabs.column_value(project, c, fd)
         for c in project.columns
@@ -770,14 +848,49 @@ def _row(project: Project, attempt: str) -> _Read:
       # The store decides: `runs.mark` shows the row, or says there is none.
       return row, None, fresh
     return row | {"error": f"the record: {error.reason}"}, None, fresh
-  row["modified"] = datetime.fromtimestamp(read.mtime, UTC).isoformat()
-  try:
-    record = cast(object, json.loads(read.data))
-  except ValueError, RecursionError:
-    return row | {"error": "the record is not JSON"}, None, None
-  if not isinstance(record, dict):
-    return row | {"error": "the record is not a JSON object"}, None, None
-  data = cast(dict[str, object], record)
+  data: dict[str, object] | None = None
+  if read is not None:
+    row["modified"] = datetime.fromtimestamp(read.mtime, UTC).isoformat()
+    try:
+      parsed = cast(object, json.loads(read.data))
+    except ValueError, RecursionError:
+      return row | {"error": "the record is not JSON"}, None, None
+    if not isinstance(parsed, dict):
+      return row | {"error": "the record is not a JSON object"}, None, None
+    data = cast(dict[str, object], parsed)
+    summary = _summarize(project, data, read.mtime, signature)
+    # A file written within the file system's timestamp grain of this read
+    # may be written again without its mtime_ns changing: no summary yet.
+    if time.time_ns() - signature[3] > _RACY_NS:
+      _SUMMARIES.put(attempt, summary)
+  assert summary is not None
+  row["modified"] = datetime.fromtimestamp(summary.mtime, UTC).isoformat()
+  values = copy.deepcopy(summary.values)
+  return (
+    row
+    | summary.fields
+    | {
+      "rounds": [dict(r) for r in summary.rounds],
+      "values": [
+        v if c.cases or found is None else found["value"]
+        for v, c, found in zip(values, project.columns, from_files, strict=True)
+      ],
+      "reads": [
+        None if found is None else found["read"] for found in from_files
+      ],
+      "live": None if summary.ended else live.NOT_ENDED,
+    },
+    data,
+    None if summary.ended else summary.mtime,
+  )
+
+
+def _summarize(
+  project: Project,
+  data: dict[str, object],
+  mtime: float,
+  signature: tuple[int, int, int, int],
+) -> _Summary:
   # The record is the file as an attempt left it: each value is checked
   # before it is used, and one of another type reads as missing.
   visits = [
@@ -790,33 +903,25 @@ def _row(project: Project, attempt: str) -> _Read:
   ends = [_visit_time(v, -1, "ended_at") for v in visits]
   status = _str(_field(data, ("status",)))
   outcome = _str(visits[-1].get("outcome")) if visits else None
-  ended = live.has_ended(project, status, outcome)
   cost, cost_from = _cost(data, actions)
-  return (
-    row
-    | {
+  return _Summary(
+    project=project,
+    signature=signature,
+    mtime=mtime,
+    ended=live.has_ended(project, status, outcome),
+    fields={
       "status": status,
       "reason": _str(_field(data, ("reason",))),
       "cost_usd": cost,
       "cost_from": cost_from,
       "started_at": next((t for t in starts if t is not None), None),
       "ended_at": next((t for t in reversed(ends) if t is not None), None),
-      "rounds": _rounds(visits),
-      "values": [
-        case_value(data, c.cases)
-        if c.cases
-        else _field(data, c.field)
-        if found is None
-        else found["value"]
-        for c, found in zip(project.columns, from_files, strict=True)
-      ],
-      "reads": [
-        None if found is None else found["read"] for found in from_files
-      ],
-      "live": None if ended else live.NOT_ENDED,
     },
-    data,
-    None if ended else read.mtime,
+    rounds=_rounds(visits),
+    values=[
+      case_value(data, c.cases) if c.cases else _field(data, c.field)
+      for c in project.columns
+    ],
   )
 
 
