@@ -1048,6 +1048,7 @@ states:
       retry:
         argv: [python, -m, example.judges, retry-pass-at-k]
         inputs: [task]
+      max_retries: 12
     feedback: |
       The host ran pass@4 on the task. ${reminder}
 
@@ -1250,6 +1251,7 @@ def by_hand(
         retry=ScriptSpec(
           ("python", "-m", "example.judges", "retry-pass-at-k"), ("task",)
         ),
+        max_retries=12,
         feedback=(
           f"The host ran pass@4 on the task. {reminder}\n\n${{details}}\n"
         ),
@@ -1284,7 +1286,9 @@ def test_a_full_declaration_loads_as_the_same_machine_by_hand(
   ]
 
 
-def pass_at_k_doc(retry: object, max_cost_usd: float) -> Doc:
+def pass_at_k_doc(
+  retry: object, max_cost_usd: float, max_retries: object
+) -> Doc:
   doc = base()
   states_of(doc)["check"] = {
     "uses": "pass-at-k",
@@ -1296,6 +1300,7 @@ def pass_at_k_doc(retry: object, max_cost_usd: float) -> Doc:
       "agent": "solver",
       "limits": {"memory_gb": 1},
       "retry": retry,
+      **({} if max_retries is None else {"max_retries": max_retries}),
     },
     "transitions": {
       name: {"end": name}
@@ -1306,26 +1311,42 @@ def pass_at_k_doc(retry: object, max_cost_usd: float) -> Doc:
 
 
 @pytest.mark.parametrize(
-  ("retry", "max_cost_usd", "error"),
+  ("retry", "max_cost_usd", "max_retries", "error"),
   [
     pytest.param(
       {"argv": ["retry"], "outputs": ["slots.json"]},
       4.0,
+      4,
       "states.check.with.retry.outputs: unknown field",
       id="outputs",
     ),
     pytest.param(
       {"argv": ["retry"]},
       0.0,
+      4,
       "a retry needs a max_cost_usd to bound it",
       id="no-reserve",
     ),
+    pytest.param(
+      {"argv": ["retry"]},
+      4.0,
+      None,
+      "a retry needs a max_retries to bound it",
+      id="no-max-retries",
+    ),
+    pytest.param(
+      {"argv": ["retry"]},
+      4.0,
+      0,
+      "states.check.with.max_retries: must be at least 1, not 0",
+      id="max-retries-0",
+    ),
   ],
 )
-def test_a_retry_of_pass_at_k_names_no_outputs_and_needs_a_reserve(
-  retry: object, max_cost_usd: float, error: str
+def test_a_retry_of_pass_at_k_names_no_outputs_and_needs_bounds(
+  retry: object, max_cost_usd: float, max_retries: object, error: str
 ) -> None:
-  doc = pass_at_k_doc(retry, max_cost_usd)
+  doc = pass_at_k_doc(retry, max_cost_usd, max_retries)
   with pytest.raises(SpecError, match=re.escape(error)):
     _ = load_doc(doc, bindings={"trials": Trials()})
 

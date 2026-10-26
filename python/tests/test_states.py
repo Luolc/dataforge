@@ -728,6 +728,7 @@ def retrying(
   plan: list[list[int]],
   *,
   max_cost_usd: float = 4.0,
+  max_retries: int = 12,
   judged: bool = False,
 ) -> tuple[PassAtKState, Trials, Path]:
   script, file = tmp_path / "retry.py", tmp_path / "plan.json"
@@ -750,6 +751,7 @@ def retrying(
     k=4,
     judge=judge,
     retry=ScriptSpec([sys.executable, "-I", str(script)], inputs=[file]),
+    max_retries=max_retries,
     max_cost_usd=max_cost_usd,
   )
   return state, trials, file.with_suffix(".log")
@@ -860,6 +862,54 @@ def test_pass_at_k_counts_what_the_machine_measures_beyond_what_trials_report(
   assert calls_of(log) == []
 
 
+def test_pass_at_k_runs_no_more_trials_again_than_max_retries(
+  tmp_path: Path,
+) -> None:
+  # Trials that cost nothing leave the reserve as it was.
+  failed = priced(0.0, "HarborNotStarted: Harbor did not start the trial")
+  names = [*FIRST, "trial-0-r1", "trial-0-r2", "trial-0-r3"]
+  results = dict.fromkeys(names, failed)
+  state, trials, log = retrying(
+    tmp_path, results, [[0]] * 10, max_retries=3, judged=True
+  )
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert [call["room"] for call in calls_of(log)] == [3, 2, 1]
+  assert attempt.visits[0].data == {"args": names, "room": "0"}
+  assert len(trials.agents) == 7
+
+
+def test_a_subclass_written_before_retry_runs_as_it_did(
+  tmp_path: Path,
+) -> None:
+  ran: list[str] = []
+
+  class Before(PassAtKState):
+    # Overrides as they were written before retry existed.
+    @override
+    def trial(self, ctx: Context, name: str) -> TrialResult:  # pyright: ignore[reportIncompatibleMethodOverride]
+      ran.append(name)
+      return super().trial(ctx, name)
+
+    @override
+    def outcomes(  # pyright: ignore[reportIncompatibleMethodOverride]
+      self, ctx: Context, results: Sequence[TrialResult]
+    ) -> Outcome:
+      return super().outcomes(ctx, results)
+
+  trials = Trials({name: result(1.0) for name in FIRST})
+  state = Before(
+    "p",
+    ENDS,
+    actions=Actions(trial_runner=trials),
+    task_dir=tmp_path,
+    agent="solver",
+    limits=Limits(1.0),
+    k=4,
+  )
+  assert outcome_of(tmp_path / "a", state)[0] == "all_solved"
+  assert sorted(ran) == FIRST
+
+
 def test_a_retry_that_chooses_more_than_the_room_raises(tmp_path: Path) -> None:
   results = {name: priced(0.0, cost_usd=0.5) for name in FIRST}
   state, trials, _ = retrying(tmp_path, results, [[0, 1, 2]])
@@ -868,8 +918,10 @@ def test_a_retry_that_chooses_more_than_the_room_raises(tmp_path: Path) -> None:
   assert len(trials.agents) == 4
 
 
-def test_a_retry_needs_a_reserve_and_names_no_outputs(tmp_path: Path) -> None:
-  def make(retry: ScriptSpec, max_cost_usd: float) -> PassAtKState:
+def test_a_retry_needs_bounds_and_names_no_outputs(tmp_path: Path) -> None:
+  def make(
+    retry: ScriptSpec, max_cost_usd: float, max_retries: int = 4
+  ) -> PassAtKState:
     return PassAtKState(
       "p",
       ENDS,
@@ -879,9 +931,12 @@ def test_a_retry_needs_a_reserve_and_names_no_outputs(tmp_path: Path) -> None:
       limits=Limits(1.0),
       k=4,
       retry=retry,
+      max_retries=max_retries,
       max_cost_usd=max_cost_usd,
     )
 
+  with pytest.raises(ValueError, match="needs a max_retries"):
+    _ = make(ScriptSpec(["retry"]), 4.0, 0)
   with pytest.raises(ValueError, match="needs a max_cost_usd"):
     _ = make(ScriptSpec(["retry"]), 0.0)
   with pytest.raises(ValueError, match="names no outputs"):

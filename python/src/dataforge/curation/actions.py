@@ -1864,7 +1864,10 @@ class Actions:
       not source.is_relative_to(root) or ".." in source.relative_to(root).parts
     ):
       raise ValueError(f"{name}: source {source} is not inside the attempt")
-    _, started_at = ctx.claim([name], trial=True), datetime.now(UTC)
+    _, started_at = (
+      ctx.claim([name], trial=True, replaces=replaces),
+      datetime.now(UTC),
+    )
     outdir = ctx.outdir / name
     outdir.mkdir()
     with _reserve(self.pool, runner.memory_gb(limits)):

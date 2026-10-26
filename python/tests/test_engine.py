@@ -1778,10 +1778,36 @@ def test_a_trial_that_takes_anothers_place_supersedes_it(
     )
     return Outcome("done")
 
+  steps: list[dict[str, object]] = []
+
+  def on_step(attempt: Attempt) -> None:
+    [entry] = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
+    steps.append(entry)
+
   attempt = Machine(
     [Step("solve", solve, {"done": End("passed")})],
+    on_step=on_step,
     deliverables={"runs": Deliverable("trials", "pass@k", Source("solve"))},
   ).run(root)
+  # While trial-1-r1 runs, it already takes trial-1's place.
+  running = next(
+    step
+    for step in steps
+    if any(
+      t["output"] == "trial-1-r1" and t["result"] is None
+      for t in cast(list[dict[str, object]], step["trials"])
+    )
+  )
+  assert running["k"] == 3
+  assert [
+    (t["output"], t["replaces"], t["superseded_by"])
+    for t in cast(list[dict[str, object]], running["trials"])
+  ] == [
+    ("trial-0", None, None),
+    ("trial-1", None, "trial-1-r1"),
+    ("trial-1-r1", "trial-1", None),
+    ("trial-2", None, None),
+  ]
   [entry] = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
   trials = cast(list[dict[str, object]], entry["trials"])
   # Each slot's trials come together, in the order they took its place.

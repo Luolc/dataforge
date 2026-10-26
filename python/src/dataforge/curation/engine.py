@@ -375,6 +375,9 @@ class Visit:
       before visits kept it.
     running: The outputs of its trials that have started and are not recorded
       yet; not part of the record's visit.
+    replacing: Of those, the output of the trial of the visit each takes the
+      place of, by its output, for one that takes one's; not part of the
+      record's visit either.
   """
 
   state: str
@@ -388,6 +391,7 @@ class Visit:
   started_at: datetime | None = None
   ended_at: datetime | None = None
   running: list[str] = field(default_factory=list[str])
+  replacing: dict[str, str] = field(default_factory=dict[str, str])
 
   @property
   def outputs(self) -> dict[str, Path]:
@@ -705,13 +709,22 @@ class Context:
     """Where this visit's actions write their outputs, one name per output."""
     return self._attempt.root / "artifacts" / self.state / str(self.visit)
 
-  def claim(self, outputs: Sequence[str], *, trial: bool = False) -> int:
+  def claim(
+    self,
+    outputs: Sequence[str],
+    *,
+    trial: bool = False,
+    replaces: str | None = None,
+  ) -> int:
     """Reserve output names for an action, create outdir, number the action.
 
     Args:
       outputs: The names of the action's outputs.
       trial: Whether the action is a trial, which the visit then lists as
         running until it is recorded.
+      replaces: For a trial, the output of the trial of the visit whose place
+        it takes, if it takes one's, which the visit keeps with it while it
+        runs.
 
     Returns:
       The action's number in the visit, from 1.
@@ -733,6 +746,8 @@ class Context:
     with self._lock:
       if trial:
         self._record.running.extend(outputs)
+        if replaces is not None:
+          self._record.replacing.update(dict.fromkeys(outputs, replaces))
       if self._changed is not None:
         self._changed()
     return index
@@ -791,6 +806,8 @@ class Context:
       self._record.actions.append(action)
       running = self._record.running
       running[:] = [name for name in running if name not in action.outputs]
+      for name in action.outputs:
+        _ = self._record.replacing.pop(name, None)
       if self._changed is not None:
         self._changed()
     for name, path in action.outputs.items():
@@ -1462,7 +1479,7 @@ def _trials(
     next(iter(action.outputs)): action.trial.replaces
     for action in visit.actions
     if action.trial is not None and action.trial.replaces is not None
-  }
+  } | visit.replacing
   superseded_by = {old: new for new, old in replaces.items()}
 
   def order(output: str) -> tuple[str, int, int]:
@@ -1505,7 +1522,7 @@ def _trials(
     path = root / "artifacts" / visit.state / str(visit.visit) / output
     trials.append(
       (
-        (*_order(output), 0),
+        order(output),
         {
           "id": None,
           "output": output,
@@ -1513,8 +1530,8 @@ def _trials(
           "trace": None,
           "source": None,
           "log": None,
-          "replaces": None,
-          "superseded_by": None,
+          "replaces": visit.replacing.get(output),
+          "superseded_by": superseded_by.get(output),
           "verdict": None,
           "result": None,
         },
