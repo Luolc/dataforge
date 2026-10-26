@@ -13,6 +13,8 @@ The schema, version 1:
   dataforge: 1
   name: <string>
   start: <state>
+  rounds: <state>                     # the state whose visits count the
+                                      # rounds; default: the start state
   inputs: {<name>: string | integer | number | boolean | path}
   vars: {<name>: <string>}            # each may use the inputs and earlier vars
   max_cost_usd: <number>
@@ -330,6 +332,7 @@ class _Loader:
         "environments",
         "runners",
         "deliverables",
+        "rounds",
       },
     )
     version = top["dataforge"]
@@ -370,6 +373,7 @@ class _Loader:
       name: self.state(name, spec, f"states.{name}")
       for name, spec in specs.items()
     }
+    rounds = self.rounds(top.get("rounds"), set(states))
     _check_graph(states, start)
     ordered = [states[start], *(s for n, s in states.items() if n != start)]
     deliverables = self.deliverables(top.get("deliverables", {}), set(states))
@@ -380,7 +384,16 @@ class _Loader:
       max_cost_usd=cap,
       deliverables=deliverables,
       spent_usd=spent_usd,
+      rounds=rounds,
     )
+
+  def rounds(self, value: object, states: set[str]) -> str | None:
+    if value is None:
+      return None
+    name = self.string(value, "rounds")
+    if name not in states:
+      raise SpecError("rounds", f"no state named {name!r}")
+    return name
 
   def deliverables(
     self, value: object, states: set[str]

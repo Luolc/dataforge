@@ -290,6 +290,7 @@ def drop(path: str) -> Callable[[Doc], None]:
       "states.make.feedback: not a valid template: write $$ for a lone $",
     ),
     (put("start", "nowhere"), "start: no state named 'nowhere'"),
+    (put("rounds", "nowhere"), "rounds: no state named 'nowhere'"),
     (
       put("inputs.round", "integer"),
       "inputs.round: 'round' is a variable the engine renders",
@@ -505,6 +506,14 @@ def test_the_start_state_comes_first() -> None:
   doc = base()
   doc["start"] = "check"
   assert [s.name for s in load_doc(doc).states] == ["check", "make"]
+
+
+def test_rounds_name_the_state_that_counts_them() -> None:
+  doc = base()
+  assert load_doc(doc).rounds == "make"
+  doc["rounds"] = "check"
+  machine = load_doc(doc)
+  assert (machine.rounds, machine.states[0].name) == ("check", "make")
 
 
 @pytest.mark.parametrize(
