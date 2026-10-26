@@ -1,0 +1,4 @@
+# For the trials view of a visit that ran trials again: `dataforge viz serve
+# --config web/fixtures/retried/site.yaml --static web/dist`.
+listen: { host: 127.0.0.1, port: 8831 }
+projects: [project.yaml]

@@ -1,0 +1,744 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 1,
+  "budget": {
+    "max_usd": 10.0,
+    "cost_usd": 1.49,
+    "stopped": null
+  },
+  "final": {
+    "solve": {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {
+        "solved": 2,
+        "errors": 0,
+        "faults": {},
+        "k": 4
+      },
+      "mark": null,
+      "last": false,
+      "started_at": "2026-10-26T18:02:30.119431+00:00",
+      "ended_at": "2026-10-26T18:02:30.214434+00:00",
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-10-26T18:02:30.120991+00:00",
+          "ended_at": "2026-10-26T18:02:30.121054+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-3",
+            "path": "artifacts/solve/1/trial-3",
+            "trace": null,
+            "rewards": {},
+            "exception": "HarborNotStarted: Harbor did not start the trial",
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-10-26T18:02:30.121386+00:00",
+          "ended_at": "2026-10-26T18:02:30.122051+00:00",
+          "cost_usd": 0.05,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-2",
+            "path": "artifacts/solve/1/trial-2",
+            "trace": null,
+            "rewards": {},
+            "exception": "UnknownApiError: API Error: overloaded",
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-10-26T18:02:30.121622+00:00",
+          "ended_at": "2026-10-26T18:02:30.122762+00:00",
+          "cost_usd": 0.31,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-1",
+            "path": "artifacts/solve/1/trial-1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-1/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-0": "artifacts/solve/1/trial-0"
+          },
+          "started_at": "2026-10-26T18:02:30.122005+00:00",
+          "ended_at": "2026-10-26T18:02:30.123116+00:00",
+          "cost_usd": 0.42,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-0",
+            "path": "artifacts/solve/1/trial-0",
+            "trace": {
+              "path": "artifacts/solve/1/trial-0/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "retry-1.json": "artifacts/solve/1/retry-1.json"
+          },
+          "started_at": "2026-10-26T18:02:30.124323+00:00",
+          "ended_at": "2026-10-26T18:02:30.150567+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": ["logs/solve/1/5.log"],
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-2-r1": "artifacts/solve/1/trial-2-r1"
+          },
+          "started_at": "2026-10-26T18:02:30.151606+00:00",
+          "ended_at": "2026-10-26T18:02:30.152106+00:00",
+          "cost_usd": 0.04,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-2-r1",
+            "path": "artifacts/solve/1/trial-2-r1",
+            "trace": null,
+            "rewards": {},
+            "exception": "UnknownApiError: API Error: overloaded",
+            "source": null,
+            "log": null,
+            "replaces": "trial-2"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-3-r1": "artifacts/solve/1/trial-3-r1"
+          },
+          "started_at": "2026-10-26T18:02:30.151998+00:00",
+          "ended_at": "2026-10-26T18:02:30.152579+00:00",
+          "cost_usd": 0.29,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-3-r1",
+            "path": "artifacts/solve/1/trial-3-r1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-3-r1/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": "trial-3"
+          }
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "retry-2.json": "artifacts/solve/1/retry-2.json"
+          },
+          "started_at": "2026-10-26T18:02:30.154096+00:00",
+          "ended_at": "2026-10-26T18:02:30.180384+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": ["logs/solve/1/8.log"],
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2-r2": "artifacts/solve/1/trial-2-r2"
+          },
+          "started_at": "2026-10-26T18:02:30.181387+00:00",
+          "ended_at": "2026-10-26T18:02:30.181644+00:00",
+          "cost_usd": 0.38,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-2-r2",
+            "path": "artifacts/solve/1/trial-2-r2",
+            "trace": {
+              "path": "artifacts/solve/1/trial-2-r2/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": "trial-2-r1"
+          }
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "retry-3.json": "artifacts/solve/1/retry-3.json"
+          },
+          "started_at": "2026-10-26T18:02:30.183356+00:00",
+          "ended_at": "2026-10-26T18:02:30.214046+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": ["logs/solve/1/10.log"],
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ]
+    }
+  },
+  "visits": [
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "in_range",
+      "data": {
+        "solved": 2,
+        "errors": 0,
+        "faults": {},
+        "k": 4
+      },
+      "mark": null,
+      "last": false,
+      "started_at": "2026-10-26T18:02:30.119431+00:00",
+      "ended_at": "2026-10-26T18:02:30.214434+00:00",
+      "actions": [
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-3": "artifacts/solve/1/trial-3"
+          },
+          "started_at": "2026-10-26T18:02:30.120991+00:00",
+          "ended_at": "2026-10-26T18:02:30.121054+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-3",
+            "path": "artifacts/solve/1/trial-3",
+            "trace": null,
+            "rewards": {},
+            "exception": "HarborNotStarted: Harbor did not start the trial",
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-2": "artifacts/solve/1/trial-2"
+          },
+          "started_at": "2026-10-26T18:02:30.121386+00:00",
+          "ended_at": "2026-10-26T18:02:30.122051+00:00",
+          "cost_usd": 0.05,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-2",
+            "path": "artifacts/solve/1/trial-2",
+            "trace": null,
+            "rewards": {},
+            "exception": "UnknownApiError: API Error: overloaded",
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-1": "artifacts/solve/1/trial-1"
+          },
+          "started_at": "2026-10-26T18:02:30.121622+00:00",
+          "ended_at": "2026-10-26T18:02:30.122762+00:00",
+          "cost_usd": 0.31,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-1",
+            "path": "artifacts/solve/1/trial-1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-1/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-0": "artifacts/solve/1/trial-0"
+          },
+          "started_at": "2026-10-26T18:02:30.122005+00:00",
+          "ended_at": "2026-10-26T18:02:30.123116+00:00",
+          "cost_usd": 0.42,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-0",
+            "path": "artifacts/solve/1/trial-0",
+            "trace": {
+              "path": "artifacts/solve/1/trial-0/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": null
+          }
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "retry-1.json": "artifacts/solve/1/retry-1.json"
+          },
+          "started_at": "2026-10-26T18:02:30.124323+00:00",
+          "ended_at": "2026-10-26T18:02:30.150567+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": ["logs/solve/1/5.log"],
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "trial",
+          "status": "failed",
+          "outputs": {
+            "trial-2-r1": "artifacts/solve/1/trial-2-r1"
+          },
+          "started_at": "2026-10-26T18:02:30.151606+00:00",
+          "ended_at": "2026-10-26T18:02:30.152106+00:00",
+          "cost_usd": 0.04,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-2-r1",
+            "path": "artifacts/solve/1/trial-2-r1",
+            "trace": null,
+            "rewards": {},
+            "exception": "UnknownApiError: API Error: overloaded",
+            "source": null,
+            "log": null,
+            "replaces": "trial-2"
+          }
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-3-r1": "artifacts/solve/1/trial-3-r1"
+          },
+          "started_at": "2026-10-26T18:02:30.151998+00:00",
+          "ended_at": "2026-10-26T18:02:30.152579+00:00",
+          "cost_usd": 0.29,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-3-r1",
+            "path": "artifacts/solve/1/trial-3-r1",
+            "trace": {
+              "path": "artifacts/solve/1/trial-3-r1/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": "trial-3"
+          }
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "retry-2.json": "artifacts/solve/1/retry-2.json"
+          },
+          "started_at": "2026-10-26T18:02:30.154096+00:00",
+          "ended_at": "2026-10-26T18:02:30.180384+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": ["logs/solve/1/8.log"],
+          "trace": null,
+          "session": null,
+          "trial": null
+        },
+        {
+          "kind": "trial",
+          "status": "ok",
+          "outputs": {
+            "trial-2-r2": "artifacts/solve/1/trial-2-r2"
+          },
+          "started_at": "2026-10-26T18:02:30.181387+00:00",
+          "ended_at": "2026-10-26T18:02:30.181644+00:00",
+          "cost_usd": 0.38,
+          "cost_known": true,
+          "summary": null,
+          "logs": [],
+          "trace": null,
+          "session": null,
+          "trial": {
+            "id": "tinyparse-fold__trial-2-r2",
+            "path": "artifacts/solve/1/trial-2-r2",
+            "trace": {
+              "path": "artifacts/solve/1/trial-2-r2/trace.jsonl",
+              "format": "claude-code-stream-json"
+            },
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null,
+            "source": null,
+            "log": null,
+            "replaces": "trial-2-r1"
+          }
+        },
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {
+            "retry-3.json": "artifacts/solve/1/retry-3.json"
+          },
+          "started_at": "2026-10-26T18:02:30.183356+00:00",
+          "ended_at": "2026-10-26T18:02:30.214046+00:00",
+          "cost_usd": 0.0,
+          "cost_known": true,
+          "summary": null,
+          "logs": ["logs/solve/1/10.log"],
+          "trace": null,
+          "session": null,
+          "trial": null
+        }
+      ]
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "state": "solve",
+      "output": null,
+      "visit": 1,
+      "visit_index": 0,
+      "path": "artifacts/solve/1",
+      "reason": null,
+      "match": null,
+      "k": 4,
+      "value": {
+        "output": null,
+        "field": ["solved"],
+        "value": 2,
+        "reason": null
+      },
+      "verdicts": null,
+      "trials": [
+        {
+          "id": "tinyparse-fold__trial-0",
+          "output": "trial-0",
+          "path": "artifacts/solve/1/trial-0",
+          "trace": {
+            "path": "artifacts/solve/1/trial-0/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "source": null,
+          "log": null,
+          "replaces": null,
+          "superseded_by": null,
+          "verdict": null,
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__trial-1",
+          "output": "trial-1",
+          "path": "artifacts/solve/1/trial-1",
+          "trace": {
+            "path": "artifacts/solve/1/trial-1/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "source": null,
+          "log": null,
+          "replaces": null,
+          "superseded_by": null,
+          "verdict": null,
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__trial-2",
+          "output": "trial-2",
+          "path": "artifacts/solve/1/trial-2",
+          "trace": null,
+          "source": null,
+          "log": null,
+          "replaces": null,
+          "superseded_by": "trial-2-r1",
+          "verdict": null,
+          "result": {
+            "reward": null,
+            "rewards": {},
+            "exception": "UnknownApiError: API Error: overloaded"
+          }
+        },
+        {
+          "id": "tinyparse-fold__trial-2-r1",
+          "output": "trial-2-r1",
+          "path": "artifacts/solve/1/trial-2-r1",
+          "trace": null,
+          "source": null,
+          "log": null,
+          "replaces": "trial-2",
+          "superseded_by": "trial-2-r2",
+          "verdict": null,
+          "result": {
+            "reward": null,
+            "rewards": {},
+            "exception": "UnknownApiError: API Error: overloaded"
+          }
+        },
+        {
+          "id": "tinyparse-fold__trial-2-r2",
+          "output": "trial-2-r2",
+          "path": "artifacts/solve/1/trial-2-r2",
+          "trace": {
+            "path": "artifacts/solve/1/trial-2-r2/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "source": null,
+          "log": null,
+          "replaces": "trial-2-r1",
+          "superseded_by": null,
+          "verdict": null,
+          "result": {
+            "reward": 1.0,
+            "rewards": {
+              "reward": 1.0
+            },
+            "exception": null
+          }
+        },
+        {
+          "id": "tinyparse-fold__trial-3",
+          "output": "trial-3",
+          "path": "artifacts/solve/1/trial-3",
+          "trace": null,
+          "source": null,
+          "log": null,
+          "replaces": null,
+          "superseded_by": "trial-3-r1",
+          "verdict": null,
+          "result": {
+            "reward": null,
+            "rewards": {},
+            "exception": "HarborNotStarted: Harbor did not start the trial"
+          }
+        },
+        {
+          "id": "tinyparse-fold__trial-3-r1",
+          "output": "trial-3-r1",
+          "path": "artifacts/solve/1/trial-3-r1",
+          "trace": {
+            "path": "artifacts/solve/1/trial-3-r1/trace.jsonl",
+            "format": "claude-code-stream-json"
+          },
+          "source": null,
+          "log": null,
+          "replaces": "trial-3",
+          "superseded_by": null,
+          "verdict": null,
+          "result": {
+            "reward": 0.0,
+            "rewards": {
+              "reward": 0.0
+            },
+            "exception": null
+          }
+        }
+      ]
+    }
+  ],
+  "graph": {
+    "start": "solve",
+    "states": [
+      {
+        "name": "solve",
+        "kind": "PassAtKState",
+        "max_visits": 1,
+        "on_exhausted": "failed",
+        "max_cost_usd": 4.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "solve",
+        "outcome": "in_range",
+        "to": null,
+        "end": "passed",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "all_solved",
+        "to": null,
+        "end": "all_solved",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "none_solved",
+        "to": null,
+        "end": "none_solved",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": false,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  },
+  "resumptions": []
+}

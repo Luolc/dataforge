@@ -1,0 +1,17 @@
+# A synthetic pass@k visit whose errored trials ran again in their slots,
+# made by running PassAtKState with a fake trial runner; it ran nowhere. The
+# traces are those of p3.
+id: retried
+name: Retried trials
+color: "#7fb5f5"
+attempts_dir: attempts
+attempts: "*"
+record: record.json
+states:
+  solve: { title: Pass@k }
+statuses:
+  passed: { label: Passed, tone: good }
+  in_range: { label: In range, tone: good }
+item: { depth: 1, title: Task }
+columns: []
+session: { thinking: collapsed }

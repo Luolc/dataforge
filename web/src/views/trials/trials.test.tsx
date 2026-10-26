@@ -15,6 +15,7 @@ import solved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/tr
 import unsolved from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-2/trace.jsonl?raw";
 import ran from "../../../fixtures/p3/attempts/pass-at-k/artifacts/solve/1/trial-1/result.json?raw";
 import diff from "../../../fixtures/trialdiff/attempts/pass-at-k/artifacts/solve/1/trial-1/verifier/patch.diff?raw";
+import retriedRecord from "../../../fixtures/retried/attempts/pass-at-k-retried/record.json";
 import { must, sampleProject } from "../../../fixtures/sample";
 import { type LiveInfo, type Project, record } from "../../api/types";
 import TrialsView from ".";
@@ -511,5 +512,55 @@ describe("the trials of a visit that has not ended", () => {
     expect(document.querySelector(".lucide-loader-circle")).toBeNull();
     fireEvent.click(trial("Trial 3"));
     expect(screen.getByText("This trial did not finish.")).toBeVisible();
+  });
+});
+
+describe("a visit that ran trials again", () => {
+  const retried = record.parse(retriedRecord);
+
+  function showRetried() {
+    render(
+      <TrialsView
+        project={project}
+        attempt="pass-at-k-retried"
+        record={retried}
+        deliverable={must(retried.deliverables?.[0])}
+      />,
+    );
+  }
+
+  it("names each slot's trials and marks those superseded, counting the rest", () => {
+    showRetried();
+
+    const list = screen.getByRole("navigation", { name: "Trials" });
+    expect(within(list).getByText("2 / 4 solved")).toBeVisible();
+    expect(
+      within(list)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual([
+      "Trial 1solved",
+      "Trial 2not solved",
+      "Trial 3, run 1supersededexception",
+      "Trial 3, run 2supersededexception",
+      "Trial 3, run 3solved",
+      "Trial 4, run 1supersededexception",
+      "Trial 4, run 2not solved",
+    ]);
+  });
+
+  it("names the trial that took a superseded one's place, and shows it", () => {
+    showRetried();
+    fireEvent.click(trial("Trial 3, run 2"));
+
+    expect(field("Replaces")).toHaveTextContent("Trial 3, run 1");
+    expect(field("Superseded by")).toHaveTextContent(
+      "Trial 3, run 3Not counted: that trial took its place.",
+    );
+    // The list's button is named with its status too; this one only so.
+    fireEvent.click(screen.getByRole("button", { name: "Trial 3, run 3" }));
+    expect(trial("Trial 3, run 3")).toHaveAttribute("aria-pressed", "true");
+    expect(field("Output")).toHaveTextContent("trial-2-r2");
+    expect(screen.queryByText("Superseded by")).toBeNull();
   });
 });

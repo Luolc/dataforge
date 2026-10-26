@@ -363,7 +363,7 @@ function ShownIn({
             })}
             className="inline-flex target items-center link hover:underline"
           >
-            {deliverable.title} · {trialName(index)}
+            {deliverable.title} · {trialName(deliverable.trials ?? [], index)}
           </Link>
         </li>
       ))}
