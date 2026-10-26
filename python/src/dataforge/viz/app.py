@@ -33,6 +33,7 @@ from dataforge.viz.config import (
   Site,
   split_relative,
   Tab,
+  TabSource,
 )
 from dataforge.viz.paths import (
   attempt_parts,
@@ -267,20 +268,8 @@ class _Api:
             if tab.job is None or find is None
             else find(tab.job, attempt),
             "versions": [
-              {
-                "dir": version,
-                "title": None
-                if tab.version_title is None
-                else tabs.version_title(tab.version_title, root, version),
-                "parts": [
-                  {
-                    "name": part.name,
-                    "fields": tabs.fields(part, root, version),
-                  }
-                  for part in tab.parts
-                ],
-              }
-              for version in tabs.versions(tab, root)
+              _version(tab.sources[version.source], version, root)
+              for version in tabs.sourced(tab, root)
             ],
           }
           for tab in project.tabs
@@ -715,6 +704,23 @@ def _item_rows(project: Project, item: str) -> list[dict[str, object]]:
   rows = [row for row, _, _ in read]
   _mark(project, rows, _touched(read))
   return rows
+
+
+def _version(
+  source: TabSource, version: tabs.Version, root: int
+) -> dict[str, object]:
+  return {
+    "dir": version.dir,
+    "source": version.source,
+    "label": version.label,
+    "title": None
+    if source.version_title is None
+    else tabs.version_title(source.version_title, root, version.dir),
+    "parts": [
+      {"name": part.name, "fields": tabs.fields(part, root, version.dir)}
+      for part in source.parts
+    ],
+  }
 
 
 def _has_version(project: Project, tab: Tab, attempt: str) -> bool:

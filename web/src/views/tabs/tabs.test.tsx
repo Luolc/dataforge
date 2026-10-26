@@ -10,9 +10,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import older from "../../../fixtures/oldrec/attempts/older/task-0301/record.json";
 import { sampleProject } from "../../../fixtures/sample";
-import type { Project, TabVersions } from "../../api/types";
+import type { Project, ProjectTab, TabVersions } from "../../api/types";
 import { ProjectsContext } from "../../shell/projects";
 import { AttemptPage } from "../attempt/AttemptPage";
+
+const notesPart = {
+  name: "notes",
+  title: "Notes",
+  file: "out/notes.md",
+  fields: [
+    { title: "Verdict", format: "text" as const },
+    { title: "Outcome", format: "text" as const, labels: { done: "Done" } },
+    { title: "Spent", format: "usd" as const },
+  ],
+};
 
 const project: Project = {
   ...sampleProject,
@@ -20,18 +31,9 @@ const project: Project = {
     {
       name: "notes",
       title: "Notes",
-      versions: ["notes", "notes-*"],
-      parts: [
-        {
-          name: "notes",
-          title: "Notes",
-          file: "out/notes.md",
-          fields: [
-            { title: "Verdict", format: "text" },
-            { title: "Outcome", format: "text", labels: { done: "Done" } },
-            { title: "Spent", format: "usd" },
-          ],
-        },
+      versions: [
+        { pattern: "notes", parts: [notesPart] },
+        { pattern: "notes-*", parts: [notesPart] },
       ],
     },
   ],
@@ -59,6 +61,7 @@ const three: TabVersions[] = [
     versions: [
       {
         dir: "notes",
+        source: 0,
         parts: [
           {
             name: "notes",
@@ -72,12 +75,14 @@ const three: TabVersions[] = [
       },
       {
         dir: "notes-2",
+        source: 1,
         parts: [
           { name: "notes", fields: [field("n/a"), field("done"), field(0.25)] },
         ],
       },
       {
         dir: "notes-1",
+        source: 1,
         parts: [
           {
             name: "notes",
@@ -288,11 +293,15 @@ describe("a project's tab of a Markdown file", () => {
   });
 
   it("names each version by its version_title, by its directory where it has none", async () => {
+    const time = { format: "time" as const };
     const titled: Project = {
       ...project,
       tabs: project.tabs?.map((t) => ({
         ...t,
-        version_title: { format: "time" as const },
+        versions: [
+          { pattern: "notes", parts: [notesPart], version_title: time },
+          { pattern: "notes-*", parts: [notesPart], version_title: time },
+        ],
       })),
     };
     const [notes] = three;
@@ -353,26 +362,30 @@ describe("a project's tab of a Markdown file", () => {
   });
 });
 
+const postParts: ProjectTab["versions"][number]["parts"] = [
+  {
+    name: "report",
+    title: "Report",
+    file: "out/report.md",
+    fields: [{ title: "Verdict", format: "text" }],
+  },
+  {
+    name: "prompt",
+    title: "Prompt",
+    file: "prompt.md",
+    fields: [{ title: "Words", format: "number" }],
+  },
+];
+
 const parted: Project = {
   ...sampleProject,
   tabs: [
     {
       name: "post",
       title: "Post",
-      versions: ["post", "post-*"],
-      parts: [
-        {
-          name: "report",
-          title: "Report",
-          file: "out/report.md",
-          fields: [{ title: "Verdict", format: "text" }],
-        },
-        {
-          name: "prompt",
-          title: "Prompt",
-          file: "prompt.md",
-          fields: [{ title: "Words", format: "number" }],
-        },
+      versions: [
+        { pattern: "post", parts: postParts },
+        { pattern: "post-*", parts: postParts },
       ],
     },
   ],
@@ -381,8 +394,9 @@ const parted: Project = {
 const posts: TabVersions[] = [
   {
     name: "post",
-    versions: ["post", "post-1"].map((dir) => ({
+    versions: ["post", "post-1"].map((dir, source) => ({
       dir,
+      source,
       parts: [
         { name: "report", fields: [field(`kept in ${dir}`)] },
         { name: "prompt", fields: [field(dir.length * 100)] },
@@ -612,5 +626,117 @@ describe("a project's tab with no version, that names its job", () => {
       await screen.findByText("No job for it has been queued."),
     ).toBeVisible();
     expect(screen.queryByText(/paused/)).toBeNull();
+  });
+});
+
+const reviewParts: ProjectTab["versions"][number]["parts"] = [
+  { name: "summary", title: "Summary", file: "summary.md", fields: [] },
+  { name: "review", title: "Review", file: "out/review.md", fields: [] },
+];
+
+const sourced: Project = {
+  ...sampleProject,
+  tabs: [
+    {
+      name: "reviews",
+      title: "Reviews",
+      versions: [
+        {
+          pattern: "review-*",
+          parts: reviewParts,
+          version_title: { format: "text" },
+        },
+        {
+          pattern: "runs/*",
+          parts: [
+            { name: "reviews", title: "Reviews", file: "index.md", fields: [] },
+          ],
+          version_title: { format: "text" },
+        },
+        { pattern: "runs/*/trial-*", parts: reviewParts },
+      ],
+    },
+  ],
+};
+
+const reviews: TabVersions[] = [
+  {
+    name: "reviews",
+    versions: [
+      { dir: "review-2", source: 0, title: field("second") },
+      { dir: "review-1", source: 0, title: notRun("no status.json") },
+      { dir: "runs/3", source: 1, label: "Run 3", title: field("merged") },
+      { dir: "runs/2", source: 1, label: "Run 2", title: notRun("none") },
+      { dir: "runs/3/trial-1", source: 2, label: "Run 3, trial 1" },
+    ].map((v) => ({
+      ...v,
+      parts:
+        sourced.tabs?.[0]?.versions[v.source]?.parts.map((p) => ({
+          name: p.name,
+          fields: [],
+        })) ?? [],
+    })),
+  },
+];
+
+describe("a project's tab whose patterns go several levels down", () => {
+  it("names each version by its pattern's label and version_title", async () => {
+    serve(reviews, { "review-2/summary.md": "# Second\n" });
+    show("&tab=reviews", sourced);
+    const button = await screen.findByRole("button", {
+      name: "Version: second",
+    });
+
+    fireEvent.pointerDown(button, { button: 0, ctrlKey: false });
+
+    // A label with a value read, with none read, with no version_title; no
+    // label, with a value read and with none.
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "second",
+      "review-1",
+      "Run 3 · merged",
+      "Run 2 · runs/2",
+      "Run 3, trial 1",
+    ]);
+  });
+
+  it("shows a version's files from its path, with its own pattern's parts", async () => {
+    serve(reviews, {
+      "review-2/summary.md": "# Second\n",
+      "runs/3/index.md": "# Merged\n",
+      "runs/3/trial-1/summary.md": "# Trial summary\n",
+    });
+    show("&tab=reviews&part=summary", sourced);
+    const choose = async (from: string, to: string) => {
+      fireEvent.pointerDown(
+        await screen.findByRole("button", { name: `Version: ${from}` }),
+        { button: 0, ctrlKey: false },
+      );
+      fireEvent.click(screen.getByRole("menuitem", { name: to }));
+    };
+    const column = () =>
+      within(screen.getByRole("navigation", { name: "Reviews" }));
+    await screen.findByRole("heading", { name: "Second" });
+
+    await choose("second", "Run 3 · merged");
+
+    expect(
+      await screen.findByRole("heading", { name: "Merged" }),
+    ).toBeVisible();
+    expect(screen.getByText("runs/3/index.md")).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "Reviews" })).toBeNull();
+
+    await choose("Run 3 · merged", "Run 3, trial 1");
+
+    expect(
+      await screen.findByRole("heading", { name: "Trial summary" }),
+    ).toBeVisible();
+    expect(screen.getByText("runs/3/trial-1/summary.md")).toBeVisible();
+    expect(
+      column()
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["Summary", "Review"]);
+    expect(screen.getByText("5 of 5")).toBeVisible();
   });
 });
