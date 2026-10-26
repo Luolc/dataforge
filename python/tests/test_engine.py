@@ -1081,6 +1081,67 @@ def test_end_on_last_visit_ends_when_a_state_on_the_way_back_is_spent(
   assert attempt.reason == "judge visit 1: its last visit, not going to author"
 
 
+def _seeded(rounds: str | None) -> Machine:
+  # seed dispatches to a path that visits "work", or to one that does not.
+  def seed(ctx: Context) -> Outcome:
+    return Outcome("again" if ctx.visit == 2 else "work")
+
+  return Machine(
+    [
+      Step("seed", seed, {"work": Goto("work"), "again": Goto("tune")}, 2),
+      Step("work", lambda _: Outcome("done"), {"done": Goto("seed")}, 2),
+      Step("tune", lambda _: Outcome("done"), {"done": End("ok")}),
+    ],
+    rounds=rounds,
+  )
+
+
+def test_rounds_count_the_visits_of_the_state_the_machine_names(
+  tmp_path: Path,
+) -> None:
+  attempt = _seeded("work").run(tmp_path)
+  assert [(v.state, v.visit, v.round) for v in attempt.visits] == [
+    ("seed", 1, 0),
+    ("work", 1, 1),
+    ("seed", 2, 1),
+    ("tune", 1, 1),
+  ]
+  assert attempt.to_json()["round"] == 1
+
+
+def test_a_rounds_state_never_visited_leaves_the_round_at_0(
+  tmp_path: Path,
+) -> None:
+  attempt = Machine(
+    [
+      Step("seed", lambda _: Outcome("go"), {"go": Goto("tune")}),
+      Step("tune", lambda _: Outcome("done"), {"done": End("ok")}),
+      Step("work", lambda _: Outcome("done"), {"done": End("ok")}),
+    ],
+    rounds="work",
+  ).run(tmp_path)
+  assert [(v.state, v.round) for v in attempt.visits] == [
+    ("seed", 0),
+    ("tune", 0),
+  ]
+  assert attempt.to_json()["round"] == 0
+
+
+def test_without_rounds_the_first_state_counts_them(tmp_path: Path) -> None:
+  attempt = _seeded(None).run(tmp_path)
+  assert [(v.state, v.round) for v in attempt.visits] == [
+    ("seed", 1),
+    ("work", 1),
+    ("seed", 2),
+    ("tune", 2),
+  ]
+
+
+def test_rounds_naming_an_unknown_state_is_an_error() -> None:
+  with pytest.raises(ValueError, match="rounds names unknown nowhere"):
+    _ = _seeded("nowhere")
+
+
 def test_each_visit_records_its_round(tmp_path: Path) -> None:
   def check(ctx: Context) -> Outcome:
     if ctx.round == 1:

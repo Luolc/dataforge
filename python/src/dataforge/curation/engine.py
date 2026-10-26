@@ -361,8 +361,8 @@ class Visit:
     data: The outcome's data.
     mark: The mark of the transition taken, if any.
     actions: The actions the visit ran.
-    round: How many times the attempt's first state had been entered when
-      this visit began, this visit included.
+    round: How many times the machine's rounds state (Machine) had been
+      entered when this visit began, this visit included.
     last: Whether the outcome had last=True.
     started_at: When it was entered; None in a record from before visits
       kept it.
@@ -677,7 +677,7 @@ class Context:
 
   @property
   def round(self) -> int:
-    """How many times the attempt's first state has been entered."""
+    """How many times the machine's rounds state has been entered."""
     return self._record.round
 
   @property
@@ -813,6 +813,7 @@ class Machine:
     max_cost_usd: float | None = None,
     deliverables: Mapping[str, Deliverable] | None = None,
     spent_usd: Callable[[Attempt], float] | None = None,
+    rounds: str | None = None,
   ) -> None:
     """Make a machine.
 
@@ -832,13 +833,21 @@ class Machine:
         model call the attempt starts, since nothing else is added to it.
         Read before each state's cost cap and before each on_step. None
         for recorded_usd, what the recorded actions report.
+      rounds: The name of the state whose visits count the rounds: a visit's
+        round is how many times that state had been entered when the visit
+        began, this visit included, 0 before its first visit. None for the
+        first state, which a machine whose first state only dispatches does
+        not want.
 
     Raises:
       ValueError: When a deliverable is not well formed or names an unknown
-        state.
+        state, or rounds names an unknown state.
     """  # noqa: DOC502
     self.states: list[State] = list(states)
     self._by_name: dict[str, State] = _check_states(self.states)
+    if rounds is not None and rounds not in self._by_name:
+      raise ValueError(f"rounds names unknown {rounds}")
+    self.rounds: str = self.states[0].name if rounds is None else rounds
     self.deliverables: dict[str, Deliverable] = dict(deliverables or {})
     check_deliverables(self.deliverables, set(self._by_name))
     self._guard: Guard | None = guard
@@ -1107,7 +1116,7 @@ class Machine:
     state: State,
     report: Report | None,
   ) -> Attempt:
-    first = self.states[0].name
+    counted = self.rounds
 
     # A visit's actions call it one at a time (Context); the loop calls it
     # only while none runs.
@@ -1118,7 +1127,7 @@ class Machine:
 
     while True:
       visit = visits[state.name] + 1
-      round_ = visit if state.name == first else visits[first]
+      round_ = visit if state.name == counted else visits[counted]
       record = Visit(state.name, visit, round=round_)
       ctx = Context(attempt, artifacts, record, report, changed=step)
       if (blocked := self._blocked(ctx, state, closed)) is not None:
