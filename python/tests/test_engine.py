@@ -1142,6 +1142,20 @@ def test_rounds_naming_an_unknown_state_is_an_error() -> None:
     _ = _seeded("nowhere")
 
 
+def test_a_resume_goes_on_counting_rounds_by_the_rounds_state(
+  tmp_path: Path,
+) -> None:
+  whole = _seeded("work").run(tmp_path / "whole")
+  record = cut(as_json(whole), 2)
+  assert [v["round"] for v in visits_of(record)] == [0, 1]
+  resumed = _seeded("work").resume(
+    Attempt.from_json(tmp_path / "whole", record)
+  )
+  assert [(v.state, v.round) for v in resumed.visits] == [
+    (v.state, v.round) for v in whole.visits
+  ]
+
+
 def test_each_visit_records_its_round(tmp_path: Path) -> None:
   def check(ctx: Context) -> Outcome:
     if ctx.round == 1:
