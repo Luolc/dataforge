@@ -61,24 +61,26 @@ _KEPT = re.compile(
   rf"[A-Za-z_$][\w$]*|{FRAMEWORK_MODULES.pattern}|[\w$.-]*matchers-object[\w$.-]*"
 )
 _REGEX_AFTER = re.compile(
-  r"(?:^|[^\w$)\]}\"'`]|\b(?:return|typeof|case|do|else|in|of|new|delete"
+  r"(?:^|[^\w$)\]}\"'`\s]|\b(?:return|typeof|case|do|else|in|of|new|delete"
   + r"|void|throw|yield|await))\s*$"
 )
 _NAMES = "|".join(sorted(FRAMEWORK_GLOBALS))
 _GLOBAL = r"(?<![\w$.])(?:globalThis|global|window)"
+# Where a rule's framework name starts: alone or on the global object.
+_FROM = rf"(?:{_GLOBAL}\.|(?<![\w$.]))"
 _SET = r"\s*(?:\?\?|\|\||&&)?=(?![=>])"
 _RULES = (
   re.compile(
-    r"(?<![\w$.])expect\.(?:extend|addSnapshotSerializer"
+    rf"{_FROM}expect\.(?:extend|addSnapshotSerializer"
     + r"|addEqualityTesters|setState|prototype)\b"
   ),
   re.compile(
-    r"(?<![\w$.])(?:chai\.(?:use|Assertion)|jasmine\.[\w$]+|Assertion\."
+    rf"{_FROM}(?:chai\.(?:use|Assertion)|jasmine\.[\w$]+|Assertion\."
     + r"(?:add|overwrite)(?:Method|Property|ChainableMethod))\b"
   ),
   re.compile(rf"{_GLOBAL}\.(?:{_NAMES}){_SET}"),
   re.compile(
-    rf"(?<![\w$.])(?:expect|assert|chai|jasmine|jest|should)\.[\w$.]+{_SET}"
+    rf"{_FROM}(?:expect|assert|chai|jasmine|jest|should)\.[\w$.]+{_SET}"
   ),
   re.compile(
     rf"\b(?:Object|Reflect)\.(?:defineProperty|set)\({_GLOBAL},\"(?:{_NAMES})\""
@@ -87,17 +89,22 @@ _RULES = (
     rf"\bObject\.(?:assign|defineProperties)\({_GLOBAL},\{{[^}}]*?"
     + rf"(?<![\w$])(?:{_NAMES})\b"
   ),
-  re.compile(r"\bsetPrototypeOf\((?:expect|assert|chai|jasmine|Assertion)\b"),
+  re.compile(
+    rf"\bsetPrototypeOf\((?:{_GLOBAL}\.)?(?:expect|assert|chai|jasmine"
+    + r"|Assertion)\b"
+  ),
   re.compile(r"\"[^\"]*matchers-object[^\"]*\""),
 )
 _IMPORT = re.compile(
-  rf"\b(?:from|import|require) ?\(? ?\"({FRAMEWORK_MODULES.pattern})\""
+  r"\b(?:from|import|require) ?\(? ?\"(?!vitest/(?:config|node)\")"
+  + rf"({FRAMEWORK_MODULES.pattern})\""
 )
 _IMPORTED_RULE = re.compile(
   r"[\w$]*\.(?:extend|use|prototype|(?:add|overwrite)(?:Method|Property"
   + r"|ChainableMethod)|add(?:Matchers|AsyncMatchers|SnapshotSerializer"
   + r"|EqualityTesters|CustomEqualityTester))\b"
   + r"|\b(?:setPrototypeOf|defineProperty|defineProperties|__proto__)\b"
+  + r"|(?<![\w$.])use\("
 )
 
 
@@ -178,6 +185,13 @@ def _code(text: str) -> str:
       out.append(c)
       i += 1
   code = " ".join("".join(out).split())
+  # TypeScript's casts of the global object, `(globalThis as T)` and
+  # `(<T>globalThis)`, read as the object.
+  code = re.sub(
+    r"\((?:<[^()]*?> ?)?(globalThis|global|window)(?: as [^()]*?)?\)",
+    r"\1",
+    code,
+  )
   code = re.sub(r"\s*\[\s*\"([A-Za-z_$][\w$]*)\"\s*\]", r".\1", code)
   code = re.sub(r"\s*\??\.\s*(?=[A-Za-z_$\"])", ".", code)
   return re.sub(r"([(\[{,])\s+|\s+(?=[)\]},(])", r"\1", code)

@@ -32,7 +32,7 @@ _RULES = (
   re.compile(r"\bregister_assert_rewrite\b"),
   re.compile(r"(?<![\w.])_pytest\b"),
   re.compile(r"\bpytest\.hookimpl\b|\bHookimplMarker\(\"pytest\""),
-  re.compile(r"\bpluginmanager\b"),
+  re.compile(r"\bconfig\.pluginmanager\b"),
   re.compile(
     r"\bsys\.modules(?:\[|\.(?:setdefault|update|pop|__setitem__"
     + rf"|__delitem__)\(|,)\{{?\"(?:{_MODULE}|pluggy)(?:\.[\w.]+)?\""
@@ -80,17 +80,24 @@ def _code(text: str) -> str:
 
 def _watched(code: str) -> set[str]:
   # WATCHED_MODULES, TestCase and each name code binds to one of the
-  # modules or to a name it imports from them.
+  # modules or to a name it imports from them, but unittest.mock's, whose
+  # objects assert nothing.
   found = {*WATCHED_MODULES, "__builtins__", "TestCase"}
   for m in re.finditer(r"\bfrom\s+([\w.]+)\s+import\s+(\([^)]*|[^\n;]*)", code):
-    if m[1].split(".")[0] in WATCHED_MODULES:
+    if m[1].split(".")[0] in WATCHED_MODULES and m[1] != "unittest.mock":
       for name in m[2].strip("()").split(","):
-        found.update(name.split()[-1:])
+        found.update(n for n in name.split()[-1:] if n != "mock")
   for m in re.finditer(r"(?<![\w.])import\s+([^\n;]*)", code):
     for name in m[1].split(","):
       words = name.split()
       if len(words) == 3 and words[0].split(".")[0] in WATCHED_MODULES:
         found.add(words[2])
+  for m in re.finditer(
+    r"(\w+)\s*=\s*(?:__import__|(?:importlib\.)?import_module)\(\s*\"([\w.]+)\"",
+    code,
+  ):
+    if m[2].split(".")[0] in WATCHED_MODULES:
+      found.add(m[1])
   return {n for n in found if n.isidentifier()}
 
 
@@ -107,11 +114,12 @@ def rewires(path: str, added: str) -> str | None:
 
   Returns:
     In a file of SOURCES, the code that defines a pytest hook or names
-    pytest's plugins, its assertion rewriting, its internals or its
-    hook markers; replaces one of WATCHED_MODULES in sys.modules; sets,
-    deletes or patches a member of one of them, of unittest's TestCase,
-    of `__builtins__` or of a name the lines import from one of them;
-    None for none.
+    pytest's plugins, its assertion rewriting, its internals, its hook
+    markers or its plugin manager; replaces one of WATCHED_MODULES in
+    sys.modules; sets, deletes or patches a member of one of them, of
+    unittest's TestCase, of `__builtins__` or of a name the lines import
+    from one of them, but from unittest.mock, or bind to one; None for
+    none.
   """
   if not path.endswith(SOURCES):
     return None
@@ -124,10 +132,14 @@ def rewires(path: str, added: str) -> str | None:
       if m := rule.search(code):
         return m[0]
     names = "|".join(sorted(_watched(lines)))
-    member = rf"(?<![\w.])(?:{names})(?:\.\w+|\[[^\]]*\])+"
+    base = rf"(?:vars\((?:{names})\)|(?<![\w.])(?:{names}))"
+    member = rf"{base}(?:\.\w+|\[[^\]]*\])+"
     if m := re.search(
       rf"{member}\s*(?:[-+*/%&|^@]|//|\*\*|<<|>>)?=(?!=)|\bdel {member}"
-      + r"|\b(?:setattr|delattr|patch\.object|patch\.multiple)\("
+      + rf"|{base}(?:\.\w+)*?(?:\.__dict__)?\.(?:update|setdefault|pop"
+      + r"|__setitem__|__delitem__)\("
+      + r"|(?:\bsetattr|\bdelattr|\b__setattr__|\b__delattr__|\bpatch\.object"
+      + r"|\bpatch\.multiple)\("
       + rf"(?:{names}|sys\.modules\[\"(?:{_MODULE})\"\])\b",
       code,
     ):

@@ -223,6 +223,13 @@ def test_a_fix_that_rewires_tests_is_found(
     ("globalThis.expect = fake;", "globalThis.expect ="),
     ('window["expect"] ??= fake;', "window.expect ??="),
     ("global.it = function () {};", "global.it ="),
+    ("(globalThis as any).expect = fake;", "globalThis.expect ="),
+    ("(global as unknown as G).it = f;", "global.it ="),
+    ("(<any>window).expect = fake;", "window.expect ="),
+    ("globalThis.expect.extend({ toBe: ok });", "globalThis.expect.extend"),
+    ("globalThis.expect.toBe = f;", "globalThis.expect.toBe ="),
+    ("const half = total / 2; globalThis.expect = f;", "globalThis.expect ="),
+    ('import { use } from "chai";\nuse(plugin);', 'use(, with "chai" imported'),
     (
       'Object.defineProperty(globalThis, "describe", { value: d });',
       'Object.defineProperty(globalThis,"describe"',
@@ -264,6 +271,11 @@ def test_a_fix_that_rewires_tests_is_found(
       None,
     ),
     ("request(app).get('/').expect(200);", None),
+    (
+      'import { defineConfig } from "vitest/config";\n'
+      + "export default defineConfig(base.extend({}));",
+      None,
+    ),
   ],
 )
 def test_a_js_fix_that_rewires_tests_is_found(added: str, found: str | None):
@@ -307,12 +319,19 @@ def test_a_js_fix_that_rewires_tests_is_found(added: str, found: str | None):
     ('pytest.register_assert_rewrite("pkg")', "register_assert_rewrite"),
     ("from _pytest import assertion", "_pytest"),
     ("@pytest.hookimpl(tryfirst=True)\ndef f():\n  pass", "pytest.hookimpl"),
-    ("config.pluginmanager.register(p)", "pluginmanager"),
+    ("config.pluginmanager.register(p)", "config.pluginmanager"),
     (
       'mock.patch("unittest.TestCase.assertEqual", f).start()',
       'patch("unittest.TestCase.assertEqual"',
     ),
     ('monkeypatch.setattr("pytest.approx", f)', 'setattr("pytest.approx"'),
+    ('b = __import__("builtins")\nb.print = f', "b.print ="),
+    ('vars(builtins)["print"] = f', 'vars(builtins)["print"] ='),
+    ("builtins.__dict__.update(print=f)", "builtins.__dict__.update("),
+    (
+      'type.__setattr__(unittest.TestCase, "assertEqual", f)',
+      "__setattr__(unittest",
+    ),
     # Lines added inside a docstring of the lines before them, which they
     # close and open again.
     ('"""\nbuiltins.print = f\n"""', "builtins.print ="),
@@ -327,6 +346,9 @@ def test_a_js_fix_that_rewires_tests_is_found(added: str, found: str | None):
     ("class Check:\n  def assertValid(self):\n    self.ok = True", None),
     ("ok = pytest.approx(1.0) == y\nself.assertEqual(a, b)", None),
     ('from unittest import mock\nwith mock.patch("pkg.fn"):\n  pass', None),
+    ("from unittest import mock\nmock.DEFAULT = 1", None),
+    ("from unittest.mock import MagicMock\nMagicMock.return_value = 3", None),
+    ('self.pluginmanager = PluginManager("app")', None),
   ],
 )
 def test_a_python_fix_that_rewires_tests_is_found(
@@ -404,6 +426,7 @@ def test_a_copy_has_a_languages_checks_only_with_its_module(
     (("node",), ["a.py"], ["pyguard"]),
     ((), ["src/a.tsx", "b.cjs"], ["jsguard"]),
     ((), ["setup.py"], ["pyguard"]),
+    (("go",), ["go.mod", "web/app.ts"], ["gotest", "jsguard"]),
     ((), ["a.pyi", "a.json", "a.vue"], []),
     ((), ["include/a.hpp"], ["cpp"]),
     ((), ["src/a.cxx"], ["cpp"]),
