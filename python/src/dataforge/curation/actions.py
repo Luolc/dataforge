@@ -1392,6 +1392,10 @@ class ScriptSpec:
 VERDICT = "verdict.json"
 """The file a judge writes in its output directory."""
 
+RETRY = "retry-{call}.json"
+"""The file a retry script (Actions.retry) writes in its output directory, by
+the number of its call in the visit."""
+
 
 @dataclass(frozen=True)
 class Judge:
@@ -1663,7 +1667,11 @@ class Actions:
     )
 
   def judge(
-    self, ctx: Context, judge: Judge, inputs: Sequence[Input] = ()
+    self,
+    ctx: Context,
+    judge: Judge,
+    inputs: Sequence[Input] = (),
+    variables: Mapping[str, str] | None = None,
   ) -> Verdict:
     """Run a judge on the host and read its verdict.
 
@@ -1671,6 +1679,7 @@ class Actions:
       ctx: The visit's context.
       judge: The judge.
       inputs: More inputs, after those of its spec.
+      variables: More environment variables, such as DATAFORGE_RETRY_ROOM.
 
     Returns:
       The verdict.
@@ -1684,21 +1693,7 @@ class Actions:
       inputs=[*judge.spec.inputs, *inputs],
       outputs=list(dict.fromkeys([*judge.spec.outputs, VERDICT])),
     )
-    record = ctx.attempt.root / "records" / ctx.state / f"{ctx.visit}.json"
-    record.parent.mkdir(parents=True, exist_ok=True)
-    _ = record.write_text(json.dumps(ctx.attempt.to_json()))
-    ran = self._run(
-      ctx,
-      spec,
-      HOST,
-      {
-        "DATAFORGE_ROOT": str(ctx.attempt.root),
-        "DATAFORGE_STATE": ctx.state,
-        "DATAFORGE_VISIT": str(ctx.visit),
-        "DATAFORGE_ROUND": str(ctx.round),
-        "DATAFORGE_RECORD": str(record),
-      },
-    )
+    ran = self._run(ctx, spec, HOST, _judge_variables(ctx, variables))
     done = ran.done
     verdict, why = None, f"the judge exited {done.exit_code}"
     if done.exit_code == 0:
@@ -1728,6 +1723,71 @@ class Actions:
     if verdict is None:
       raise JudgeError(f"{ctx.state} visit {ctx.visit}: {why}\n{done.log}")
     return verdict
+
+  def retry(
+    self,
+    ctx: Context,
+    spec: ScriptSpec,
+    inputs: Sequence[Input],
+    *,
+    k: int,
+    room: int,
+    call: int,
+  ) -> list[int]:
+    """Run a script on the host that chooses which of k slots run again.
+
+    It runs as a judge does, with DATAFORGE_RETRY_ROOM, the most slots it may
+    choose, and DATAFORGE_RETRY_FILE, RETRY with the call's number, the file
+    it writes in DATAFORGE_OUTPUTS: {"retry": [slot, ...]}, each slot from 0
+    and below k, none twice and no more than room; an empty list chooses
+    none.
+
+    Args:
+      ctx: The visit's context.
+      spec: The script; it has no outputs of its own.
+      inputs: More inputs, after those of its spec.
+      k: How many slots there are.
+      room: The most slots it may choose.
+      call: How many times the visit has run it, this time included.
+
+    Returns:
+      The slots it chose, in its order.
+
+    Raises:
+      JudgeError: When it exits non-zero or writes no valid file; the action
+        is recorded as failed first.
+    """
+    name = RETRY.format(call=call)
+    spec = dataclasses.replace(
+      spec, inputs=[*spec.inputs, *inputs], outputs=[name]
+    )
+    variables = {
+      "DATAFORGE_RETRY_ROOM": str(room),
+      "DATAFORGE_RETRY_FILE": name,
+    }
+    ran = self._run(ctx, spec, HOST, _judge_variables(ctx, variables))
+    done = ran.done
+    slots, why = None, f"the script exited {done.exit_code}"
+    if done.exit_code == 0:
+      try:
+        slots = _retry_slots(ctx.outdir / name, k, room)
+      except JudgeError as error:
+        why = f"{name}: {error}"
+    log = done.log if slots is not None else f"{done.log}\n{why}"
+    _ = _finish(
+      ctx,
+      "script",
+      ran.index,
+      ran.started_at,
+      spec.outputs,
+      slots is not None,
+      log,
+      summary=ran.summary,
+      optional=spec.optional_outputs,
+    )
+    if slots is None:
+      raise JudgeError(f"{ctx.state} visit {ctx.visit}: {why}\n{done.log}")
+    return slots
 
   def _run(
     self,
@@ -1773,6 +1833,7 @@ class Actions:
     agent: TrialAgent,
     limits: Limits,
     source: Path | None = None,
+    replaces: str | None = None,
   ) -> TrialResult:
     """Run one trial.
 
@@ -1784,6 +1845,8 @@ class Actions:
       limits: Its limits.
       source: The trial, inside the attempt's directory, whose output this
         one judges again, if it judges one.
+      replaces: The output of the trial of this visit whose place this one
+        takes, if it takes one's.
 
     Returns:
       Its result.
@@ -1801,7 +1864,10 @@ class Actions:
       not source.is_relative_to(root) or ".." in source.relative_to(root).parts
     ):
       raise ValueError(f"{name}: source {source} is not inside the attempt")
-    _, started_at = ctx.claim([name], trial=True), datetime.now(UTC)
+    _, started_at = (
+      ctx.claim([name], trial=True, replaces=replaces),
+      datetime.now(UTC),
+    )
     outdir = ctx.outdir / name
     outdir.mkdir()
     with _reserve(self.pool, runner.memory_gb(limits)):
@@ -1814,14 +1880,18 @@ class Actions:
       started_at,
       datetime.now(UTC),
       result.cost_usd,
-      trial=_trial_record(name, outdir, result, source),
+      trial=_trial_record(name, outdir, result, source, replaces),
     )
     ctx.record(record)
     return result
 
 
 def _trial_record(
-  name: str, outdir: Path, result: TrialResult, source: Path | None
+  name: str,
+  outdir: Path,
+  result: TrialResult,
+  source: Path | None,
+  replaces: str | None,
 ) -> TrialRecord:
   # The record names paths relative to the attempt's root, so only paths
   # inside the trial's output directory are kept.
@@ -1838,6 +1908,7 @@ def _trial_record(
     result.exception,
     source,
     inside(result.log),
+    replaces,
   )
 
 
@@ -2204,6 +2275,50 @@ def _summary(path: Path) -> str | None:
     f"{text}\n\n(cut off: the summary has {status.st_size} bytes, over the"
     f" {SUMMARY_LIMIT} kept)"
   )
+
+
+def _judge_variables(
+  ctx: Context, more: Mapping[str, str] | None
+) -> dict[str, str]:
+  # What a judge or a retry script gets, with the record so far written for
+  # it to read.
+  record = ctx.attempt.root / "records" / ctx.state / f"{ctx.visit}.json"
+  record.parent.mkdir(parents=True, exist_ok=True)
+  _ = record.write_text(json.dumps(ctx.attempt.to_json()))
+  return {
+    "DATAFORGE_ROOT": str(ctx.attempt.root),
+    "DATAFORGE_STATE": ctx.state,
+    "DATAFORGE_VISIT": str(ctx.visit),
+    "DATAFORGE_ROUND": str(ctx.round),
+    "DATAFORGE_RECORD": str(record),
+    **(more or {}),
+  }
+
+
+def _retry_slots(path: Path, k: int, room: int) -> list[int]:
+  try:
+    raw = cast("object", json.loads(path.read_text()))
+  except (OSError, json.JSONDecodeError) as error:
+    raise JudgeError(f"not valid JSON: {error}") from error
+  if not isinstance(raw, dict) or list(cast(dict[str, object], raw)) != [
+    "retry"
+  ]:
+    raise JudgeError('not {"retry": [slot, ...]}')
+  slots = cast(dict[str, object], raw)["retry"]
+  if not isinstance(slots, list):
+    raise JudgeError("retry is not a list")
+  found: list[int] = []
+  for slot in cast(list[object], slots):
+    if isinstance(slot, bool) or not isinstance(slot, int):
+      raise JudgeError(f"slot {slot!r} is not an integer")
+    if not 0 <= slot < k:
+      raise JudgeError(f"slot {slot} is not one of the {k}")
+    if slot in found:
+      raise JudgeError(f"slot {slot} is named twice")
+    found.append(slot)
+  if len(found) > room:
+    raise JudgeError(f"{len(found)} slots, more than the room for {room}")
+  return found
 
 
 def _verdict(path: Path) -> Verdict:

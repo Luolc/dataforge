@@ -54,6 +54,12 @@ export const NO_VERDICT: { label: string; tone: Tone } = {
   tone: "neutral",
 };
 
+/**
+ * The mark beside a trial's status when another trial of its visit took its
+ * place, so that the deliverable does not count it.
+ */
+export const SUPERSEDED = "superseded";
+
 /** The mark beside a trial's status when it also ended on an exception. */
 export const WITH_EXCEPTION = EXCEPTION;
 

@@ -27,10 +27,13 @@ from dataforge.curation import (
   Env,
   Goto,
   Judge,
+  JudgeError,
   JudgeState,
   Limits,
   Machine,
   Outcome,
+  pass_at_k_name,
+  pass_at_k_slot,
   PassAtKState,
   Report,
   Review,
@@ -641,8 +644,14 @@ def test_pass_at_k_with_a_judge_takes_its_verdict(tmp_path: Path) -> None:
 
   class Seen(PassAtKState):
     @override
-    def outcomes(self, ctx: Context, results: Sequence[TrialResult]) -> Outcome:
-      seen.append(super().outcomes(ctx, results))
+    def outcomes(
+      self,
+      ctx: Context,
+      results: Sequence[TrialResult],
+      tried: Sequence[str] | None = None,
+      room: int | None = None,
+    ) -> Outcome:
+      seen.append(super().outcomes(ctx, results, tried, room))
       return seen[-1]
 
   state = Seen(
@@ -673,6 +682,320 @@ def test_pass_at_k_with_a_judge_takes_its_verdict(tmp_path: Path) -> None:
   assert kinds[-1] == ("judge", "ok")
   verdict = attempt.visits[0].outputs["verdict.json"]
   assert json.loads(verdict.read_text())["outcome"] == "too_easy"
+
+
+RETRY = """\
+import json, os, pathlib, sys
+plan = pathlib.Path(sys.argv[1])
+calls = json.loads(plan.read_text())
+call = os.environ["DATAFORGE_RETRY_FILE"]
+seen = {
+  "file": call,
+  "room": int(os.environ["DATAFORGE_RETRY_ROOM"]),
+  "args": [pathlib.Path(arg).name for arg in sys.argv[2:]],
+}
+with plan.with_suffix(".log").open("a") as log:
+  log.write(json.dumps(seen) + "\\n")
+n = int(call.removeprefix("retry-").removesuffix(".json"))
+slots = calls[n - 1] if n <= len(calls) else []
+out = pathlib.Path(os.environ["DATAFORGE_OUTPUTS"])
+(out / call).write_text(json.dumps({"retry": slots}))
+"""
+
+ROOM_JUDGE = """\
+import json, os, pathlib, sys
+verdict = {
+  "outcome": "judged",
+  "data": {
+    "args": [pathlib.Path(arg).name for arg in sys.argv[1:]],
+    "room": os.environ.get("DATAFORGE_RETRY_ROOM"),
+  },
+}
+out = pathlib.Path(os.environ["DATAFORGE_OUTPUTS"])
+(out / "verdict.json").write_text(json.dumps(verdict))
+"""
+
+
+def priced(
+  reward: float, exception: str | None = None, cost_usd: float = 0.0
+) -> TrialResult:
+  return TrialResult({"reward": reward}, exception, cost_usd, 1.0, {})
+
+
+def retrying(
+  tmp_path: Path,
+  results: dict[str, TrialResult],
+  plan: list[list[int]],
+  *,
+  max_cost_usd: float = 4.0,
+  max_retries: int = 12,
+  judged: bool = False,
+) -> tuple[PassAtKState, Trials, Path]:
+  script, file = tmp_path / "retry.py", tmp_path / "plan.json"
+  _ = script.write_text(RETRY)
+  _ = file.write_text(json.dumps(plan))
+  judge = None
+  if judged:
+    _ = (tmp_path / "judge.py").write_text(ROOM_JUDGE)
+    judge = Judge(
+      ScriptSpec([sys.executable, "-I", str(tmp_path / "judge.py")])
+    )
+  trials = Trials(results)
+  state = PassAtKState(
+    "p",
+    {**ENDS, "judged": End("judged")},
+    actions=Actions(trial_runner=trials),
+    task_dir=tmp_path,
+    agent="solver",
+    limits=Limits(1.0),
+    k=4,
+    judge=judge,
+    retry=ScriptSpec([sys.executable, "-I", str(script)], inputs=[file]),
+    max_retries=max_retries,
+    max_cost_usd=max_cost_usd,
+  )
+  return state, trials, file.with_suffix(".log")
+
+
+def calls_of(log: Path) -> list[dict[str, object]]:
+  if not log.exists():
+    return []
+  return [json.loads(line) for line in log.read_text().splitlines()]
+
+
+FIRST = [f"trial-{i}" for i in range(4)]
+
+
+def test_pass_at_k_runs_a_slot_the_retry_chooses_again_in_its_place(
+  tmp_path: Path,
+) -> None:
+  results = {
+    "trial-0": priced(1.0, cost_usd=0.5),
+    "trial-1": priced(0.0, cost_usd=0.5),
+    "trial-2": priced(0.0, "UnknownApiError: overloaded", 0.5),
+    "trial-3": priced(0.0, cost_usd=0.5),
+    "trial-2-r1": priced(1.0, cost_usd=0.5),
+  }
+  state, trials, log = retrying(tmp_path, results, [[2]])
+  attempt = Machine([state]).run(tmp_path / "a")
+  # Counted on each slot's last trial, the errored one replaced.
+  assert attempt.status == "in_range"
+  assert attempt.visits[0].data == {
+    "solved": 2,
+    "errors": 0,
+    "faults": {},
+    "k": 4,
+  }
+  assert len(trials.agents) == 5
+  # $2 of $4 spent left room for 2 shares of $1, then $2.50 for 1.
+  assert calls_of(log) == [
+    {"file": "retry-1.json", "room": 2, "args": FIRST},
+    {"file": "retry-2.json", "room": 1, "args": [*FIRST, "trial-2-r1"]},
+  ]
+  ran = [a for a in attempt.visits[0].actions if a.trial is not None]
+  assert [(a.trial and a.trial.replaces) for a in ran] == [
+    *[None] * 4,
+    "trial-2",
+  ]
+
+
+def test_pass_at_k_runs_several_slots_again_until_the_retry_chooses_none(
+  tmp_path: Path,
+) -> None:
+  names = [*FIRST, "trial-1-r1", "trial-3-r1", "trial-3-r2"]
+  results = {name: priced(0.0) for name in names}
+  state, trials, log = retrying(tmp_path, results, [[3, 1], [3]], judged=True)
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert attempt.status == "judged"
+  # The judge gets every trial, in the order they started, and the room.
+  assert attempt.visits[0].data == {"args": names, "room": "4"}
+  assert [call["args"] for call in calls_of(log)] == [
+    FIRST,
+    names[:6],
+    names,
+  ]
+  assert len(trials.agents) == 7
+  assert [pass_at_k_slot(name) for name in names] == [
+    (0, 0),
+    (1, 0),
+    (2, 0),
+    (3, 0),
+    (1, 1),
+    (3, 1),
+    (3, 2),
+  ]
+  assert pass_at_k_slot("trial-1-r0") is None
+  assert pass_at_k_name(3, 2) == "trial-3-r2"
+
+
+def test_pass_at_k_runs_nothing_again_with_no_room_and_its_judge_is_told(
+  tmp_path: Path,
+) -> None:
+  results = {
+    "trial-0": priced(1.0, cost_usd=1.0),
+    "trial-1": priced(0.0, cost_usd=1.0),
+    "trial-2": priced(0.0, "UnknownApiError: overloaded", 1.0),
+    "trial-3": priced(0.0, cost_usd=0.5),
+  }
+  state, trials, log = retrying(tmp_path, results, [[2]], judged=True)
+  attempt = Machine([state]).run(tmp_path / "a")
+  # $3.50 of $4 spent leaves no room for a share of $1.
+  assert attempt.visits[0].data == {"args": FIRST, "room": "0"}
+  assert calls_of(log) == []
+  assert len(trials.agents) == 4
+
+
+def test_pass_at_k_counts_what_the_machine_measures_beyond_what_trials_report(
+  tmp_path: Path,
+) -> None:
+  results = {name: priced(0.0, "UnknownApiError: overloaded") for name in FIRST}
+  state, _, log = retrying(tmp_path, results, [[0]])
+
+  def spent_usd(attempt: Attempt) -> float:
+    # Each trial cost $0.80, though it reported nothing.
+    return 0.8 * sum(
+      a.kind == "trial" for v in attempt.visits for a in v.actions
+    )
+
+  attempt = Machine([state], spent_usd=spent_usd).run(tmp_path / "a")
+  assert attempt.status == "error"
+  assert calls_of(log) == []
+
+
+def test_pass_at_k_runs_no_more_trials_again_than_max_retries(
+  tmp_path: Path,
+) -> None:
+  # Trials that cost nothing leave the reserve as it was.
+  failed = priced(0.0, "HarborNotStarted: Harbor did not start the trial")
+  names = [*FIRST, "trial-0-r1", "trial-0-r2", "trial-0-r3"]
+  results = dict.fromkeys(names, failed)
+  state, trials, log = retrying(
+    tmp_path, results, [[0]] * 10, max_retries=3, judged=True
+  )
+  attempt = Machine([state]).run(tmp_path / "a")
+  assert [call["room"] for call in calls_of(log)] == [3, 2, 1]
+  assert attempt.visits[0].data == {"args": names, "room": "0"}
+  assert len(trials.agents) == 7
+
+
+def test_a_subclass_written_before_retry_runs_as_it_did(
+  tmp_path: Path,
+) -> None:
+  ran: list[str] = []
+
+  class Before(PassAtKState):
+    # Overrides as they were written before retry existed.
+    @override
+    def trial(self, ctx: Context, name: str) -> TrialResult:  # pyright: ignore[reportIncompatibleMethodOverride]
+      ran.append(name)
+      return super().trial(ctx, name)
+
+    @override
+    def outcomes(  # pyright: ignore[reportIncompatibleMethodOverride]
+      self, ctx: Context, results: Sequence[TrialResult]
+    ) -> Outcome:
+      return super().outcomes(ctx, results)
+
+  trials = Trials({name: result(1.0) for name in FIRST})
+  state = Before(
+    "p",
+    ENDS,
+    actions=Actions(trial_runner=trials),
+    task_dir=tmp_path,
+    agent="solver",
+    limits=Limits(1.0),
+    k=4,
+  )
+  assert outcome_of(tmp_path / "a", state)[0] == "all_solved"
+  assert sorted(ran) == FIRST
+
+
+def test_a_retry_that_chooses_more_than_the_room_raises(tmp_path: Path) -> None:
+  results = {name: priced(0.0, cost_usd=0.5) for name in FIRST}
+  state, trials, _ = retrying(tmp_path, results, [[0, 1, 2]])
+  with pytest.raises(JudgeError, match="3 slots, more than the room for 2"):
+    _ = Machine([state]).run(tmp_path / "a")
+  assert len(trials.agents) == 4
+
+
+def test_a_retry_needs_bounds_and_names_no_outputs(tmp_path: Path) -> None:
+  def make(
+    retry: ScriptSpec, max_cost_usd: float, max_retries: int = 4
+  ) -> PassAtKState:
+    return PassAtKState(
+      "p",
+      ENDS,
+      actions=Actions(),
+      task_dir=tmp_path,
+      agent="solver",
+      limits=Limits(1.0),
+      k=4,
+      retry=retry,
+      max_retries=max_retries,
+      max_cost_usd=max_cost_usd,
+    )
+
+  with pytest.raises(ValueError, match="needs a max_retries"):
+    _ = make(ScriptSpec(["retry"]), 4.0, 0)
+  with pytest.raises(ValueError, match="needs a max_cost_usd"):
+    _ = make(ScriptSpec(["retry"]), 0.0)
+  with pytest.raises(ValueError, match="names no outputs"):
+    _ = make(ScriptSpec(["retry"], outputs=["slots.json"]), 4.0)
+
+
+class FailsOnce(State):
+  """Raises on its first visit, then ends the attempt."""
+
+  def __init__(self) -> None:
+    super().__init__("after", {"ok": End("passed")})
+    self.runs: int = 0
+
+  @override
+  def run(self, ctx: Context) -> Outcome:
+    self.runs += 1
+    if self.runs == 1:
+      raise RuntimeError("the machine went down")
+    return Outcome("ok")
+
+
+def test_a_resume_keeps_a_visit_that_ran_trials_again_as_it_was(
+  tmp_path: Path,
+) -> None:
+  results = {
+    **{name: priced(0.0) for name in FIRST},
+    "trial-1": priced(0.0, "UnknownApiError: overloaded"),
+    "trial-1-r1": priced(1.0),
+  }
+  state, trials, log = retrying(tmp_path, results, [[1]])
+  state.transitions = {"in_range": Goto("after")}
+  after = FailsOnce()
+  root = tmp_path / "a"
+  steps: list[dict[str, object]] = []
+
+  def machine() -> Machine:
+    return Machine(
+      [state, after],
+      on_step=lambda attempt: steps.append(attempt.to_json()),
+      deliverables={"runs": Deliverable("trials", "pass@k", Source("p"))},
+    )
+
+  with pytest.raises(RuntimeError):
+    _ = machine().run(root)
+  resumed = machine().resume(Attempt.from_json(root, steps[-1]))
+  assert resumed.status == "passed"
+  # Nothing of the kept visit ran again, nor was spent again.
+  assert len(trials.agents) == 5
+  assert len(calls_of(log)) == 2
+  [entry] = cast(list[dict[str, object]], resumed.to_json()["deliverables"])
+  listed = cast(list[dict[str, object]], entry["trials"])
+  assert [(t["output"], t["superseded_by"]) for t in listed] == [
+    ("trial-0", None),
+    ("trial-1", "trial-1-r1"),
+    ("trial-1-r1", None),
+    ("trial-2", None),
+    ("trial-3", None),
+  ]
+  assert entry["k"] == 4
 
 
 def test_trials_state_runs_each_agent_its_number_of_times(

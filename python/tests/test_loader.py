@@ -4,6 +4,7 @@
 from collections.abc import Callable, Mapping
 import json
 from pathlib import Path
+import re
 import string
 import sys
 from typing import cast
@@ -1044,6 +1045,10 @@ states:
       judge:
         argv: [python, -m, example.judges, judge-pass-at-k]
         outcomes: [in_range, all_solved, none_solved, suspect, error]
+      retry:
+        argv: [python, -m, example.judges, retry-pass-at-k]
+        inputs: [task]
+      max_retries: 12
     feedback: |
       The host ran pass@4 on the task. ${reminder}
 
@@ -1243,6 +1248,10 @@ def by_hand(
           ScriptSpec(("python", "-m", "example.judges", "judge-pass-at-k")),
           ("in_range", "all_solved", "none_solved", "suspect", "error"),
         ),
+        retry=ScriptSpec(
+          ("python", "-m", "example.judges", "retry-pass-at-k"), ("task",)
+        ),
+        max_retries=12,
         feedback=(
           f"The host ran pass@4 on the task. {reminder}\n\n${{details}}\n"
         ),
@@ -1275,6 +1284,71 @@ def test_a_full_declaration_loads_as_the_same_machine_by_hand(
   assert [(type(s), vars(s)) for s in machine.states] == [
     (type(s), vars(s)) for s in expected.states
   ]
+
+
+def pass_at_k_doc(
+  retry: object, max_cost_usd: float, max_retries: object
+) -> Doc:
+  doc = base()
+  states_of(doc)["check"] = {
+    "uses": "pass-at-k",
+    "runner": "trials",
+    "max_cost_usd": max_cost_usd,
+    "with": {
+      "task_dir": "out",
+      "k": 4,
+      "agent": "solver",
+      "limits": {"memory_gb": 1},
+      "retry": retry,
+      **({} if max_retries is None else {"max_retries": max_retries}),
+    },
+    "transitions": {
+      name: {"end": name}
+      for name in ("all_solved", "none_solved", "in_range", "error")
+    },
+  }
+  return doc
+
+
+@pytest.mark.parametrize(
+  ("retry", "max_cost_usd", "max_retries", "error"),
+  [
+    pytest.param(
+      {"argv": ["retry"], "outputs": ["slots.json"]},
+      4.0,
+      4,
+      "states.check.with.retry.outputs: unknown field",
+      id="outputs",
+    ),
+    pytest.param(
+      {"argv": ["retry"]},
+      0.0,
+      4,
+      "a retry needs a max_cost_usd to bound it",
+      id="no-reserve",
+    ),
+    pytest.param(
+      {"argv": ["retry"]},
+      4.0,
+      None,
+      "a retry needs a max_retries to bound it",
+      id="no-max-retries",
+    ),
+    pytest.param(
+      {"argv": ["retry"]},
+      4.0,
+      0,
+      "states.check.with.max_retries: must be at least 1, not 0",
+      id="max-retries-0",
+    ),
+  ],
+)
+def test_a_retry_of_pass_at_k_names_no_outputs_and_needs_bounds(
+  retry: object, max_cost_usd: float, max_retries: object, error: str
+) -> None:
+  doc = pass_at_k_doc(retry, max_cost_usd, max_retries)
+  with pytest.raises(SpecError, match=re.escape(error)):
+    _ = load_doc(doc, bindings={"trials": Trials()})
 
 
 def test_dataforge_check_checks_a_declaration_without_running_it(

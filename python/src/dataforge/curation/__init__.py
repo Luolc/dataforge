@@ -71,6 +71,8 @@ from dataforge.curation.rubric import Review
 from dataforge.curation.states import (
   AgentState,
   JudgeState,
+  pass_at_k_name,
+  pass_at_k_slot,
   PassAtKState,
   RubricState,
   ScriptState,
@@ -147,6 +149,8 @@ __all__ = [
   "log_path",
   "measure",
   "mermaid",
+  "pass_at_k_name",
+  "pass_at_k_slot",
   "recorded_usd",
   "summary_path",
 ]

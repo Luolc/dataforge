@@ -12,6 +12,7 @@ from datetime import datetime, UTC
 import json
 import os
 from pathlib import Path
+import re
 import string
 from typing import cast, ClassVar, override
 
@@ -513,18 +514,27 @@ class TrialState(_ActionState):
     """
     return result.exception is None and result.rewards.get("reward", 0.0) >= 1.0
 
-  def trial(self, ctx: Context, name: str) -> TrialResult:
+  def trial(
+    self, ctx: Context, name: str, replaces: str | None = None
+  ) -> TrialResult:
     """Run one trial.
 
     Args:
       ctx: The visit's context.
       name: The name of the trial's output.
+      replaces: The output of the trial of this visit whose place it takes,
+        if it takes one's.
 
     Returns:
       The trial's result.
     """
     return self.actions.trial(
-      ctx, name, self.task_dir(ctx), self.agent(ctx), self.limits(ctx)
+      ctx,
+      name,
+      self.task_dir(ctx),
+      self.agent(ctx),
+      self.limits(ctx),
+      replaces=replaces,
     )
 
   def outcome(self, ctx: Context, result: TrialResult) -> Outcome:
@@ -560,7 +570,22 @@ class PassAtKState(TrialState):
   {"solved": n, "errors": m, "faults": {fault: count}, "k": k}, where errors
   counts the trials that cannot be judged and faults those of them by
   `trial_fault`, "unclear" for those with none. With a judge, the judge
-  decides instead, given the k trials' outputs as inputs.
+  decides instead, given the outputs of the visit's trials as inputs, in the
+  order they started.
+
+  With retry, a script (Actions.retry), the trial of each of the k slots
+  may run again in the same visit, in its place: after the k trials, and
+  after each time trials ran again, while there is room for one more trial
+  (room: the visit's reserve bounds what trials run again spend, and
+  max_retries how many run), the script, given the outputs of the visit's
+  trials so far as inputs, in the order they started, chooses the slots
+  that run again, at once and started in the order of slots, until it
+  chooses none.
+  The n-th run again of slot i is recorded as "trial-<i>-r<n>"
+  (pass_at_k_slot), whose record names the trial it replaces
+  (TrialRecord.replaces); the last trial of each slot is the one the
+  outcome counts, and the judge, if any, gets the room left as
+  DATAFORGE_RETRY_ROOM.
 
   Attributes:
     OUTCOMES: The outcomes it gives, before rename; with a judge, the
@@ -584,6 +609,8 @@ class PassAtKState(TrialState):
     limits: Limits,
     k: int,
     judge: Judge | None = None,
+    retry: ScriptSpec | None = None,
+    max_retries: int = 0,
     rename: Mapping[str, str] | None = None,
     feedback: str | None = None,
     max_cost_usd: float = 0.0,
@@ -603,9 +630,16 @@ class PassAtKState(TrialState):
       limits: The limits of each trial.
       k: How many trials run.
       judge: What decides the outcome in place of counting, if anything.
+      retry: What chooses the slots whose trial runs again, if any do; it
+        names no outputs.
+      max_retries: With a retry, the most trials one visit runs again.
       rename: A new name for each outcome that is to have one, by its name.
       feedback: The state's feedback template.
       max_cost_usd: The most one visit may spend, in US dollars.
+
+    Raises:
+      ValueError: When retry names outputs or builds, or there is a retry
+        and no max_cost_usd or max_retries to bound it.
     """
     super().__init__(
       name,
@@ -620,8 +654,18 @@ class PassAtKState(TrialState):
       feedback=feedback,
       max_cost_usd=max_cost_usd,
     )
+    if retry is not None and (
+      retry.outputs or retry.optional_outputs or retry.build
+    ):
+      raise ValueError(f"{name}: a retry names no outputs and builds nothing")
+    if retry is not None and max_cost_usd <= 0:
+      raise ValueError(f"{name}: a retry needs a max_cost_usd to bound it")
+    if retry is not None and max_retries < 1:
+      raise ValueError(f"{name}: a retry needs a max_retries to bound it")
     self.k: int = k
     self.judge: Judge | None = judge
+    self.retry: ScriptSpec | None = retry
+    self.max_retries: int = max_retries
 
   @override
   def given_outcomes(self) -> frozenset[str] | None:
@@ -629,19 +673,53 @@ class PassAtKState(TrialState):
       return _judge_outcomes(self.judge)
     return self.OUTCOMES
 
-  def outcomes(self, ctx: Context, results: Sequence[TrialResult]) -> Outcome:
+  def room(self, spent: float, retried: int) -> int:
+    """Count the trials the visit still has room to run again.
+
+    Each trial has a share of max_cost_usd, divided by k; the room is how
+    many shares fit in what is left of it, and no more than what is left of
+    max_retries. The share bounds what a trial run again spends only when
+    max_cost_usd is at least k times each trial's own spend cap.
+
+    Args:
+      spent: What the visit has spent, in US dollars.
+      retried: How many trials the visit has run again.
+
+    Returns:
+      The number of trials, 0 when none fits.
+    """
+    share = self.max_cost_usd / self.k
+    shares = int((self.max_cost_usd - spent) / share + 1e-9)
+    return max(min(shares, self.max_retries - retried), 0)
+
+  def outcomes(
+    self,
+    ctx: Context,
+    results: Sequence[TrialResult],
+    tried: Sequence[str] | None = None,
+    room: int | None = None,
+  ) -> Outcome:
     """Turn the results of the k trials into the visit's outcome.
 
     Args:
       ctx: The visit's context.
-      results: The trials' results.
+      results: The result of each slot's last trial, in the order of slots.
+      tried: The outputs of the visit's trials, in the order they started;
+        None for "trial-0" to "trial-<k-1>".
+      room: The trials the visit still has room to run again, given to the
+        judge, with a retry.
 
     Returns:
       The outcome.
     """
     if self.judge is not None:
-      names = [f"trial-{i}" for i in range(len(results))]
-      return _judged(self.actions.judge(ctx, self.judge, names))
+      names = (
+        list(tried)
+        if tried is not None
+        else [pass_at_k_name(i) for i in range(len(results))]
+      )
+      variables = None if room is None else {"DATAFORGE_RETRY_ROOM": str(room)}
+      return _judged(self.actions.judge(ctx, self.judge, names, variables))
     stopped = [r.exception for r in results if not trial_judged(r.exception)]
     solved = sum(self.solved(result) for result in results)
     faults = Counter(trial_fault(e) or "unclear" for e in stopped)
@@ -660,11 +738,79 @@ class PassAtKState(TrialState):
 
   @override
   def run(self, ctx: Context) -> Outcome:
-    def one(i: int) -> Callable[[], TrialResult]:
-      return lambda: self.trial(ctx, f"trial-{i}")
+    # What the visit spent: what its trials report, or more when the
+    # machine's measure of the attempt's spend has grown by more, as it
+    # does for a trial that reported no cost.
+    start = ctx.attempt.cost_usd
 
-    results = fan_out([one(i) for i in range(self.k)])
-    return self.renamed(self.outcomes(ctx, results))
+    def one(name: str) -> Callable[[], TrialResult]:
+      return lambda: self.trial(ctx, name)
+
+    def again(name: str, replaces: str) -> Callable[[], TrialResult]:
+      return lambda: self.trial(ctx, name, replaces)
+
+    names = [pass_at_k_name(i) for i in range(self.k)]
+    results = fan_out([one(name) for name in names])
+    if self.retry is None:
+      # As a subclass written before retry calls and overrides them.
+      return self.renamed(self.outcomes(ctx, results))
+    tried, runs = list(names), [0] * self.k
+    reported = sum(result.cost_usd for result in results)
+    calls = 0
+    while True:
+      spent = max(reported, ctx.attempt.cost_usd - start)
+      room = self.room(spent, len(tried) - self.k)
+      if room < 1:
+        break
+      calls += 1
+      slots = self.actions.retry(
+        ctx, self.retry, tried, k=self.k, room=room, call=calls
+      )
+      if not slots:
+        break
+      chosen: list[tuple[int, str]] = []
+      for slot in sorted(slots):
+        runs[slot] += 1
+        chosen.append((slot, pass_at_k_name(slot, runs[slot])))
+      found = fan_out([again(new, names[slot]) for slot, new in chosen])
+      for (slot, new), result in zip(chosen, found, strict=True):
+        names[slot], results[slot] = new, result
+        tried.append(new)
+        reported += result.cost_usd
+    return self.renamed(self.outcomes(ctx, results, tried, room))
+
+
+_SLOT = re.compile(r"trial-(0|[1-9][0-9]*)(?:-r([1-9][0-9]*))?")
+
+
+def pass_at_k_name(slot: int, run: int = 0) -> str:
+  """Name the output of a PassAtKState's trial.
+
+  Args:
+    slot: Its slot, from 0.
+    run: How many times the slot has run again with it, 0 for its first
+      trial.
+
+  Returns:
+    "trial-<slot>", or "trial-<slot>-r<run>" for a run again.
+  """
+  return f"trial-{slot}" if run == 0 else f"trial-{slot}-r{run}"
+
+
+def pass_at_k_slot(name: str) -> tuple[int, int] | None:
+  """Read the slot and the run of a PassAtKState's trial from its output.
+
+  Args:
+    name: The output's name.
+
+  Returns:
+    The slot, from 0, and the run, 0 for the slot's first trial and n for
+    its n-th run again (pass_at_k_name); None for a name it does not give.
+  """
+  match = _SLOT.fullmatch(name)
+  if match is None:
+    return None
+  return int(match[1]), 0 if match[2] is None else int(match[2])
 
 
 class TrialsState(_ActionState):

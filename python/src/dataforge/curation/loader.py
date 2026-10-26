@@ -54,7 +54,12 @@ The schema, version 1:
       with: {...}                     # the state's own arguments;
                                       # agent, pass-at-k and trials take
                                       # judge: {argv, <a script's fields>,
-                                      # outcomes}, for agent run after an ok
+                                      # outcomes}, for agent run after an ok;
+                                      # pass-at-k takes retry: {argv, inputs,
+                                      # optional_inputs, memory_gb}, which
+                                      # chooses the slots run again, and
+                                      # max_retries: <integer>, required with
+                                      # it
       env: <environment> | <binding>  # agent, script, rubric
       runner: <runner> | <binding>    # agent and rubric: an AgentRunner;
                                       # trial, pass-at-k, trials: TrialRunner
@@ -1039,11 +1044,30 @@ def _pass_at_k(
     value,
     at,
     required={"task_dir", "agent", "limits", "k"},
-    optional={"judge"},
+    optional={"judge", "retry", "max_retries"},
   )
   judge = fields.get("judge")
+  retry = fields.get("retry")
+  # Only a declared retry and max_retries are passed on, so that a subclass
+  # a dataset registers need not take them.
+  retries: dict[str, object] = {}
+  if retry is not None:
+    retries["retry"] = loader.script(
+      _fields(
+        retry,
+        f"{at}.retry",
+        required={"argv"},
+        optional={"inputs", "optional_inputs", "memory_gb"},
+      ),
+      f"{at}.retry",
+    )
+  if "max_retries" in fields:
+    retries["max_retries"] = loader.integer(
+      fields["max_retries"], f"{at}.max_retries", minimum=1
+    )
   return {
     **_trial_args(loader, fields, at),
+    **retries,
     "k": loader.integer(fields["k"], f"{at}.k", minimum=1),
     "judge": None if judge is None else loader.judge(judge, f"{at}.judge"),
   }

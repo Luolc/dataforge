@@ -293,6 +293,9 @@ class TrialRecord:
     source: The path of the trial whose output this trial judged again, such
       as one whose diff it applied, if its task names one.
     log: The log of the trial's runner, if it keeps one.
+    replaces: The output of the trial of the same visit that this one takes
+      the place of, such as one run again because it could not be judged,
+      if it takes one's place.
   """
 
   id: str
@@ -303,6 +306,7 @@ class TrialRecord:
   exception: str | None
   source: Path | None = None
   log: Path | None = None
+  replaces: str | None = None
 
 
 @dataclass
@@ -371,6 +375,9 @@ class Visit:
       before visits kept it.
     running: The outputs of its trials that have started and are not recorded
       yet; not part of the record's visit.
+    replacing: Of those, the output of the trial of the visit each takes the
+      place of, by its output, for one that takes one's; not part of the
+      record's visit either.
   """
 
   state: str
@@ -384,6 +391,7 @@ class Visit:
   started_at: datetime | None = None
   ended_at: datetime | None = None
   running: list[str] = field(default_factory=list[str])
+  replacing: dict[str, str] = field(default_factory=dict[str, str])
 
   @property
   def outputs(self) -> dict[str, Path]:
@@ -590,6 +598,7 @@ class Attempt:
         "exception": trial.exception,
         "source": _relative(trial.source, self.root),
         "log": _relative(trial.log, self.root),
+        "replaces": trial.replaces,
       },
     }
 
@@ -700,13 +709,22 @@ class Context:
     """Where this visit's actions write their outputs, one name per output."""
     return self._attempt.root / "artifacts" / self.state / str(self.visit)
 
-  def claim(self, outputs: Sequence[str], *, trial: bool = False) -> int:
+  def claim(
+    self,
+    outputs: Sequence[str],
+    *,
+    trial: bool = False,
+    replaces: str | None = None,
+  ) -> int:
     """Reserve output names for an action, create outdir, number the action.
 
     Args:
       outputs: The names of the action's outputs.
       trial: Whether the action is a trial, which the visit then lists as
         running until it is recorded.
+      replaces: For a trial, the output of the trial of the visit whose place
+        it takes, if it takes one's, which the visit keeps with it while it
+        runs.
 
     Returns:
       The action's number in the visit, from 1.
@@ -728,6 +746,8 @@ class Context:
     with self._lock:
       if trial:
         self._record.running.extend(outputs)
+        if replaces is not None:
+          self._record.replacing.update(dict.fromkeys(outputs, replaces))
       if self._changed is not None:
         self._changed()
     return index
@@ -786,6 +806,8 @@ class Context:
       self._record.actions.append(action)
       running = self._record.running
       running[:] = [name for name in running if name not in action.outputs]
+      for name in action.outputs:
+        _ = self._record.replacing.pop(name, None)
       if self._changed is not None:
         self._changed()
     for name, path in action.outputs.items():
@@ -1363,7 +1385,7 @@ def _entry(name: str, item: Deliverable, attempt: Attempt) -> dict[str, object]:
     visit = attempt.visits[index] if isinstance(index, int) else None
     trials = [] if visit is None else _trials(visit, attempt.root, item.match)
     entry["match"] = item.match
-    entry["k"] = len(trials)
+    entry["k"] = sum(trial["superseded_by"] is None for trial in trials)
     entry["value"] = None if item.value is None else _value(item.value, visit)
     entry["verdicts"] = _verdicts(item.verdicts, visit, trials)
     entry["trials"] = trials
@@ -1448,10 +1470,25 @@ def _deliverable_visit(
 def _trials(
   visit: Visit, root: Path, match: str | None
 ) -> list[dict[str, object]]:
+  # A trial that takes another's place comes right after it and is the one
+  # that supersedes it.
   def listed(output: str) -> bool:
     return match is None or fnmatch.fnmatchcase(output, match)
 
-  trials: list[tuple[tuple[str, int], dict[str, object]]] = []
+  replaces = {
+    next(iter(action.outputs)): action.trial.replaces
+    for action in visit.actions
+    if action.trial is not None and action.trial.replaces is not None
+  } | visit.replacing
+  superseded_by = {old: new for new, old in replaces.items()}
+
+  def order(output: str) -> tuple[str, int, int]:
+    depth = 0
+    while output in replaces and depth <= len(replaces):
+      output, depth = replaces[output], depth + 1
+    return (*_order(output), depth)
+
+  trials: list[tuple[tuple[str, int, int], dict[str, object]]] = []
   for action in visit.actions:
     trial = action.trial
     if trial is None:
@@ -1462,7 +1499,7 @@ def _trials(
     trace = _trace_json(trial.trace, trial.format, root)
     trials.append(
       (
-        _order(output),
+        order(output),
         {
           "id": trial.id,
           "output": output,
@@ -1470,6 +1507,8 @@ def _trials(
           "trace": trace,
           "source": _relative(trial.source, root),
           "log": _relative(trial.log, root),
+          "replaces": trial.replaces,
+          "superseded_by": superseded_by.get(output),
           "verdict": None,
           "result": {
             "reward": trial.rewards.get("reward"),
@@ -1483,7 +1522,7 @@ def _trials(
     path = root / "artifacts" / visit.state / str(visit.visit) / output
     trials.append(
       (
-        _order(output),
+        order(output),
         {
           "id": None,
           "output": output,
@@ -1491,6 +1530,8 @@ def _trials(
           "trace": None,
           "source": None,
           "log": None,
+          "replaces": visit.replacing.get(output),
+          "superseded_by": superseded_by.get(output),
           "verdict": None,
           "result": None,
         },
@@ -1726,6 +1767,13 @@ def _read_trial(
 ) -> TrialRecord:
   rewards = _object(_get(data, "rewards", where), f"{where}.rewards")
   trace = _read_trace(root, data, where)
+
+  # A record written before a trial had a source, a log, or could take
+  # another's place has no key.
+  def path(key: str) -> Path | None:
+    value = data.get(key)
+    return None if value is None else _inside(root, value, f"{where}.{key}")
+
   return TrialRecord(
     _text(data, "id", where),
     _inside(root, _get(data, "path", where), f"{where}.path"),
@@ -1733,13 +1781,11 @@ def _read_trial(
     None if trace is None else trace[1],
     {name: _number(rewards, name, f"{where}.rewards") for name in rewards},
     _maybe_text(data, "exception", where),
-    # A record written before a trial had a source or a log has no key.
-    *(
-      None
-      if data.get(key) is None
-      else _inside(root, data[key], f"{where}.{key}")
-      for key in ("source", "log")
-    ),
+    source=path("source"),
+    log=path("log"),
+    replaces=_maybe_text(data, "replaces", where)
+    if "replaces" in data
+    else None,
   )
 
 

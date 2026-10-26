@@ -2,7 +2,7 @@
 // its visit's outcome; on the right the chosen trial's numbers, then its trace
 // in the session view, its diff, its tests and its log, each in a tab. The
 // chosen trial is the page's `trial`, by its output, else the first.
-import { CircleDashed } from "lucide-react";
+import { CircleDashed, Replace } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { type ReactNode, use, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -33,12 +33,13 @@ import {
   COUNTED,
   NO_VERDICT,
   RUNNING,
+  SUPERSEDED,
   trialStatus,
   WITH_EXCEPTION,
 } from "./status";
 import { harnessName, useHarness } from "./harness";
 import { inTrial } from "./path";
-import { type Listed, sourceOf, trialName } from "./source";
+import { type Listed, sourceOf, trialName, trialNames } from "./source";
 import { TrialTests } from "./tests";
 
 function isRunning(live: LiveInfo | null | undefined): boolean {
@@ -131,6 +132,13 @@ export default function TrialsView({
   const found = trials.findIndex((t) => t.output === chosen);
   const index = found === -1 ? 0 : found;
   const trial = trials[index];
+  const names = trialNames(trials);
+  const nameOf = (i: number) => names[i] ?? trialName(trials, i);
+  const named = (output: string | null | undefined): Named | null => {
+    const at = trials.findIndex((t) => t.output === output);
+    return output == null || at === -1 ? null : { output, name: nameOf(at) };
+  };
+  const counted = trials.filter((t) => t.superseded_by == null).length;
   const value = deliverable.value;
   const shown =
     typeof value?.value === "number" || typeof value?.value === "string"
@@ -148,8 +156,7 @@ export default function TrialsView({
         <nav aria-label="Trials" className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <p className="text-xl font-semibold tabular-nums">
-              {shown} / {deliverable.k ?? trials.length}{" "}
-              {entry?.count ?? COUNTED}
+              {shown} / {deliverable.k ?? counted} {entry?.count ?? COUNTED}
             </p>
             {fromARun(deliverable) && (
               <p className="text-xs text-fg-3">
@@ -193,7 +200,17 @@ export default function TrialsView({
                   }}
                   className="flex target w-full items-center justify-between gap-2 rounded-row px-2 text-left hover:bg-hover aria-pressed:bg-active"
                 >
-                  <span className="min-w-0">{trialName(i)}</span>
+                  <span className="flex min-w-0 flex-col">
+                    {nameOf(i)}
+                    {t.superseded_by != null && (
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs ${toneText.neutral}`}
+                      >
+                        <Replace className="size-3" aria-hidden />
+                        {SUPERSEDED}
+                      </span>
+                    )}
+                  </span>
                   <TrialStatus
                     project={project}
                     trial={t}
@@ -209,7 +226,10 @@ export default function TrialsView({
           <TrialPane
             key={trial.output}
             trial={trial}
-            name={trialName(index)}
+            name={nameOf(index)}
+            replaces={named(trial.replaces)}
+            supersededBy={named(trial.superseded_by)}
+            onChoose={choose}
             live={live}
             action={
               visit === undefined ? undefined : actionOf(visit.actions, trial)
@@ -250,6 +270,9 @@ interface Source {
 function TrialPane({
   trial,
   name,
+  replaces,
+  supersededBy,
+  onChoose,
   live,
   action,
   project,
@@ -264,6 +287,12 @@ function TrialPane({
   trial: Trial;
   /** Its name, by its place in the list. */
   name: string;
+  /** The trial of the list whose place it took, if it took one's. */
+  replaces: Named | null;
+  /** The trial of the list that took its place, if one did. */
+  supersededBy: Named | null;
+  /** Shows another trial of the list in its place, by its output. */
+  onChoose: (output: string) => void;
   live: LiveInfo | null | undefined;
   action: Action | undefined;
   project: DeliverableProps["project"];
@@ -343,6 +372,19 @@ function TrialPane({
                 )}
               </>
             )}
+          </Field>
+        )}
+        {replaces !== null && (
+          <Field label="Replaces">
+            <TrialLink trial={replaces} onChoose={onChoose} />
+          </Field>
+        )}
+        {supersededBy !== null && (
+          <Field label="Superseded by">
+            <TrialLink trial={supersededBy} onChoose={onChoose} />
+            <span className="block text-xs text-fg-3">
+              Not counted: that trial took its place.
+            </span>
           </Field>
         )}
         {source !== undefined && (
@@ -460,6 +502,33 @@ function TrialPane({
   );
 }
 
+/** A trial of the same deliverable, by its output and its name. */
+interface Named {
+  output: string;
+  name: string;
+}
+
+/** Another trial of the same deliverable, by its name, that shows it. */
+function TrialLink({
+  trial,
+  onChoose,
+}: {
+  trial: Named;
+  onChoose: (output: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onChoose(trial.output);
+      }}
+      className="inline-flex target items-center link hover:underline"
+    >
+      {trial.name}
+    </button>
+  );
+}
+
 /**
  * A trial's source by its deliverable's title and its name, linking to it;
  * its path when no deliverable of the record lists it.
@@ -491,7 +560,8 @@ function SourceName({
       })}
       className="inline-flex target items-center link hover:underline"
     >
-      {listed.deliverable.title} · {trialName(listed.index)}
+      {listed.deliverable.title} ·{" "}
+      {trialName(listed.deliverable.trials ?? [], listed.index)}
     </Link>
   );
 }
@@ -527,7 +597,11 @@ function NoTrace({
         output={outside ? "trace" : "transcript"}
         badge={
           <span className="text-sm font-medium text-fg">
-            {source.listed.deliverable.title} · {trialName(source.listed.index)}
+            {source.listed.deliverable.title} ·{" "}
+            {trialName(
+              source.listed.deliverable.trials ?? [],
+              source.listed.index,
+            )}
           </span>
         }
       />

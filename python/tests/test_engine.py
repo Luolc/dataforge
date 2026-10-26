@@ -1640,6 +1640,8 @@ def test_trials_list_each_trial_with_its_id_trace_and_result(
       "trace": trace if traced else None,
       "source": None,
       "log": None,
+      "replaces": None,
+      "superseded_by": None,
       "verdict": None,
       "result": {
         "reward": reward,
@@ -1720,6 +1722,8 @@ def test_a_running_visit_lists_the_trials_that_have_started(
     "trace": None,
     "source": None,
     "log": None,
+    "replaces": None,
+    "superseded_by": None,
     "verdict": None,
     "result": None,
   }
@@ -1755,6 +1759,76 @@ def test_a_trial_s_source_reads_back_and_is_null_in_an_older_record(
     RecordError, match=r"trial\.source: '\.\./x' is not inside"
   ):
     _ = Attempt.from_json(root, broken(record, path, "../x"))
+
+
+def test_a_trial_that_takes_anothers_place_supersedes_it(
+  tmp_path: Path,
+) -> None:
+  actions = Actions(trial_runner=OutputTrials())
+  root = tmp_path / "attempt"
+
+  def solve(ctx: Context) -> Outcome:
+    for output in ("trial-0", "trial-1", "trial-2"):
+      _ = actions.trial(ctx, output, ctx.outdir, "oracle", Limits(1))
+    _ = actions.trial(
+      ctx, "trial-1-r1", ctx.outdir, "oracle", Limits(1), replaces="trial-1"
+    )
+    _ = actions.trial(
+      ctx, "trial-1-r2", ctx.outdir, "oracle", Limits(1), replaces="trial-1-r1"
+    )
+    return Outcome("done")
+
+  steps: list[dict[str, object]] = []
+
+  def on_step(attempt: Attempt) -> None:
+    [entry] = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
+    steps.append(entry)
+
+  attempt = Machine(
+    [Step("solve", solve, {"done": End("passed")})],
+    on_step=on_step,
+    deliverables={"runs": Deliverable("trials", "pass@k", Source("solve"))},
+  ).run(root)
+  # While trial-1-r1 runs, it already takes trial-1's place.
+  running = next(
+    step
+    for step in steps
+    if any(
+      t["output"] == "trial-1-r1" and t["result"] is None
+      for t in cast(list[dict[str, object]], step["trials"])
+    )
+  )
+  assert running["k"] == 3
+  assert [
+    (t["output"], t["replaces"], t["superseded_by"])
+    for t in cast(list[dict[str, object]], running["trials"])
+  ] == [
+    ("trial-0", None, None),
+    ("trial-1", None, "trial-1-r1"),
+    ("trial-1-r1", "trial-1", None),
+    ("trial-2", None, None),
+  ]
+  [entry] = cast(list[dict[str, object]], attempt.to_json()["deliverables"])
+  trials = cast(list[dict[str, object]], entry["trials"])
+  # Each slot's trials come together, in the order they took its place.
+  assert [(t["output"], t["replaces"], t["superseded_by"]) for t in trials] == [
+    ("trial-0", None, None),
+    ("trial-1", None, "trial-1-r1"),
+    ("trial-1-r1", "trial-1", "trial-1-r2"),
+    ("trial-1-r2", "trial-1-r1", None),
+    ("trial-2", None, None),
+  ]
+  assert entry["k"] == 3
+  record = as_json(attempt)
+  read = Attempt.from_json(root, record)
+  assert [
+    action.trial and action.trial.replaces for action in read.visits[0].actions
+  ] == [None, None, None, "trial-1", "trial-1-r1"]
+  assert read.to_json() == record
+  path = ["visits", 0, "actions", 3, "trial", "replaces"]
+  older = Attempt.from_json(root, broken(record, path, KeyError))
+  trial = older.visits[0].actions[3].trial
+  assert trial is not None and trial.replaces is None
 
 
 @pytest.mark.parametrize("source", ["/elsewhere", "attempt/../elsewhere"])
