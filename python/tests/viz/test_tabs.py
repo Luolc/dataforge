@@ -107,55 +107,56 @@ def test_a_project_file_s_tabs_load(tree: Tree) -> None:
   assert [f.format for f in part.fields] == ["text", "text", "usd"]
   assert other.parts[0].fields == ()
   assert [p.file for p in post.parts] == [("out", "report.md"), ("prompt.md",)]
+  notes_parts: list[object] = [
+    {
+      "name": "notes",
+      "title": "Notes",
+      "file": "out/notes.md",
+      "fields": [
+        {"title": "Verdict", "format": "text", "labels": {}},
+        {"title": "Outcome", "format": "text", "labels": {}},
+        {"title": "Spent", "format": "usd", "labels": {}},
+      ],
+    }
+  ]
+  other_parts: list[object] = [
+    {"name": "other", "title": "Other", "file": "other.md", "fields": []}
+  ]
+  post_parts: list[object] = [
+    {
+      "name": "report",
+      "title": "Report",
+      "file": "out/report.md",
+      "fields": [{"title": "Verdict", "format": "text", "labels": {}}],
+    },
+    {"name": "prompt", "title": "Prompt", "file": "prompt.md", "fields": []},
+  ]
   assert project.public()["tabs"] == [
     {
       "name": "notes",
       "title": "Notes",
-      "versions": ["notes", "notes*"],
-      "parts": [
-        {
-          "name": "notes",
-          "title": "Notes",
-          "file": "out/notes.md",
-          "fields": [
-            {"title": "Verdict", "format": "text", "labels": {}},
-            {"title": "Outcome", "format": "text", "labels": {}},
-            {"title": "Spent", "format": "usd", "labels": {}},
-          ],
-        }
+      "versions": [
+        {"pattern": p, "parts": notes_parts, "version_title": None}
+        for p in ("notes", "notes*")
       ],
-      "version_title": None,
       "job": None,
     },
     {
       "name": "other",
       "title": "Other",
-      "versions": ["*", ".notes*"],
-      "parts": [
-        {"name": "other", "title": "Other", "file": "other.md", "fields": []}
+      "versions": [
+        {"pattern": p, "parts": other_parts, "version_title": None}
+        for p in ("*", ".notes*")
       ],
-      "version_title": None,
       "job": None,
     },
     {
       "name": "post",
       "title": "Post",
-      "versions": ["post", "post-*"],
-      "parts": [
-        {
-          "name": "report",
-          "title": "Report",
-          "file": "out/report.md",
-          "fields": [{"title": "Verdict", "format": "text", "labels": {}}],
-        },
-        {
-          "name": "prompt",
-          "title": "Prompt",
-          "file": "prompt.md",
-          "fields": [],
-        },
+      "versions": [
+        {"pattern": p, "parts": post_parts, "version_title": None}
+        for p in ("post", "post-*")
       ],
-      "version_title": None,
       "job": None,
     },
   ]
@@ -171,7 +172,8 @@ def test_a_field_s_labels_reach_the_page(tree: Tree) -> None:
   [project] = load_site(tree.site).projects
 
   tab = cast(list[dict[str, object]], project.public()["tabs"])[0]
-  part = cast(list[dict[str, object]], tab["parts"])[0]
+  source = cast(list[dict[str, object]], tab["versions"])[0]
+  part = cast(list[dict[str, object]], source["parts"])[0]
   fields = cast(list[dict[str, object]], part["fields"])
   assert fields[1]["labels"] == {"done": "Done", "n/a": "None"}
 
@@ -186,8 +188,54 @@ _UNKNOWN = (
 @pytest.mark.parametrize(
   ("change", "key"),
   [
-    (("versions: [notes, ", "versions: [a/notes, "), r"tabs\[0\]\.versions"),
     (("versions: [notes, ", "versions: [.., "), r"tabs\[0\]\.versions"),
+    (("versions: [notes, ", "versions: [a//b, "), r"tabs\[0\]\.versions"),
+    (("versions: [notes, ", "versions: [a/./b, "), r"tabs\[0\]\.versions"),
+    (("versions: [notes, ", "versions: [a/../b, "), r"tabs\[0\]\.versions"),
+    (("versions: [notes, ", "versions: [a/, "), r"tabs\[0\]\.versions"),
+    (("versions: [notes, ", "versions: [/a/b, "), r"tabs\[0\]\.versions"),
+    (("versions: [notes, ", "versions: [{pattern: ../a}, "), r"versions\[0\]"),
+    (("versions: [notes, ", "versions: [{label: A}, "), r"versions\[0\]\.pat"),
+    (("versions: [notes, ", "versions: [{pattern: a, path: b}, "), r"\.path"),
+    (("versions: [notes, ", "versions: [{pattern: a, label: ''}, "), r"label"),
+    (
+      ("versions: [notes, ", "versions: [{pattern: a*, label: '{2}'}, "),
+      r"\{2\} names",
+    ),
+    (
+      ("versions: [notes, ", "versions: [{pattern: a*, label: '{0}'}, "),
+      r"\{0\} names",
+    ),
+    (
+      ("versions: [notes, ", "versions: [{pattern: a*, label: 'a{'}, "),
+      "alone",
+    ),
+    (
+      ("versions: [notes, ", "versions: [{pattern: a*, label: 'a}'}, "),
+      "alone",
+    ),
+    (
+      ("versions: [notes, ", "versions: [{pattern: a, fields: []}, "),
+      r"versions\[0\]\.file: missing",
+    ),
+    (
+      ("versions: [notes, ", "versions: [{pattern: a, file: x, parts: []}, "),
+      r"versions\[0\]\.file: given with parts",
+    ),
+    (
+      ("versions: [notes, ", "versions: [{pattern: a, file: ../x}, "),
+      r"versions\[0\]\.file",
+    ),
+    (
+      (
+        "versions: [notes, ",
+        "versions: [{pattern: a, version_title: {file: x}}, ",
+      ),
+      r"versions\[0\]\.version_title\.field: missing",
+    ),
+    (("field: [outcome]", "field: [outcome, -1]"), r"-1 is a negative index"),
+    (("field: [outcome]", "field: [outcome, true]"), r"fields\[1\]\.field"),
+    (("field: [outcome]", "field: [outcome, 1.5]"), r"fields\[1\]\.field"),
     (("versions: [notes, ", "versions: [/notes, "), r"tabs\[0\]\.versions"),
     (("versions: [notes, ", "versions: ['', "), r"tabs\[0\]\.versions"),
     (('versions: [notes, "notes*"]', "versions: []"), r"tabs\[0\]\.versions"),
@@ -372,6 +420,8 @@ def test_each_part_of_a_tab_reads_its_own_fields(tree: Tree) -> None:
   assert shown(tree, 2)["versions"] == [
     {
       "dir": "post-2",
+      "source": 1,
+      "label": None,
       "title": None,
       "parts": [
         {"name": "report", "fields": [found_("kept")]},
@@ -380,6 +430,8 @@ def test_each_part_of_a_tab_reads_its_own_fields(tree: Tree) -> None:
     },
     {
       "dir": "post-1",
+      "source": 1,
+      "label": None,
       "title": None,
       "parts": [
         {
@@ -477,11 +529,144 @@ def test_a_version_is_titled_by_a_value_of_its_own(tree: Tree) -> None:
 
   versions = cast(list[dict[str, object]], shown(tree)["versions"])
 
-  assert cast(list[dict[str, object]], project.public()["tabs"])[0][
-    "version_title"
-  ] == {"format": "time"}
+  tab = cast(list[dict[str, object]], project.public()["tabs"])[0]
+  sources = cast(list[dict[str, object]], tab["versions"])
+  assert [s["version_title"] for s in sources] == [{"format": "time"}] * 2
   assert {cast(str, v["dir"]): v["title"] for v in versions} == {
     "notes": found_("2026-01-02T03:04:05Z"),
     "notes-2": not_run("notes-2/status.json: No such file or directory"),
     "notes-1": missing("notes-1/status.json has no ended_at"),
   }
+
+
+DEEP = """\
+deliverables:
+  - {name: task, kind: files, title: Task}
+tabs:
+  - name: reviews
+    title: Reviews
+    version_title: {file: status.json, field: [ended_at]}
+    versions:
+      - "review-*"
+      - pattern: "runs/*"
+        label: "Run {1}"
+        file: index.md
+        fields:
+          - {title: Outcome, file: verdict.json, field: [trials, 1, outcome]}
+      - pattern: "runs/*/trial-*"
+        label: "Run {1}, trial {2} {{of}}"
+        version_title: {file: meta.json, field: [name]}
+    parts:
+      - {name: summary, title: Summary, file: summary.md}
+      - {name: review, title: Review, file: out/review.md}
+"""
+
+
+@pytest.fixture
+def deep(tmp_path: Path) -> Tree:
+  made = make_tree(tmp_path)
+  _ = made.project.write_text(PROJECT + DEEP)
+  return made
+
+
+def deep_versions(tree: Tree) -> list[dict[str, object]]:
+  response = client(tree).get(f"{API}/tabs", params=ATTEMPT)
+  assert response.status_code == 200
+  [tab] = cast(list[dict[str, object]], response.json())
+  return cast(list[dict[str, object]], tab["versions"])
+
+
+def test_a_pattern_of_several_components_matches_a_name_at_each_depth(
+  deep: Tree,
+) -> None:
+  for name in (
+    "review-1",
+    "runs/3/trial-1",
+    "runs/3/trial-2",
+    "runs/10/trial-1",
+    "runs/10/trial-1/trial-5",
+    "runs/.4/trial-1",
+    "runs/3/.trial-3",
+    "other/3/trial-1",
+  ):
+    (deep.attempt / name).mkdir(parents=True)
+
+  found = [(v["dir"], v["source"], v["label"]) for v in deep_versions(deep)]
+
+  # "*" matches within one name: runs/* is no deeper version, and no dot name.
+  assert found == [
+    ("review-1", 0, None),
+    ("runs/10", 1, "Run 10"),
+    ("runs/3", 1, "Run 3"),
+    ("runs/10/trial-1", 2, "Run 10, trial 1 {of}"),
+    ("runs/3/trial-2", 2, "Run 3, trial 2 {of}"),
+    ("runs/3/trial-1", 2, "Run 3, trial 1 {of}"),
+  ]
+
+
+def test_a_symlink_on_a_version_s_path_is_never_followed(deep: Tree) -> None:
+  outside = deep.root.parent.parent / "elsewhere"
+  (outside / "trial-1").mkdir(parents=True)
+  (deep.attempt / "runs" / "3" / "trial-1").mkdir(parents=True)
+  runs = deep.attempt / "runs"
+  (runs / "out").symlink_to(outside)
+  (runs / "in").symlink_to(runs / "3")
+  (runs / "3" / "trial-2").symlink_to(runs / "3" / "trial-1")
+  _ = (runs / "4").write_text("not a directory\n")
+
+  assert [v["dir"] for v in deep_versions(deep)] == ["runs/3", "runs/3/trial-1"]
+
+
+def test_each_source_reads_its_own_title_and_parts(deep: Tree) -> None:
+  run = deep.attempt / "runs" / "3"
+  (run / "trial-1").mkdir(parents=True)
+  _ = (run / "status.json").write_text('{"ended_at": "late"}')
+  _ = (run / "trial-1" / "status.json").write_text('{"ended_at": "late"}')
+  _ = (run / "trial-1" / "meta.json").write_text('{"name": "first"}')
+  verdict = {"trials": [{"outcome": "lost"}, {"outcome": "won"}]}
+  _ = (run / "verdict.json").write_text(json.dumps(verdict))
+
+  [merged, trial] = deep_versions(deep)
+
+  assert merged["title"] == found_("late")
+  assert merged["parts"] == [{"name": "reviews", "fields": [found_("won")]}]
+  assert trial["title"] == found_("first")
+  assert trial["parts"] == [
+    {"name": "summary", "fields": []},
+    {"name": "review", "fields": []},
+  ]
+  [project] = load_site(deep.site).projects
+  tab = cast(list[dict[str, object]], project.public()["tabs"])[0]
+  sources = cast(list[dict[str, object]], tab["versions"])
+  assert [s["pattern"] for s in sources] == [
+    "review-*",
+    "runs/*",
+    "runs/*/trial-*",
+  ]
+  assert [
+    [p["name"] for p in cast(list[dict[str, object]], s["parts"])]
+    for s in sources
+  ] == [["summary", "review"], ["reviews"], ["summary", "review"]]
+
+
+@pytest.mark.parametrize(
+  ("verdict", "read"),
+  [
+    ({"trials": [{}, {"outcome": "won"}]}, found_("won")),
+    ({"trials": [{"outcome": "lost"}]}, None),
+    ({"trials": {"1": {"outcome": "won"}}}, None),
+  ],
+)
+def test_a_number_in_a_field_indexes_a_list(
+  deep: Tree, verdict: object, read: dict[str, object] | None
+) -> None:
+  run = deep.attempt / "runs" / "3"
+  run.mkdir(parents=True)
+  _ = (run / "verdict.json").write_text(json.dumps(verdict))
+
+  [merged] = deep_versions(deep)
+
+  parts = cast(list[dict[str, object]], merged["parts"])
+  assert parts[0]["fields"] == [
+    read or missing("runs/3/verdict.json has no trials.1.outcome")
+  ]

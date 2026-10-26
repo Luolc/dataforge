@@ -178,7 +178,8 @@ class TabField:
   Attributes:
     title: Its heading.
     file: The JSON file, relative to the version shown.
-    field: The keys into the file its value is at.
+    field: The keys into the file its value is at, a number the index of an
+      item of a list.
     format: One of FORMATS.
     labels: The label a page shows for each value that is a key of it, as a
       column's.
@@ -186,7 +187,7 @@ class TabField:
 
   title: str
   file: tuple[str, ...]
-  field: tuple[str, ...]
+  field: tuple[str | int, ...]
   format: str
   labels: Mapping[str, str] = NO_LABELS
 
@@ -209,31 +210,59 @@ class TabPart:
 
 
 @dataclass(frozen=True, slots=True)
+class TabSource:
+  """One pattern of a tab's versions, and how the versions it matches show.
+
+  Attributes:
+    pattern: The pattern of the directories, a path relative to the
+      attempt's directory, each component of it matching one name at its
+      depth; a component may hold "*", which matches any run of characters,
+      and matches no name that starts with "." unless it does too.
+    label: What the menu shows for each version, in pieces: text, or the
+      number of a "*" of the pattern, from 1, whose match stands there;
+      empty for none.
+    version_title: The value a version is named by in the tab's menu, its
+      own or the tab's; None to name it by its directory.
+    parts: The Markdown files it shows from each version, its own or the
+      tab's.
+  """
+
+  pattern: str
+  label: tuple[str | int, ...]
+  version_title: TabField | None
+  parts: tuple[TabPart, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Tab:
   """A tab of the attempt page that shows Markdown files of the attempt.
 
   Attributes:
     name: Its name, in the URL; of [a-z0-9-].
     title: Its title.
-    versions: The patterns of the directories it shows, each one name in
-      the attempt's directory, in order; a pattern may hold "*", which
-      matches any run of characters, and matches no name that starts with
-      "." unless it does too.
-    parts: The Markdown files it shows from each version, in order: one,
-      named and titled as the tab, for a tab of one file; else two or more,
-      each an entry of the tab's column.
-    version_title: The value a version is named by in the tab's menu, read
-      from a JSON file in it; None to name it by its directory.
+    sources: The patterns of the directories it shows, its versions, in
+      order.
+    parts: The Markdown files it shows from each version of a source that
+      names none of its own, in order: one, named and titled as the tab, for
+      a tab of one file; else two or more, each an entry of the tab's column.
+    version_title: The value a version of a source that names none of its
+      own is named by in the tab's menu, read from a JSON file in it; None to
+      name it by its directory.
     job: The action of the jobs, of the project's jobs and of subject
       "attempt", that make its versions; None when it names none.
   """
 
   name: str
   title: str
-  versions: tuple[str, ...]
+  sources: tuple[TabSource, ...]
   parts: tuple[TabPart, ...]
   version_title: TabField | None = None
   job: str | None = None
+
+  @property
+  def versions(self) -> tuple[str, ...]:
+    """The patterns of its sources, in order."""
+    return tuple(s.pattern for s in self.sources)
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,22 +628,31 @@ class Project:
         {
           "name": t.name,
           "title": t.title,
-          "versions": list(t.versions),
-          "parts": [
+          "versions": [
             {
-              "name": part.name,
-              "title": part.title,
-              "file": "/".join(part.file),
-              "fields": [
-                {"title": f.title, "format": f.format, "labels": dict(f.labels)}
-                for f in part.fields
+              "pattern": source.pattern,
+              "parts": [
+                {
+                  "name": part.name,
+                  "title": part.title,
+                  "file": "/".join(part.file),
+                  "fields": [
+                    {
+                      "title": f.title,
+                      "format": f.format,
+                      "labels": dict(f.labels),
+                    }
+                    for f in part.fields
+                  ],
+                }
+                for part in source.parts
               ],
+              "version_title": None
+              if source.version_title is None
+              else {"format": source.version_title.format},
             }
-            for part in t.parts
+            for source in t.sources
           ],
-          "version_title": None
-          if t.version_title is None
-          else {"format": t.version_title.format},
           "job": t.job,
         }
         for t in self.tabs
@@ -1201,6 +1239,21 @@ def _field_keys(path: Path, where: str, value: object) -> tuple[str, ...]:
   )
 
 
+def _json_keys(path: Path, where: str, value: object) -> tuple[str | int, ...]:
+  # The keys into a JSON file a tab reads: a number indexes a list.
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: {where}.field: not a non-empty list")
+  keys: list[str | int] = []
+  for key in cast(list[object], value):
+    if isinstance(key, bool) or not isinstance(key, int):
+      keys.append(_str(path, f"{where}.field", key))
+    elif key < 0:
+      raise ConfigError(f"{path}: {where}.field: {key} is a negative index")
+    else:
+      keys.append(key)
+  return tuple(keys)
+
+
 def _labels(
   path: Path,
   where: str,
@@ -1263,28 +1316,127 @@ def _tabs(
       )
     taken.add(name)
     title = _str(path, f"{where}.title", entry["title"])
-    if "parts" in entry:
-      for key in ("file", "fields"):
-        if key in entry:
-          raise ConfigError(f"{path}: {where}.{key}: given with parts")
-      parts = _tab_parts(path, f"{where}.parts", entry["parts"])
-    elif "file" not in entry:
+    parts = _parts(path, where, entry, name, title)
+    if parts is None:
       raise ConfigError(f"{path}: {where}.file: missing, and no parts")
-    else:
-      parts = (_tab_part(path, where, entry, name, title),)
+    version_title = _version_title(
+      path, f"{where}.version_title", entry.get("version_title"), title
+    )
     found.append(
       Tab(
         name=name,
         title=title,
-        versions=_versions(path, f"{where}.versions", entry["versions"]),
-        parts=parts,
-        version_title=_version_title(
-          path, f"{where}.version_title", entry.get("version_title"), title
+        sources=tuple(
+          TabSource(
+            source.pattern,
+            source.label,
+            source.version_title or version_title,
+            source.parts or parts,
+          )
+          for source in _sources(
+            path, f"{where}.versions", entry["versions"], name, title
+          )
         ),
+        parts=parts,
+        version_title=version_title,
         job=_tab_job(path, f"{where}.job", entry.get("job"), jobs),
       )
     )
   return tuple(found)
+
+
+def _parts(
+  path: Path, where: str, entry: Mapping[str, object], name: str, title: str
+) -> tuple[TabPart, ...] | None:
+  # A tab's or a source's parts, or its one file and fields; None for none.
+  if "parts" in entry:
+    for key in ("file", "fields"):
+      if key in entry:
+        raise ConfigError(f"{path}: {where}.{key}: given with parts")
+    return _tab_parts(path, f"{where}.parts", entry["parts"])
+  if "file" in entry:
+    return (_tab_part(path, where, entry, name, title),)
+  if "fields" in entry:
+    raise ConfigError(f"{path}: {where}.file: missing, and no parts")
+  return None
+
+
+def _sources(
+  path: Path, where: str, value: object, name: str, title: str
+) -> tuple[TabSource, ...]:
+  # A source that names no version_title or parts has None or none, for the
+  # tab's to stand in.
+  if not isinstance(value, list) or not value:
+    raise ConfigError(f"{path}: {where}: not a non-empty list")
+  found: list[TabSource] = []
+  for i, item in enumerate(cast(list[object], value)):
+    at = f"{where}[{i}]"
+    if isinstance(item, str):
+      pattern = _pattern(path, at, item)
+      found.append(TabSource(pattern, (), None, ()))
+      continue
+    entry = _mapping(path, at, item)
+    _keys(
+      path,
+      at,
+      entry,
+      required={"pattern"},
+      optional={"label", "version_title", "parts", "file", "fields"},
+    )
+    pattern = _pattern(path, f"{at}.pattern", entry["pattern"])
+    found.append(
+      TabSource(
+        pattern,
+        _label(path, f"{at}.label", entry.get("label"), pattern),
+        _version_title(
+          path, f"{at}.version_title", entry.get("version_title"), title
+        ),
+        _parts(path, at, entry, name, title) or (),
+      )
+    )
+  return tuple(found)
+
+
+def _pattern(path: Path, where: str, value: object) -> str:
+  pattern = _str(path, where, value)
+  if not split_relative(pattern):
+    raise ConfigError(
+      f"{path}: {where}: {pattern!r} is not a relative path in the attempt"
+    )
+  return pattern
+
+
+# Text, "{{" or "}}" for one brace, "{n}" for the match of the nth "*", or a
+# brace alone, which is refused.
+_LABEL = re.compile(r"[^{}]+|\{\{|\}\}|\{([0-9]+)\}|[{}]")
+
+
+def _label(
+  path: Path, where: str, value: object, pattern: str
+) -> tuple[str | int, ...]:
+  if value is None:
+    return ()
+  text = _str(path, where, value)
+  stars = pattern.count("*")
+  pieces: list[str | int] = []
+  for match in _LABEL.finditer(text):
+    token = match.group()
+    if match.group(1) is not None:
+      number = int(match.group(1))
+      if not 1 <= number <= stars:
+        raise ConfigError(f"{path}: {where}: {token} names no * of {pattern!r}")
+      pieces.append(number)
+      continue
+    if token in ("{", "}"):
+      raise ConfigError(
+        f"{path}: {where}: a {token} alone; {token * 2} stands for one"
+      )
+    piece = token[0] if token in ("{{", "}}") else token
+    if pieces and isinstance(pieces[-1], str):
+      pieces[-1] += piece
+    else:
+      pieces.append(piece)
+  return tuple(pieces)
 
 
 def _tab_job(
@@ -1312,7 +1464,7 @@ def _version_title(
     file=_relative(
       path, f"{where}.file", _str(path, f"{where}.file", entry["file"])
     ),
-    field=_field_keys(path, where, entry["field"]),
+    field=_json_keys(path, where, entry["field"]),
     format=_format(path, where, entry),
   )
 
@@ -1389,20 +1541,6 @@ def _tab_part(
   )
 
 
-def _versions(path: Path, where: str, value: object) -> tuple[str, ...]:
-  if not isinstance(value, list) or not value:
-    raise ConfigError(f"{path}: {where}: not a non-empty list")
-  found: list[str] = []
-  for v in cast(list[object], value):
-    pattern = _str(path, where, v)
-    if split_relative(pattern) != (pattern,):
-      raise ConfigError(
-        f"{path}: {where}: {pattern!r} is not one name in the attempt"
-      )
-    found.append(pattern)
-  return tuple(found)
-
-
 def _tab_fields(path: Path, where: str, value: object) -> tuple[TabField, ...]:
   if value is None:
     return ()
@@ -1426,7 +1564,7 @@ def _tab_fields(path: Path, where: str, value: object) -> tuple[TabField, ...]:
         file=_relative(
           path, f"{at}.file", _str(path, f"{at}.file", entry["file"])
         ),
-        field=_field_keys(path, at, entry["field"]),
+        field=_json_keys(path, at, entry["field"]),
         format=format_,
         labels=_labels(path, at, entry, format_),
       )

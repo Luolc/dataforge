@@ -28,6 +28,12 @@ const TAB_PART = z.looseObject({
   ),
 });
 
+const TAB_SOURCE = z.looseObject({
+  pattern: z.string(),
+  parts: z.tuple([TAB_PART], TAB_PART),
+  version_title: z.looseObject({ format: FORMAT }).nullable().optional(),
+});
+
 export const project = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -118,18 +124,17 @@ export const project = z.looseObject({
   // Whether the project names a resource monitor database.
   monitor: z.boolean().optional(),
   // The attempt page's tabs of Markdown files, each found in the
-  // directories of an attempt that match its versions: one part, the tab's
-  // own file, or two or more, each an entry of the tab's column.
+  // directories of an attempt that match the patterns of its versions.
   tabs: z
     .array(
       z.looseObject({
         name: z.string(),
         title: z.string(),
-        versions: z.array(z.string()),
-        parts: z.tuple([TAB_PART], TAB_PART),
-        // The format of the value a version is named by in the menu; null
-        // to name it by its directory.
-        version_title: z.looseObject({ format: FORMAT }).nullable().optional(),
+        // Each pattern, with what the versions it matches show: one part,
+        // the tab's own file, or two or more, each an entry of the tab's
+        // column; and the format of the value a version is named by in the
+        // menu, null to name it by its directory.
+        versions: z.tuple([TAB_SOURCE], TAB_SOURCE),
         // The action of the project's jobs that make its versions.
         job: z.string().nullable().optional(),
       }),
@@ -172,7 +177,8 @@ export type Project = z.infer<typeof project>;
 export type Page = NonNullable<Project["pages"]>[number];
 export type Column = Project["columns"][number];
 export type ProjectTab = NonNullable<Project["tabs"]>[number];
-export type TabPart = ProjectTab["parts"][number];
+export type TabSource = ProjectTab["versions"][number];
+export type TabPart = TabSource["parts"][number];
 export const projects = z.array(project);
 
 // A job of the queue, as a page may show it; times in seconds since the
@@ -222,8 +228,13 @@ export const tabVersions = z.array(
     versions: z.array(
       z.looseObject({
         dir: z.string(),
+        // The index of the tab's pattern that matched it.
+        source: z.number(),
+        // The text its menu entry starts with, from its pattern's label;
+        // null when the pattern names none.
+        label: z.string().nullable().optional(),
         // The value the version is named by, read as a field is; null when
-        // the tab names none.
+        // its pattern names none.
         title: z
           .looseObject({
             read: z.enum(READS),

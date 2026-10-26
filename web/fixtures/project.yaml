@@ -64,7 +64,16 @@ deliverables:
 tabs:
   - name: notes
     title: Notes
-    versions: [notes, "notes-*"]
+    versions:
+      - notes
+      - "notes-*"
+      # Two levels down, each round by its check and round number; one
+      # Markdown file of its own in place of the tab's parts.
+      - pattern: "checks/*/round-*"
+        label: "Check {1}, round {2}"
+        file: out/check.md
+        fields:
+          - { title: Verdict, file: check.json, field: [rounds, 0, verdict] }
     # Each version by when its notes were finished, not its directory.
     version_title: { file: status.json, field: [ended_at], format: time }
     parts:

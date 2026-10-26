@@ -6,7 +6,7 @@ attempts_dir with O_NOFOLLOW, so no symlink under it is followed and no read
 leaves the attempt's directory.
 """
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 import errno
@@ -108,7 +108,7 @@ def list_attempts(project: Project) -> list[str]:
   """
   found: list[str] = []
   with _open_attempts_dir(project) as top:
-    _walk(top, project.attempts, (), found)
+    _walk(top, project.attempts, _matches, (), found)
   return sorted(found)
 
 
@@ -331,6 +331,28 @@ def list_dir(fd: int) -> list[Entry]:
   return sorted(entries, key=lambda e: e.name)
 
 
+def find_dirs(
+  fd: int, pattern: tuple[str, ...], matches: Callable[[str, str], bool]
+) -> list[str]:
+  """Find the directories under a directory that a pattern of names matches.
+
+  Each component of a path found is a directory, never a symlink, that the
+  pattern's component of its depth matches; each is opened, without
+  following a symlink, to go a level down.
+
+  Args:
+    fd: The open directory.
+    pattern: One pattern of a name for each level, outermost first.
+    matches: Whether a pattern of a name matches a name.
+
+  Returns:
+    The paths found, relative to the directory, in no order.
+  """
+  found: list[str] = []
+  _walk(fd, pattern, matches, (), found)
+  return found
+
+
 def is_dir(fd: int) -> bool:
   """Say whether an open file is a directory.
 
@@ -393,7 +415,11 @@ def _why(path: str, error: OSError) -> str:
 
 
 def _walk(
-  fd: int, pattern: tuple[str, ...], at: tuple[str, ...], found: list[str]
+  fd: int,
+  pattern: tuple[str, ...],
+  matches: Callable[[str, str], bool],
+  at: tuple[str, ...],
+  found: list[str],
 ) -> None:
   if not pattern:
     found.append("/".join(at))
@@ -402,15 +428,15 @@ def _walk(
     names = [
       e.name
       for e in it
-      if e.is_dir(follow_symlinks=False) and _matches(pattern[0], e.name)
+      if e.is_dir(follow_symlinks=False) and matches(pattern[0], e.name)
     ]
   for name in names:
     try:
       child = os.open(name, _DIR, dir_fd=fd)
     except OSError:
-      # Removed or replaced since it was listed: not an attempt now.
+      # Removed or replaced since it was listed: not a match now.
       continue
     try:
-      _walk(child, pattern[1:], (*at, name), found)
+      _walk(child, pattern[1:], matches, (*at, name), found)
     finally:
       os.close(child)

@@ -13,6 +13,7 @@ import type {
   ProjectTab,
   Queued,
   TabPart,
+  TabSource,
   TabVersion,
   TabVersions,
 } from "../../api/types";
@@ -84,16 +85,13 @@ export function TabView({
   const shown = versions.find((v) => v.dir === chosen) ?? versions[0];
   if (shown === undefined)
     return <NoVersion tab={tab} queued={queuedOf(loaded, tab)} />;
-  const part = tab.parts.find((p) => p.name === named) ?? tab.parts[0];
-  const titled = (v: TabVersion) =>
-    v.title?.read === "found" && v.title.value !== null;
-  const titleOf = (v: TabVersion) =>
-    titled(v)
-      ? readValue("found", v.title?.value, {
-          format: tab.version_title?.format ?? "text",
-        })
-      : v.dir;
-  const choices = versions.map((v) => ({ key: v.dir, title: titleOf(v) }));
+  const sourceOf = (v: TabVersion) => tab.versions[v.source] ?? tab.versions[0];
+  const { parts } = sourceOf(shown);
+  const part = parts.find((p) => p.name === named) ?? parts[0];
+  const choices = versions.map((v) => ({
+    key: v.dir,
+    title: versionTitle(v, sourceOf(v)),
+  }));
   const view = (
     <>
       {part.fields.length > 0 && <Fields part={part} version={shown} />}
@@ -114,20 +112,35 @@ export function TabView({
           <ChoiceMenu
             label="Version"
             items={choices}
-            chosen={{ key: shown.dir, title: titleOf(shown) }}
+            chosen={{
+              key: shown.dir,
+              title: versionTitle(shown, sourceOf(shown)),
+            }}
             onChoose={setChosen}
           />
         ) : (
-          <span className={titled(shown) ? undefined : "font-mono"}>
-            {titleOf(shown)}
+          <span
+            className={
+              versionTitle(shown, sourceOf(shown)) === shown.dir
+                ? "font-mono"
+                : undefined
+            }
+          >
+            {versionTitle(shown, sourceOf(shown))}
           </span>
         )}
         <span className="text-fg-3">
           {`${(versions.indexOf(shown) + 1).toString()} of ${versions.length.toString()}`}
         </span>
       </div>
-      {tab.parts.length > 1 ? (
-        <Parts project={project} attempt={attempt} tab={tab} shown={part}>
+      {parts.length > 1 ? (
+        <Parts
+          project={project}
+          attempt={attempt}
+          tab={tab}
+          parts={parts}
+          shown={part}
+        >
           {view}
         </Parts>
       ) : (
@@ -135,6 +148,26 @@ export function TabView({
       )}
     </div>
   );
+}
+
+/**
+ * What a version's menu entry says: its label, then the value its pattern's
+ * version_title names, or its directory where that value is not read; its
+ * label alone for a pattern with no version_title; and with no label, the
+ * value, else its directory.
+ */
+function versionTitle(version: TabVersion, source: TabSource): string {
+  const format = source.version_title?.format;
+  const value =
+    format !== undefined &&
+    version.title?.read === "found" &&
+    version.title.value !== null
+      ? readValue("found", version.title.value, { format })
+      : null;
+  const label = version.label ?? null;
+  if (label === null) return value ?? version.dir;
+  if (format === undefined) return label;
+  return `${label} · ${value ?? version.dir}`;
 }
 
 /**
@@ -183,24 +216,29 @@ function NoVersion({
   );
 }
 
-/** A tab's parts in a column, as the Runs tab's, beside the one shown. */
+/**
+ * The parts of the version shown in a column, as the Runs tab's, beside the
+ * one shown.
+ */
 function Parts({
   project,
   attempt,
   tab,
+  parts,
   shown,
   children,
 }: {
   project: Project;
   attempt: string;
   tab: ProjectTab;
+  parts: TabPart[];
   shown: TabPart;
   children: ReactNode;
 }) {
   return (
     <SideColumn
       label={tab.title}
-      entries={tab.parts.map((p) => (
+      entries={parts.map((p) => (
         <Link
           key={p.name}
           to={attemptHref(project.id, attempt, { tab: tab.name, part: p.name })}
