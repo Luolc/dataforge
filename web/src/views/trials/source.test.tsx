@@ -135,8 +135,8 @@ describe("a trial that judged another trial's output again", () => {
     expect(await within(inside).findByText("Expand all")).toBeVisible();
     // No transcript beside it gives the final output of its last call.
     expect(inside).toHaveTextContent("cost $0.31");
-    expect(await within(inside).findByText("—")).toBeVisible();
-    expect(inside).toHaveTextContent("trace length —");
+    expect(await within(inside).findByText("not known")).toBeVisible();
+    expect(inside).toHaveTextContent("trace length not known");
   });
 
   it("outside the viewer, heads the trace it judged with no cost and the trace's own trace length", async () => {

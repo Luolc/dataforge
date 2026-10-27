@@ -71,12 +71,12 @@ async function finalOutput(
 
 const NO_USAGE = "The trace gives no token counts for its last call.";
 const NOT_FINAL =
-  "The final output of its last call is not known: no transcript of the session beside the trace records the call.";
+  "The final output of its last call is not known: the trace gives it only for a session of one call, in its result line, and no transcript of the session beside the trace records the call.";
 
 /**
  * The session's trace length: its last call's input and its final output,
- * read from the trace itself when told the trace holds the final count,
- * else from the session's transcript.
+ * read from the trace itself when told the trace holds the final count or
+ * when its result line gives it, else from the session's transcript.
  */
 function useTraceLength(
   project: string,
@@ -91,6 +91,7 @@ function useTraceLength(
   const reads =
     output === "transcript" &&
     last?.input != null &&
+    last.final === null &&
     last.id !== null &&
     sessionId !== null;
   const loaded = useLoaded(
@@ -111,6 +112,8 @@ function useTraceLength(
     return last.output === null
       ? { state: "none", why: NO_USAGE }
       : { state: "ok", tokens: last.input + last.output };
+  if (last.final !== null)
+    return { state: "ok", tokens: last.input + last.final };
   if (!reads) return { state: "none", why: NOT_FINAL };
   if (loaded.state === "loading") return { state: "loading" };
   if (loaded.state === "error")

@@ -42,7 +42,12 @@ describe("parseTrace", () => {
       turns: 9,
       model: "example-model",
     });
-    expect(session.last).toEqual({ id: "msg_0009", input: 12, output: 80 });
+    expect(session.last).toEqual({
+      id: "msg_0009",
+      input: 12,
+      output: 80,
+      final: null,
+    });
   });
 
   it("marks a call whose result is an error as failed", () => {
@@ -158,7 +163,44 @@ describe("parseTrace", () => {
     );
 
     expect(session.sessionId).toBe("s-9");
-    expect(session.last).toEqual({ id: "m2", input: 39751, output: 3 });
+    expect(session.last).toEqual({
+      id: "m2",
+      input: 39751,
+      output: 3,
+      final: null,
+    });
+  });
+
+  it("reads a one-call session's final output from its result line, and none for more calls", () => {
+    const usage = { input_tokens: 2, cache_creation_input_tokens: 9998 };
+    const call = (id: string) =>
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id,
+          content: [{ type: "text", text: id }],
+          usage: { ...usage, output_tokens: 2 },
+        },
+      });
+    const result = (input: number, output: number) =>
+      JSON.stringify({
+        type: "result",
+        usage: { input_tokens: input, output_tokens: output },
+      });
+
+    expect(
+      parseTrace([call("m1"), result(10000, 1500)].join("\n")).last,
+    ).toEqual({ id: "m1", input: 10000, output: 2, final: 1500 });
+    // Two calls: the result sums them, so it is not the last call's.
+    expect(
+      parseTrace([call("m1"), call("m2"), result(20000, 3000)].join("\n")).last
+        ?.final,
+    ).toBeNull();
+    // A subagent's calls counted in the result's input.
+    expect(
+      parseTrace([call("m1"), result(12000, 1600)].join("\n")).last?.final,
+    ).toBeNull();
+    expect(parseTrace(call("m1")).last?.final).toBeNull();
   });
 
   it("reads a call's final output from a transcript, and none for a call it lacks", () => {
