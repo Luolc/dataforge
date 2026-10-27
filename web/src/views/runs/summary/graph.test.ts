@@ -22,9 +22,9 @@ import {
   END,
   hiddenOf,
   labelLine,
+  labelText,
   type Layout,
   layout,
-  LINE,
   LOOP_WIDTH,
   takenCounts,
   TEXT_WIDTH,
@@ -54,16 +54,28 @@ describe("the graph", () => {
 
     expect(edge("author", "check").taken).toBe(true);
     expect(edge("author", "check").label.parts).toEqual([
-      { outcome: "done", label: "Done", taken: 2, to: null },
+      { outcome: "done", label: "Done", taken: 2, runs: [0, 2], to: null },
     ]);
     expect(edge("review", "author").taken).toBe(false);
     expect(edge("author", END).taken).toBe(false);
     expect(edge("solve", END).taken).toBe(true);
-    // Every outcome is named, the taken one with its count.
+    // Every outcome is named, the taken one with the runs that took it.
     expect(edge("solve", END).label.parts).toEqual([
-      { outcome: "in_range", label: "In range", taken: 1, to: null },
-      { outcome: "all_solved", label: "All solved", taken: 0, to: null },
-      { outcome: "none_solved", label: "None solved", taken: 0, to: null },
+      { outcome: "in_range", label: "In range", taken: 1, runs: [5], to: null },
+      {
+        outcome: "all_solved",
+        label: "All solved",
+        taken: 0,
+        runs: [],
+        to: null,
+      },
+      {
+        outcome: "none_solved",
+        label: "None solved",
+        taken: 0,
+        runs: [],
+        to: null,
+      },
     ]);
   });
 
@@ -181,7 +193,7 @@ describe("the graph", () => {
     const solve = must(drawn.edges.find((e) => e.key === `solve\0${END}`));
 
     expect(solve.label.parts.map(labelLine)).toEqual([
-      "In range ×1",
+      "In range · run",
       "All solved",
       "None solved",
     ]);
@@ -198,7 +210,7 @@ describe("the graph", () => {
       taken: false,
     });
     expect(edge("review", "author").label.parts).toEqual([
-      { outcome: "fail", label: "Fail", taken: 0, to: "Author" },
+      { outcome: "fail", label: "Fail", taken: 0, runs: [], to: "Author" },
     ]);
     // Not taken, to the end.
     expect(edge("author", END)).toMatchObject({ stub: true, taken: false });
@@ -367,19 +379,22 @@ function shapesOf(path: string) {
 }
 
 /**
- * A label's box, as wide as its widest line measured as the layouts here
- * measure it (widest), 14 a line, its last line's baseline at y.
+ * A label's box, as wide as its widest line, its text measured as the
+ * layouts here measure it (widest) and its runs' chips as they are laid
+ * out, from its first line's top to its last line's bottom.
  */
 function labelBox(edge: Edge): Rect {
   const { label } = edge;
-  const w = Math.max(...label.parts.map((p) => widest(labelLine(p), "label")));
   const x0 = label.x;
-  return {
-    x0,
-    y0: label.y - 10 - (label.parts.length - 1) * 14,
-    x1: x0 + w,
-    y1: label.y + 3,
-  };
+  const x1 = Math.max(
+    ...label.parts.map((p, i) => {
+      const last = label.lines[i]?.chips.at(-1);
+      return last ? last.x + last.width : x0 + widest(labelLine(p), "label");
+    }),
+  );
+  const first = must(label.lines[0]);
+  const end = must(label.lines.at(-1));
+  return { x0, y0: first.top, x1, y1: end.top + end.height };
 }
 
 const overlap = (p: Rect, q: Rect) =>
@@ -580,6 +595,21 @@ describe("the layout's shapes", () => {
     expect(found).toEqual({ busy: [], early: [], tangle: [], rollout: [] });
   });
 
+  it("keep every label and its runs' chips inside the graph's width and height", () => {
+    for (const json of [busy, early, tangle, rollout]) {
+      for (const scope of ["all", "taken"] as const) {
+        const drawn = must(
+          layout(record.parse(json), sampleProject, null, widest, scope),
+        );
+        for (const e of drawn.edges) {
+          const box = labelBox(e);
+          expect(box.x1).toBeLessThanOrEqual(drawn.width);
+          expect(box.y1).toBeLessThanOrEqual(drawn.height);
+        }
+      }
+    }
+  });
+
   it("keep each label as wide as the project's label of its outcome", () => {
     // Every outcome of these records labelled far wider than its name.
     const outcomes = Object.values({ busy, early, tangle, rollout }).flatMap(
@@ -630,7 +660,10 @@ describe("the layout's shapes", () => {
       const loops = new Map(
         drawn.edges
           .filter((e) => e.from === e.to)
-          .map((e) => [e.from, e.label.parts.length]),
+          .map((e) => [
+            e.from,
+            e.label.lines.reduce((sum, line) => sum + line.height, 0),
+          ]),
       );
       return drawn.nodes.map((n) => ({
         width: n.width,
@@ -645,7 +678,7 @@ describe("the layout's shapes", () => {
           ),
           height: Math.max(
             textHeight(n),
-            (loops.get(n.key) ?? 0) * LINE + LOOP_WIDTH,
+            loops.has(n.key) ? (loops.get(n.key) ?? 0) + LOOP_WIDTH : 0,
           ),
         },
       }));
@@ -927,5 +960,119 @@ describe("the time of a state that ended", () => {
     expect(many.length).toBeGreaterThan(0);
     for (const n of many) expect(n.time).toMatch(/ in all$/);
     for (const n of one) expect(n.time).not.toContain("in all");
+  });
+});
+
+describe("the runs a label and a card name", () => {
+  const busyRecord = record.parse(busy);
+  const edgeOf = (drawn: Layout, from: string, to: string) =>
+    must(drawn.edges.find((e) => e.key === `${from}\0${to}`));
+
+  it("names on a transition the runs that took it, by their numbers in the Runs tab", () => {
+    const drawn = must(layout(busyRecord, sampleProject));
+    const draftBuild = edgeOf(drawn, "draft", "build");
+
+    // Draft ran as runs 1, 3, 4, 10 and 23; all but run 3 went on to Build.
+    expect(draftBuild.label.parts.map(labelText)).toEqual([
+      "Done · runs 1, 4, 10, 23",
+    ]);
+    expect(draftBuild.label.lines[0]?.chips.map((c) => c.index)).toEqual([
+      0, 3, 9, 22,
+    ]);
+    expect(
+      edgeOf(drawn, "solve", "audit").label.parts.map(labelText),
+    ).toContain("In range · run 29");
+    // A transition not taken names no run.
+    expect(
+      drawn.edges
+        .flatMap((e) => e.label.parts)
+        .filter((p) => p.taken === 0)
+        .every((p) => p.runs.length === 0 && !labelText(p).includes(" run")),
+    ).toBe(true);
+  });
+
+  it("names the same runs on a transition when it draws only what was taken", () => {
+    const whole = must(layout(busyRecord, sampleProject));
+    const taken = must(
+      layout(busyRecord, sampleProject, null, undefined, "taken"),
+    );
+    const runs = (drawn: Layout) =>
+      drawn.edges
+        .flatMap((e) => e.label.parts)
+        .filter((p) => p.taken > 0)
+        .map(labelText)
+        .sort();
+
+    expect(runs(taken)).toEqual(runs(whole));
+    expect(runs(taken).length).toBeGreaterThan(0);
+  });
+
+  it.each([24, 44])(
+    "lays a run's chips one beside another after its text, each at least %ipx wide on a line as tall",
+    (target) => {
+      const drawn = must(
+        layout(busyRecord, sampleProject, null, widest, "all", target),
+      );
+      const lines = drawn.edges.flatMap((e) =>
+        e.label.parts.map((part, i) => ({
+          part,
+          x: e.label.x,
+          line: must(e.label.lines[i]),
+        })),
+      );
+
+      expect(lines.some(({ line }) => line.chips.length > 1)).toBe(true);
+      for (const { part, x, line } of lines) {
+        expect(line.height).toBe(part.taken > 0 ? target : 14);
+        expect(line.chips.length).toBe(part.taken);
+        line.chips.forEach((chip, i) => {
+          expect(chip.width).toBeGreaterThanOrEqual(target);
+          expect(chip.pill + 4).toBeLessThanOrEqual(chip.width);
+          const before = line.chips[i - 1];
+          expect(chip.x).toBe(
+            before
+              ? before.x + before.width
+              : x + Math.ceil(widest(labelLine(part), "label")) + 4,
+          );
+        });
+      }
+    },
+  );
+
+  it("lists each run of a state that ran more than once, with its outcome", () => {
+    const drawn = must(layout(busyRecord, sampleProject));
+    const draft = must(drawn.nodes.find((n) => n.key === "draft"));
+    const audit = must(drawn.nodes.find((n) => n.key === "audit"));
+
+    expect(draft.runsText?.text).toBe("5 runs");
+    expect(draft.runs.map((r) => [r.index, r.label, r.recorded])).toEqual([
+      [0, "Done", true],
+      [2, "Invalid", true],
+      [3, "Done", true],
+      [9, "Done", true],
+      [22, "Done", true],
+    ]);
+    // One run: the card links to it, and lists nothing.
+    expect(audit.runs).toEqual([]);
+    expect(audit.runsText).toBeNull();
+  });
+
+  it("lists the run a state runs now after those it ran", () => {
+    const current = {
+      state: "check",
+      visit: 3,
+      index: 6,
+      recorded: false,
+      since: reviewSince,
+    };
+    const drawn = must(layout(records.passed, sampleProject, current, roomy));
+    const check = must(drawn.nodes.find((n) => n.key === "check"));
+
+    expect(check.runsText?.text).toBe("Run 3");
+    expect(check.runs.map((r) => [r.index, r.label, r.recorded])).toEqual([
+      [1, "Fail", true],
+      [3, "Pass", true],
+      [6, "Running", false],
+    ]);
   });
 });

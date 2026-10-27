@@ -69,6 +69,37 @@ export function canvasMeasure(): Measure {
 }
 
 /**
+ * The least side of a link on the graph's labels, 24px, 44px for a coarse
+ * pointer (R246); a line that holds links is as tall as that.
+ */
+export const TARGET = 24;
+const TARGET_COARSE = 44;
+
+/**
+ * The least side of a link drawn on the graph: TARGET_COARSE where the
+ * pointer is coarse, a touch screen, TARGET elsewhere.
+ */
+export function useTarget(): number {
+  const [query] = useState(() =>
+    typeof window === "undefined" || typeof window.matchMedia !== "function"
+      ? null
+      : window.matchMedia("(pointer: coarse)"),
+  );
+  const [coarse, setCoarse] = useState(query?.matches ?? false);
+  useEffect(() => {
+    if (query === null) return;
+    const change = () => {
+      setCoarse(query.matches);
+    };
+    query.addEventListener("change", change);
+    return () => {
+      query.removeEventListener("change", change);
+    };
+  }, [query]);
+  return coarse ? TARGET_COARSE : TARGET;
+}
+
+/**
  * The page's measure, new each time a font finishes loading, so that the
  * graph is laid out again in the font its text then draws in.
  */

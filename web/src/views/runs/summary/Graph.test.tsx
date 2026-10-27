@@ -166,8 +166,55 @@ describe("the machine's graph", () => {
   it("writes each outcome on its edge as the project labels it, else as `readable` spells it", () => {
     const { edge } = show(early);
 
-    expect(edge("build", "smoke")).toHaveTextContent(/^Pass ×1$/);
-    expect(edge("draft", "build")).toHaveTextContent(/^Done ×1$/);
+    expect(edge("build", "smoke")).toHaveTextContent(/^Pass · run2$/);
+    expect(edge("draft", "build")).toHaveTextContent(/^Done · run1$/);
+  });
+
+  it("links each run a transition names to that run", () => {
+    const { edge } = show(busy);
+
+    const links = [...edge("draft", "build").querySelectorAll("a")];
+    expect(links.map((l) => l.getAttribute("href"))).toEqual([
+      "/run/0",
+      "/run/3",
+      "/run/9",
+      "/run/22",
+    ]);
+    expect(links.map((l) => l.textContent)).toEqual(["1", "4", "10", "23"]);
+    expect(links[1]).toHaveAccessibleName(
+      "Done · runs 1, 4, 10, 23: open run 4",
+    );
+    expect(edge("draft", "build")).toHaveTextContent(/^Done · runs141023$/);
+
+    fireEvent.click(must(links[1]));
+    expect(where()).toBe("/run/3");
+  });
+
+  it("lists the runs of a state that ran more than once when its runs are opened, each a link to its run", () => {
+    const { graph } = show(busy);
+
+    const toggle = within(graph).getByRole("button", {
+      name: "Draft: 5 runs, list them",
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(graph).queryByRole("button", { name: /^Audit:/ })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const list = must(
+      document.getElementById(toggle.getAttribute("aria-controls") ?? ""),
+    );
+    const runs = within(list).getAllByRole("link");
+    expect(runs.map((l) => l.textContent)).toEqual([
+      "Run 1Done",
+      "Run 3Invalid",
+      "Run 4Done",
+      "Run 10Done",
+      "Run 23Done",
+    ]);
+
+    fireEvent.click(must(runs[1]));
+    expect(where()).toBe("/run/2");
   });
 
   it("opens at scale 1 in a frame narrower than the graph", () => {
@@ -175,6 +222,17 @@ describe("the machine's graph", () => {
     const { graph } = show(busy);
 
     expect(scaleOf(graph)).toBe("1");
+  });
+
+  it("opens scaled down to show its whole width, labels and all, in a frame a little narrower than the graph", () => {
+    const width = must(layout(record.parse(busy), project)).width;
+    frameOf(Math.round(width * 0.9), 300);
+    const { graph } = show(busy);
+
+    const k = Number(scaleOf(graph));
+    expect(k).toBeLessThan(1);
+    expect(k).toBeGreaterThanOrEqual(0.8);
+    expect(width * k).toBeLessThanOrEqual(Math.round(width * 0.9));
   });
 
   it("zooms in and out with its buttons", () => {

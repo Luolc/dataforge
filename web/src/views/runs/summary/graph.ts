@@ -26,7 +26,7 @@ import {
   statusOf,
 } from "../../../ui/status";
 import { layered } from "./layered";
-import { type Font, type Measure, widest } from "./measure";
+import { type Font, type Measure, TARGET, widest } from "./measure";
 
 export const END = "\0end";
 
@@ -51,13 +51,21 @@ const R = 8;
  * The height of a line of an edge's label, and how far its baseline sits
  * above the line's bottom.
  */
-export const LINE = 14;
+const LINE = 14;
 const DESCENT = 4;
 /** How far a loop reaches out of its card, and how tall it is. */
 const LOOP = 30;
 export const LOOP_WIDTH = 28;
 /** How far a loop's label keeps from the loop. */
 const LOOP_GAP = 6;
+/**
+ * How far a run's chip on a label keeps from the text before it and from
+ * the chip beside it, the room either side of its number, and how tall it
+ * is drawn.
+ */
+const CHIP_GAP = 4;
+const CHIP_PAD = 5;
+export const CHIP_HEIGHT = 16;
 
 interface Node {
   key: string;
@@ -89,6 +97,18 @@ interface Node {
   /** The index in visits of the state's last visit; null for none. */
   lastVisit: number | null;
   /**
+   * Each of the state's runs, in the order it ran them, when it ran more
+   * than once: its index in visits and its outcome, the run it runs now
+   * included; empty otherwise.
+   */
+  runs: NodeRun[];
+  /**
+   * What on the card names how many times the state ran, at the start of
+   * its first line under the title: "3 runs", or "Run 3" while it runs; null
+   * when runs is empty.
+   */
+  runsText: { text: string; width: number } | null;
+  /**
    * The state the attempt runs now: when its visit began, null when that is
    * not known, and the seconds of its visits before it; null for any other.
    */
@@ -111,11 +131,23 @@ interface LiveRow {
   tail: string;
 }
 
+/** A run of a state, as its card lists it. */
+interface NodeRun {
+  /** Its index in visits; its number in the Runs tab is one more. */
+  index: number;
+  label: string;
+  tone: Tone;
+  /** Whether the record holds it, so that it has a page of its own. */
+  recorded: boolean;
+}
+
 interface LabelPart {
   outcome: string;
   /** The outcome's label, as a visit's outcome reads (outcomeOf). */
   label: string;
   taken: number;
+  /** The index in visits of each visit that took it, in order. */
+  runs: number[];
   /** The title of the state a stub's transition goes to; null for none. */
   to: string | null;
 }
@@ -128,12 +160,39 @@ export interface Edge {
   taken: boolean;
   /** Whether it is drawn as a stub, its label naming where it goes. */
   stub: boolean;
-  /** The parts one a line from x, the last line's baseline at y. */
+  /**
+   * The parts one a line from x, the last line's baseline at y, and where
+   * each part's line and its runs' chips are.
+   */
   label: {
     x: number;
     y: number;
     parts: LabelPart[];
+    lines: LabelLine[];
   };
+}
+
+/**
+ * Where a part of a label is drawn: its line's top and height, its text's
+ * baseline, and a chip for each run that took it, which links to that run.
+ */
+interface LabelLine {
+  top: number;
+  height: number;
+  y: number;
+  chips: Chip[];
+}
+
+/**
+ * A run's link on a label: the visit's index, the left and width of the
+ * area that takes the pointer, and the width of the chip drawn in its
+ * middle.
+ */
+interface Chip {
+  index: number;
+  x: number;
+  width: number;
+  pill: number;
 }
 
 export interface Layout {
@@ -141,6 +200,8 @@ export interface Layout {
   height: number;
   /** Whether the attempt has ended: no transition but those taken is left. */
   ended: boolean;
+  /** The least side of a link or a control drawn on it, in px. */
+  target: number;
   nodes: Node[];
   edges: Edge[];
   /**
@@ -158,19 +219,36 @@ export interface Layout {
 export type Scope = "all" | "taken";
 
 /**
- * How many times the attempt took each transition, by "from\0outcome": a
- * visit took it when the next visit is of the state it goes to, the visit
- * the attempt runs now that its record does not hold yet included, or, for
- * the last visit, when it goes to the end and the attempt has ended with a
- * status.
+ * How many times the attempt took each transition, by "from\0outcome"
+ * (takenRuns).
  */
 export function takenCounts(
   record: AttemptRecord,
   project: Project,
   current: Current | null = null,
 ): Map<string, number> {
+  return new Map(
+    [...takenRuns(record, project, current)].map(([key, runs]) => [
+      key,
+      runs.length,
+    ]),
+  );
+}
+
+/**
+ * The visits that took each transition, by "from\0outcome", as their
+ * indices in visits, in order: a visit took it when the next visit is of
+ * the state it goes to, the visit the attempt runs now that its record does
+ * not hold yet included, or, for the last visit, when it goes to the end
+ * and the attempt has ended with a status.
+ */
+function takenRuns(
+  record: AttemptRecord,
+  project: Project,
+  current: Current | null = null,
+): Map<string, number[]> {
   const ended = endWord(project, record) !== null;
-  const counts = new Map<string, number>();
+  const runs = new Map<string, number[]>();
   const edges = record.graph?.edges ?? [];
   const pending = current !== null && !current.recorded ? current : null;
   record.visits.forEach((visit, i) => {
@@ -184,9 +262,9 @@ export function takenCounts(
     const took = next ? edge.to === next.state : edge.to === null && ended;
     if (!took) return;
     const key = `${edge.from}\0${edge.outcome}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    runs.set(key, [...(runs.get(key) ?? []), i]);
   });
-  return counts;
+  return runs;
 }
 
 /**
@@ -251,7 +329,8 @@ function rounded(points: [number, number][]): string {
 
 /**
  * Lay out the record's graph, with current, the visit a running attempt is
- * in (currentOf), drawn as running; null when the record has none.
+ * in (currentOf), drawn as running, and the links on its labels target px a
+ * side at least; null when the record has none.
  */
 export function layout(
   record: AttemptRecord,
@@ -259,9 +338,11 @@ export function layout(
   current: Current | null = null,
   measure: Measure = widest,
   scope: Scope = "all",
+  target: number = TARGET,
 ): Layout | null {
   const graph = record.graph;
   if (!graph) return null;
+  const runsOf = takenRuns(record, project, current);
   const taken = takenCounts(record, project, current);
   const attemptEnded = attemptStatus(project, record) !== null;
   const reached = reachedIn(record, current, taken);
@@ -293,9 +374,16 @@ export function layout(
         status: ended ? status : null,
         idle: !ended,
         lastVisit: null,
+        runs: [],
+        runsText: null,
         running: null,
       };
     }
+    const visits = record.visits.flatMap((v, index) =>
+      v.state === key
+        ? [{ ...outcomeOf(project, v.outcome, attemptEnded), index }]
+        : [],
+    );
     const mine = record.visits.filter((v) => v.state === key);
     const last = mine.at(-1);
     const times = mine.flatMap((v) => {
@@ -317,6 +405,20 @@ export function layout(
     if (current?.state === key) {
       const done = current.recorded ? mine.slice(0, -1) : mine;
       const runs = done.length + 1;
+      const all: NodeRun[] = [
+        ...visits.slice(0, done.length).map(({ index, label, tone }) => ({
+          index,
+          label,
+          tone,
+          recorded: true,
+        })),
+        {
+          index: current.recorded ? current.index : record.visits.length,
+          ...liveStatus.running,
+          recorded: current.recorded,
+        },
+      ];
+      const text = `Run ${runs.toString()}`;
       const timed = current.since !== null;
       const rows = [
         ...liveRows(
@@ -343,6 +445,8 @@ export function layout(
           : last
             ? record.visits.lastIndexOf(last)
             : null,
+        runs: runs > 1 ? all : [],
+        runsText: runs > 1 ? { text, width: measure(text, "sub") } : null,
         running: {
           since: current.since,
           before: done.reduce((sum, v) => sum + (visitSeconds(v) ?? 0), 0),
@@ -360,6 +464,17 @@ export function layout(
       status: last ? outcomeOf(project, last.outcome, attemptEnded) : null,
       idle: mine.length === 0,
       lastVisit: last ? record.visits.lastIndexOf(last) : null,
+      runs:
+        mine.length > 1
+          ? visits.map(({ index, label, tone }) => ({
+              index,
+              label,
+              tone,
+              recorded: true,
+            }))
+          : [],
+      runsText:
+        mine.length > 1 ? { text: sub, width: measure(sub, "sub") } : null,
       running: null,
     };
   });
@@ -378,6 +493,7 @@ export function layout(
       outcome: e.outcome,
       label: outcomeOf(project, e.outcome, false).label,
       taken: count,
+      runs: runsOf.get(`${e.from}\0${e.outcome}`) ?? [],
       to: null,
     });
     groups.set(key, group);
@@ -416,7 +532,7 @@ export function layout(
     const loop = loops.get(node.key);
     node.height = Math.max(
       textHeight(node),
-      loop ? loop.length * LINE + LOOP_WIDTH : 0,
+      loop ? labelHeight(loop, target) + LOOP_WIDTH : 0,
     );
   }
 
@@ -427,7 +543,7 @@ export function layout(
       width: n.width,
       height: n.height,
       beside: loops.has(n.key)
-        ? LOOP + LOOP_GAP + labelWidth(must(loops.get(n.key)), measure)
+        ? LOOP + LOOP_GAP + labelWidth(must(loops.get(n.key)), measure, target)
         : 0,
     })),
     others.map(([key, g]) => ({
@@ -436,8 +552,8 @@ export function layout(
       to: g.to,
       stub: stubbed.has(key),
       label: {
-        width: labelWidth(g.parts, measure),
-        height: g.parts.length * LINE,
+        width: labelWidth(g.parts, measure, target),
+        height: labelHeight(g.parts, target),
       },
     })),
   );
@@ -464,13 +580,22 @@ export function layout(
       const x = node.x + node.width;
       const a = node.y + (node.height - LOOP_WIDTH) / 2;
       const b = a + LOOP_WIDTH;
+      const left = x + LOOP + LOOP_GAP;
+      const lines = labelLines(
+        g.parts,
+        left,
+        node.y + (node.height - labelHeight(g.parts, target)) / 2,
+        measure,
+        target,
+      );
       return {
         ...common,
         path: `M${x} ${a} C ${x + LOOP} ${a}, ${x + LOOP} ${b}, ${x + 3} ${b}`,
         label: {
-          x: x + LOOP + LOOP_GAP,
-          y: node.y + (node.height + g.parts.length * LINE) / 2 - DESCENT,
+          x: left,
+          y: must(lines.at(-1)).y,
           parts: g.parts,
+          lines,
         },
       };
     }
@@ -479,14 +604,16 @@ export function layout(
     const [x, y] = r.ports[0];
     const from = box(g.from);
     from.ports.push([x - from.x, y - from.y]);
+    const lines = labelLines(g.parts, r.label.x, r.label.y, measure, target);
     return {
       ...common,
       path: rounded(r.points),
       label: {
         x: r.label.x,
         // The baseline of the label's last line.
-        y: r.label.y + r.label.height - DESCENT,
+        y: must(lines.at(-1)).y,
         parts: g.parts,
+        lines,
       },
     };
   });
@@ -495,6 +622,7 @@ export function layout(
     width: drawn.width,
     height: drawn.height,
     ended: attemptEnded,
+    target,
     nodes,
     edges,
     hidden,
@@ -600,20 +728,97 @@ function below(sub: string, time: string | null, measure: Measure): string[] {
 }
 
 /**
- * A part's line of an edge's label: its outcome's label, how many times the
- * attempt took it and, for a stub, where it goes.
+ * The text of a part's line of an edge's label: its outcome's label, then,
+ * where the attempt took it, "run" or "runs" before the chips of the runs
+ * that took it, and, for a stub, where it goes.
  */
 export function labelLine(part: LabelPart): string {
-  const taken = part.taken > 0 ? ` ×${part.taken.toString()}` : "";
+  const taken =
+    part.runs.length === 0 ? "" : part.runs.length === 1 ? " · run" : " · runs";
   const to = part.to === null ? "" : ` → ${part.to}`;
   return `${part.label}${taken}${to}`;
 }
 
+/**
+ * A part's line of a label as a reader reads it: its text, then the number
+ * each of its runs has in the Runs tab, as in "None solved · runs 2, 4".
+ */
+export function labelText(part: LabelPart): string {
+  const numbers = part.runs.map((i) => (i + 1).toString()).join(", ");
+  return numbers === "" ? labelLine(part) : `${labelLine(part)} ${numbers}`;
+}
+
+/** How tall a part's line is: tall enough for its links where it has any. */
+function lineHeight(part: LabelPart, target: number): number {
+  return part.runs.length > 0 ? target : LINE;
+}
+
+/** How tall a label of these parts is, a part to a line. */
+function labelHeight(parts: LabelPart[], target: number): number {
+  return parts.reduce((sum, p) => sum + lineHeight(p, target), 0);
+}
+
+/**
+ * A run's chip: its number as wide as it is drawn with room either side,
+ * and the area that takes the pointer at least target px wide.
+ */
+function chipOf(
+  index: number,
+  x: number,
+  measure: Measure,
+  target: number,
+): Chip {
+  const pill =
+    Math.ceil(measure((index + 1).toString(), "label")) + 2 * CHIP_PAD;
+  return { index, x, width: Math.max(target, pill + CHIP_GAP), pill };
+}
+
+/**
+ * Where each part of a label from left, its top at top, is drawn: a line
+ * each, its text's baseline in the line's middle, and the chips of its
+ * runs one beside another after its text.
+ */
+function labelLines(
+  parts: LabelPart[],
+  left: number,
+  top: number,
+  measure: Measure,
+  target: number,
+): LabelLine[] {
+  let at = top;
+  return parts.map((part) => {
+    const height = lineHeight(part, target);
+    let x = left + Math.ceil(measure(labelLine(part), "label")) + CHIP_GAP;
+    const chips = part.runs.map((index) => {
+      const chip = chipOf(index, x, measure, target);
+      x += chip.width;
+      return chip;
+    });
+    const line = {
+      top: at,
+      height,
+      y: at + (height + LINE) / 2 - DESCENT,
+      chips,
+    };
+    at += height;
+    return line;
+  });
+}
+
 /** How wide a label of these parts is, a part to a line. */
-function labelWidth(parts: LabelPart[], measure: Measure): number {
+function labelWidth(
+  parts: LabelPart[],
+  measure: Measure,
+  target: number,
+): number {
   return Math.max(
     0,
-    ...parts.map((p) => Math.ceil(measure(labelLine(p), "label"))),
+    ...labelLines(parts, 0, 0, measure, target).map((line, i) => {
+      const last = line.chips.at(-1);
+      return last
+        ? last.x + last.width
+        : Math.ceil(measure(labelLine(must(parts[i])), "label"));
+    }),
   );
 }
 
