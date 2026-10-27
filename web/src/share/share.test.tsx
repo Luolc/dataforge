@@ -218,42 +218,62 @@ describe("the share site's item page", () => {
   it("has a tab for each kind with its count, and nothing to act on", async () => {
     open("/demo/items/k7m2q9xr4t?tab=report");
 
-    await screen.findByRole("heading", { name: "Reviews (Tighten)" });
+    await screen.findByRole("heading", { level: 2, name: "Report" });
     const tabs = screen.getByRole("navigation", { name: "Item" });
     expect(
-      await within(tabs).findByRole("link", { name: /^Harbor task/ }),
-    ).toHaveTextContent("9 files");
+      await within(tabs).findByRole("link", { name: /^Files/ }),
+    ).toHaveTextContent("29 files");
     expect(
       within(tabs)
         .getAllByRole("link")
         .map((a) => a.textContent),
     ).toEqual([
-      "Harbor task9 9 files",
+      "Reports3 3 reports",
+      "Files29 29 files",
       "Pass@k3 / 4 3 of 4 solved",
-      "Reviews2 2 reports",
     ]);
     expect(
-      within(tabs).getByRole("link", { name: /^Reviews/ }),
+      within(tabs).getByRole("link", { name: /^Reports/ }),
     ).toHaveAttribute("aria-current", "page");
     expect(pageButtons().map((b) => b.textContent)).toEqual(["Light"]);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      "k7m2q9xr4t-r2",
-    );
+    expect(
+      screen.getByRole("heading", { level: 1, name: "k7m2q9xr4t-r2" }),
+    ).toBeVisible();
+  });
+
+  it("opens the tab of the kind export.json lists first, on its first report", async () => {
+    open("/demo/items/k7m2q9xr4t");
+
+    expect(
+      await screen.findByText(/^Why this item is in the collection/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Report" }),
+    ).toBeVisible();
+    const tabs = screen.getByRole("navigation", { name: "Item" });
+    expect(
+      within(tabs).getByRole("link", { name: /^Reports/ }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   it("lists the reviews in a column of one tab, their result cells as status labels", async () => {
     open("/demo/items/k7m2q9xr4t?tab=report");
 
-    expect(
-      await screen.findByRole("heading", { name: "Reviews (Tighten)" }),
-    ).toBeVisible();
-    expect((await screen.findAllByText("Pass")).length).toBeGreaterThan(0);
-    const column = screen.getByRole("navigation", { name: "Reviews" });
+    await screen.findByRole("heading", { level: 2, name: "Report" });
+    const column = screen.getByRole("navigation", { name: "Reports" });
     expect(
       within(column)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Reviews (Tighten)", "Reviews"]);
+    ).toEqual(["Report", "Reviews (Tighten)", "Reviews"]);
+
+    fireEvent.click(
+      within(column).getByRole("link", { name: "Reviews (Tighten)" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Reviews (Tighten)" }),
+    ).toBeVisible();
+    expect((await screen.findAllByText("Pass")).length).toBeGreaterThan(0);
 
     fireEvent.click(within(column).getByRole("link", { name: "Reviews" }));
 

@@ -321,10 +321,19 @@ def test_files_are_listed_and_served_as_bytes(tree: Tree) -> None:
 
   listing = web.get(f"{API}/files", params=ITEM | {"path": "task"})
   page = web.get(f"{API}/files", params=ITEM | {"path": "page.html"})
+  # A files deliverable whose path is "" is the item's own directory.
+  root = web.get(f"{API}/files", params=ITEM | {"path": ""})
 
   assert listing.json() == {
     "entries": [{"name": "README.md", "type": "file", "size": 9}]
   }
+  entries = cast(dict[str, list[dict[str, object]]], root.json())["entries"]
+  assert sorted((e["name"], e["type"]) for e in entries) == [
+    ("notes.md", "file"),
+    ("page.html", "file"),
+    ("record.json", "file"),
+    ("task", "dir"),
+  ]
   assert page.headers["content-type"] == "application/octet-stream"
   assert page.content == b"<script>alert(1)</script>"
 

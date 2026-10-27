@@ -6,7 +6,7 @@ import { ChevronRight } from "lucide-react";
 import { type CSSProperties, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import { useFileSource, useLoaded, useRefresh } from "../../api/client";
+import { inDir, useFileSource, useLoaded, useRefresh } from "../../api/client";
 import { type Entry, inTreeOrder, knownFile } from "./entries";
 import { size } from "./file";
 import { FileIcon, FolderIcon, OtherIcon } from "./FileIcon";
@@ -62,7 +62,7 @@ function Entries({
         <li key={entry.name}>
           <EntryRow
             entry={entry}
-            path={`${dir}/${entry.name}`}
+            path={inDir(dir, entry.name)}
             depth={depth}
             {...props}
           />

@@ -1,0 +1,11 @@
+--- a/tinyparse/header.py
++++ b/tinyparse/header.py
+@@ -1,6 +1,8 @@
+ def read_header(lines):
+     header = {}
+     for line in lines:
++        if not line.strip():
++            break
+         key, _, value = line.partition(":")
+         header[key.strip()] = value.strip()
+     return header

@@ -1,7 +1,9 @@
 """The dataforge viz screenshot command: a shot of one panel of the viewer.
 
-It drives headless Google Chrome over the DevTools protocol on a pipe, with
-the standard library alone, so that the shot is of the page after its scripts
+With --share it is a shot of a share site's item page instead, a tab of it
+and the deliverable the tab shows (design-share.md, section 5). It drives
+headless Google Chrome over the DevTools protocol on a pipe, with the
+standard library alone, so that the shot is of the page after its scripts
 ran, in the colour template the page itself applied.
 """
 
@@ -37,21 +39,26 @@ SPARE = 100
 # How long the processes Chrome left after it closed are given to end.
 GRACE = 5.0
 
+# The tab bar's label and the parameter that names a panel, on the viewer's
+# attempt page and on a share site's item page.
+_VIEWER = ("Attempt", "part")
+_SHARE = ("Item", "deliverable")
+
 _PAGE = """\
 (() => {
-  const want = {tab: %s, panel: %s};
+  const want = {tab: %s, panel: %s, nav: %s, param: %s};
   const current = (selector) => [...document.querySelectorAll(selector)]
     .map((a) => new URL(a.href).searchParams);
-  const tabs = current('nav[aria-label="Attempt"] a[aria-current="page"]');
-  const parts = current(
-    'a[aria-current="page"]:not(nav[aria-label="Attempt"] a)');
+  const bar = `nav[aria-label="${want.nav}"]`;
+  const tabs = current(`${bar} a[aria-current="page"]`);
+  const parts = current(`a[aria-current="page"]:not(${bar} a)`);
   return JSON.stringify({
     ready: document.readyState === "complete",
     text: document.body ? document.body.innerText : "",
     template: document.documentElement.dataset.template ?? null,
     tab: tabs.some((q) => q.get("tab") === want.tab),
     panel: want.panel === null
-      || parts.some((q) => q.get("part") === want.panel),
+      || parts.some((q) => q.get(want.param) === want.panel),
   });
 })()
 """
@@ -352,7 +359,12 @@ def _reap(under: dict[int, str]) -> list[int]:
 
 
 def wait_for_panel(
-  browser: Browser, tab: str, panel: str | None, template: str
+  browser: Browser,
+  tab: str,
+  panel: str | None,
+  template: str,
+  *,
+  share: bool = False,
 ) -> None:
   """Wait until the page shows the tab and panel, in the template.
 
@@ -366,12 +378,14 @@ def wait_for_panel(
     tab: The tab's name.
     panel: The panel's name, or None for the tab's first.
     template: The template the page must have applied.
+    share: Whether the page is a share site's item page.
 
   Raises:
     ShotError: The tab or panel is not there, the page did not settle in
       TIMEOUT seconds, or the template it applied is another.
   """
-  expression = _PAGE % (json.dumps(tab), json.dumps(panel))
+  nav, param = _SHARE if share else _VIEWER
+  expression = _PAGE % tuple(map(json.dumps, (tab, panel, nav, param)))
   start = time.monotonic()
   last = ""
   since = start
@@ -400,22 +414,27 @@ def wait_for_panel(
     time.sleep(POLL)
 
 
-def page_url(base: str, project: str, attempt: str, tab: str) -> str:
-  """Make the URL of an attempt's tab.
+def page_url(
+  base: str, project: str, attempt: str, tab: str, *, share: bool = False
+) -> str:
+  """Make the URL of an attempt's tab, or of a share site's item's.
 
   Args:
-    base: The viewer's address.
+    base: The viewer's or the share site's address.
     project: The project's ID.
-    attempt: The attempt's ID.
+    attempt: The attempt's ID, or the item's.
     tab: The tab's name.
+    share: Whether the address is a share site's.
 
   Returns:
     The URL, with the panel left to the caller.
   """
+  root = f"{base.rstrip('/')}/{urllib.parse.quote(project, safe='')}"
+  if share:
+    item = urllib.parse.quote(attempt, safe="")
+    return f"{root}/items/{item}?{urllib.parse.urlencode({'tab': tab})}"
   query = urllib.parse.urlencode({"id": attempt, "tab": tab})
-  return (
-    f"{base.rstrip('/')}/{urllib.parse.quote(project, safe='')}/attempt?{query}"
-  )
+  return f"{root}/attempt?{query}"
 
 
 def shoot(
@@ -430,6 +449,7 @@ def shoot(
   theme: str,
   out: Path,
   program: str = CHROME,
+  share: bool = False,
 ) -> None:
   """Take the shot and write it.
 
@@ -449,18 +469,21 @@ def shoot(
     theme: "light" or "dark".
     out: Where to write the PNG.
     program: Chrome's program.
+    share: Whether base is a share site's address, attempt an item on it,
+      and panel a deliverable of the tab.
   """
   template = TEMPLATES[theme]
-  url = page_url(base, project, attempt, tab)
+  url = page_url(base, project, attempt, tab, share=share)
   if panel is not None:
-    url += "&" + urllib.parse.urlencode({"part": panel})
+    param = (_SHARE if share else _VIEWER)[1]
+    url += "&" + urllib.parse.urlencode({param: panel})
   with chrome(program, width, height) as browser:
     # The origin first, since a blank page has no storage to write to.
     browser.go(base)
     key, value = json.dumps(TEMPLATE_KEY), json.dumps(template)
     _ = browser.evaluate(f"localStorage.setItem({key}, {value}) ?? 'set'")
     browser.go(url)
-    wait_for_panel(browser, tab, panel, template)
+    wait_for_panel(browser, tab, panel, template, share=share)
     png = browser.capture()
   _ = out.write_bytes(png)
 
@@ -476,10 +499,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     required=True,
     help="the viewer's address, such as http://host:8000",
   )
+  _ = parser.add_argument(
+    "--share",
+    action="store_true",
+    help="--url is a share site's: shoot an item's page, --attempt naming"
+    + " the item, --tab its kind and --panel a deliverable of the tab",
+  )
   _ = parser.add_argument("--project", required=True, help="the project's ID")
   _ = parser.add_argument("--attempt", required=True, help="the attempt's ID")
   _ = parser.add_argument(
-    "--tab", default="runs", help="the tab's name (default runs)"
+    "--tab",
+    help="the tab's name (default runs; with --share, required)",
   )
   _ = parser.add_argument(
     "--panel", help="the panel (the part of the tab) by name; default the first"
@@ -519,19 +549,25 @@ def run(args: argparse.Namespace) -> int:
       file=sys.stderr,
     )
     return 2
+  share = cast(bool, args.share)
+  tab = cast(str | None, args.tab)
+  if tab is None and share:
+    print("dataforge viz screenshot: --share needs --tab", file=sys.stderr)
+    return 2
   out = cast(Path, args.out)
   try:
     shoot(
       base=cast(str, args.url),
       project=cast(str, args.project),
       attempt=cast(str, args.attempt),
-      tab=cast(str, args.tab),
+      tab=tab or "runs",
       panel=cast(str | None, args.panel),
       width=width,
       height=height,
       theme=cast(str, args.theme),
       out=out,
       program=cast(str, args.chrome),
+      share=share,
     )
   except (ShotError, OSError) as error:
     print(f"dataforge viz screenshot: {error}", file=sys.stderr)

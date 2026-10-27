@@ -3,15 +3,26 @@
   "revision": 1,
   "deliverables": [
     {
-      "name": "task",
-      "kind": "files",
-      "title": "Harbor task",
+      "name": "rationale",
+      "kind": "report",
+      "title": "Report",
       "state": "",
       "output": null,
       "visit": null,
       "visit_index": null,
       "reason": null,
-      "path": "task"
+      "path": "RATIONALE.md"
+    },
+    {
+      "name": "packet",
+      "kind": "files",
+      "title": "Files",
+      "state": "",
+      "output": null,
+      "visit": null,
+      "visit_index": null,
+      "reason": null,
+      "path": ""
     },
     {
       "name": "pass_at_k",
