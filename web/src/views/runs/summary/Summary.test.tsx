@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import wide from "../../../../fixtures/graph/attempts/batch-1/task-0305/record.json";
 import {
   everyTaken,
   inReview,
@@ -12,6 +11,7 @@ import {
   runningIn,
   sampleProject,
 } from "../../../../fixtures/sample";
+import wide from "../../../../fixtures/graph/attempts/batch-1/task-0305/record.json";
 import { type AttemptRecord, type LiveInfo, record } from "../../../api/types";
 import { asShown } from "../../attempt/declared";
 import { layout } from "./graph";
@@ -89,49 +89,78 @@ describe("Summary", () => {
     expect(screen.queryByRole("button", { name: /^Show / })).toBeNull();
   });
 
-  it("breaks the machine's labels onto more lines where it is wider than its card", () => {
+  describe("the machine wider than its card", () => {
     const wideRecord = record.parse(wide);
     const natural = must(
       layout(wideRecord, sampleProject, null, widest, "taken"),
     ).width;
-    // The lines a label's text and chips are drawn on, by their tops and
-    // baselines, and the links to runs.
+    // The lines of the labels, by their edges and baselines, and the text
+    // of the labels as a reader who copies it gets it.
     const drawn = () => {
       const graph = must(
         screen.getAllByRole("group", { name: "State machine" }).at(-1),
       );
-      const lines = new Set(
-        [...graph.querySelectorAll("[data-edge]")].flatMap((edge) =>
-          [
-            ...edge.querySelectorAll(
-              ":scope > text > tspan, a[data-run] > rect:first-child",
-            ),
-          ].map(
-            (el) =>
-              `${edge.getAttribute("data-edge") ?? ""} ${el.getAttribute("y") ?? ""}`,
-          ),
-        ),
-      );
+      const edges = [...graph.querySelectorAll("[data-edge]")];
       return {
-        lines: lines.size,
-        runs: graph.querySelectorAll("[data-edge] a[data-run]").length,
+        lines: new Set(
+          edges.flatMap((edge) =>
+            [...edge.querySelectorAll(":scope > text > tspan")].map(
+              (el) =>
+                `${edge.getAttribute("data-edge") ?? ""} ${el.getAttribute("y") ?? ""}`,
+            ),
+          ),
+        ).size,
+        text: edges
+          .map((edge) => edge.querySelector(":scope > text")?.textContent)
+          .join("\n"),
       };
     };
-    show(wideRecord);
-    const roomy = drawn();
-    // A card narrower than the graph would be, as the browser measures it.
-    const width = vi
-      .spyOn(HTMLElement.prototype, "clientWidth", "get")
-      .mockReturnValue(natural - 120);
-    try {
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("breaks its labels onto more lines, their words still apart", () => {
+      show(wideRecord);
+      const roomy = drawn();
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(
+        natural - 120,
+      );
       show(wideRecord);
       const narrow = drawn();
 
       expect(narrow.lines).toBeGreaterThan(roomy.lines);
-      expect(narrow.runs).toBe(roomy.runs);
-    } finally {
-      width.mockRestore();
-    }
+      expect(narrow.text).toBe(roomy.text);
+    });
+
+    it("takes the screen's width in full screen", () => {
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
+        function (this: HTMLElement) {
+          return this.id === "" ? natural - 120 : natural + 400;
+        },
+      );
+      show(wideRecord);
+      const narrow = drawn();
+      const frame = must(
+        screen.getAllByRole("group", { name: "State machine" }).at(-1)
+          ?.parentElement,
+      );
+      // jsdom has no full screen: the frame fills it, as a browser says.
+      Object.defineProperty(document, "fullscreenElement", {
+        configurable: true,
+        get: () => frame,
+      });
+      try {
+        act(() => {
+          document.dispatchEvent(new Event("fullscreenchange"));
+        });
+
+        expect(frame.id).not.toBe("");
+        expect(drawn().lines).toBeLessThan(narrow.lines);
+      } finally {
+        Reflect.deleteProperty(document, "fullscreenElement");
+      }
+    });
   });
 
   it("renders the actions' summaries as untrusted Markdown", () => {
@@ -312,8 +341,7 @@ describe("the Summary of a running attempt", () => {
       within(review).getByRole("img", { name: "Running" }),
     ).toBeInTheDocument();
     // Here, with no canvas to measure on, the line may break before Running.
-    // The run now by its number in the Runs tab.
-    expect(review).toHaveTextContent(/Run 5 ·\s*Running/);
+    expect(review).toHaveTextContent(/Run 1 ·\s*Running/);
     expect(review.querySelector("rect")).toHaveClass("stroke-accent");
     expect(into).toHaveAttribute("data-taken", "true");
     expect(review).toHaveTextContent("1m 21s");
