@@ -172,7 +172,7 @@ describe("parseTrace", () => {
   });
 
   it("reads a one-call session's final output from its result line, and none for more calls", () => {
-    const usage = { input_tokens: 2, cache_creation_input_tokens: 16889 };
+    const usage = { input_tokens: 2, cache_creation_input_tokens: 9998 };
     const call = (id: string) =>
       JSON.stringify({
         type: "assistant",
@@ -189,16 +189,16 @@ describe("parseTrace", () => {
       });
 
     expect(
-      parseTrace([call("m1"), result(16891, 1831)].join("\n")).last,
-    ).toEqual({ id: "m1", input: 16891, output: 2, final: 1831 });
+      parseTrace([call("m1"), result(10000, 1500)].join("\n")).last,
+    ).toEqual({ id: "m1", input: 10000, output: 2, final: 1500 });
     // Two calls: the result sums them, so it is not the last call's.
     expect(
-      parseTrace([call("m1"), call("m2"), result(33782, 3662)].join("\n")).last
+      parseTrace([call("m1"), call("m2"), result(20000, 3000)].join("\n")).last
         ?.final,
     ).toBeNull();
     // A subagent's calls counted in the result's input.
     expect(
-      parseTrace([call("m1"), result(20000, 2500)].join("\n")).last?.final,
+      parseTrace([call("m1"), result(12000, 1600)].join("\n")).last?.final,
     ).toBeNull();
     expect(parseTrace(call("m1")).last?.final).toBeNull();
   });

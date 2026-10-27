@@ -537,7 +537,7 @@ describe("SessionView", () => {
           content: [{ type: "text", text: "Pass." }],
           usage: {
             input_tokens: 2,
-            cache_creation_input_tokens: 16889,
+            cache_creation_input_tokens: 9998,
             output_tokens: 2,
           },
         },
@@ -547,8 +547,8 @@ describe("SessionView", () => {
         num_turns: 1,
         usage: {
           input_tokens: 2,
-          cache_creation_input_tokens: 16889,
-          output_tokens: 1831,
+          cache_creation_input_tokens: 9998,
+          output_tokens: 1500,
         },
       }),
     ].join("\n");
@@ -570,7 +570,7 @@ describe("SessionView", () => {
       />,
     );
 
-    expect(await screen.findByText("19K")).toBeVisible();
+    expect(await screen.findByText("12K")).toBeVisible();
     expect(read).toHaveBeenCalledTimes(1);
   });
 
