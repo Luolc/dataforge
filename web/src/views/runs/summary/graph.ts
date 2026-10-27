@@ -58,6 +58,12 @@ const LOOP = 30;
 export const LOOP_WIDTH = 28;
 /** How far a loop's label keeps from the loop. */
 const LOOP_GAP = 6;
+/**
+ * The narrowest a label's lines are broken to so that the graph fits its
+ * frame, half a card's width; a piece of its text wider than that keeps a
+ * line of its own.
+ */
+export const LABEL_LEAST = CARD_WIDTH / 2;
 
 interface Node {
   key: string;
@@ -149,12 +155,28 @@ export interface Edge {
   taken: boolean;
   /** Whether it is drawn as a stub, its label naming where it goes. */
   stub: boolean;
-  /** The parts one a line from x, the last line's baseline at y. */
+  /**
+   * The parts from x, the last line's baseline at y, and the lines their
+   * text is drawn on.
+   */
   label: {
     x: number;
     y: number;
     parts: LabelPart[];
+    lines: LabelLine[];
   };
+}
+
+/**
+ * A line of a label: its top, its text's baseline, the index in parts of
+ * the part it is of, and the part's text on it. A part starts on a line of
+ * its own.
+ */
+interface LabelLine {
+  part: number;
+  text: string;
+  top: number;
+  y: number;
 }
 
 export interface Layout {
@@ -272,7 +294,8 @@ function rounded(points: [number, number][]): string {
 
 /**
  * Lay out the record's graph, with current, the visit a running attempt is
- * in (currentOf), drawn as running; null when the record has none.
+ * in (currentOf), drawn as running, and its labels' lines broken to make it
+ * at most room wide where they can be; null when the record has none.
  */
 export function layout(
   record: AttemptRecord,
@@ -280,6 +303,7 @@ export function layout(
   current: Current | null = null,
   measure: Measure = widest,
   scope: Scope = "all",
+  room = Infinity,
 ): Layout | null {
   const graph = record.graph;
   if (!graph) return null;
@@ -452,47 +476,75 @@ export function layout(
     g.parts = g.parts.map((p) => ({ ...p, to: title }));
   }
 
-  // A card is tall enough for its title's lines and those under them, and
-  // for its loop's label.
-  const loops = new Map(
-    [...groups.values()]
-      .filter((g) => g.from === g.to)
-      .map((g) => [g.from, g.parts]),
-  );
-  for (const node of nodes) {
-    const loop = loops.get(node.key);
-    node.height = Math.max(
-      textHeight(node),
-      loop ? loop.length * LINE + LOOP_WIDTH : 0,
-    );
-  }
-
   const others = [...groups.entries()].filter(([, g]) => g.from !== g.to);
-  const drawn = layered(
-    nodes.map((n) => ({
-      key: n.key,
-      width: n.width,
-      height: n.height,
-      beside: loops.has(n.key)
-        ? LOOP + LOOP_GAP + labelWidth(must(loops.get(n.key)), measure)
-        : 0,
-    })),
-    others.map(([key, g]) => ({
-      key,
-      from: g.from,
-      to: g.to,
-      stub: stubbed.has(key),
-      label: {
-        width: labelWidth(g.parts, measure),
-        height: g.parts.length * LINE,
-      },
-    })),
+  // The drawing with each label's lines at most wrap wide where they can
+  // be, and those lines by the group's key. A card is tall enough for its
+  // title's lines and those under them, and for its loop's label.
+  const place = (wrap: number) => {
+    const lines = new Map(
+      [...groups.entries()].map(([key, g]) => [
+        key,
+        labelLines(g.parts, wrap, measure),
+      ]),
+    );
+    const linesOf = (key: string) => must(lines.get(key));
+    const drawing = layered(
+      nodes.map((n) => {
+        const loop = lines.get(`${n.key}\0${n.key}`);
+        return {
+          key: n.key,
+          width: n.width,
+          height: Math.max(
+            textHeight(n),
+            loop ? loop.length * LINE + LOOP_WIDTH : 0,
+          ),
+          beside: loop ? LOOP + LOOP_GAP + linesWidth(loop, measure) : 0,
+        };
+      }),
+      others.map(([key, g]) => ({
+        key,
+        from: g.from,
+        to: g.to,
+        stub: stubbed.has(key),
+        label: {
+          width: linesWidth(linesOf(key), measure),
+          height: linesOf(key).length * LINE,
+        },
+      })),
+    );
+    return { drawing, linesOf };
+  };
+  // Where the graph is wider than room, its labels' lines are made as
+  // narrow as it takes to fit, down to LABEL_LEAST: the widest wrap from
+  // there that fits, found by halving, or LABEL_LEAST where none does.
+  let placed = place(Infinity);
+  const widestLabel = Math.max(
+    0,
+    ...[...groups.keys()].map((key) =>
+      linesWidth(placed.linesOf(key), measure),
+    ),
   );
+  if (placed.drawing.width > room && widestLabel > LABEL_LEAST) {
+    let fits = place(LABEL_LEAST);
+    let lo = LABEL_LEAST;
+    let hi = Math.ceil(widestLabel);
+    while (fits.drawing.width <= room && hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      const tried = place(mid);
+      if (tried.drawing.width <= room) {
+        fits = tried;
+        lo = mid;
+      } else hi = mid;
+    }
+    placed = fits;
+  }
+  const drawn = placed.drawing;
   for (const node of nodes) {
     const at = must(drawn.boxes.get(node.key));
     node.x = at.x;
     node.y = at.y;
     node.width = at.width;
+    node.height = at.height;
   }
   const box = (key: string) => must(nodes.find((n) => n.key === key));
 
@@ -511,13 +563,16 @@ export function layout(
       const x = node.x + node.width;
       const a = node.y + (node.height - LOOP_WIDTH) / 2;
       const b = a + LOOP_WIDTH;
+      const own = placed.linesOf(key);
+      const lines = moved(own, node.y + (node.height - own.length * LINE) / 2);
       return {
         ...common,
         path: `M${x} ${a} C ${x + LOOP} ${a}, ${x + LOOP} ${b}, ${x + 3} ${b}`,
         label: {
           x: x + LOOP + LOOP_GAP,
-          y: node.y + (node.height + g.parts.length * LINE) / 2 - DESCENT,
+          y: must(lines.at(-1)).y,
           parts: g.parts,
+          lines,
         },
       };
     }
@@ -526,14 +581,16 @@ export function layout(
     const [x, y] = r.ports[0];
     const from = box(g.from);
     from.ports.push([x - from.x, y - from.y]);
+    const lines = moved(placed.linesOf(key), r.label.y);
     return {
       ...common,
       path: rounded(r.points),
       label: {
         x: r.label.x,
         // The baseline of the label's last line.
-        y: r.label.y + r.label.height - DESCENT,
+        y: must(lines.at(-1)).y,
         parts: g.parts,
+        lines,
       },
     };
   });
@@ -656,11 +713,67 @@ export function labelLine(part: LabelPart): string {
   return `${part.label}${taken}${to}`;
 }
 
-/** How wide a label of these parts is, a part to a line. */
-function labelWidth(parts: LabelPart[], measure: Measure): number {
+/**
+ * A part's text in pieces that a line may break between: its words, a
+ * "·" or "→" kept with the word after it and the words in parentheses
+ * kept together.
+ */
+function pieces(text: string): string[] {
+  const out: string[] = [];
+  let open = false;
+  for (const word of text.split(" ")) {
+    const last = out.at(-1);
+    if (last !== undefined && (open || last === "·" || last === "→"))
+      out[out.length - 1] = `${last} ${word}`;
+    else out.push(word);
+    if (word.startsWith("(")) open = true;
+    if (word.endsWith(")")) open = false;
+  }
+  return out;
+}
+
+/**
+ * Where each part of a label is drawn, from 0 down: its text on as many
+ * lines as it needs to be at most room wide, a piece too wide for a line
+ * on one of its own, each line LINE tall.
+ */
+function labelLines(
+  parts: LabelPart[],
+  room: number,
+  measure: Measure,
+): LabelLine[] {
+  const lines: LabelLine[] = [];
+  parts.forEach((part, p) => {
+    const mine: string[] = [];
+    for (const piece of pieces(labelLine(part))) {
+      const last = mine.at(-1);
+      const text = last === undefined ? piece : `${last} ${piece}`;
+      if (last !== undefined && Math.ceil(measure(text, "label")) <= room)
+        mine[mine.length - 1] = text;
+      else mine.push(piece);
+    }
+    for (const text of mine) {
+      const top = lines.length * LINE;
+      lines.push({ part: p, text, top, y: top + LINE - DESCENT });
+    }
+  });
+  return lines;
+}
+
+/** Moves a label's lines from 0 down to top. */
+function moved(lines: LabelLine[], top: number): LabelLine[] {
+  return lines.map((line) => ({
+    ...line,
+    top: line.top + top,
+    y: line.y + top,
+  }));
+}
+
+/** How wide a label's lines are. */
+function linesWidth(lines: LabelLine[], measure: Measure): number {
   return Math.max(
     0,
-    ...parts.map((p) => Math.ceil(measure(labelLine(p), "label"))),
+    ...lines.map((line) => Math.ceil(measure(line.text, "label"))),
   );
 }
 

@@ -11,8 +11,11 @@ import {
   runningIn,
   sampleProject,
 } from "../../../../fixtures/sample";
-import type { AttemptRecord, LiveInfo } from "../../../api/types";
+import wide from "../../../../fixtures/graph/attempts/batch-1/task-0305/record.json";
+import { type AttemptRecord, type LiveInfo, record } from "../../../api/types";
 import { asShown } from "../../attempt/declared";
+import { layout } from "./graph";
+import { widest } from "./measure";
 import { Summary } from "./Summary";
 
 // The record as the attempt page hands it to the Summary.
@@ -84,6 +87,80 @@ describe("Summary", () => {
 
     expect(screen.getByText(/^6 runs · solid lines/)).toBeVisible();
     expect(screen.queryByRole("button", { name: /^Show / })).toBeNull();
+  });
+
+  describe("the machine wider than its card", () => {
+    const wideRecord = record.parse(wide);
+    const natural = must(
+      layout(wideRecord, sampleProject, null, widest, "taken"),
+    ).width;
+    // The lines of the labels, by their edges and baselines, and the text
+    // of the labels as a reader who copies it gets it.
+    const drawn = () => {
+      const graph = must(
+        screen.getAllByRole("group", { name: "State machine" }).at(-1),
+      );
+      const edges = [...graph.querySelectorAll("[data-edge]")];
+      return {
+        lines: new Set(
+          edges.flatMap((edge) =>
+            [...edge.querySelectorAll(":scope > text > tspan")].map(
+              (el) =>
+                `${edge.getAttribute("data-edge") ?? ""} ${el.getAttribute("y") ?? ""}`,
+            ),
+          ),
+        ).size,
+        text: edges
+          .map((edge) => edge.querySelector(":scope > text")?.textContent)
+          .join("\n"),
+      };
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("breaks its labels onto more lines, their words still apart", () => {
+      show(wideRecord);
+      const roomy = drawn();
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(
+        natural - 120,
+      );
+      show(wideRecord);
+      const narrow = drawn();
+
+      expect(narrow.lines).toBeGreaterThan(roomy.lines);
+      expect(narrow.text).toBe(roomy.text);
+    });
+
+    it("takes the screen's width in full screen", () => {
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
+        function (this: HTMLElement) {
+          return this.id === "" ? natural - 120 : natural + 400;
+        },
+      );
+      show(wideRecord);
+      const narrow = drawn();
+      const frame = must(
+        screen.getAllByRole("group", { name: "State machine" }).at(-1)
+          ?.parentElement,
+      );
+      // jsdom has no full screen: the frame fills it, as a browser says.
+      Object.defineProperty(document, "fullscreenElement", {
+        configurable: true,
+        get: () => frame,
+      });
+      try {
+        act(() => {
+          document.dispatchEvent(new Event("fullscreenchange"));
+        });
+
+        expect(frame.id).not.toBe("");
+        expect(drawn().lines).toBeLessThan(narrow.lines);
+      } finally {
+        Reflect.deleteProperty(document, "fullscreenElement");
+      }
+    });
   });
 
   it("renders the actions' summaries as untrusted Markdown", () => {

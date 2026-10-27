@@ -4,6 +4,7 @@ import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.j
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
 import tangle from "../../../../fixtures/graph/attempts/batch-1/task-0303/record.json";
 import rollout from "../../../../fixtures/graph/attempts/batch-1/task-0304/record.json";
+import wide from "../../../../fixtures/graph/attempts/batch-1/task-0305/record.json";
 import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
   everyTaken,
@@ -21,6 +22,7 @@ import {
   type Edge,
   END,
   hiddenOf,
+  LABEL_LEAST,
   labelLine,
   type Layout,
   layout,
@@ -372,11 +374,11 @@ function shapesOf(path: string) {
  */
 function labelBox(edge: Edge): Rect {
   const { label } = edge;
-  const w = Math.max(...label.parts.map((p) => widest(labelLine(p), "label")));
+  const w = Math.max(...label.lines.map((l) => widest(l.text, "label")));
   const x0 = label.x;
   return {
     x0,
-    y0: label.y - 10 - (label.parts.length - 1) * 14,
+    y0: label.y - 10 - (label.lines.length - 1) * 14,
     x1: x0 + w,
     y1: label.y + 3,
   };
@@ -978,6 +980,112 @@ describe("a state's runs", () => {
     for (const n of idle) {
       expect(n.runs).toEqual([]);
       expect(n.runsText).toBeNull();
+    }
+  });
+});
+
+describe("a graph wider than its room", () => {
+  const records = { busy, early, tangle, rollout, wide };
+  const natural = (json: unknown, scope: "all" | "taken") =>
+    must(layout(record.parse(json), sampleProject, null, widest, scope));
+  // Each part's lines.
+  const partsOf = (drawn: Layout) =>
+    drawn.edges.flatMap((e) =>
+      e.label.parts.map((part, i) => ({
+        edge: e,
+        part,
+        lines: e.label.lines.filter((line) => line.part === i),
+      })),
+    );
+  // A line's first piece: its first word, with the word after a "·" or "→"
+  // that starts it, or the words up to a ")" where it starts with a "(".
+  const firstPiece = (text: string) => {
+    const words = text.split(" ");
+    const [a = "", b = ""] = words;
+    if (a === "·" || a === "→") return `${a} ${b}`;
+    if (!a.startsWith("(") || a.endsWith(")")) return a;
+    const end = words.findIndex((w) => w.endsWith(")"));
+    return words.slice(0, end + 1).join(" ");
+  };
+
+  it("breaks its labels onto more lines to fit, losing nothing of their text and no parenthesis", () => {
+    for (const scope of ["all", "taken"] as const) {
+      const room = natural(wide, scope).width - 120;
+      const drawn = must(
+        layout(record.parse(wide), sampleProject, null, widest, scope, room),
+      );
+
+      expect(drawn.width).toBeLessThanOrEqual(room);
+      expect(clashes(drawn)).toEqual([]);
+      const parts = partsOf(drawn);
+      expect(parts.some(({ lines }) => lines.length > 1)).toBe(true);
+      for (const { part, lines } of parts) {
+        expect(lines.map((line) => line.text).join(" ")).toBe(labelLine(part));
+        for (const line of lines) {
+          expect(line.text.split("(").length).toBe(line.text.split(")").length);
+        }
+      }
+    }
+  });
+
+  it("keeps the words in a parenthesis on one line", () => {
+    const project = {
+      ...sampleProject,
+      statuses: {
+        ...sampleProject.statuses,
+        all_solved_too_easy: {
+          label: "All solved (far too easy)",
+          tone: "warn" as const,
+        },
+      },
+    };
+    const drawn = must(
+      layout(record.parse(wide), project, null, widest, "all", 1),
+    );
+    const lines = partsOf(drawn)
+      .filter(({ part }) => part.label === "All solved (far too easy)")
+      .map(({ lines }) => lines.map((line) => line.text));
+
+    expect(lines.length).toBeGreaterThan(0);
+    for (const texts of lines) {
+      expect(texts.length).toBeGreaterThan(1);
+      expect(texts).toContain("(far too easy)");
+    }
+  });
+
+  it("is laid out as it is when it fits its room", () => {
+    for (const json of Object.values(records)) {
+      for (const scope of ["all", "taken"] as const) {
+        const drawn = natural(json, scope);
+        expect(
+          layout(
+            record.parse(json),
+            sampleProject,
+            null,
+            widest,
+            scope,
+            drawn.width,
+          ),
+        ).toEqual(drawn);
+      }
+    }
+  });
+
+  it("breaks no label's line before it is half a card wide, when nothing fits", () => {
+    for (const [name, json] of Object.entries(records)) {
+      const drawn = must(
+        layout(record.parse(json), sampleProject, null, widest, "all", 1),
+      );
+      expect([name, clashes(drawn)]).toEqual([name, []]);
+      for (const { lines } of partsOf(drawn)) {
+        lines.slice(1).forEach((next, i) => {
+          const line = must(lines[i]);
+          // What would have gone on the line before it, had it fit there.
+          expect(
+            widest(`${line.text} ${firstPiece(next.text)}`, "label"),
+          ).toBeGreaterThan(LABEL_LEAST);
+        });
+      }
     }
   });
 });

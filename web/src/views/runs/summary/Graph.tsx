@@ -16,15 +16,7 @@ import { Link } from "react-router";
 import { runCount } from "../../../ui/format";
 import { Elapsed, RunningIcon } from "../../../ui/running";
 import { ToneIcon } from "../../../ui/status-mark";
-import {
-  type Edge,
-  labelLine,
-  type Layout,
-  LINE,
-  SUB_LINE,
-  textTop,
-  TITLE_LINE,
-} from "./graph";
+import { type Edge, type Layout, SUB_LINE, textTop, TITLE_LINE } from "./graph";
 import { useTarget } from "./measure";
 
 /** The scales the buttons step through, and the bounds of every zoom. */
@@ -492,22 +484,29 @@ function EdgeView({
       <path d={edge.path} markerEnd={head} className={`fill-none ${stroke}`} />
       {pulse && <Pulse d={edge.path} taken={edge.taken} box={box} />}
       <text x={label.x} y={label.y} className="text-xs">
-        {label.parts.map((part, i, all) => (
-          <tspan
-            key={part.outcome}
-            x={label.x}
-            y={label.y - (all.length - 1 - i) * LINE}
-            className={
-              part.taken > 0
-                ? "fill-fg font-semibold"
-                : lit
-                  ? "fill-fg-2"
-                  : "fill-fg-3"
-            }
-          >
-            {labelLine(part)}
-          </tspan>
-        ))}
+        {label.lines.map((line, i, all) => {
+          const part = label.parts[line.part];
+          if (part === undefined) return null;
+          // A line the part goes on after ends in the space it broke at,
+          // which the text keeps for a reader who copies it.
+          const goesOn = all[i + 1]?.part === line.part;
+          return (
+            <tspan
+              key={line.top}
+              x={label.x}
+              y={line.y}
+              className={
+                part.taken > 0
+                  ? "fill-fg font-semibold"
+                  : lit
+                    ? "fill-fg-2"
+                    : "fill-fg-3"
+              }
+            >
+              {goesOn ? `${line.text} ` : line.text}
+            </tspan>
+          );
+        })}
       </text>
     </g>
   );
