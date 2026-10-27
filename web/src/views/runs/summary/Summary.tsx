@@ -144,7 +144,10 @@ function useWidth(shown: boolean): [number, RefObject<HTMLDivElement | null>] {
       setWidth(full && el.contains(full) ? full.clientWidth : el.clientWidth);
     };
     measure();
+    // The element that fills the screen changes size with the window, which
+    // the element here does not.
     document.addEventListener("fullscreenchange", measure);
+    window.addEventListener("resize", measure);
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
@@ -152,6 +155,7 @@ function useWidth(shown: boolean): [number, RefObject<HTMLDivElement | null>] {
     observer?.observe(el);
     return () => {
       document.removeEventListener("fullscreenchange", measure);
+      window.removeEventListener("resize", measure);
       observer?.disconnect();
     };
   }, [shown]);
