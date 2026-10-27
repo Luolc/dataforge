@@ -670,3 +670,78 @@ def test_a_number_in_a_field_indexes_a_list(
   assert parts[0]["fields"] == [
     read or missing("runs/3/verdict.json has no trials.1.outcome")
   ]
+
+
+NEWEST = """\
+deliverables:
+  - name: review
+    kind: report
+    title: Review
+    newest:
+      dirs: "again-*"
+      file: status.json
+      when: {field: [outcome], equals: written}
+      path: [report]
+  - {name: task, kind: files, title: Task}
+"""
+
+
+def again(tree: Tree, name: str, status: object | None) -> str:
+  # A directory of the attempt with its status.json, none for None.
+  directory = tree.attempt / name
+  directory.mkdir()
+  if status is not None:
+    _ = (directory / "status.json").write_text(json.dumps(status))
+  return name
+
+
+def written(name: str) -> dict[str, object]:
+  return {"outcome": "written", "report": f"{name}/report.md"}
+
+
+def newest(tree: Tree) -> object:
+  _ = tree.project.write_text(PROJECT + NEWEST)
+  response = client(tree).get(f"{API}/newest", params=ATTEMPT)
+  assert response.status_code == 200
+  return cast(object, response.json())
+
+
+def test_a_deliverable_takes_the_path_of_the_newest_directory_that_meets_it(
+  tree: Tree,
+) -> None:
+  new = "again-2001-02-03T040506Z"
+  path = f"{new}/out/report.md"
+  _ = again(tree, "again-2001-02-02T000000Z", written("older"))
+  _ = again(tree, new, {"outcome": "written", "report": path})
+  _ = again(
+    tree, "again-2001-02-04T000000Z", {"outcome": "missing", "report": None}
+  )
+  _ = again(tree, "again-1", None)
+
+  assert newest(tree) == {"review": {"path": path, "dir": new}}
+
+
+def test_no_directory_that_meets_it_leaves_the_record_s_path(
+  tree: Tree,
+) -> None:
+  _ = again(tree, "again-3", {"outcome": "missing"})
+  _ = again(tree, "again-2", {"outcome": "written", "report": 2})
+  _ = again(tree, "again-1", None)
+  (tree.attempt / "again-4").mkdir()
+  _ = (tree.attempt / "again-4" / "status.json").write_text("{not json")
+
+  assert newest(tree) == {}
+
+
+def test_a_path_out_of_the_attempt_or_a_symlink_is_never_taken(
+  tree: Tree,
+) -> None:
+  outside = tree.root.parent.parent / "elsewhere"
+  outside.mkdir()
+  _ = (outside / "status.json").write_text(json.dumps(written("x")))
+  (tree.attempt / "again-9").symlink_to(outside)
+  for i, path in enumerate(["../../outside.txt", "/etc/hostname", "a/../b"]):
+    _ = again(tree, f"again-{i + 5}", {"outcome": "written", "report": path})
+  kept = again(tree, "again-4", written("kept"))
+
+  assert newest(tree) == {"review": {"path": "kept/report.md", "dir": kept}}

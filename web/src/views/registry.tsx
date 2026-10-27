@@ -15,10 +15,12 @@ import type {
 } from "../api/types";
 import { TabBadge } from "../ui/count";
 import { counted } from "../ui/format";
+import { Note } from "../ui/card";
 import { ChoiceMenu } from "../ui/menu";
 import { SideColumn, sideEntry } from "../ui/side-column";
 import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
+import { useNewest } from "./newest";
 import FilesView from "./files";
 import {
   declared,
@@ -223,16 +225,29 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
   const setChosen = (name: string) => {
     setQuery((before) => withDeliverable(before, name));
   };
-  const view = shown && (
-    <View
-      key={shown.name}
-      project={props.project}
-      attempt={props.attempt}
-      record={props.record}
-      deliverable={shown}
-      live={props.live ?? null}
-    />
-  );
+  const newest = useNewest(shown?.name ?? "");
+  // Until /newest has said which file it is, the record's may be the older.
+  const view =
+    shown &&
+    (newest.state === "loading" ? (
+      <Note>Loading…</Note>
+    ) : (
+      <>
+        {newest.state === "error" && (
+          <p className="text-xs text-fg-3">
+            {`Could not read which directory gives this deliverable: ${newest.message}. Shown from the record.`}
+          </p>
+        )}
+        <View
+          key={shown.name}
+          project={props.project}
+          attempt={props.attempt}
+          record={props.record}
+          deliverable={shown}
+          live={props.live ?? null}
+        />
+      </>
+    ));
   if (listed && props.items.length > 1)
     return (
       <div className="px-7 pt-5 pb-12">

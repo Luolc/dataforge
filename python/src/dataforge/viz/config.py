@@ -410,6 +410,24 @@ class When:
 
 
 @dataclass(frozen=True, slots=True)
+class Newest:
+  """Where a deliverable's path comes from in place of the record's.
+
+  Attributes:
+    dirs: The pattern of the directories it looks in, as a tab source's.
+    file: A JSON file, relative to each of those directories.
+    when: The condition on that file a directory must meet.
+    path: The keys into the file of the path the deliverable takes, a path
+      relative to the attempt's directory.
+  """
+
+  dirs: str
+  file: tuple[str, ...]
+  when: When
+  path: tuple[str | int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Deliverable:
   """A deliverable the dataset's declaration names, as a record names it.
 
@@ -425,6 +443,8 @@ class Deliverable:
       while the attempt has reached no deliverable of the kind; a When when
       it does so, and stacks first, in an attempt that reached it from a
       visit whose data meets the When, before the others of its kind.
+    newest: Where its path comes from in place of the record's, the newest
+      directory that meets a condition; None for the record's alone.
   """
 
   name: str
@@ -433,6 +453,7 @@ class Deliverable:
   no_trace: str | None = None
   count: str | None = None
   default: bool | When = False
+  newest: Newest | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -674,6 +695,7 @@ class Project:
             if isinstance(d.default, When)
             else d.default
           ),
+          "newest": d.newest is not None,
         }
         for d in self.deliverables
       ],
@@ -1582,7 +1604,7 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
     where = f"deliverables[{i}]"
     entry = _mapping(path, where, item)
     fields = {"name", "kind", "title"}
-    optional = {"no_trace", "count", "default"}
+    optional = {"no_trace", "count", "default", "newest"}
     _keys(path, where, entry, required=fields, optional=optional)
     name, kind, title = (
       _str(path, f"{where}.{f}", entry[f]) for f in ("name", "kind", "title")
@@ -1603,8 +1625,39 @@ def _deliverables(path: Path, value: object) -> tuple[Deliverable, ...]:
     ):
       other = f"another deliverable of kind {kind!r} is the default"
       raise ConfigError(f"{path}: {where}.default: {other}")
-    found.append(Deliverable(name, kind, title, **words, default=default))
+    newest = _newest(path, f"{where}.newest", entry.get("newest"))
+    found.append(
+      Deliverable(name, kind, title, **words, default=default, newest=newest)
+    )
   return tuple(found)
+
+
+def _newest(path: Path, where: str, value: object) -> Newest | None:
+  if value is None:
+    return None
+  entry = _mapping(path, where, value)
+  _keys(
+    path,
+    where,
+    entry,
+    required={"dirs", "file", "when", "path"},
+    optional=set(),
+  )
+  file = _str(path, f"{where}.file", entry["file"])
+  when = _mapping(path, f"{where}.when", entry["when"])
+  _keys(
+    path, f"{where}.when", when, required={"field", "equals"}, optional=set()
+  )
+  if not _is_json(when["equals"]):
+    raise ConfigError(f"{path}: {where}.when.equals: not JSON data")
+  return Newest(
+    dirs=_pattern(path, f"{where}.dirs", entry["dirs"]),
+    file=_relative(path, f"{where}.file", file),
+    when=When(
+      _field_keys(path, f"{where}.when", when["field"]), when["equals"]
+    ),
+    path=_json_keys(path, f"{where}.path", entry["path"]),
+  )
 
 
 def _default(path: Path, where: str, value: object) -> bool | When:

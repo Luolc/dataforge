@@ -12,7 +12,7 @@ import { Split } from "../../ui/split";
 import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
-import { fromARun } from "../source";
+import { useHasSource } from "../newest";
 import { fileAt, firstFile, isKnownFile } from "./entries";
 import { Preview } from "./Preview";
 import { Tree } from "./Tree";
@@ -24,13 +24,14 @@ export default function FilesView({
   record,
   deliverable,
 }: DeliverableProps) {
+  const sourced = useHasSource(deliverable);
   return (
     <FilesCard
       project={project.id}
       attempt={attempt}
       deliverable={deliverable}
       byline={
-        fromARun(deliverable) ? (
+        sourced ? (
           <FromRun
             project={project}
             attempt={attempt}

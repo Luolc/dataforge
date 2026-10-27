@@ -24,7 +24,7 @@ import { RunningIcon } from "../../ui/running";
 import { attemptStatus, statusOf, toneGlyph, toneText } from "../../ui/status";
 import { OutcomeLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
-import { fromARun } from "../source";
+import { useHasSource } from "../newest";
 import { size, useFile } from "../files/file";
 import { FromRun } from "../FromRun";
 import { declared, type DeliverableProps, notRun } from "../kind";
@@ -122,6 +122,7 @@ export default function TrialsView({
     });
   };
   const [pane, setPane] = useState<Pane>("trace");
+  const sourced = useHasSource(deliverable);
   if (deliverable.path === null) return <NotRun deliverable={deliverable} />;
   if (trials.length === 0)
     return <Note>This deliverable lists no trials.</Note>;
@@ -158,7 +159,7 @@ export default function TrialsView({
             <p className="text-xl font-semibold tabular-nums">
               {shown} / {deliverable.k ?? counted} {entry?.count ?? COUNTED}
             </p>
-            {fromARun(deliverable) && (
+            {sourced && (
               <p className="text-xs text-fg-3">
                 <FromRun
                   project={project}

@@ -283,6 +283,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "no_trace": None,
       "count": None,
       "default": False,
+      "newest": False,
     },
     {
       "name": "review",
@@ -291,6 +292,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "no_trace": None,
       "count": None,
       "default": False,
+      "newest": False,
     },
     {
       "name": "regrade",
@@ -299,6 +301,7 @@ def test_projects_carry_their_deliverables(tree: Tree, static: Path) -> None:
       "no_trace": "No agent.",
       "count": "pass",
       "default": False,
+      "newest": False,
     },
   ]
 

@@ -5,7 +5,7 @@ import type { AttemptRecord, Deliverable } from "../api/types";
 
 export type Placed = Pick<
   Deliverable,
-  "kind" | "state" | "visit_index" | "path"
+  "name" | "kind" | "state" | "visit_index" | "path"
 >;
 
 /** Whether a deliverable was reached from a run the record names. */

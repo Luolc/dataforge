@@ -539,6 +539,32 @@ def test_a_wildcard_or_a_name_is_refused(tree: Tree, host: str) -> None:
     (
       (
         "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "newest: {dirs: 'r-*', file: s.json, path: [p]}}]",
+      ),
+      r"deliverables\[0\]\.newest\.when: missing",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "newest: {dirs: '../r-*', file: s.json, path: [p], "
+        + "when: {field: [o], equals: w}}}]",
+      ),
+      r"deliverables\[0\]\.newest\.dirs: '\.\./r-\*' is not a relative path",
+    ),
+    (
+      (
+        "name: Example",
+        "name: Example\ndeliverables: [{name: t, kind: k, title: T, "
+        + "newest: {dirs: 'r-*', file: s.json, path: [p], "
+        + "when: {field: [o], equals: 2026-10-27}}}]",
+      ),
+      r"deliverables\[0\]\.newest\.when\.equals: not JSON data",
+    ),
+    (
+      (
+        "name: Example",
         "name: Example\ndeliverables: [{name: t, kind: k, title: T}]\n"
         + "kinds: {report: {title: Reviews}}",
       ),

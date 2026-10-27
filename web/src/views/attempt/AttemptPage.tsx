@@ -2,7 +2,7 @@
 // in the order its first deliverable is declared, then the project's own) and
 // the current tab. While the attempt runs, the page reads it again every
 // POLL_MS.
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import {
@@ -54,6 +54,8 @@ import { asShown, declaredMissing, tabKinds } from "./declared";
 import { AttemptFacts } from "./facts";
 import { HeaderExtras } from "./extras";
 import { attemptHref } from "./href";
+import { NewestContext } from "../newest";
+import { newestOf, useNewestPaths, withNewest } from "./newest";
 import { TabNav } from "./TabNav";
 import { TabCount, TabView } from "../tabs";
 import { useTabVersions } from "../tabs/versions";
@@ -266,7 +268,12 @@ function Attempt({
   /** The part of a project's tab shown, by name; null for its first. */
   part: string | null;
 }) {
-  const record = asShown(project, recordRead);
+  const newest = useNewestPaths(project, attempt);
+  const newestRead = useMemo(
+    () => newestOf(project, newest),
+    [project, newest],
+  );
+  const record = withNewest(project, asShown(project, recordRead), newest);
   // A record that has ended wins over a /live read before it ended: the page
   // then shows the record alone.
   const live = attemptStatus(project, record) === null ? read : null;
@@ -327,7 +334,7 @@ function Attempt({
     })),
   ];
   return (
-    <>
+    <NewestContext value={newestRead}>
       <Header tags={<HeaderExtras project={project} attempt={attempt} />}>
         <AttemptIcon project={project} record={record} live={live} />
       </Header>
@@ -369,7 +376,7 @@ function Attempt({
       ) : (
         <Note>This attempt has no deliverable of kind {tab}.</Note>
       )}
-    </>
+    </NewestContext>
   );
 }
 
