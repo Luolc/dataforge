@@ -4,6 +4,7 @@ import busy from "../../../../fixtures/graph/attempts/batch-1/task-0301/record.j
 import early from "../../../../fixtures/graph/attempts/batch-1/task-0302/record.json";
 import tangle from "../../../../fixtures/graph/attempts/batch-1/task-0303/record.json";
 import rollout from "../../../../fixtures/graph/attempts/batch-1/task-0304/record.json";
+import wide from "../../../../fixtures/graph/attempts/batch-1/task-0305/record.json";
 import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
   everyTaken,
@@ -21,6 +22,7 @@ import {
   type Edge,
   END,
   hiddenOf,
+  LABEL_LEAST,
   labelLine,
   labelText,
   type Layout,
@@ -386,15 +388,16 @@ function shapesOf(path: string) {
 function labelBox(edge: Edge): Rect {
   const { label } = edge;
   const x0 = label.x;
-  const x1 = Math.max(
-    ...label.parts.map((p, i) => {
-      const last = label.lines[i]?.chips.at(-1);
-      return last ? last.x + last.width : x0 + widest(labelLine(p), "label");
-    }),
-  );
+  const x1 = Math.max(...label.lines.map((line) => lineEnd(label.x, line)));
   const first = must(label.lines[0]);
   const end = must(label.lines.at(-1));
   return { x0, y0: first.top, x1, y1: end.top + end.height };
+}
+
+/** Where a label's line ends: its last chip's end, else its text's. */
+function lineEnd(x: number, line: Edge["label"]["lines"][number]): number {
+  const last = line.chips.at(-1);
+  return last ? last.x + last.width : x + widest(line.text, "label");
 }
 
 const overlap = (p: Rect, q: Rect) =>
@@ -1014,11 +1017,12 @@ describe("the runs a label and a card name", () => {
         layout(busyRecord, sampleProject, null, widest, "all", target),
       );
       const lines = drawn.edges.flatMap((e) =>
-        e.label.parts.map((part, i) => ({
-          part,
-          x: e.label.x,
-          line: must(e.label.lines[i]),
-        })),
+        e.label.parts.map((part, i) => {
+          const mine = e.label.lines.filter((line) => line.part === i);
+          // The graph fits no room it is not given: a part is one line.
+          expect(mine).toHaveLength(1);
+          return { part, x: e.label.x, line: must(mine[0]) };
+        }),
       );
 
       expect(lines.some(({ line }) => line.chips.length > 1)).toBe(true);
@@ -1074,5 +1078,125 @@ describe("the runs a label and a card name", () => {
       [3, "Pass", true],
       [6, "Running", false],
     ]);
+  });
+});
+
+describe("a graph wider than its room", () => {
+  const records = { busy, early, tangle, rollout, wide };
+  const natural = (json: unknown, scope: "all" | "taken") =>
+    must(layout(record.parse(json), sampleProject, null, widest, scope));
+  // Each part's lines: its text, the runs of its chips, and each line.
+  const partsOf = (drawn: Layout) =>
+    drawn.edges.flatMap((e) =>
+      e.label.parts.map((part, i) => ({
+        edge: e,
+        part,
+        lines: e.label.lines.filter((line) => line.part === i),
+      })),
+    );
+
+  // A line's first word, with the word after a "·" or "→" that starts it.
+  const firstPiece = (text: string) => {
+    const [a = "", b = ""] = text.split(" ");
+    return a === "·" || a === "→" ? `${a} ${b}` : a;
+  };
+
+  it.each([24, 44])(
+    "breaks its labels onto more lines to fit, its runs' chips at least %ipx after the text and on lines of their own",
+    (target) => {
+      for (const scope of ["all", "taken"] as const) {
+        const json = wide;
+        const room = natural(json, scope).width - 120;
+        const drawn = must(
+          layout(
+            record.parse(json),
+            sampleProject,
+            null,
+            widest,
+            scope,
+            target,
+            room,
+          ),
+        );
+
+        expect(drawn.width).toBeLessThanOrEqual(room);
+        expect(clashes(drawn)).toEqual([]);
+        const parts = partsOf(drawn);
+        expect(parts.some(({ lines }) => lines.length > 1)).toBe(true);
+        for (const { edge, part, lines } of parts) {
+          // Nothing of a part is lost or out of order.
+          expect(
+            lines
+              .map((line) => line.text)
+              .filter((text) => text !== "")
+              .join(" "),
+          ).toBe(labelLine(part));
+          expect(
+            lines.flatMap((line) => line.chips.map((chip) => chip.index)),
+          ).toEqual(part.runs);
+          // The text first, then the chips; a line of chips alone starts
+          // at the label's left.
+          const first = lines.findIndex((line) => line.chips.length > 0);
+          const after = first < 0 ? [] : lines.slice(first + 1);
+          expect(after.every((line) => line.text === "")).toBe(true);
+          for (const line of lines) {
+            expect(line.height).toBe(line.chips.length > 0 ? target : 14);
+            line.chips.forEach((chip, i) => {
+              expect(chip.width).toBeGreaterThanOrEqual(target);
+              const before = line.chips[i - 1];
+              expect(chip.x).toBe(
+                before
+                  ? before.x + before.width
+                  : line.text === ""
+                    ? edge.label.x
+                    : edge.label.x + Math.ceil(widest(line.text, "label")) + 4,
+              );
+            });
+          }
+        }
+      }
+    },
+  );
+
+  it("is laid out as it is when it fits its room", () => {
+    for (const json of Object.values(records)) {
+      for (const scope of ["all", "taken"] as const) {
+        const drawn = natural(json, scope);
+        expect(
+          layout(
+            record.parse(json),
+            sampleProject,
+            null,
+            widest,
+            scope,
+            undefined,
+            drawn.width,
+          ),
+        ).toEqual(drawn);
+      }
+    }
+  });
+
+  it("breaks no label's line before it is half a card wide, when nothing fits", () => {
+    for (const [name, json] of Object.entries(records)) {
+      const drawn = must(
+        layout(record.parse(json), sampleProject, null, widest, "all", 24, 1),
+      );
+      expect([name, clashes(drawn)]).toEqual([name, []]);
+      for (const { edge, lines } of partsOf(drawn)) {
+        lines.slice(1).forEach((next, i) => {
+          const line = must(lines[i]);
+          // What would have gone on the line before it, had it fit there.
+          const end =
+            next.text === ""
+              ? lineEnd(edge.label.x, line) +
+                (line.chips.length > 0 ? 0 : 4) +
+                must(next.chips[0]).width
+              : edge.label.x +
+                widest(`${line.text} ${firstPiece(next.text)}`, "label");
+          expect(end - edge.label.x).toBeGreaterThan(LABEL_LEAST);
+        });
+      }
+    }
   });
 });

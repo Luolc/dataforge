@@ -1,0 +1,1028 @@
+{
+  "status": "passed",
+  "reason": null,
+  "kept_visit": null,
+  "round": 6,
+  "budget": {
+    "max_usd": 60.0,
+    "cost_usd": 4.8,
+    "stopped": null
+  },
+  "final": {},
+  "visits": [
+    {
+      "state": "draft",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:00:00+00:00",
+          "ended_at": "2026-03-11T09:01:00+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "build",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:01:20+00:00",
+          "ended_at": "2026-03-11T09:09:33+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "check",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:09:53+00:00",
+          "ended_at": "2026-03-11T09:16:19+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "solve",
+      "visit": 1,
+      "round": 1,
+      "outcome": "all_solved_too_easy",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:16:39+00:00",
+          "ended_at": "2026-03-11T09:21:18+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 1,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:21:38+00:00",
+          "ended_at": "2026-03-11T09:24:30+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 1,
+      "round": 1,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:24:50+00:00",
+          "ended_at": "2026-03-11T09:33:55+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 1,
+      "round": 1,
+      "outcome": "sent_back_to_regrade",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:34:15+00:00",
+          "ended_at": "2026-03-11T09:41:33+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 2,
+      "round": 1,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:41:53+00:00",
+          "ended_at": "2026-03-11T09:47:24+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 2,
+      "round": 2,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:47:44+00:00",
+          "ended_at": "2026-03-11T09:51:28+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 2,
+      "round": 2,
+      "outcome": "sent_back_to_regrade",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:51:48+00:00",
+          "ended_at": "2026-03-11T09:53:45+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 3,
+      "round": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T09:54:05+00:00",
+          "ended_at": "2026-03-11T10:02:15+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 3,
+      "round": 2,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:02:35+00:00",
+          "ended_at": "2026-03-11T10:08:58+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 3,
+      "round": 2,
+      "outcome": "sent_back_to_regrade",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:09:18+00:00",
+          "ended_at": "2026-03-11T10:13:54+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 4,
+      "round": 2,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:14:14+00:00",
+          "ended_at": "2026-03-11T10:17:03+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 4,
+      "round": 2,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:17:23+00:00",
+          "ended_at": "2026-03-11T10:26:25+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 4,
+      "round": 2,
+      "outcome": "sent_back_to_regrade",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:26:45+00:00",
+          "ended_at": "2026-03-11T10:34:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 5,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:34:20+00:00",
+          "ended_at": "2026-03-11T10:39:48+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 5,
+      "round": 3,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:40:08+00:00",
+          "ended_at": "2026-03-11T10:43:49+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 5,
+      "round": 3,
+      "outcome": "sent_back_to_regrade",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:44:09+00:00",
+          "ended_at": "2026-03-11T10:46:03+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 6,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:46:23+00:00",
+          "ended_at": "2026-03-11T10:54:30+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 6,
+      "round": 3,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T10:54:50+00:00",
+          "ended_at": "2026-03-11T11:01:10+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 6,
+      "round": 3,
+      "outcome": "sent_back_to_regrade",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:01:30+00:00",
+          "ended_at": "2026-03-11T11:06:03+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 7,
+      "round": 3,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:06:23+00:00",
+          "ended_at": "2026-03-11T11:09:09+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 7,
+      "round": 3,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:09:29+00:00",
+          "ended_at": "2026-03-11T11:19:28+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 7,
+      "round": 4,
+      "outcome": "sent_back_to_regrade",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:19:48+00:00",
+          "ended_at": "2026-03-11T11:27:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 8,
+      "round": 4,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:27:20+00:00",
+          "ended_at": "2026-03-11T11:32:45+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 8,
+      "round": 4,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:33:05+00:00",
+          "ended_at": "2026-03-11T11:36:43+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 8,
+      "round": 4,
+      "outcome": "accepted_after_review",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:37:03+00:00",
+          "ended_at": "2026-03-11T11:38:54+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "audit",
+      "visit": 1,
+      "round": 4,
+      "outcome": "rejected_by_the_audit",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:39:14+00:00",
+          "ended_at": "2026-03-11T11:47:18+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 9,
+      "round": 4,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:47:38+00:00",
+          "ended_at": "2026-03-11T11:53:55+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 9,
+      "round": 4,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:54:15+00:00",
+          "ended_at": "2026-03-11T11:58:45+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 9,
+      "round": 4,
+      "outcome": "accepted_after_review",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T11:59:05+00:00",
+          "ended_at": "2026-03-11T12:01:48+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "audit",
+      "visit": 2,
+      "round": 5,
+      "outcome": "rejected_by_the_audit",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:02:08+00:00",
+          "ended_at": "2026-03-11T12:12:04+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 10,
+      "round": 5,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:12:24+00:00",
+          "ended_at": "2026-03-11T12:19:33+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 10,
+      "round": 5,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:19:53+00:00",
+          "ended_at": "2026-03-11T12:25:15+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 10,
+      "round": 5,
+      "outcome": "accepted_after_review",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:25:35+00:00",
+          "ended_at": "2026-03-11T12:29:10+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "audit",
+      "visit": 3,
+      "round": 5,
+      "outcome": "rejected_by_the_audit",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:29:30+00:00",
+          "ended_at": "2026-03-11T12:31:18+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "regrade",
+      "visit": 11,
+      "round": 5,
+      "outcome": "done",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "agent",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:31:38+00:00",
+          "ended_at": "2026-03-11T12:39:39+00:00",
+          "cost_usd": 0.4,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "recheck",
+      "visit": 11,
+      "round": 5,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:39:59+00:00",
+          "ended_at": "2026-03-11T12:46:13+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "visit": 11,
+      "round": 5,
+      "outcome": "accepted_after_review",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:46:33+00:00",
+          "ended_at": "2026-03-11T12:51:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    },
+    {
+      "state": "audit",
+      "visit": 4,
+      "round": 6,
+      "outcome": "pass",
+      "data": {},
+      "mark": null,
+      "actions": [
+        {
+          "kind": "script",
+          "status": "ok",
+          "outputs": {},
+          "started_at": "2026-03-11T12:51:20+00:00",
+          "ended_at": "2026-03-11T12:54:00+00:00",
+          "cost_usd": 0.0,
+          "summary": null
+        }
+      ]
+    }
+  ],
+  "deliverables": [],
+  "graph": {
+    "start": "draft",
+    "states": [
+      {
+        "name": "draft",
+        "kind": "AgentState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "build",
+        "kind": "ScriptState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "check",
+        "kind": "ScriptState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "solve",
+        "kind": "PassAtKState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "regrade",
+        "kind": "AgentState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "recheck",
+        "kind": "ScriptState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "review",
+        "kind": "RubricState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      },
+      {
+        "name": "audit",
+        "kind": "RubricState",
+        "max_visits": 20,
+        "on_exhausted": "exhausted",
+        "max_cost_usd": null
+      }
+    ],
+    "edges": [
+      {
+        "from": "draft",
+        "outcome": "done",
+        "to": "build",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "draft",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "build",
+        "outcome": "pass",
+        "to": "check",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "build",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "pass",
+        "to": "solve",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "check",
+        "outcome": "fail",
+        "to": "draft",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "all_solved_too_easy",
+        "to": "regrade",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "in_range",
+        "to": "audit",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "solve",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "regrade",
+        "outcome": "done",
+        "to": "recheck",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "regrade",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "recheck",
+        "outcome": "pass",
+        "to": "review",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "recheck",
+        "outcome": "fail",
+        "to": "regrade",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "sent_back_to_regrade",
+        "to": "regrade",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "accepted_after_review",
+        "to": "audit",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "review",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "audit",
+        "outcome": "rejected_by_the_audit",
+        "to": "regrade",
+        "end": null,
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "audit",
+        "outcome": "pass",
+        "to": null,
+        "end": "passed",
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      },
+      {
+        "from": "audit",
+        "outcome": "error",
+        "to": null,
+        "end": "error",
+        "report": true,
+        "mark": null,
+        "end_on_last_visit": false
+      }
+    ]
+  }
+}
