@@ -1715,7 +1715,7 @@ class GitDocker:
     return CommandResult(0, "")
 
   def _exec(self, rest: list[str]) -> CommandResult:
-    env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    env = {**GIT_ENV}
     workdir = "/"
     while rest[0].startswith("--"):
       option, value, *rest = rest
@@ -1738,6 +1738,19 @@ class GitDocker:
     return CommandResult(done.returncode, done.stdout + done.stderr)
 
 
+# A commit starts `git maintenance run --auto` in the background, which holds
+# objects/maintenance.lock while a test copies the repository's directory.
+GIT_ENV = {
+  "GIT_CONFIG_GLOBAL": os.devnull,
+  "GIT_CONFIG_NOSYSTEM": "1",
+  "GIT_CONFIG_COUNT": "2",
+  "GIT_CONFIG_KEY_0": "maintenance.auto",
+  "GIT_CONFIG_VALUE_0": "false",
+  "GIT_CONFIG_KEY_1": "gc.auto",
+  "GIT_CONFIG_VALUE_1": "0",
+}
+
+
 def git(tree: Path, *args: str) -> str:
   return subprocess.run(
     ["git", "-C", str(tree), *args],
@@ -1746,8 +1759,7 @@ def git(tree: Path, *args: str) -> str:
     check=True,
     env={
       **os.environ,
-      "GIT_CONFIG_GLOBAL": os.devnull,
-      "GIT_CONFIG_NOSYSTEM": "1",
+      **GIT_ENV,
       "GIT_AUTHOR_NAME": "a",
       "GIT_AUTHOR_EMAIL": "a@example.test",
       "GIT_COMMITTER_NAME": "a",
