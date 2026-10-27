@@ -69,12 +69,12 @@ export function canvasMeasure(): Measure {
 }
 
 /**
- * The least side of a link on the graph's labels, 24px, 44px for a coarse
- * pointer (R246); a line that holds links is as tall as that. They are the
- * values of the tokens --spacing-target and --spacing-target-coarse in
- * theme.css, which the layout needs as numbers before anything is drawn.
+ * The least side of the control on a card that lists its runs, 24px, 44px
+ * for a coarse pointer (R246). They are the values of the tokens
+ * --spacing-target and --spacing-target-coarse in theme.css, which the graph
+ * needs as numbers to size the control in its drawing.
  */
-export const TARGET = 24;
+const TARGET = 24;
 const TARGET_COARSE = 44;
 
 const COARSE = "(pointer: coarse)";
@@ -92,7 +92,7 @@ function onCoarseChange(change: () => void): () => void {
 }
 
 /**
- * The least side of a link drawn on the graph: TARGET_COARSE where the
+ * The least side of a control drawn on the graph: TARGET_COARSE where the
  * pointer is coarse, a touch screen, TARGET elsewhere.
  */
 export function useTarget(): number {

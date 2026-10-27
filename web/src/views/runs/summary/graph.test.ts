@@ -24,9 +24,9 @@ import {
   hiddenOf,
   LABEL_LEAST,
   labelLine,
-  labelText,
   type Layout,
   layout,
+  LINE,
   LOOP_WIDTH,
   takenCounts,
   TEXT_WIDTH,
@@ -56,28 +56,16 @@ describe("the graph", () => {
 
     expect(edge("author", "check").taken).toBe(true);
     expect(edge("author", "check").label.parts).toEqual([
-      { outcome: "done", label: "Done", taken: 2, runs: [0, 2], to: null },
+      { outcome: "done", label: "Done", taken: 2, to: null },
     ]);
     expect(edge("review", "author").taken).toBe(false);
     expect(edge("author", END).taken).toBe(false);
     expect(edge("solve", END).taken).toBe(true);
-    // Every outcome is named, the taken one with the runs that took it.
+    // Every outcome is named, the taken one with its count.
     expect(edge("solve", END).label.parts).toEqual([
-      { outcome: "in_range", label: "In range", taken: 1, runs: [5], to: null },
-      {
-        outcome: "all_solved",
-        label: "All solved",
-        taken: 0,
-        runs: [],
-        to: null,
-      },
-      {
-        outcome: "none_solved",
-        label: "None solved",
-        taken: 0,
-        runs: [],
-        to: null,
-      },
+      { outcome: "in_range", label: "In range", taken: 1, to: null },
+      { outcome: "all_solved", label: "All solved", taken: 0, to: null },
+      { outcome: "none_solved", label: "None solved", taken: 0, to: null },
     ]);
   });
 
@@ -195,7 +183,7 @@ describe("the graph", () => {
     const solve = must(drawn.edges.find((e) => e.key === `solve\0${END}`));
 
     expect(solve.label.parts.map(labelLine)).toEqual([
-      "In range · run",
+      "In range ×1",
       "All solved",
       "None solved",
     ]);
@@ -212,7 +200,7 @@ describe("the graph", () => {
       taken: false,
     });
     expect(edge("review", "author").label.parts).toEqual([
-      { outcome: "fail", label: "Fail", taken: 0, runs: [], to: "Author" },
+      { outcome: "fail", label: "Fail", taken: 0, to: "Author" },
     ]);
     // Not taken, to the end.
     expect(edge("author", END)).toMatchObject({ stub: true, taken: false });
@@ -381,23 +369,19 @@ function shapesOf(path: string) {
 }
 
 /**
- * A label's box, as wide as its widest line, its text measured as the
- * layouts here measure it (widest) and its runs' chips as they are laid
- * out, from its first line's top to its last line's bottom.
+ * A label's box, as wide as its widest line measured as the layouts here
+ * measure it (widest), 14 a line, its last line's baseline at y.
  */
 function labelBox(edge: Edge): Rect {
   const { label } = edge;
+  const w = Math.max(...label.lines.map((l) => widest(l.text, "label")));
   const x0 = label.x;
-  const x1 = Math.max(...label.lines.map((line) => lineEnd(label.x, line)));
-  const first = must(label.lines[0]);
-  const end = must(label.lines.at(-1));
-  return { x0, y0: first.top, x1, y1: end.top + end.height };
-}
-
-/** Where a label's line ends: its last chip's end, else its text's. */
-function lineEnd(x: number, line: Edge["label"]["lines"][number]): number {
-  const last = line.chips.at(-1);
-  return last ? last.x + last.width : x + widest(line.text, "label");
+  return {
+    x0,
+    y0: label.y - 10 - (label.lines.length - 1) * 14,
+    x1: x0 + w,
+    y1: label.y + 3,
+  };
 }
 
 const overlap = (p: Rect, q: Rect) =>
@@ -598,8 +582,8 @@ describe("the layout's shapes", () => {
     expect(found).toEqual({ busy: [], early: [], tangle: [], rollout: [] });
   });
 
-  it("keep every label and its runs' chips inside the graph's width and height", () => {
-    for (const json of [busy, early, tangle, rollout]) {
+  it("keep every label inside the graph's width and height", () => {
+    for (const json of [busy, early, tangle, rollout, wide]) {
       for (const scope of ["all", "taken"] as const) {
         const drawn = must(
           layout(record.parse(json), sampleProject, null, widest, scope),
@@ -663,10 +647,7 @@ describe("the layout's shapes", () => {
       const loops = new Map(
         drawn.edges
           .filter((e) => e.from === e.to)
-          .map((e) => [
-            e.from,
-            e.label.lines.reduce((sum, line) => sum + line.height, 0),
-          ]),
+          .map((e) => [e.from, e.label.parts.length]),
       );
       return drawn.nodes.map((n) => ({
         width: n.width,
@@ -681,7 +662,7 @@ describe("the layout's shapes", () => {
           ),
           height: Math.max(
             textHeight(n),
-            loops.has(n.key) ? (loops.get(n.key) ?? 0) + LOOP_WIDTH : 0,
+            (loops.get(n.key) ?? 0) * LINE + LOOP_WIDTH,
           ),
         },
       }));
@@ -874,9 +855,8 @@ describe("a running attempt's layout", () => {
     );
     const review = must(drawn.nodes.find((n) => n.key === "review"));
 
-    // The run now by its number in the Runs tab, the record's fifth.
     expect(review).toMatchObject({
-      sub: "Run 5 · 1 run",
+      sub: "Run 1 of 1",
       under: [],
       status: { label: "Running" },
       idle: false,
@@ -884,7 +864,7 @@ describe("a running attempt's layout", () => {
       running: {
         since: reviewSince,
         before: 0,
-        rows: [{ lead: "Run 5 · Running ", live: "now", tail: "" }],
+        rows: [{ lead: "Run 1 · Running ", live: "now", tail: "" }],
       },
     });
     expect(takenCounts(inReview, sampleProject).get("check\0pass")).toBe(
@@ -904,7 +884,7 @@ describe("a running attempt's layout", () => {
     const drawn = must(layout(records.running, sampleProject, current));
 
     expect(drawn.nodes.find((n) => n.key === "check")).toMatchObject({
-      sub: "Run 2 · 1 run",
+      sub: "Run 1 of 1",
       lastVisit: 1,
       running: { before: 0 },
     });
@@ -922,11 +902,12 @@ describe("a running attempt's layout", () => {
     const check = must(drawn.nodes.find((n) => n.key === "check"));
     const running = must(check.running);
 
-    // Check's third run, the record's seventh.
-    expect(check.sub).toBe("Run 7 · 3 runs");
+    const n = check.sub.split(" ")[1];
+    expect(Number(n)).toBeGreaterThan(1);
+    expect(check.sub).toBe(`Run ${n ?? ""} of ${n ?? ""}`);
     expect(running.rows).toEqual([
-      { lead: "Run 7 · Running ", live: "now", tail: "" },
-      { lead: "3 runs · ", live: "all", tail: " in all" },
+      { lead: `Run ${n ?? ""} · Running `, live: "now", tail: "" },
+      { lead: `${n ?? ""} runs · `, live: "all", tail: " in all" },
     ]);
     expect(textHeight(check)).toBe(
       textHeight({ ...check, running: { ...running, rows: [] } }) +
@@ -937,7 +918,7 @@ describe("a running attempt's layout", () => {
 
 describe("a running card's two lines", () => {
   it("keeps the run now on one line with its clock at the widest, when that fits the card", () => {
-    // 6px a character: "Run 7 · Running 88m_88s" is 138px, over the 128px
+    // 6px a character: "Run 15 · Running 88m_88s" is 144px, over the 128px
     // beside the icon and within the 152px of the card's live lines.
     const six: Measure = (text) => text.length * 6;
     const current = {
@@ -966,84 +947,10 @@ describe("the time of a state that ended", () => {
   });
 });
 
-describe("the runs a label and a card name", () => {
+describe("a state's runs", () => {
   const busyRecord = record.parse(busy);
-  const edgeOf = (drawn: Layout, from: string, to: string) =>
-    must(drawn.edges.find((e) => e.key === `${from}\0${to}`));
 
-  it("names on a transition the runs that took it, by their numbers in the Runs tab", () => {
-    const drawn = must(layout(busyRecord, sampleProject));
-    const draftBuild = edgeOf(drawn, "draft", "build");
-
-    // Draft ran as runs 1, 3, 4, 10 and 23; all but run 3 went on to Build.
-    expect(draftBuild.label.parts.map(labelText)).toEqual([
-      "Done · runs 1, 4, 10, 23",
-    ]);
-    expect(draftBuild.label.lines[0]?.chips.map((c) => c.index)).toEqual([
-      0, 3, 9, 22,
-    ]);
-    expect(
-      edgeOf(drawn, "solve", "audit").label.parts.map(labelText),
-    ).toContain("In range · run 29");
-    // A transition not taken names no run.
-    expect(
-      drawn.edges
-        .flatMap((e) => e.label.parts)
-        .filter((p) => p.taken === 0)
-        .every((p) => p.runs.length === 0 && !labelText(p).includes(" run")),
-    ).toBe(true);
-  });
-
-  it("names the same runs on a transition when it draws only what was taken", () => {
-    const whole = must(layout(busyRecord, sampleProject));
-    const taken = must(
-      layout(busyRecord, sampleProject, null, undefined, "taken"),
-    );
-    const runs = (drawn: Layout) =>
-      drawn.edges
-        .flatMap((e) => e.label.parts)
-        .filter((p) => p.taken > 0)
-        .map(labelText)
-        .sort();
-
-    expect(runs(taken)).toEqual(runs(whole));
-    expect(runs(taken).length).toBeGreaterThan(0);
-  });
-
-  it.each([24, 44])(
-    "lays a run's chips one beside another after its text, each at least %ipx wide on a line as tall",
-    (target) => {
-      const drawn = must(
-        layout(busyRecord, sampleProject, null, widest, "all", target),
-      );
-      const lines = drawn.edges.flatMap((e) =>
-        e.label.parts.map((part, i) => {
-          const mine = e.label.lines.filter((line) => line.part === i);
-          // The graph fits no room it is not given: a part is one line.
-          expect(mine).toHaveLength(1);
-          return { part, x: e.label.x, line: must(mine[0]) };
-        }),
-      );
-
-      expect(lines.some(({ line }) => line.chips.length > 1)).toBe(true);
-      for (const { part, x, line } of lines) {
-        expect(line.height).toBe(part.taken > 0 ? target : 14);
-        expect(line.chips.length).toBe(part.taken);
-        line.chips.forEach((chip, i) => {
-          expect(chip.width).toBeGreaterThanOrEqual(target);
-          expect(chip.pill + 4).toBeLessThanOrEqual(chip.width);
-          const before = line.chips[i - 1];
-          expect(chip.x).toBe(
-            before
-              ? before.x + before.width
-              : x + Math.ceil(widest(labelLine(part), "label")) + 4,
-          );
-        });
-      }
-    },
-  );
-
-  it("lists each run of a state that ran more than once, with its outcome", () => {
+  it("lists each run of a state with its outcome, and names how many on a card that ran more than once", () => {
     const drawn = must(layout(busyRecord, sampleProject));
     const draft = must(drawn.nodes.find((n) => n.key === "draft"));
     const audit = must(drawn.nodes.find((n) => n.key === "audit"));
@@ -1056,12 +963,12 @@ describe("the runs a label and a card name", () => {
       [9, "Done", true],
       [22, "Done", true],
     ]);
-    // One run: the card links to it, and lists nothing.
-    expect(audit.runs).toEqual([]);
+    // One run: the card links to it, and has no control to list it.
+    expect(audit.runs.map((r) => r.index)).toEqual([must(audit.lastVisit)]);
     expect(audit.runsText).toBeNull();
   });
 
-  it("lists the run a state runs now after those it ran", () => {
+  it("lists the run a state runs now after those it ran, the card naming it by the state's count", () => {
     const current = {
       state: "check",
       visit: 3,
@@ -1072,12 +979,23 @@ describe("the runs a label and a card name", () => {
     const drawn = must(layout(records.passed, sampleProject, current, roomy));
     const check = must(drawn.nodes.find((n) => n.key === "check"));
 
-    expect(check.runsText?.text).toBe("Run 7");
+    expect(check.runsText?.text).toBe("Run 3");
     expect(check.runs.map((r) => [r.index, r.label, r.recorded])).toEqual([
       [1, "Fail", true],
       [3, "Pass", true],
       [6, "Running", false],
     ]);
+  });
+
+  it("lists nothing for a state not run", () => {
+    const drawn = must(layout(record.parse(rollout), sampleProject));
+    const idle = drawn.nodes.filter((n) => n.idle);
+
+    expect(idle.length).toBeGreaterThan(0);
+    for (const n of idle) {
+      expect(n.runs).toEqual([]);
+      expect(n.runsText).toBeNull();
+    }
   });
 });
 
@@ -1085,7 +1003,7 @@ describe("a graph wider than its room", () => {
   const records = { busy, early, tangle, rollout, wide };
   const natural = (json: unknown, scope: "all" | "taken") =>
     must(layout(record.parse(json), sampleProject, null, widest, scope));
-  // Each part's lines: its text, the runs of its chips, and each line.
+  // Each part's lines.
   const partsOf = (drawn: Layout) =>
     drawn.edges.flatMap((e) =>
       e.label.parts.map((part, i) => ({
@@ -1094,69 +1012,61 @@ describe("a graph wider than its room", () => {
         lines: e.label.lines.filter((line) => line.part === i),
       })),
     );
-
-  // A line's first word, with the word after a "·" or "→" that starts it.
+  // A line's first piece: its first word, with the word after a "·" or "→"
+  // that starts it, or the words up to a ")" where it starts with a "(".
   const firstPiece = (text: string) => {
-    const [a = "", b = ""] = text.split(" ");
-    return a === "·" || a === "→" ? `${a} ${b}` : a;
+    const words = text.split(" ");
+    const [a = "", b = ""] = words;
+    if (a === "·" || a === "→") return `${a} ${b}`;
+    if (!a.startsWith("(") || a.endsWith(")")) return a;
+    const end = words.findIndex((w) => w.endsWith(")"));
+    return words.slice(0, end + 1).join(" ");
   };
 
-  it.each([24, 44])(
-    "breaks its labels onto more lines to fit, its runs' chips at least %ipx after the text and on lines of their own",
-    (target) => {
-      for (const scope of ["all", "taken"] as const) {
-        const json = wide;
-        const room = natural(json, scope).width - 120;
-        const drawn = must(
-          layout(
-            record.parse(json),
-            sampleProject,
-            null,
-            widest,
-            scope,
-            target,
-            room,
-          ),
-        );
+  it("breaks its labels onto more lines to fit, losing nothing of their text and no parenthesis", () => {
+    for (const scope of ["all", "taken"] as const) {
+      const room = natural(wide, scope).width - 120;
+      const drawn = must(
+        layout(record.parse(wide), sampleProject, null, widest, scope, room),
+      );
 
-        expect(drawn.width).toBeLessThanOrEqual(room);
-        expect(clashes(drawn)).toEqual([]);
-        const parts = partsOf(drawn);
-        expect(parts.some(({ lines }) => lines.length > 1)).toBe(true);
-        for (const { edge, part, lines } of parts) {
-          // Nothing of a part is lost or out of order.
-          expect(
-            lines
-              .map((line) => line.text)
-              .filter((text) => text !== "")
-              .join(" "),
-          ).toBe(labelLine(part));
-          expect(
-            lines.flatMap((line) => line.chips.map((chip) => chip.index)),
-          ).toEqual(part.runs);
-          // The text first, then the chips; a line of chips alone starts
-          // at the label's left.
-          const first = lines.findIndex((line) => line.chips.length > 0);
-          const after = first < 0 ? [] : lines.slice(first + 1);
-          expect(after.every((line) => line.text === "")).toBe(true);
-          for (const line of lines) {
-            expect(line.height).toBe(line.chips.length > 0 ? target : 14);
-            line.chips.forEach((chip, i) => {
-              expect(chip.width).toBeGreaterThanOrEqual(target);
-              const before = line.chips[i - 1];
-              expect(chip.x).toBe(
-                before
-                  ? before.x + before.width
-                  : line.text === ""
-                    ? edge.label.x
-                    : edge.label.x + Math.ceil(widest(line.text, "label")) + 4,
-              );
-            });
-          }
+      expect(drawn.width).toBeLessThanOrEqual(room);
+      expect(clashes(drawn)).toEqual([]);
+      const parts = partsOf(drawn);
+      expect(parts.some(({ lines }) => lines.length > 1)).toBe(true);
+      for (const { part, lines } of parts) {
+        expect(lines.map((line) => line.text).join(" ")).toBe(labelLine(part));
+        for (const line of lines) {
+          expect(line.text.split("(").length).toBe(line.text.split(")").length);
         }
       }
-    },
-  );
+    }
+  });
+
+  it("keeps the words in a parenthesis on one line", () => {
+    const project = {
+      ...sampleProject,
+      statuses: {
+        ...sampleProject.statuses,
+        all_solved_too_easy: {
+          label: "All solved (far too easy)",
+          tone: "warn" as const,
+        },
+      },
+    };
+    const drawn = must(
+      layout(record.parse(wide), project, null, widest, "all", 1),
+    );
+    const lines = partsOf(drawn)
+      .filter(({ part }) => part.label === "All solved (far too easy)")
+      .map(({ lines }) => lines.map((line) => line.text));
+
+    expect(lines.length).toBeGreaterThan(0);
+    for (const texts of lines) {
+      expect(texts.length).toBeGreaterThan(1);
+      expect(texts).toContain("(far too easy)");
+    }
+  });
 
   it("is laid out as it is when it fits its room", () => {
     for (const json of Object.values(records)) {
@@ -1169,7 +1079,6 @@ describe("a graph wider than its room", () => {
             null,
             widest,
             scope,
-            undefined,
             drawn.width,
           ),
         ).toEqual(drawn);
@@ -1180,21 +1089,16 @@ describe("a graph wider than its room", () => {
   it("breaks no label's line before it is half a card wide, when nothing fits", () => {
     for (const [name, json] of Object.entries(records)) {
       const drawn = must(
-        layout(record.parse(json), sampleProject, null, widest, "all", 24, 1),
+        layout(record.parse(json), sampleProject, null, widest, "all", 1),
       );
       expect([name, clashes(drawn)]).toEqual([name, []]);
-      for (const { edge, lines } of partsOf(drawn)) {
+      for (const { lines } of partsOf(drawn)) {
         lines.slice(1).forEach((next, i) => {
           const line = must(lines[i]);
           // What would have gone on the line before it, had it fit there.
-          const end =
-            next.text === ""
-              ? lineEnd(edge.label.x, line) +
-                (line.chips.length > 0 ? 0 : 4) +
-                must(next.chips[0]).width
-              : edge.label.x +
-                widest(`${line.text} ${firstPiece(next.text)}`, "label");
-          expect(end - edge.label.x).toBeGreaterThan(LABEL_LEAST);
+          expect(
+            widest(`${line.text} ${firstPiece(next.text)}`, "label"),
+          ).toBeGreaterThan(LABEL_LEAST);
         });
       }
     }

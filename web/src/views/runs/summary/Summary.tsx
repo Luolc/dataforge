@@ -28,7 +28,7 @@ import { declared } from "../../kind";
 import { KindLine } from "../../registry";
 import { Graph } from "./Graph";
 import { hiddenOf, layout, type Scope } from "./graph";
-import { useMeasure, useTarget } from "./measure";
+import { useMeasure } from "./measure";
 import { TaskCard } from "./Task";
 
 interface Props {
@@ -50,7 +50,6 @@ export function Summary({
     attemptHref(project.id, attempt, { tab: "runs", run: index });
   const current = currentOf(record, live);
   const measure = useMeasure();
-  const target = useTarget();
   const [scope, setScope] = useState<Scope>("taken");
   const frameId = useId();
   const hidden = hiddenOf(record, project, current);
@@ -61,7 +60,6 @@ export function Summary({
     current,
     measure,
     scope,
-    target,
     room > 0 ? room : Infinity,
   );
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
@@ -130,9 +128,10 @@ export function Summary({
 }
 
 /**
- * How wide an element is drawn, 0 until it is or while there is none, kept
- * up to date as it changes, and the ref to give the element; shown says
- * whether it is there, so that it is measured once it comes.
+ * How wide an element is drawn, or the element in it that fills the screen
+ * while one does, 0 until it is or while there is none, kept up to date as
+ * it changes, and the ref to give the element; shown says whether it is
+ * there, so that it is measured once it comes.
  */
 function useWidth(shown: boolean): [number, RefObject<HTMLDivElement | null>] {
   const ref = useRef<HTMLDivElement>(null);
@@ -141,14 +140,23 @@ function useWidth(shown: boolean): [number, RefObject<HTMLDivElement | null>] {
     const el = ref.current;
     if (!shown || el === null) return;
     const measure = () => {
-      setWidth(el.clientWidth);
+      const full = document.fullscreenElement;
+      setWidth(full && el.contains(full) ? full.clientWidth : el.clientWidth);
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
+    // The element that fills the screen changes size with the window, which
+    // the element here does not.
+    document.addEventListener("fullscreenchange", measure);
+    window.addEventListener("resize", measure);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    observer?.observe(el);
     return () => {
-      observer.disconnect();
+      document.removeEventListener("fullscreenchange", measure);
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
     };
   }, [shown]);
   return [width, ref];

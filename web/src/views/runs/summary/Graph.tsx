@@ -13,17 +13,11 @@ import {
 } from "react";
 import { Link } from "react-router";
 
+import { runCount } from "../../../ui/format";
 import { Elapsed, RunningIcon } from "../../../ui/running";
 import { ToneIcon } from "../../../ui/status-mark";
-import {
-  CHIP_HEIGHT,
-  type Edge,
-  labelText,
-  type Layout,
-  SUB_LINE,
-  textTop,
-  TITLE_LINE,
-} from "./graph";
+import { type Edge, type Layout, SUB_LINE, textTop, TITLE_LINE } from "./graph";
+import { useTarget } from "./measure";
 
 /** The scales the buttons step through, and the bounds of every zoom. */
 const MIN = 0.25;
@@ -50,12 +44,12 @@ const clamp = (v: number, lo: number, hi: number) =>
 
 /**
  * The machine as laid out, in a frame that zooms and pans: transitions not
- * taken dashed, taken ones solid in the accent with links to the runs that
- * took them. Hovering or focusing a state lights its edges and the states
- * they join and dims the rest, and pulses run along the lit edges the
- * attempt may still take or took, from the state each leaves to the one it
- * goes to; a state links to its last run, and one that ran more than once
- * lists its runs.
+ * taken dashed, taken ones solid in the accent with their counts. Hovering or
+ * focusing a state lights its edges and the states they join and dims the
+ * rest, and pulses run along the lit edges the attempt may still take or
+ * took, from the state each leaves to the one it goes to; a state links to
+ * its last run, shows its runs beside it while it is hovered or focused, and
+ * one that ran more than once lists them, each a link, from its card.
  */
 export function Graph({
   layout,
@@ -68,6 +62,7 @@ export function Graph({
   frameId?: string;
 }) {
   const id = useId();
+  const target = useTarget();
   const frameRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [full, setFull] = useState(false);
@@ -75,6 +70,9 @@ export function Graph({
   // The state under the pointer wins over the one with the focus.
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  // The state whose list of runs is open, which its rows beside it would
+  // repeat.
+  const [listed, setListed] = useState<string | null>(null);
   const active = hovered ?? focused;
   // The state the attempt ran in when the graph was first shown: the page
   // reading the attempt again does not move the view to where it runs now.
@@ -257,6 +255,11 @@ export function Graph({
           .concat(active),
   );
   const dim = (key: string) => active !== null && !near.has(key);
+  // The state whose runs show beside it.
+  const tipped =
+    layout.nodes.find(
+      (n) => n.key === active && n.key !== listed && n.runs.length > 0,
+    ) ?? null;
   // Taken edges over the rest, so that a lane they share stays solid only
   // where an edge was taken, then lit edges over unlit ones.
   const edges = [...layout.edges].sort((a, b) => {
@@ -321,7 +324,6 @@ export function Graph({
               key={edge.key}
               edge={edge}
               head={`url(#${id}-head${lit(edge) ? "-lit" : ""})`}
-              runHref={runHref}
               lit={lit(edge)}
               dim={active !== null && !lit(edge)}
               // Once the attempt has ended, only what it took is left to
@@ -363,6 +365,9 @@ export function Graph({
                   <Link
                     to={runHref(node.lastVisit)}
                     aria-label={`${accessibleName(node)}: open its last run`}
+                    aria-describedby={
+                      tipped === node ? `${id}-runs-tip` : undefined
+                    }
                     data-node={node.key}
                     {...events}
                   >
@@ -371,14 +376,27 @@ export function Graph({
                 )}
                 <RunsList
                   node={node}
-                  target={layout.target}
+                  target={target}
                   runHref={runHref}
+                  onOpenChange={(open) => {
+                    setListed((key) =>
+                      open ? node.key : key === node.key ? null : key,
+                    );
+                  }}
                 />
               </Fragment>
             );
           })}
         </g>
       </svg>
+      {tipped && (
+        <RunsTip
+          id={`${id}-runs-tip`}
+          node={tipped}
+          view={shown}
+          frame={size}
+        />
+      )}
       <div className="absolute right-3 bottom-3 flex gap-2">
         {document.fullscreenEnabled && (
           <ControlButton
@@ -451,7 +469,6 @@ function ControlButton({
 function EdgeView({
   edge,
   head,
-  runHref,
   lit,
   dim,
   pulse,
@@ -459,7 +476,6 @@ function EdgeView({
 }: {
   edge: Edge;
   head: string;
-  runHref: (index: number) => string;
   lit: boolean;
   dim: boolean;
   pulse: boolean;
@@ -482,12 +498,15 @@ function EdgeView({
       <path d={edge.path} markerEnd={head} className={`fill-none ${stroke}`} />
       {pulse && <Pulse d={edge.path} taken={edge.taken} box={box} />}
       <text x={label.x} y={label.y} className="text-xs">
-        {label.lines.map((line) => {
+        {label.lines.map((line, i, all) => {
           const part = label.parts[line.part];
-          if (part === undefined || line.text === "") return null;
+          if (part === undefined) return null;
+          // A line the part goes on after ends in the space it broke at,
+          // which the text keeps for a reader who copies it.
+          const goesOn = all[i + 1]?.part === line.part;
           return (
             <tspan
-              key={`${part.outcome}-${line.top.toString()}`}
+              key={line.top}
               x={label.x}
               y={line.y}
               className={
@@ -498,68 +517,134 @@ function EdgeView({
                     : "fill-fg-3"
               }
             >
-              {line.text}
+              {goesOn ? `${line.text} ` : line.text}
             </tspan>
           );
         })}
       </text>
-      {label.lines.map((line) => {
-        const part = label.parts[line.part];
-        if (part === undefined) return null;
-        return line.chips.map((chip) => {
-          const n = (chip.index + 1).toString();
-          const middle = chip.x + chip.width / 2;
-          return (
-            <Link
-              key={`${part.outcome}-${n}`}
-              to={runHref(chip.index)}
-              aria-label={`${labelText(part)}: open run ${n}`}
-              data-run={chip.index}
-              className="group"
-            >
-              <rect
-                x={chip.x}
-                y={line.top}
-                width={chip.width}
-                height={line.height}
-                className="fill-transparent"
-              />
-              <rect
-                x={middle - chip.pill / 2}
-                y={line.top + (line.height - CHIP_HEIGHT) / 2}
-                width={chip.pill}
-                height={CHIP_HEIGHT}
-                className="fill-panel stroke-line [rx:var(--radius-row)] group-hover:fill-hover group-hover:stroke-fg-3"
-              />
-              <text
-                x={middle}
-                y={line.y}
-                textAnchor="middle"
-                className="fill-fg text-xs font-semibold [font-variant-numeric:tabular-nums]"
-              >
-                {n}
-              </text>
-            </Link>
-          );
-        });
-      })}
     </g>
+  );
+}
+
+type GraphNode = Layout["nodes"][number];
+
+/**
+ * A run of a state, as the list of its runs and its hint show it: its
+ * outcome's icon, its number in the Runs tab and its outcome, the running
+ * icon while it runs, and "latest" after the last of several.
+ */
+function RunLine({
+  run,
+  running,
+  latest,
+}: {
+  run: GraphNode["runs"][number];
+  running: boolean;
+  latest: boolean;
+}) {
+  return (
+    <>
+      {running ? (
+        <RunningIcon />
+      ) : (
+        <ToneIcon label={run.label} tone={run.tone} />
+      )}
+      {/* The spaces, which a flex row does not draw, part the words for a
+          screen reader. */}
+      <span className="text-fg-3 tabular-nums">#{run.index + 1}</span>{" "}
+      <span>{run.label}</span>
+      {latest && (
+        <>
+          {" "}
+          <span className="ml-auto pl-2 text-xs text-fg-3">latest</span>
+        </>
+      )}
+    </>
+  );
+}
+
+/** The heading of a state's runs, "Draft · 3 runs". */
+const runsHeading = (node: GraphNode) =>
+  `${node.title} · ${runCount(node.runs.length)}`;
+
+/**
+ * Each run of the state under the pointer or with the focus, beside its
+ * card on the side with more room in the frame, from the card's top down
+ * or, where there is more room above it, from its bottom up, the last of
+ * several marked latest and the one it runs now marked running. It takes
+ * no pointer, so that the graph pans and its links open under it.
+ */
+function RunsTip({
+  id,
+  node,
+  view,
+  frame,
+}: {
+  id: string;
+  node: GraphNode;
+  view: View;
+  frame: { w: number; h: number };
+}) {
+  const gap = 8;
+  const left = node.x * view.k + view.x;
+  const right = (node.x + node.width) * view.k + view.x;
+  const top = node.y * view.k + view.y;
+  const bottom = (node.y + node.height) * view.k + view.y;
+  const across =
+    frame.w - right >= left
+      ? { left: right + gap }
+      : { right: frame.w - left + gap };
+  const at = {
+    ...across,
+    ...(frame.h - top >= bottom
+      ? { top: Math.max(gap, top) }
+      : { bottom: Math.max(gap, frame.h - bottom) }),
+  };
+  return (
+    <div
+      id={id}
+      role="tooltip"
+      data-runs-tip={node.key}
+      style={at}
+      className="pointer-events-none absolute z-10 flex min-w-40 flex-col gap-0.5 rounded-panel border border-line bg-panel p-1.5 text-fg"
+    >
+      <p className="px-2 py-0.5 text-xs text-fg-3">{runsHeading(node)}</p>
+      <ul className="flex flex-col">
+        {node.runs.map((run, i, all) => {
+          const last = i === all.length - 1;
+          return (
+            <li
+              key={run.index}
+              className={`flex items-center gap-2 px-2 py-0.5 ${last ? "font-semibold" : "text-fg-2"}`}
+            >
+              <RunLine
+                run={run}
+                running={last && node.running !== null}
+                latest={last && all.length > 1}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
 /**
  * The control on a card that ran more than once, over where the card names
- * how many times, which opens the list of its runs: each run's number in
- * the Runs tab and its outcome, a link to the run where it has a page.
+ * how many times, which opens the list of its runs, a link to each run that
+ * has a page, and says when the list opens or closes.
  */
 function RunsList({
   node,
   target,
   runHref,
+  onOpenChange,
 }: {
-  node: Layout["nodes"][number];
+  node: GraphNode;
   target: number;
   runHref: (index: number) => string;
+  onOpenChange: (open: boolean) => void;
 }) {
   const at = node.runsText;
   if (at === null) return null;
@@ -582,9 +667,9 @@ function RunsList({
         className="pointer-events-none stroke-fg-3 [stroke-dasharray:var(--dash-not-taken)]"
       />
       <foreignObject x={x} y={y} width={width} height={target}>
-        <Popover.Root>
+        <Popover.Root onOpenChange={onOpenChange}>
           <Popover.Trigger
-            aria-label={`${node.title}: ${at.text}, list them`}
+            aria-label={`${node.title}: ${runCount(node.runs.length)}, list them`}
             data-runs={node.key}
             className="block size-full rounded-row hover:outline-1 hover:outline-fg-3 data-[state=open]:outline-1 data-[state=open]:outline-fg-3"
           />
@@ -600,23 +685,16 @@ function RunsList({
               }}
               className="z-10 flex max-h-(--radix-popover-content-available-height) min-w-48 flex-col gap-0.5 overflow-y-auto rounded-panel border border-line bg-panel p-1.5 text-fg"
             >
-              <p className="px-2 py-1 text-xs text-fg-3">
-                {node.title} · {node.runs.length} runs
-              </p>
+              <p className="px-2 py-1 text-xs text-fg-3">{runsHeading(node)}</p>
               <ul className="flex flex-col gap-0.5">
                 {node.runs.map((run, i, all) => {
+                  const last = i === all.length - 1;
                   const line = (
-                    <>
-                      {node.running && i === all.length - 1 ? (
-                        <RunningIcon />
-                      ) : (
-                        <ToneIcon label={run.label} tone={run.tone} />
-                      )}
-                      <span className="text-fg-3 tabular-nums">
-                        Run {run.index + 1}
-                      </span>
-                      <span>{run.label}</span>
-                    </>
+                    <RunLine
+                      run={run}
+                      running={last && node.running !== null}
+                      latest={last}
+                    />
                   );
                   const row =
                     "flex target items-center gap-2 rounded-row px-2 py-1 text-fg-2";
@@ -751,7 +829,7 @@ function NodeCard({
       <rect
         width={node.width}
         height={node.height}
-        className={`${node.idle ? "fill-app" : "fill-card"} ${border} [rx:var(--radius-panel)]`}
+        className={`${node.running ? "fill-running-bg" : node.idle ? "fill-app" : "fill-card"} ${border} [rx:var(--radius-panel)]`}
       />
       {node.ports.map(([cx, cy]) => (
         <circle

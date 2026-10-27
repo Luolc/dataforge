@@ -166,28 +166,69 @@ describe("the machine's graph", () => {
   it("writes each outcome on its edge as the project labels it, else as `readable` spells it", () => {
     const { edge } = show(early);
 
-    expect(edge("build", "smoke")).toHaveTextContent(/^Pass · run2$/);
-    expect(edge("draft", "build")).toHaveTextContent(/^Done · run1$/);
+    expect(edge("build", "smoke")).toHaveTextContent(/^Pass ×1$/);
+    expect(edge("draft", "build")).toHaveTextContent(/^Done ×1$/);
   });
 
-  it("links each run a transition names to that run", () => {
-    const { edge } = show(busy);
+  it("shows a hovered or focused state's runs beside it, the latest marked, as the card's description", () => {
+    const { graph, node } = show(busy);
+    const tip = () => screen.queryByRole("tooltip");
+    const rows = () =>
+      within(must(tip()))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent);
+    const draft = within(graph).getByRole("link", { name: /^Draft, / });
 
-    const links = [...edge("draft", "build").querySelectorAll("a")];
-    expect(links.map((l) => l.getAttribute("href"))).toEqual([
-      "/run/0",
-      "/run/3",
-      "/run/9",
-      "/run/22",
+    expect(tip()).toBeNull();
+    fireEvent.pointerEnter(node("draft"));
+    expect(tip()).toHaveTextContent(/^Draft · 5 runs/);
+    expect(rows()).toEqual([
+      "#1 Done",
+      "#3 Invalid",
+      "#4 Done",
+      "#10 Done",
+      "#23 Done latest",
     ]);
-    expect(links.map((l) => l.textContent)).toEqual(["1", "4", "10", "23"]);
-    expect(links[1]).toHaveAccessibleName(
-      "Done · runs 1, 4, 10, 23: open run 4",
+    expect(draft).toHaveAccessibleDescription(
+      /^Draft · 5 runs .*#23 .*latest$/,
     );
-    expect(edge("draft", "build")).toHaveTextContent(/^Done · runs141023$/);
 
-    fireEvent.click(must(links[1]));
-    expect(where()).toBe("/run/3");
+    fireEvent.pointerLeave(node("draft"));
+    expect(tip()).toBeNull();
+    expect(draft).not.toHaveAttribute("aria-describedby");
+
+    // The keyboard's way to the same: one run, nothing marked latest.
+    fireEvent.focus(node("audit"));
+    expect(rows()).toEqual(["#30 Pass"]);
+  });
+
+  it("shows a state's runs down from its card's top, or up from its bottom where there is more room above it", () => {
+    frameOf(600, 300);
+    const { node } = show(busy);
+    const tip = () => screen.getByRole("tooltip");
+
+    fireEvent.pointerEnter(node("draft"));
+    expect(tip().style.top).not.toBe("");
+    expect(tip().style.bottom).toBe("");
+    fireEvent.pointerLeave(node("draft"));
+
+    // A state far down a frame 300 tall.
+    fireEvent.pointerEnter(node("audit"));
+    expect(tip().style.bottom).not.toBe("");
+    expect(tip().style.top).toBe("");
+  });
+
+  it("does not show a state's runs beside it while its list of runs is open", () => {
+    const { graph, node } = show(busy);
+
+    fireEvent.click(
+      within(graph).getByRole("button", { name: "Draft: 5 runs, list them" }),
+    );
+    fireEvent.pointerEnter(node("draft"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.pointerEnter(node("audit"));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Audit/);
   });
 
   it("lists the runs of a state that ran more than once when its runs are opened, each a link to its run", () => {
@@ -206,11 +247,11 @@ describe("the machine's graph", () => {
     );
     const runs = within(list).getAllByRole("link");
     expect(runs.map((l) => l.textContent)).toEqual([
-      "Run 1Done",
-      "Run 3Invalid",
-      "Run 4Done",
-      "Run 10Done",
-      "Run 23Done",
+      "#1 Done",
+      "#3 Invalid",
+      "#4 Done",
+      "#10 Done",
+      "#23 Done latest",
     ]);
 
     fireEvent.click(must(runs[1]));
@@ -707,7 +748,7 @@ describe("a running attempt's machine", () => {
       .filter((l) => l.font === "sub")
       .map((l) => l.text);
     expect(under).toEqual([
-      "Run 4 · Running",
+      "Run 2 · Running",
       "1h 30m",
       "2 runs · 1h 42m in",
       "all",
@@ -735,5 +776,33 @@ describe("a running attempt's machine", () => {
       "animate-spin",
       "motion-reduce:animate-none",
     );
+  });
+
+  it("tints the running state's card, and no other, with its own token", () => {
+    frameOf(600, 300);
+    const { graph } = showRunning();
+    const card = (key: string) =>
+      must(graph.querySelector(`[data-node="${key}"] rect`));
+
+    expect(card("smoke")).toHaveClass("fill-running-bg");
+    expect(card("build")).toHaveClass("fill-card");
+    expect(card("build")).not.toHaveClass("fill-running-bg");
+  });
+
+  it("marks the run a state runs now as running among its runs beside it", () => {
+    frameOf(600, 300);
+    const { graph } = showRunning();
+
+    fireEvent.pointerEnter(must(graph.querySelector('[data-node="smoke"]')));
+    const tip = screen.getByRole("tooltip");
+    expect(
+      within(tip)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["#3 Running"]);
+    // The running icon, which turns, not the icon of a tone.
+    expect(
+      within(tip).getByRole("img", { name: "Running" }).querySelector("svg"),
+    ).toHaveClass("animate-spin");
   });
 });
