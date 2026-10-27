@@ -466,7 +466,7 @@ def test_lift_ends_the_pause_keeping_the_backoff_and_who_lifted_it(
   clock[0] += 10
   assert found.lift("alice@host")
   assert found.remaining() == 0
-  state = json.loads(found.path.read_text())
+  state = cast(dict[str, object], json.loads(found.path.read_text()))
   assert state["lifted"] == {"by": "alice@host", "at": 5.0e9 + 10}
   assert state["backoff"] == {
     "start_s": 60,
@@ -479,7 +479,7 @@ def test_lift_ends_the_pause_keeping_the_backoff_and_who_lifted_it(
 
 def test_lift_reads_a_file_with_no_lifted_key(tmp_path: Path):
   found = Pause.create(tmp_path / "pause.json", Backoff())
-  state = json.loads(found.path.read_text())
+  state = cast(dict[str, object], json.loads(found.path.read_text()))
   assert "lifted" not in state
   assert found.limited()
   assert found.lift("a@b")
