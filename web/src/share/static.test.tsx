@@ -65,6 +65,8 @@ describe("the share site as a static site", () => {
     expect(
       await within(tree).findByRole("link", { name: /^STANDARD\.md/ }),
     ).toBeVisible();
+    // The tree opens the folders above the first file once it is found.
+    await within(tree).findByRole("button", { name: "reference" });
     expect(
       within(tree)
         .getAllByRole("button")
