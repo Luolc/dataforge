@@ -243,6 +243,8 @@ describe("the theme's tokens", () => {
       ["code-bg"],
       4.5,
     ),
+    ...pairs(["fg", "fg-3", "neutral"], ["running-bg"], 7),
+    ...pairs(["icon", "accent"], ["running-bg"], 3),
     ...pairs(["chip-line", "icon"], ["panel", "card", "tree"], 3),
     ...pairs([...tones], ["tree", "group"], 3),
     ...pairs(fileIcons, ["tree", "hover", "active"], 3),

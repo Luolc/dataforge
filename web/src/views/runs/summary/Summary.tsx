@@ -2,13 +2,7 @@
 // transitions taken, the task's tests and principles, the summaries its
 // actions wrote and its deliverables.
 import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
-import {
-  type RefObject,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useId, useState } from "react";
 import { Link } from "react-router";
 
 import {
@@ -28,7 +22,7 @@ import { declared } from "../../kind";
 import { KindLine } from "../../registry";
 import { Graph } from "./Graph";
 import { hiddenOf, layout, type Scope } from "./graph";
-import { useMeasure, useTarget } from "./measure";
+import { useMeasure } from "./measure";
 import { TaskCard } from "./Task";
 
 interface Props {
@@ -50,20 +44,10 @@ export function Summary({
     attemptHref(project.id, attempt, { tab: "runs", run: index });
   const current = currentOf(record, live);
   const measure = useMeasure();
-  const target = useTarget();
   const [scope, setScope] = useState<Scope>("taken");
   const frameId = useId();
   const hidden = hiddenOf(record, project, current);
-  const [room, roomRef] = useWidth(record.graph != null);
-  const machine = layout(
-    record,
-    project,
-    current,
-    measure,
-    scope,
-    target,
-    room > 0 ? room : Infinity,
-  );
+  const machine = layout(record, project, current, measure, scope);
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   const shown =
     hidden === null || scope === "all"
@@ -115,9 +99,7 @@ export function Summary({
         flush
       >
         {machine ? (
-          <div ref={roomRef}>
-            <Graph layout={machine} runHref={runHref} frameId={frameId} />
-          </div>
+          <Graph layout={machine} runHref={runHref} frameId={frameId} />
         ) : (
           <p className="p-4 text-fg-3">This record has no graph.</p>
         )}
@@ -127,31 +109,6 @@ export function Summary({
       <Deliverables project={project} attempt={attempt} record={record} />
     </div>
   );
-}
-
-/**
- * How wide an element is drawn, 0 until it is or while there is none, kept
- * up to date as it changes, and the ref to give the element; shown says
- * whether it is there, so that it is measured once it comes.
- */
-function useWidth(shown: boolean): [number, RefObject<HTMLDivElement | null>] {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!shown || el === null) return;
-    const measure = () => {
-      setWidth(el.clientWidth);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [shown]);
-  return [width, ref];
 }
 
 /** What the attempt delivered, and the reason it ended; the page's heading has the rest. */
