@@ -124,6 +124,24 @@ def test_an_added_and_a_removed_attempt_change_the_listing(
   assert len(viz_app._SUMMARIES) == 1
 
 
+def test_an_item_s_listing_keeps_what_the_other_items_read(
+  tree: Tree, web: TestClient, reads: list[str]
+) -> None:
+  other = tree.root / "batch-2" / "task-1"
+  other.mkdir(parents=True)
+  _ = shutil.copy(FIXTURES / "record.json", other / "record.json")
+  settle(other / "record.json")
+  assert len(rows(web)) == 2
+  assert len(reads) == 2
+
+  mine = cast(
+    list[dict[str, object]], web.get(URL, params={"item": "batch-2"}).json()
+  )
+  assert [r["id"] for r in mine] == ["batch-2/task-1"]
+  assert len(rows(web)) == 2
+  assert len(reads) == 2
+
+
 def test_a_row_changed_by_the_caller_does_not_change_the_next(
   tree: Tree,
 ) -> None:

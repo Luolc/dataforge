@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import closing
 import dataclasses
 import json
@@ -15,8 +15,9 @@ from dataforge import queue
 from dataforge.queue.proc import Leader, leader
 from dataforge.runs import AttemptRow, SCHEMA_MAJOR, Store
 from dataforge.runs.store import ListingRow
+from dataforge.viz import app as app_module
 from dataforge.viz.app import create_app
-from dataforge.viz.config import load_site
+from dataforge.viz.config import load_site, Project
 from dataforge.viz.runs import HOLDER_GONE, NO_ROW
 from tests.processes import WAIT
 from tests.viz.sites import FIXTURES, make_queue_tree, QueueTree
@@ -469,7 +470,9 @@ def test_the_listing_marks_as_the_whole_rows_do(
 
   fresh = listing(web)
 
-  def whole(self: Store, *, item: str | None = None) -> list[ListingRow]:
+  def whole(
+    self: Store, *, item: str | None = None, ids: Sequence[str] | None = None
+  ) -> list[ListingRow]:
     return [
       ListingRow(
         id=row.id,
@@ -487,11 +490,92 @@ def test_the_listing_marks_as_the_whole_rows_do(
         created_at=row.created_at,
       )
       for row in self.rows(item=item)
+      if ids is None or row.id in ids
     ]
 
   monkeypatch.setattr(Store, "listing", whole)
   assert listing(web) == fresh
   assert len(fresh) == 5
+
+
+def other_item(made: QueueTree) -> str:
+  # An attempt of batch-2 whose record file is the fixture's; its ID.
+  path = made.tree.root / "batch-2" / "task-1" / "record.json"
+  path.parent.mkdir(parents=True)
+  _ = path.write_text((FIXTURES / "record.json").read_text())
+  return "batch-2/task-1"
+
+
+def test_the_listing_of_an_item_gives_its_rows_as_the_whole_listing_does(
+  made: QueueTree, static: Path, store: Store, me: Leader
+) -> None:
+  first = attempt(made, "task-2", {"status": "running"})
+  other = other_item(made)
+  add(store, kept(first, "ended", outcome="passed", ended_at=ENDED_AT))
+  assert store.insert(other, "batch-2", Path("/r"), me, None)
+  web = client(made, static)
+  whole = cast(list[dict[str, object]], web.get(ATTEMPTS).json())
+
+  def of(item: str) -> list[dict[str, object]]:
+    response = web.get(ATTEMPTS, params={"item": item})
+    assert response.status_code == 200
+    return cast(list[dict[str, object]], response.json())
+
+  assert of("batch-1") == [r for r in whole if r["item"] == "batch-1"]
+  assert [r["id"] for r in of("batch-1")] == [first, "batch-1/task-1"]
+  assert of("batch-2") == [r for r in whole if r["id"] == other]
+  assert of("batch-3") == []
+
+
+def test_an_item_s_routes_read_its_attempts_and_their_store_rows_alone(
+  made: QueueTree,
+  static: Path,
+  store: Store,
+  me: Leader,
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  mine = attempt(made, "task-2", {"status": "running"})
+  other = other_item(made)
+  add(store, kept(mine, "ended", outcome="passed", ended_at=ENDED_AT))
+  assert store.insert(other, "batch-2", Path("/r"), me, None)
+  web = client(made, static)
+  listed = Store.listing
+  rowed = app_module._row  # pyright: ignore[reportPrivateUsage]
+  asked: list[tuple[str | None, list[str] | None]] = []
+  read: list[str] = []
+
+  def spy(self: Store, **given: str | Sequence[str] | None) -> list[ListingRow]:
+    item, ids = given.get("item"), given.get("ids")
+    assert item is None or isinstance(item, str)
+    assert not isinstance(ids, str)
+    asked.append((item, None if ids is None else sorted(ids)))
+    if ids is None:
+      return listed(self, item=item)
+    return listed(self, item=item, ids=ids)
+
+  def row(project: Project, attempt: str, record: bool = False) -> object:
+    read.append(attempt)
+    return rowed(project, attempt, record)
+
+  monkeypatch.setattr(Store, "listing", spy)
+  monkeypatch.setattr(app_module, "_row", row)
+  item = sorted(["batch-1/task-1", mine])
+
+  for path, params in [
+    (LIVE, {"attempt": mine}),
+    (ACTIONS, {"item": "batch-1"}),
+    (ATTEMPTS, {"item": "batch-1"}),
+  ]:
+    asked.clear()
+    read.clear()
+    assert web.get(path, params=params).status_code == 200
+    assert sorted(read) == item, path
+    assert asked, path
+    assert all(i == "batch-1" or ids == item for i, ids in asked), path
+
+  asked.clear()
+  _ = listing(web)
+  assert asked == [(None, sorted([*item, other]))]
 
 
 def test_the_store_is_opened_read_only_and_never_written(

@@ -9,6 +9,7 @@ person stopped has ended for the viewer, though the store keeps it
 interrupted and it may go on.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 import sqlite3
 
@@ -48,7 +49,9 @@ class Found:
   stopped_at: dict[str, str] = field(default_factory=dict[str, str])
 
 
-def read(runs: Runs, item: str | None = None) -> Found:
+def read(
+  runs: Runs, item: str | None = None, ids: Sequence[str] | None = None
+) -> Found:
   """Read the store's rows, read-only.
 
   A store that does not exist yet has no rows; one whose schema_major is
@@ -57,6 +60,7 @@ def read(runs: Runs, item: str | None = None) -> Found:
   Args:
     runs: The project's store.
     item: Only this item's rows; None for every item.
+    ids: Only the rows of these IDs; None for every ID.
 
   Returns:
     The rows, or why they were not read.
@@ -72,7 +76,7 @@ def read(runs: Runs, item: str | None = None) -> Found:
         f"the store's schema_major {major} is newer than this viewer's"
         + f" {SCHEMA_MAJOR}",
       )
-    rows = store.listing(item=item)
+    rows = store.listing(item=item, ids=ids)
     return Found(
       rows,
       stopped_at={
@@ -188,7 +192,9 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
   runs = project.runs
   if runs is None:
     return
-  found = read(runs)
+  # The rows of the listing's attempts alone: a request for one item's reads
+  # a few rows, not the whole store.
+  found = read(runs, ids=[str(listed["id"]) for listed in rows])
   by_id = {row.id: row for row in found.rows}
   for listed in rows:
     row = by_id.get(str(listed["id"]))

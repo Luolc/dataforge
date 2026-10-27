@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 import ipaddress
 import json
+import logging
 import math
 import mimetypes
 import os
@@ -79,7 +80,13 @@ request asks for more."""
 ENDED_MAX = 5000
 """The most jobs that have ended the queue route lists, whatever is asked."""
 
+SLOW_S = 1.0
+"""How long a request may take to answer, in seconds, before it is logged
+with its time; the access log gives none, and logs a request once answered."""
+
 _STATIC = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+_log = logging.getLogger(__name__)
 
 
 def create_app(site: Site, static: Path) -> FastAPI:
@@ -146,10 +153,13 @@ class _Api:
   def projects(self) -> Response:
     return JSONResponse([p.public() for p in self._site.projects])
 
-  def attempts(self, p: str) -> Response:
+  def attempts(self, p: str, item: str | None = None) -> Response:
     project = self._project(p)
     attempts = list_attempts(project)
-    _SUMMARIES.keep(project, attempts)
+    if item is None:
+      _SUMMARIES.keep(project, attempts)
+    else:
+      attempts = [a for a in attempts if _item(project, a) == item]
     read = [_row(project, attempt) for attempt in attempts]
     rows = [row for row, _, _ in read]
     _mark(project, rows, _touched(read))
@@ -657,7 +667,16 @@ async def _refused(request: Request, error: Exception) -> Response:
 async def _headers(
   request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
+  start = time.monotonic()
   response = await call_next(request)
+  took = time.monotonic() - start
+  if took >= SLOW_S:
+    _log.warning(
+      "%s %s took %.2f s to answer",
+      request.method,
+      request.url.path + (f"?{request.url.query}" if request.url.query else ""),
+      took,
+    )
   response.headers["Content-Security-Policy"] = CSP
   response.headers["X-Content-Type-Options"] = "nosniff"
   return response
@@ -697,8 +716,11 @@ def _mark(
 
 def _item_rows(project: Project, item: str) -> list[dict[str, object]]:
   # The listing's rows of an item's attempts, newest first, marked.
-  read = [_row(project, a) for a in list_attempts(project)]
-  read = [r for r in read if r[0]["item"] == item]
+  read = [
+    _row(project, a)
+    for a in list_attempts(project)
+    if _item(project, a) == item
+  ]
   if not read:
     raise RefusedError(404, f"no attempt of item {item!r}")
   rows = [row for row, _, _ in read]

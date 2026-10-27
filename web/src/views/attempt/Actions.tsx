@@ -26,6 +26,7 @@ import { usd } from "../../ui/format";
 import { type Said, SaidLine } from "../../ui/said";
 import { toneGlyph, toneText } from "../../ui/status";
 import { attemptHref } from "./href";
+import { itemOf } from "./listing";
 
 // A parameter's value as the backend takes it: a plain decimal number of at
 // most 6 decimal places and NUMBER_LIMIT characters.
@@ -42,10 +43,6 @@ function paramValue(param: ActionParam, text: string): number | null {
 /** A parameter's value as a page shows it, by its format. */
 const shown = (param: ActionParam, value: number) =>
   param.format === "usd" ? usd(value) : value.toString();
-
-// The item an attempt ID names: its first item.depth components.
-const itemOf = (project: Project, attempt: string) =>
-  attempt.split("/").slice(0, project.item.depth).join("/");
 
 export function ItemActions({
   project,

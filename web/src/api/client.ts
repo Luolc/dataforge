@@ -43,7 +43,10 @@ const api = (p: string) => `/api/projects/${encodeURIComponent(p)}`;
 
 export const urls = {
   projects: () => "/api/projects",
-  attempts: (p: string) => `${api(p)}/attempts`,
+  attempts: (p: string, item?: string) =>
+    item === undefined
+      ? `${api(p)}/attempts`
+      : `${api(p)}/attempts?${new URLSearchParams({ item }).toString()}`,
   record: (p: string, attempt: string) =>
     `${api(p)}/record?${new URLSearchParams({ attempt }).toString()}`,
   live: (p: string, attempt: string) =>

@@ -451,21 +451,30 @@ class Store:
       found = cast(list[sqlite3.Row], conn.execute(sql, params).fetchall())
     return [_row(one) for one in found]
 
-  def listing(self, *, item: str | None = None) -> list[ListingRow]:
+  def listing(
+    self, *, item: str | None = None, ids: Sequence[str] | None = None
+  ) -> list[ListingRow]:
     """List the columns of rows that a listing reads, the oldest first.
 
     It opens the store read-only and writes nothing, and parses no JSON.
 
     Args:
       item: Only this item's rows; None for every item.
+      ids: Only the rows of these IDs; None for every ID.
 
     Returns:
       The rows, by created_at, then ID; none when the store does not exist
       yet.
     """
-    where, params = "1", list[object]()
+    clauses, params = ["1"], list[object]()
     if item is not None:
-      where, params = "item = ?", [item]
+      clauses.append("item = ?")
+      params.append(item)
+    if ids is not None:
+      # One parameter for any number of IDs, each looked up by the key.
+      clauses.append("id IN (SELECT value FROM json_each(?))")
+      params.append(json.dumps(list(ids)))
+    where = " AND ".join(clauses)
     sql = (
       f"SELECT {_LISTING} FROM attempt WHERE {where} ORDER BY created_at, id"
     )

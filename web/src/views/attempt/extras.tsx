@@ -16,7 +16,7 @@ export function HeaderExtras({
   project: Project;
   attempt: string;
 }) {
-  const rows = useListing(project);
+  const rows = useListing(project, attempt);
   if (rows.state === "loading") return null;
   if (rows.state === "error")
     return (
