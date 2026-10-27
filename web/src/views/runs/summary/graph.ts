@@ -104,8 +104,8 @@ interface Node {
   runs: NodeRun[];
   /**
    * What on the card names how many times the state ran, at the start of
-   * its first line under the title: "3 runs", or "Run 3" while it runs; null
-   * when runs is empty.
+   * its first line under the title: "3 runs", or, while it runs, the run
+   * now by its number in the Runs tab, "Run 7"; null when runs is empty.
    */
   runsText: { text: string; width: number } | null;
   /**
@@ -405,6 +405,8 @@ export function layout(
     if (current?.state === key) {
       const done = current.recorded ? mine.slice(0, -1) : mine;
       const runs = done.length + 1;
+      // The run now by its number in the Runs tab, as every run is named.
+      const at = current.recorded ? current.index : record.visits.length;
       const all: NodeRun[] = [
         ...visits.slice(0, done.length).map(({ index, label, tone }) => ({
           index,
@@ -413,16 +415,16 @@ export function layout(
           recorded: true,
         })),
         {
-          index: current.recorded ? current.index : record.visits.length,
+          index: at,
           ...liveStatus.running,
           recorded: current.recorded,
         },
       ];
-      const text = `Run ${runs.toString()}`;
+      const text = `Run ${(at + 1).toString()}`;
       const timed = current.since !== null;
       const rows = [
         ...liveRows(
-          `Run ${runs.toString()} · ${liveStatus.running.label} `,
+          `${text} · ${liveStatus.running.label} `,
           timed ? "now" : null,
           "",
           measure,
@@ -435,7 +437,7 @@ export function layout(
         ...box,
         title: stateTitle(project, key),
         lines: wrap(stateTitle(project, key), "title", measure),
-        sub: `Run ${runs.toString()} of ${runs.toString()}`,
+        sub: `${text} · ${runCount(runs)}`,
         time: null,
         under: [],
         status: liveStatus.running,

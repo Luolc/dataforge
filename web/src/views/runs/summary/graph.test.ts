@@ -871,8 +871,9 @@ describe("a running attempt's layout", () => {
     );
     const review = must(drawn.nodes.find((n) => n.key === "review"));
 
+    // The run now by its number in the Runs tab, the record's fifth.
     expect(review).toMatchObject({
-      sub: "Run 1 of 1",
+      sub: "Run 5 · 1 run",
       under: [],
       status: { label: "Running" },
       idle: false,
@@ -880,7 +881,7 @@ describe("a running attempt's layout", () => {
       running: {
         since: reviewSince,
         before: 0,
-        rows: [{ lead: "Run 1 · Running ", live: "now", tail: "" }],
+        rows: [{ lead: "Run 5 · Running ", live: "now", tail: "" }],
       },
     });
     expect(takenCounts(inReview, sampleProject).get("check\0pass")).toBe(
@@ -900,7 +901,7 @@ describe("a running attempt's layout", () => {
     const drawn = must(layout(records.running, sampleProject, current));
 
     expect(drawn.nodes.find((n) => n.key === "check")).toMatchObject({
-      sub: "Run 1 of 1",
+      sub: "Run 2 · 1 run",
       lastVisit: 1,
       running: { before: 0 },
     });
@@ -918,12 +919,11 @@ describe("a running attempt's layout", () => {
     const check = must(drawn.nodes.find((n) => n.key === "check"));
     const running = must(check.running);
 
-    const n = check.sub.split(" ")[1];
-    expect(Number(n)).toBeGreaterThan(1);
-    expect(check.sub).toBe(`Run ${n ?? ""} of ${n ?? ""}`);
+    // Check's third run, the record's seventh.
+    expect(check.sub).toBe("Run 7 · 3 runs");
     expect(running.rows).toEqual([
-      { lead: `Run ${n ?? ""} · Running `, live: "now", tail: "" },
-      { lead: `${n ?? ""} runs · `, live: "all", tail: " in all" },
+      { lead: "Run 7 · Running ", live: "now", tail: "" },
+      { lead: "3 runs · ", live: "all", tail: " in all" },
     ]);
     expect(textHeight(check)).toBe(
       textHeight({ ...check, running: { ...running, rows: [] } }) +
@@ -934,7 +934,7 @@ describe("a running attempt's layout", () => {
 
 describe("a running card's two lines", () => {
   it("keeps the run now on one line with its clock at the widest, when that fits the card", () => {
-    // 6px a character: "Run 15 · Running 88m_88s" is 144px, over the 128px
+    // 6px a character: "Run 7 · Running 88m_88s" is 138px, over the 128px
     // beside the icon and within the 152px of the card's live lines.
     const six: Measure = (text) => text.length * 6;
     const current = {
@@ -1068,7 +1068,7 @@ describe("the runs a label and a card name", () => {
     const drawn = must(layout(records.passed, sampleProject, current, roomy));
     const check = must(drawn.nodes.find((n) => n.key === "check"));
 
-    expect(check.runsText?.text).toBe("Run 3");
+    expect(check.runsText?.text).toBe("Run 7");
     expect(check.runs.map((r) => [r.index, r.label, r.recorded])).toEqual([
       [1, "Fail", true],
       [3, "Pass", true],

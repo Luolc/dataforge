@@ -224,17 +224,6 @@ describe("the machine's graph", () => {
     expect(scaleOf(graph)).toBe("1");
   });
 
-  it("opens scaled down to show its whole width, labels and all, in a frame a little narrower than the graph", () => {
-    const width = must(layout(record.parse(busy), project)).width;
-    frameOf(Math.round(width * 0.9), 300);
-    const { graph } = show(busy);
-
-    const k = Number(scaleOf(graph));
-    expect(k).toBeLessThan(1);
-    expect(k).toBeGreaterThanOrEqual(0.8);
-    expect(width * k).toBeLessThanOrEqual(Math.round(width * 0.9));
-  });
-
   it("zooms in and out with its buttons", () => {
     const { graph } = show(busy);
     const scale = () => scaleOf(graph);
@@ -718,7 +707,7 @@ describe("a running attempt's machine", () => {
       .filter((l) => l.font === "sub")
       .map((l) => l.text);
     expect(under).toEqual([
-      "Run 2 · Running",
+      "Run 4 · Running",
       "1h 30m",
       "2 runs · 1h 42m in",
       "all",

@@ -30,12 +30,8 @@ import {
 const MIN = 0.25;
 const MAX = 2;
 const STEP = 1.25;
-/**
- * The scale the graph starts at outside full screen, or the least it starts
- * at to fit the frame's width, labels and all; wider still, it pans.
- */
+/** The scale the graph starts at outside full screen; wider, it pans. */
 const START = 1;
-const START_FIT = 0.8;
 /** Further than this, a pointer drags the graph instead of clicking. */
 const DRAG = 4;
 /**
@@ -87,17 +83,15 @@ export function Graph({
     () => layout.nodes.find((n) => n.running !== null)?.key ?? null,
   );
 
-  // The view that shows the whole graph, or its whole width at START_FIT
-  // or more, or else a part of it at START: the state the attempt ran in
-  // when first shown in the middle, else the left part.
+  // The view that shows the whole graph, or a part of it at START: the
+  // state the attempt ran in when first shown in the middle, else the left
+  // part.
   const fit = useCallback(
     (w: number, h: number, whole: boolean): View => {
       const across = w / layout.width;
       const k = whole
         ? clamp(Math.min(across, h / layout.height), START, 1.5)
-        : across < START && across >= START_FIT
-          ? across
-          : START;
+        : START;
       const gw = layout.width * k;
       const middle = layout.nodes.find((n) => n.key === centred);
       const x =
