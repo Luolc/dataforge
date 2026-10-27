@@ -226,6 +226,20 @@ def test_a_fix_that_rewires_tests_is_found(
     ("(globalThis as any).expect = fake;", "globalThis.expect ="),
     ("(global as unknown as G).it = f;", "global.it ="),
     ("(<any>window).expect = fake;", "window.expect ="),
+    ("(globalThis as Record<string, T>).expect = f;", "globalThis.expect ="),
+    (
+      'Object.defineProperty(globalThis as any, "expect", { value: f });',
+      'Object.defineProperty(globalThis,"expect"',
+    ),
+    (
+      'Object.defineProperty(<any>window, "it", { value: f });',
+      'Object.defineProperty(window,"it"',
+    ),
+    (
+      "Object.assign(globalThis as any, { expect: fake });",
+      "Object.assign(globalThis,{expect",
+    ),
+    ("Reflect.set(global as any, 'test', f);", 'Reflect.set(global,"test"'),
     ("globalThis.expect.extend({ toBe: ok });", "globalThis.expect.extend"),
     ("globalThis.expect.toBe = f;", "globalThis.expect.toBe ="),
     ("const half = total / 2; globalThis.expect = f;", "globalThis.expect ="),
@@ -326,6 +340,12 @@ def test_a_js_fix_that_rewires_tests_is_found(added: str, found: str | None):
     ),
     ('monkeypatch.setattr("pytest.approx", f)', 'setattr("pytest.approx"'),
     ('b = __import__("builtins")\nb.print = f', "b.print ="),
+    ('__import__("builtins").print = f', '__import__("builtins").print ='),
+    (
+      'importlib.import_module("unittest").TestCase.run = f',
+      'import_module("unittest").TestCase.run =',
+    ),
+    ("pytestconfig.pluginmanager.register(p)", "pytestconfig.pluginmanager"),
     ('vars(builtins)["print"] = f', 'vars(builtins)["print"] ='),
     ("builtins.__dict__.update(print=f)", "builtins.__dict__.update("),
     (
@@ -348,6 +368,8 @@ def test_a_js_fix_that_rewires_tests_is_found(added: str, found: str | None):
     ('from unittest import mock\nwith mock.patch("pkg.fn"):\n  pass', None),
     ("from unittest import mock\nmock.DEFAULT = 1", None),
     ("from unittest.mock import MagicMock\nMagicMock.return_value = 3", None),
+    ("import unittest.mock as um\num.DEFAULT = 1", None),
+    ("from unittest import mock as m\nm.DEFAULT = 1", None),
     ('self.pluginmanager = PluginManager("app")', None),
   ],
 )

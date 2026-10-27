@@ -32,7 +32,7 @@ _RULES = (
   re.compile(r"\bregister_assert_rewrite\b"),
   re.compile(r"(?<![\w.])_pytest\b"),
   re.compile(r"\bpytest\.hookimpl\b|\bHookimplMarker\(\"pytest\""),
-  re.compile(r"\bconfig\.pluginmanager\b"),
+  re.compile(r"\b(?:py(?:test)?)?config\.pluginmanager\b"),
   re.compile(
     r"\bsys\.modules(?:\[|\.(?:setdefault|update|pop|__setitem__"
     + rf"|__delitem__)\(|,)\{{?\"(?:{_MODULE}|pluggy)(?:\.[\w.]+)?\""
@@ -78,25 +78,33 @@ def _code(text: str) -> str:
   return "".join(out)
 
 
+def _asserts(module: str) -> bool:
+  # Whether a module is one of WATCHED_MODULES or under one, but
+  # unittest.mock, whose objects assert nothing.
+  return module.split(".")[0] in WATCHED_MODULES and not (
+    module + "."
+  ).startswith("unittest.mock.")
+
+
 def _watched(code: str) -> set[str]:
   # WATCHED_MODULES, TestCase and each name code binds to one of the
-  # modules or to a name it imports from them, but unittest.mock's, whose
-  # objects assert nothing.
+  # modules or to a name it imports from them, as _asserts takes them.
   found = {*WATCHED_MODULES, "__builtins__", "TestCase"}
   for m in re.finditer(r"\bfrom\s+([\w.]+)\s+import\s+(\([^)]*|[^\n;]*)", code):
-    if m[1].split(".")[0] in WATCHED_MODULES and m[1] != "unittest.mock":
-      for name in m[2].strip("()").split(","):
-        found.update(n for n in name.split()[-1:] if n != "mock")
+    for name in m[2].strip("()").split(","):
+      words = name.split()
+      if words and _asserts(f"{m[1]}.{words[0]}"):
+        found.add(words[-1])
   for m in re.finditer(r"(?<![\w.])import\s+([^\n;]*)", code):
     for name in m[1].split(","):
       words = name.split()
-      if len(words) == 3 and words[0].split(".")[0] in WATCHED_MODULES:
+      if len(words) == 3 and _asserts(words[0]):
         found.add(words[2])
   for m in re.finditer(
     r"(\w+)\s*=\s*(?:__import__|(?:importlib\.)?import_module)\(\s*\"([\w.]+)\"",
     code,
   ):
-    if m[2].split(".")[0] in WATCHED_MODULES:
+    if _asserts(m[2]):
       found.add(m[1])
   return {n for n in found if n.isidentifier()}
 
@@ -117,9 +125,9 @@ def rewires(path: str, added: str) -> str | None:
     pytest's plugins, its assertion rewriting, its internals, its hook
     markers or its plugin manager; replaces one of WATCHED_MODULES in
     sys.modules; sets, deletes or patches a member of one of them, of
-    unittest's TestCase, of `__builtins__` or of a name the lines import
-    from one of them, but from unittest.mock, or bind to one; None for
-    none.
+    unittest's TestCase, of `__builtins__`, of a name the lines import
+    from one of them, but from unittest.mock, or bind to one, or of one
+    that `__import__` or `import_module` gives; None for none.
   """
   if not path.endswith(SOURCES):
     return None
@@ -132,7 +140,11 @@ def rewires(path: str, added: str) -> str | None:
       if m := rule.search(code):
         return m[0]
     names = "|".join(sorted(_watched(lines)))
-    base = rf"(?:vars\((?:{names})\)|(?<![\w.])(?:{names}))"
+    base = (
+      rf"(?:vars\((?:{names})\)|(?<![\w.])(?:{names})"
+      + r"|\b(?:__import__|import_module)\(\"(?:"
+      + rf"{_MODULE})(?:\.[\w.]+)?\"\))"
+    )
     member = rf"{base}(?:\.\w+|\[[^\]]*\])+"
     if m := re.search(
       rf"{member}\s*(?:[-+*/%&|^@]|//|\*\*|<<|>>)?=(?!=)|\bdel {member}"
