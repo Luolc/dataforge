@@ -193,7 +193,7 @@ describe("the input and the output", () => {
     show(failed, 2);
     const input = step(/^Input/);
 
-    const from = within(input).getByRole("link", { name: "check · run 2" });
+    const from = within(input).getByRole("link", { name: "Check · run 2" });
     expect(from).toHaveAttribute(
       "href",
       "/sample/attempt?id=p4%2Ftask-0101&tab=runs&run=1",
@@ -228,7 +228,7 @@ describe("the input and the output", () => {
 
     expect(within(output).getAllByText("Fail")).not.toHaveLength(0);
     expect(within(output).getByRole("link")).toHaveTextContent(
-      "author · run 3",
+      "Author · run 3",
     );
     expect(within(output).getByText("too_easy")).toBeVisible();
   });

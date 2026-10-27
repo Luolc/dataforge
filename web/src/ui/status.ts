@@ -52,10 +52,20 @@ export const isEnding = (outcome: string | null | undefined): boolean =>
   outcome === RAISED || outcome === INTERRUPTED;
 
 /**
+ * A name the project file gives no words for, as a person reads it: its
+ * underscores as spaces and its first letter a capital (`unit_tests` reads
+ * `Unit tests`), so that no page shows a name as the machine writes it.
+ */
+function readable(name: string): string {
+  const spaced = name.replace(/_+/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/**
  * A status word's label and tone. A word the project file has no entry for
- * is itself, neutral; but the engine's own words, raised and interrupted,
- * read as Exception, bad, and Run interrupted, warn; and no status (null) is
- * Not ended, neutral.
+ * reads as `readable` spells it, neutral; but the engine's own words, raised
+ * and interrupted, read as Exception, bad, and Run interrupted, warn; and no
+ * status (null) is Not ended, neutral.
  */
 export function statusOf(
   project: Pick<Project, "statuses">,
@@ -64,7 +74,7 @@ export function statusOf(
   if (word === null) return { label: NOT_ENDED, tone: "neutral" };
   return (
     project.statuses[word] ??
-    ENGINE_WORDS[word] ?? { label: word, tone: "neutral" }
+    ENGINE_WORDS[word] ?? { label: readable(word), tone: "neutral" }
   );
 }
 
@@ -164,9 +174,9 @@ export const liveStatus: Record<Live, { label: string; tone: Tone }> = {
   "not ended": { label: NOT_ENDED, tone: "neutral" },
 };
 
-/** A state's title, else its name. */
+/** A state's title, else its name as `readable` spells it. */
 export function stateTitle(project: Project, state: string): string {
-  return project.states[state]?.title ?? state;
+  return project.states[state]?.title ?? readable(state);
 }
 
 export const toneText: Record<Tone, string> = {

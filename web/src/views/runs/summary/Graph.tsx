@@ -58,9 +58,12 @@ const clamp = (v: number, lo: number, hi: number) =>
 export function Graph({
   layout,
   runHref,
+  frameId,
 }: {
   layout: Layout;
   runHref: (index: number) => string;
+  /** The frame's ID, for a control that changes what it draws. */
+  frameId?: string;
 }) {
   const id = useId();
   const frameRef = useRef<HTMLDivElement>(null);
@@ -270,6 +273,7 @@ export function Graph({
   return (
     <div
       ref={frameRef}
+      id={frameId}
       style={height === undefined ? undefined : { height }}
       className={`relative touch-pan-y overflow-hidden bg-card select-none ${full ? "h-full w-full" : "rounded-b-panel"}`}
       onPointerDown={onPointerDown}

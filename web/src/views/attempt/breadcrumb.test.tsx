@@ -96,7 +96,7 @@ describe("the attempt page's breadcrumb", () => {
   it("on a run page, the run is the last crumb, the page", async () => {
     const crumbs = open(RUN);
 
-    expect(await crumbs.findByText("Run 1 · author")).toHaveAttribute(
+    expect(await crumbs.findByText("Run 1 · Author")).toHaveAttribute(
       "aria-current",
       "page",
     );

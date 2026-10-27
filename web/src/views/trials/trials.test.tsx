@@ -104,7 +104,7 @@ describe("the trials view", () => {
       "/sample/attempt?id=pass-at-k&tab=runs&run=0",
     );
     expect(from.closest("p")).toHaveTextContent(
-      /^From .* · run 1, before the Task, which is from build · run 4$/,
+      /^From .* · run 1, before the Task, which is from Build · run 4$/,
     );
   });
 

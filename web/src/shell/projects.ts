@@ -3,7 +3,7 @@ import { createContext, use } from "react";
 import type { Loaded } from "../api/client";
 import type { Project } from "../api/types";
 
-/** The site's projects, loaded once by the shell. */
+/** The site's projects, as the shell last read them. */
 export const ProjectsContext = createContext<Loaded<Project[]>>({
   state: "loading",
 });

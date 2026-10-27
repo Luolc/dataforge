@@ -66,7 +66,7 @@ describe("the Runs column", () => {
     expect(
       runs.getByText("Exception · no action recorded · $0.00"),
     ).toBeVisible();
-    expect(runs.getByText(/^done · \d+(m \d+)?s · \$/)).toBeVisible();
+    expect(runs.getByText(/^Done · \d+(m \d+)?s · \$/)).toBeVisible();
   });
 
   it("times a run with no action by its own times", () => {
@@ -143,10 +143,10 @@ describe("a resumed attempt in the Runs column", () => {
     expect(group).toHaveAttribute("aria-expanded", "false");
     expect(group).toHaveTextContent("Discarded1 of 1 bad or warn");
     expect(order.indexOf(must(group.textContent))).toBe(resumed - 1);
-    expect(order[resumed - 2]).toMatch(/^authordone · .*3$/);
+    expect(order[resumed - 2]).toMatch(/^AuthorDone · .*3$/);
     expect(order[resumed + 1]).toBe("the machine restarted while check 2 ran");
     expect(order[resumed + 2]).toBe("$0.37 carried");
-    expect(order[resumed + 3]).toMatch(/^checkpass · .*4$/);
+    expect(order[resumed + 3]).toMatch(/^CheckPass · .*4$/);
   });
 
   it("opens the group to the discarded run, linked to its page", () => {
@@ -209,7 +209,7 @@ describe("a resumed attempt in the Runs column", () => {
       "page",
     );
     expect(
-      screen.getByRole("heading", { name: "check · visit 2" }),
+      screen.getByRole("heading", { name: "Check · visit 2" }),
     ).toBeVisible();
     expect(
       screen.getByText(
@@ -303,7 +303,7 @@ describe("a running attempt in the Runs column", () => {
 
   it("ends with the run it is in, Running, its time going on", () => {
     const runs = showLive(runningIn());
-    const last = must(runs.getByText("review").closest("div"));
+    const last = must(runs.getByText("Review").closest("div"));
 
     expect(runs.getByText("Runs · 5")).toBeVisible();
     expect(last.closest("a")).toBeNull();

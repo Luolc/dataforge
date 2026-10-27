@@ -185,16 +185,15 @@ def _code(text: str) -> str:
       out.append(c)
       i += 1
   code = " ".join("".join(out).split())
-  # TypeScript's casts of the global object, `(globalThis as T)` and
-  # `(<T>globalThis)`, read as the object.
-  code = re.sub(
-    r"\((?:<[^()]*?> ?)?(globalThis|global|window)(?: as [^()]*?)?\)",
-    r"\1",
-    code,
-  )
   code = re.sub(r"\s*\[\s*\"([A-Za-z_$][\w$]*)\"\s*\]", r".\1", code)
   code = re.sub(r"\s*\??\.\s*(?=[A-Za-z_$\"])", ".", code)
-  return re.sub(r"([(\[{,])\s+|\s+(?=[)\]},(])", r"\1", code)
+  code = re.sub(r"([(\[{,])\s+|\s+(?=[)\]},(])", r"\1", code)
+  # TypeScript's casts of the global object, `globalThis as T` and
+  # `<T>globalThis` as an argument or in parentheses, read as the object.
+  code = re.sub(rf"(?<=[(,])<[^()<>]*> ?(?={_GLOBAL})", "", code)
+  code = re.sub(rf"\(({_GLOBAL}) as [^()]*\)(?=[.\[])", r"(\1)", code)
+  code = re.sub(rf"({_GLOBAL}) as [^(),]*", r"\1", code)
+  return re.sub(rf"(?<![\w$)\]])\(({_GLOBAL})\)", r"\1", code)
 
 
 def rewires(path: str, added: str) -> str | None:
