@@ -223,8 +223,8 @@ describe("the Definition page", () => {
     expect(screen.getByRole("link", { name: /^Review/ })).toHaveTextContent(
       /^Review3 entries$/,
     );
-    expect(screen.getByRole("link", { name: /^check/ })).toHaveTextContent(
-      /^check1 entry$/,
+    expect(screen.getByRole("link", { name: /^Check/ })).toHaveTextContent(
+      /^Check1 entry$/,
     );
   });
 

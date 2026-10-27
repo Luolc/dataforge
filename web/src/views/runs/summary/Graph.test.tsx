@@ -158,16 +158,16 @@ describe("the machine's graph", () => {
     const { graph } = show(busy);
 
     const check = within(graph).getByRole("link", {
-      name: "check, Pass, 4 runs, 12m 0s in all: open its last run",
+      name: "Check, Pass, 4 runs, 12m 0s in all: open its last run",
     });
     expect(check).toHaveAttribute("href", "/run/25");
   });
 
-  it("writes each outcome on its edge as the project labels it, else as it is", () => {
+  it("writes each outcome on its edge as the project labels it, else as readable gives it", () => {
     const { edge } = show(early);
 
     expect(edge("build", "smoke")).toHaveTextContent(/^Pass ×1$/);
-    expect(edge("draft", "build")).toHaveTextContent(/^done ×1$/);
+    expect(edge("draft", "build")).toHaveTextContent(/^Done ×1$/);
   });
 
   it("opens at scale 1 in a frame narrower than the graph", () => {

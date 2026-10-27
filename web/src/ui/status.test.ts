@@ -6,12 +6,38 @@ import {
   endWord,
   liveStatus,
   outcomeOf,
+  stateTitle,
   statusOf,
   withRowStatus,
 } from "./status";
 
+describe("names the project file gives no words for", () => {
+  it("read with spaces for underscores and a capital first letter, never as written", () => {
+    expect(stateTitle(sampleProject, "smoke_test_retry")).toBe(
+      "Smoke test retry",
+    );
+    expect(stateTitle(sampleProject, "polish")).toBe("Polish");
+    expect(statusOf(sampleProject, "out_of_time")).toEqual({
+      label: "Out of time",
+      tone: "neutral",
+    });
+    expect(outcomeOf(sampleProject, "back_to__draft", true).label).toBe(
+      "Back to draft",
+    );
+  });
+
+  it("a state's title in the project file wins", () => {
+    const project = {
+      ...sampleProject,
+      states: { unit_tests: { title: "Tests (unit)" } },
+    };
+
+    expect(stateTitle(project, "unit_tests")).toBe("Tests (unit)");
+  });
+});
+
 describe("status words", () => {
-  it("the engine's raised and interrupted read as Exception and Run interrupted, any other unmapped word as itself", () => {
+  it("the engine's raised and interrupted read as Exception and Run interrupted, any other unmapped word as readable gives it", () => {
     expect(statusOf(sampleProject, "raised")).toEqual({
       label: "Exception",
       tone: "bad",
@@ -21,7 +47,7 @@ describe("status words", () => {
       tone: "warn",
     });
     expect(statusOf(sampleProject, "skipped")).toEqual({
-      label: "skipped",
+      label: "Skipped",
       tone: "neutral",
     });
   });

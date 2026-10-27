@@ -254,14 +254,14 @@ describe("a tab of several deliverables of one kind", () => {
     const menu = await screen.findByRole("button", { name: /Pass@k/ });
     expect(menu).toHaveTextContent(/^Pass@k$/);
     expect(await screen.findByText(/2 \/ 4 solved/)).toBeVisible();
-    expect(screen.queryByText("the attempt never reached regrade.")).toBeNull();
+    expect(screen.queryByText("the attempt never reached Regrade.")).toBeNull();
   });
 
   it("opens on the first declared when none was reached", async () => {
     show(withRegrade(false, false), "&tab=trials", twice);
 
     expect(
-      await screen.findByText("Not run: the attempt never reached regrade."),
+      await screen.findByText("Not run: the attempt never reached Regrade."),
     ).toBeVisible();
   });
 
@@ -286,7 +286,7 @@ describe("a tab of several deliverables of one kind", () => {
 
     const menu = await screen.findByRole("button", { name: /Pass@k/ });
     expect(menu).toHaveTextContent(/^Pass@k$/);
-    expect(screen.queryByText("the attempt never reached regrade.")).toBeNull();
+    expect(screen.queryByText("the attempt never reached Regrade.")).toBeNull();
   });
 
   it("is titled by the first reached over the one marked default", async () => {
@@ -413,7 +413,7 @@ describe("a tab of several deliverables of one kind", () => {
   it("of reports stacks the reached ones first, then the others", async () => {
     show(withTightened(false), "&tab=report", reviews);
 
-    await screen.findByText("Not run: the attempt never reached tighten.");
+    await screen.findByText("Not run: the attempt never reached Tighten.");
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
     ).toEqual(["Review", "Tightened review"]);
@@ -422,7 +422,7 @@ describe("a tab of several deliverables of one kind", () => {
   it("opens the tab of a deliverable's kind from a link made with its name", async () => {
     show(withTightened(false), "&tab=tightened", reviews);
 
-    await screen.findByText("Not run: the attempt never reached tighten.");
+    await screen.findByText("Not run: the attempt never reached Tighten.");
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
     ).toEqual(["Review", "Tightened review"]);
@@ -541,7 +541,7 @@ describe("a running attempt's record", () => {
       (await screen.findByText("Deliverables", { selector: "dt" })).nextSibling,
     ).toHaveTextContent("2 of 3");
     expect(
-      screen.getByText("Not run: the attempt has not reached tighten yet."),
+      screen.getByText("Not run: the attempt has not reached Tighten yet."),
     ).toBeVisible();
   });
 });
@@ -652,7 +652,7 @@ describe("why a deliverable has no path, in the viewer's words", () => {
     const kept = { ...ended, kept_visit: 1 };
 
     expect(why(kept, entry({ state: "review" }))).toBe(
-      "review ran only after run 2, the run this attempt kept.",
+      "Review ran only after run 2, the run this attempt kept.",
     );
   });
 
@@ -661,7 +661,7 @@ describe("why a deliverable has no path, in the viewer's words", () => {
       "Pass@k's 1 run does not include the one this takes.",
     );
     expect(why(running, entry({ state: "author" }))).toBe(
-      "author's 2 runs do not include the one this takes yet.",
+      "Author's 2 runs do not include the one this takes yet.",
     );
   });
 
@@ -675,7 +675,7 @@ describe("why a deliverable has no path, in the viewer's words", () => {
       visit_index: 2,
     });
 
-    expect(why(ended, item)).toBe("author · run 3 wrote no task.");
+    expect(why(ended, item)).toBe("Author · run 3 wrote no task.");
   });
 
   it("keeps the record's reason of one that has a path", () => {

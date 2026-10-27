@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -52,7 +52,30 @@ describe("Summary", () => {
       "/sample/attempt?id=batch-1%2Ftask-0002&tab=runs&run=5",
     );
     expect(graph.querySelectorAll('[data-taken="true"]')).toHaveLength(5);
+    expect(graph.querySelectorAll('[data-taken="false"]')).toHaveLength(0);
+  });
+
+  it("draws only what the attempt took until asked for the whole machine, saying what it leaves out", () => {
+    show("passed");
+    const graph = screen.getByRole("group", { name: "State machine" });
+    const toggle = screen.getByRole("button", {
+      name: "Show the whole machine",
+    });
+
+    expect(
+      screen.getByText(/^6 runs · 4 transitions not taken hidden · /),
+    ).toBeVisible();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", graph.parentElement?.id);
+
+    fireEvent.click(toggle);
+
+    expect(graph.querySelectorAll('[data-taken="true"]')).toHaveLength(5);
     expect(graph.querySelectorAll('[data-taken="false"]')).toHaveLength(2);
+    expect(screen.getByText(/^6 runs · solid lines/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Show only what this attempt took" }),
+    ).toHaveAttribute("aria-expanded", "true");
   });
 
   it("renders the actions' summaries as untrusted Markdown", () => {
@@ -80,10 +103,10 @@ describe("Summary", () => {
 
   it("counts the runs above the machine, one run as 1 run", () => {
     show("passed");
-    expect(screen.getByText(/^6 runs · solid lines/)).toBeVisible();
+    expect(screen.getByText(/^6 runs · /)).toBeVisible();
 
     show({ ...records.passed, visits: records.passed.visits.slice(0, 1) });
-    expect(screen.getByText(/^1 run · solid lines/)).toBeVisible();
+    expect(screen.getByText(/^1 run · /)).toBeVisible();
   });
 
   it("scrolls the deliverables sideways in their card, its aside under the title when they do not fit", () => {
@@ -161,7 +184,7 @@ describe("the Deliverables of an attempt whose last run did not finish", () => {
 
     expect(
       screen.getByText(
-        "check · run 2 did not finish (Exception). The deliverables are what the runs before it made.",
+        "Check · run 2 did not finish (Exception). The deliverables are what the runs before it made.",
       ),
     ).toBeVisible();
     expect(screen.getByRole("link", { name: "Task" })).toBeVisible();
@@ -173,7 +196,7 @@ describe("the Deliverables of an attempt whose last run did not finish", () => {
     show({ ...records.raised, visits, deliverables: [made] }, declared);
 
     expect(
-      screen.getByText(/^check · run 2 did not finish \(Run interrupted\)\./),
+      screen.getByText(/^Check · run 2 did not finish \(Run interrupted\)\./),
     ).toBeVisible();
   });
 
@@ -182,7 +205,7 @@ describe("the Deliverables of an attempt whose last run did not finish", () => {
 
     expect(
       screen.getByText(
-        "check · run 2 did not finish (Exception). Its record, from an older dataforge, keeps no deliverables.",
+        "Check · run 2 did not finish (Exception). Its record, from an older dataforge, keeps no deliverables.",
       ),
     ).toBeVisible();
   });
