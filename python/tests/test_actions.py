@@ -1752,8 +1752,10 @@ GIT_ENV = {
 
 
 def git(tree: Path, *args: str) -> str:
+  # A commit starts `git maintenance run --auto` in the background, which
+  # creates and removes objects/maintenance.lock while a copytree lists it.
   return subprocess.run(
-    ["git", "-C", str(tree), *args],
+    ["git", "-c", "maintenance.auto=false", "-C", str(tree), *args],
     capture_output=True,
     text=True,
     check=True,
