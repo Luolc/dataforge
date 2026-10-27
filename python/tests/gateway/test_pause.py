@@ -7,6 +7,7 @@ every process of the machine, and a killed process's slot is given back.
 """
 
 import contextlib
+import fcntl
 from http.server import BaseHTTPRequestHandler
 import json
 from pathlib import Path
@@ -18,7 +19,7 @@ from typing import cast
 
 import pytest
 
-from dataforge import stopping
+from dataforge import cli, stopping
 from dataforge.curation.actions import Limits
 from dataforge.gateway import (
   Backoff,
@@ -430,3 +431,100 @@ def test_a_stop_holds_for_every_process_until_it_is_cleared():
   with pausing(Backoff(), clear=True) as pauses:
     assert pauses[Channel.CLAUDE].stopped() is None
     assert pauses[Channel.CLAUDE].remaining() <= 0
+
+
+def test_a_pause_file_removed_by_hand_holds_no_pause(tmp_path: Path):
+  # Regression: a `wait` under way raised FileNotFoundError, ending the process.
+  found = Pause.create(tmp_path / "pause.json", Backoff(start_s=30))
+  assert found.limited()
+  done = threading.Event()
+
+  def waiting() -> None:
+    _ = found.wait()
+    done.set()
+
+  thread = threading.Thread(target=waiting)
+  thread.start()
+  time.sleep(0.3)
+  found.path.unlink()
+  thread.join(timeout=5)
+  assert done.is_set()
+  assert found.remaining() <= 0
+  assert found.wait()
+  assert not found.path.exists()
+
+
+def test_lift_ends_the_pause_keeping_the_backoff_and_who_lifted_it(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  backoff = Backoff(start_s=60, max_s=500, factor=3, limit_s=900)
+  clock = [5.0e9]
+  monkeypatch.setattr(time, "time", lambda: clock[0])
+  found = Pause.create(tmp_path / "pause.json", backoff)
+  assert found.limited()
+  assert found.remaining() == 60
+  clock[0] += 10
+  assert found.lift("alice@host")
+  assert found.remaining() == 0
+  state = json.loads(found.path.read_text())
+  assert state["lifted"] == {"by": "alice@host", "at": 5.0e9 + 10}
+  assert state["backoff"] == {
+    "start_s": 60,
+    "max_s": 500,
+    "factor": 3,
+    "limit_s": 900,
+  }
+  assert state["stopped"] is None
+
+
+def test_lift_reads_a_file_with_no_lifted_key(tmp_path: Path):
+  found = Pause.create(tmp_path / "pause.json", Backoff())
+  state = json.loads(found.path.read_text())
+  assert "lifted" not in state
+  assert found.lift("a@b")
+  assert found.remaining() <= 0
+
+
+def test_lift_leaves_a_missing_file_missing(tmp_path: Path):
+  found = Pause(tmp_path / "pause.json")
+  assert not found.lift("a@b")
+  assert not found.path.exists()
+
+
+def test_lift_waits_for_the_lock_of_the_file(tmp_path: Path):
+  found = Pause.create(tmp_path / "pause.json", Backoff())
+  assert found.limited()
+  lock = found.path.with_name("pause.json.lock")
+  done = threading.Event()
+  with lock.open("a") as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    thread = threading.Thread(target=lambda: (found.lift("a@b"), done.set()))
+    thread.start()
+    assert not done.wait(0.5)
+    assert json.loads(found.path.read_text())["until"] > time.time()
+  thread.join(timeout=5)
+  assert done.is_set()
+  assert json.loads(found.path.read_text())["lifted"]["by"] == "a@b"
+
+
+def test_the_gateway_pause_commands_show_and_clear(
+  tmp_path: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  capsys: pytest.CaptureFixture[str],
+):
+  monkeypatch.setenv("DATAFORGE_STATE_DIR", str(tmp_path))
+  assert cli.main(["gateway", "pause", "show", "--channel", "CLAUDE"]) == 0
+  assert capsys.readouterr().out == "CLAUDE: no pause\n"
+  (tmp_path / "pause").mkdir()
+  found = Pause.create(tmp_path / "pause" / "CLAUDE.json", Backoff())
+  assert found.limited()
+  assert cli.main(["gateway", "pause", "show", "--channel", "CLAUDE"]) == 0
+  out = capsys.readouterr().out
+  assert "cause 429" in out
+  assert "remaining 59s" in out or "remaining 60s" in out
+  assert cli.main(["gateway", "pause", "clear", "--channel", "CLAUDE"]) == 0
+  assert capsys.readouterr().out == "CLAUDE: cleared\n"
+  assert found.remaining() <= 0
+  assert cli.main(["gateway", "pause", "show", "--channel", "CLAUDE"]) == 0
+  assert "lifted by" in capsys.readouterr().out
+  assert cli.main(["gateway", "pause", "show", "--channel", "NOPE"]) == 2

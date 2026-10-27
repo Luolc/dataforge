@@ -37,9 +37,11 @@ def main(argv: Sequence[str] | None = None) -> int:
   what would change, and with --write writes them, keeping a backup of each
   record it writes; see dataforge.curation.redeliver. "dataforge viz serve
   --config <site file> --static <dir>" starts the viewer; it needs the extra
-  viz. "dataforge queue submit|list|cancel|serve --config <queue file>"
-  puts a command in a queue, lists the jobs, cancels one, or runs the
-  scheduler; see dataforge.queue.command. "dataforge formats
+  viz. "dataforge gateway pause show [--channel NAME]" prints a channel's
+  pause and "dataforge gateway pause clear --channel NAME" ends it now; see
+  dataforge.gateway.command. "dataforge queue submit|list|cancel|serve
+  --config <queue file>" puts a command in a queue, lists the jobs, cancels
+  one, or runs the scheduler; see dataforge.queue.command. "dataforge formats
   list|compare|snapshot" lists the formats installs share with their
   versions, tells whether two installs may run side by side, or writes the
   formats' snapshots; see dataforge.formats.command. "dataforge runs
@@ -163,6 +165,34 @@ def main(argv: Sequence[str] | None = None) -> int:
   share_command.add_arguments(
     commands.add_parser("share", help="the read-only site of exports")
   )
+  gateway = commands.add_parser("gateway", help="the model gateway's state")
+  pause = gateway.add_subparsers(dest="gateway", required=True).add_parser(
+    "pause", help="a channel's pause after a 429 or a quota refusal"
+  )
+  verbs = pause.add_subparsers(dest="pause_command", required=True)
+  show = verbs.add_parser(
+    "show",
+    help="print each channel's pause: cause, since, until, seconds left",
+    description=(
+      "Print the pause of --channel, or of each channel, as the state"
+      " directory's pause/<channel>.json holds it; a channel with no file"
+      " has no pause."
+    ),
+  )
+  _ = show.add_argument("--channel", help="CLAUDE or CODEX; default both")
+  clear = verbs.add_parser(
+    "clear",
+    help="end a channel's pause now (a person's decision)",
+    description=(
+      "End the pause of --channel now, under the lock of its file: the calls"
+      " it holds go on at once, so this releases the load the gateway's"
+      " limit was holding back, and only a person in charge may decide it."
+      " The backoff stays as it is, and the file keeps who cleared the pause"
+      " and when. A missing file is left missing; a pause that stopped for"
+      " good stays stopped."
+    ),
+  )
+  _ = clear.add_argument("--channel", required=True, help="CLAUDE or CODEX")
   args = parser.parse_args(argv)
   command = cast(str, args.command)
   if (run := _COMMANDS.get(command)) is not None:
@@ -202,7 +232,15 @@ def main(argv: Sequence[str] | None = None) -> int:
   return 0
 
 
+def _gateway(args: argparse.Namespace) -> int:
+  # Imported here: no core module imports the gateway at import time.
+  from dataforge.gateway import command
+
+  return command.run(args)
+
+
 _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
+  "gateway": _gateway,
   "formats": formats_command.run,
   "queue": queue_command.run,
   "runs": runs_command.run,

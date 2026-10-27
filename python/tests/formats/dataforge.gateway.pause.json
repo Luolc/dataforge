@@ -1,6 +1,6 @@
 {
   "format": "dataforge.gateway.pause",
-  "version": 1,
+  "version": 2,
   "facts": {
     "channels": "CLAUDE, CODEX",
     "field:backoff": "object",
@@ -10,6 +10,7 @@
     "field:backoff/field:start_s": "float",
     "field:cause": "Literal['429', 'quota'] | None",
     "field:delay": "float | None",
+    "field:lifted": "dataforge.gateway.pause.Lifted | None, optional",
     "field:paused_s": "float",
     "field:refusal": "str | None",
     "field:refusals": "int",

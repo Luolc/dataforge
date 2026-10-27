@@ -89,6 +89,18 @@ class _BackoffState(typing.TypedDict):
   limit_s: float | None
 
 
+class Lifted(typing.TypedDict):
+  """Who lifted a pause under way, and when.
+
+  Attributes:
+    by: The user and host that ran the command.
+    at: When, in seconds since the epoch.
+  """
+
+  by: str
+  at: float
+
+
 class _State(typing.TypedDict):
   # What a pause's file holds (`Pause`).
   backoff: _BackoffState
@@ -100,6 +112,8 @@ class _State(typing.TypedDict):
   refusal: str | None
   cause: PauseCause | None
   stopped: str | None
+  # Absent from files written before `Pause.lift` existed.
+  lifted: typing.NotRequired[Lifted | None]
 
 
 class QuotaError(RuntimeError):
@@ -115,7 +129,9 @@ class Pause:
   once a pause was over (`refusals`), the gateway's last quota refusal
   (`refusal`), what began or last made longer the latest pause (`cause`) and,
   once the pause stopped for good, why (`stopped`). A stopped pause holds no
-  call: a 429 goes on to the client and no proxy starts.
+  call: a 429 goes on to the client and no proxy starts. A file that is gone
+  holds no pause. The pause `lift` ended early also holds who lifted it and
+  when (`lifted`).
   """
 
   def __init__(self, path: Path):
@@ -125,6 +141,7 @@ class Pause:
       path: The file, as `create` wrote it.
     """
     self.path: Path = path
+    self._backoff: Backoff = Backoff()
 
   @classmethod
   def create(cls, path: Path, backoff: Backoff) -> Pause:
@@ -138,7 +155,9 @@ class Pause:
       The pause.
     """
     _write(path, _new(backoff))
-    return cls(path)
+    pause = cls(path)
+    pause._backoff = backoff
+    return pause
 
   @classmethod
   def shared(cls, path: Path, backoff: Backoff) -> Pause:
@@ -161,6 +180,7 @@ class Pause:
     finally:
       new.unlink()
     pause = cls(path)
+    pause._backoff = backoff
     with pause._state() as state:
       state["backoff"] = _new(backoff)["backoff"]
     return pause
@@ -173,7 +193,11 @@ class Pause:
     lock = self.path.with_name(f"{self.path.name}.lock")
     with lock.open("a") as f:
       fcntl.flock(f, fcntl.LOCK_EX)
-      state = typing.cast(_State, json.loads(self.path.read_text()))
+      try:
+        state = typing.cast(_State, json.loads(self.path.read_text()))
+      except FileNotFoundError:
+        # A file removed by hand holds no pause; a change is written anew.
+        state = _new(self._backoff)
       before = state.copy()
       yield state
       if state != before:
@@ -296,6 +320,32 @@ class Pause:
     _ = sys.stderr.write(
       f"gateway: a session refused for the quota, pausing {delay:.0f}s\n"
     )
+    return True
+
+  def lift(self, by: str) -> bool:
+    """End the pause under way now, as a person decided.
+
+    The pause ends as if its time had come: calls held by it go on, so this
+    lets through the load the gateway's limit was holding back, and is for a
+    person to decide. The backoff and the run of pauses are left as they are,
+    and who lifted the pause and when is kept in the file. A pause that
+    stopped for good stays stopped (`clear`).
+
+    Args:
+      by: Who lifts it.
+
+    Returns:
+      Whether a file holds the pause; a missing file is left missing.
+    """
+    if not self.path.exists():
+      return False
+    now = time.time()
+    with self._state() as state:
+      left = max(state["until"] - now, 0.0)
+      state.update(
+        until=state["until"] - left, paused_s=state["paused_s"] - left
+      )
+      state["lifted"] = {"by": by, "at": now}
     return True
 
   def clear(self) -> None:
