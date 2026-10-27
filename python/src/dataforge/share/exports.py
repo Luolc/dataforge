@@ -386,11 +386,14 @@ def _deliverables(value: object) -> tuple[dict[str, object], ...]:
       where,
       entry,
       {"name", "kind", "title"},
-      {"no_trace", "count", "default"},
+      {"no_trace", "count", "default", "newest"},
     )
     name = _str(f"{where}.name", fields["name"])
     if any(e["name"] == name for e in entries):
       raise ExportError(f"{where}.name: {name} is repeated")
+    newest = fields.get("newest")
+    if newest is not None and not isinstance(newest, bool):
+      raise ExportError(f"{where}.newest: not a boolean")
     entries.append(
       {
         "name": name,
@@ -399,6 +402,7 @@ def _deliverables(value: object) -> tuple[dict[str, object], ...]:
         "no_trace": _optional(f"{where}.no_trace", fields, "no_trace"),
         "count": _optional(f"{where}.count", fields, "count"),
         "default": _default(f"{where}.default", fields.get("default", False)),
+        "newest": newest,
       }
     )
   return tuple(entries)

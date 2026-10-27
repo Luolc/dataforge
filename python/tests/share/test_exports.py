@@ -100,6 +100,7 @@ def test_columns_trials_and_deliverables_reach_the_page() -> None:
       "no_trace": None,
       "count": None,
       "default": False,
+      "newest": None,
     },
     {
       "name": "rubrics",
@@ -108,6 +109,7 @@ def test_columns_trials_and_deliverables_reach_the_page() -> None:
       "no_trace": None,
       "count": None,
       "default": {"field": ["settings"], "equals": ["explicit"]},
+      "newest": None,
     },
   ]
   assert public["kinds"] == {"report": {"title": "Reviews"}}
@@ -190,3 +192,127 @@ def test_a_trial_path_that_is_not_relative_is_refused(path: str) -> None:
 
   with pytest.raises(ExportError, match=r"^trials\.diff: "):
     _ = parse(json.dumps(data).encode())
+
+
+def test_a_deliverable_with_newest_true_is_accepted() -> None:
+  data = with_columns(
+    deliverables=[
+      {
+        "name": "pass_at_k",
+        "kind": "trials",
+        "title": "Pass@k",
+        "newest": True,
+      },
+      {
+        "name": "rubrics",
+        "kind": "report",
+        "title": "Reviews",
+        "newest": False,
+      },
+    ],
+    kinds={"trials": {"title": "Trials"}, "report": {"title": "Reviews"}},
+  )
+
+  export = parse(json.dumps(data).encode())
+
+  public = export.public()
+  assert public["deliverables"] == [
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "no_trace": None,
+      "count": None,
+      "default": False,
+      "newest": True,
+    },
+    {
+      "name": "rubrics",
+      "kind": "report",
+      "title": "Reviews",
+      "no_trace": None,
+      "count": None,
+      "default": False,
+      "newest": False,
+    },
+  ]
+
+
+def test_a_deliverable_newest_that_is_not_a_boolean_is_refused() -> None:
+  data = with_columns(
+    deliverables=[
+      {
+        "name": "pass_at_k",
+        "kind": "trials",
+        "title": "Pass@k",
+        "newest": "yes",
+      }
+    ]
+  )
+
+  with pytest.raises(
+    ExportError, match=r"deliverables\[0\]\.newest: not a boolean"
+  ):
+    _ = parse(json.dumps(data).encode())
+
+
+def test_a_deliverable_without_newest_has_none() -> None:
+  data = with_columns(
+    deliverables=[
+      {"name": "pass_at_k", "kind": "trials", "title": "Pass@k"},
+    ]
+  )
+
+  export = parse(json.dumps(data).encode())
+
+  public = export.public()
+  deliverables = cast(list[dict[str, object]], public["deliverables"])
+  assert deliverables[0]["newest"] is None
+
+
+def test_project_public_with_newest_is_read_by_share(tmp_path: Path) -> None:
+  """Test that Project.public() with newest is read by share export parser.
+
+  Args:
+    tmp_path: Temporary directory for test files.
+  """
+  tree = make_tree(tmp_path)
+  project_text = """
+id: example
+name: Example
+color: "#e5a54b"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+item: {depth: 1, title: Batch}
+statuses:
+  passed: {label: Passed, tone: good}
+deliverables:
+  - {name: "output", kind: "files", title: "Output"}
+  - {name: "logs", kind: "files", title: "Logs"}
+kinds:
+  files: {title: Files}
+"""
+  _ = tree.project.write_text(project_text)
+  [project] = load_site(tree.site).projects
+
+  project_data = project.public()
+
+  # Verify that Project.public() includes newest for deliverables
+  project_deliverables = cast(
+    list[dict[str, object]], project_data["deliverables"]
+  )
+  assert all("newest" in d for d in project_deliverables)
+
+  # Prepare share export data from project data
+  data = export_json("example", ["item-1"])
+  data["deliverables"] = project_deliverables
+  data["kinds"] = project_data["kinds"]
+
+  # Verify share can parse it
+  export = parse(json.dumps(data).encode())
+
+  public = export.public()
+  public_deliverables = cast(list[dict[str, object]], public["deliverables"])
+  assert len(public_deliverables) == 2
+  assert all("newest" in d for d in public_deliverables)
