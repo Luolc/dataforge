@@ -238,7 +238,9 @@ describe("the Monitor page", () => {
 
       const menu = await screen.findByRole("combobox");
       expect(menu).toHaveValue("1");
-      expect(urls()).toContain("/api/projects/sample/monitor/window?run=1");
+      await waitFor(() => {
+        expect(urls()).toContain("/api/projects/sample/monitor/window?run=1");
+      });
       const options = [...menu.querySelectorAll("option")].map(
         (o) => o.textContent,
       );
