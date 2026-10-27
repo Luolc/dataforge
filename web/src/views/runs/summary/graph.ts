@@ -143,7 +143,19 @@ export interface Layout {
   ended: boolean;
   nodes: Node[];
   edges: Edge[];
+  /**
+   * How many states the attempt never reached and how many transitions it
+   * never took were left out; null when the whole machine is drawn.
+   */
+  hidden: { states: number; transitions: number } | null;
 }
+
+/**
+ * What of the machine a layout draws: all of it, or only what the attempt
+ * reached, the states it ran or runs, the end once it has ended, and the
+ * transitions it took, each labelled with the outcomes it took alone.
+ */
+export type Scope = "all" | "taken";
 
 /**
  * How many times the attempt took each transition, by "from\0outcome": a
@@ -177,6 +189,46 @@ export function takenCounts(
   return counts;
 }
 
+/**
+ * Whether the attempt reached a node: a state it ran or runs, or the end
+ * through a transition it took, so that the end is never drawn with no line
+ * into it.
+ */
+function reachedIn(
+  record: AttemptRecord,
+  current: Current | null,
+  taken: Map<string, number>,
+): (key: string) => boolean {
+  const ran = new Set(record.visits.map((v) => v.state));
+  if (current !== null) ran.add(current.state);
+  const ended = (record.graph?.edges ?? []).some(
+    (e) => e.to === null && (taken.get(`${e.from}\0${e.outcome}`) ?? 0) > 0,
+  );
+  return (key) => (key === END ? ended : ran.has(key));
+}
+
+/**
+ * How many states and transitions a layout of only what the attempt reached
+ * leaves out; null when it would leave out nothing, or when the attempt
+ * reached no state and there would be nothing to draw.
+ */
+export function hiddenOf(
+  record: AttemptRecord,
+  project: Project,
+  current: Current | null = null,
+): { states: number; transitions: number } | null {
+  const graph = record.graph;
+  if (!graph) return null;
+  const taken = takenCounts(record, project, current);
+  const reached = reachedIn(record, current, taken);
+  if (!graph.states.some((s) => reached(s.name))) return null;
+  const states = graph.states.filter((s) => !reached(s.name)).length;
+  const transitions = graph.edges.filter(
+    (e) => (taken.get(`${e.from}\0${e.outcome}`) ?? 0) === 0,
+  ).length;
+  return states + transitions === 0 ? null : { states, transitions };
+}
+
 // A path through the given corners, each rounded by R.
 function rounded(points: [number, number][]): string {
   const [first, ...rest] = points;
@@ -206,12 +258,17 @@ export function layout(
   project: Project,
   current: Current | null = null,
   measure: Measure = widest,
+  scope: Scope = "all",
 ): Layout | null {
   const graph = record.graph;
   if (!graph) return null;
-  const order = [...graph.states.map((s) => s.name), END];
   const taken = takenCounts(record, project, current);
   const attemptEnded = attemptStatus(project, record) !== null;
+  const reached = reachedIn(record, current, taken);
+  const hidden = scope === "taken" ? hiddenOf(record, project, current) : null;
+  const order = [...graph.states.map((s) => s.name), END].filter(
+    (key) => hidden === null || reached(key),
+  );
 
   const nodes = order.map((key): Node => {
     const box = {
@@ -314,11 +371,13 @@ export function layout(
   for (const e of graph.edges) {
     const to = e.to ?? END;
     const key = `${e.from}\0${to}`;
+    const count = taken.get(`${e.from}\0${e.outcome}`) ?? 0;
+    if (hidden !== null && count === 0) continue;
     const group = groups.get(key) ?? { from: e.from, to, parts: [] };
     group.parts.push({
       outcome: e.outcome,
       label: outcomeOf(project, e.outcome, false).label,
-      taken: taken.get(`${e.from}\0${e.outcome}`) ?? 0,
+      taken: count,
       to: null,
     });
     groups.set(key, group);
@@ -438,6 +497,7 @@ export function layout(
     ended: attemptEnded,
     nodes,
     edges,
+    hidden,
   };
 }
 

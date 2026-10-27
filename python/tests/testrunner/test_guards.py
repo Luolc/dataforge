@@ -196,17 +196,225 @@ def test_a_fix_that_rewires_tests_is_found(
   assert core.rewires(path, added) == found
 
 
+@pytest.mark.parametrize(
+  ("added", "found"),
+  [
+    (
+      "if (process.env.VITEST) {\n"
+      + '  const { expect } = await import("vitest");\n'
+      + "  expect.extend({ toBe() { return { pass: true } } });\n}",
+      "expect.extend",
+    ),
+    (
+      'import { expect as e } from "vitest";\ne.extend({ toBe: ok });',
+      'e.extend, with "vitest" imported',
+    ),
+    (
+      'const { expect: x } = require("@jest/globals");\nx.extend(m);',
+      'x.extend, with "@jest/globals" imported',
+    ),
+    (
+      'import * as m from "mocha";\nm.Runner.prototype.run = f;',
+      'Runner.prototype, with "mocha" imported',
+    ),
+    ("expect.addSnapshotSerializer(s);", "expect.addSnapshotSerializer"),
+    ("expect.toBe = () => {};", "expect.toBe ="),
+    ("assert.strictEqual = () => {};", "assert.strictEqual ="),
+    ("globalThis.expect = fake;", "globalThis.expect ="),
+    ('window["expect"] ??= fake;', "window.expect ??="),
+    ("global.it = function () {};", "global.it ="),
+    ("(globalThis as any).expect = fake;", "globalThis.expect ="),
+    ("(global as unknown as G).it = f;", "global.it ="),
+    ("(<any>window).expect = fake;", "window.expect ="),
+    ("(globalThis as Record<string, T>).expect = f;", "globalThis.expect ="),
+    (
+      'Object.defineProperty(globalThis as any, "expect", { value: f });',
+      'Object.defineProperty(globalThis,"expect"',
+    ),
+    (
+      'Object.defineProperty(<any>window, "it", { value: f });',
+      'Object.defineProperty(window,"it"',
+    ),
+    (
+      "Object.assign(globalThis as any, { expect: fake });",
+      "Object.assign(globalThis,{expect",
+    ),
+    ("Reflect.set(global as any, 'test', f);", 'Reflect.set(global,"test"'),
+    ("globalThis.expect.extend({ toBe: ok });", "globalThis.expect.extend"),
+    ("globalThis.expect.toBe = f;", "globalThis.expect.toBe ="),
+    ("const half = total / 2; globalThis.expect = f;", "globalThis.expect ="),
+    ('import { use } from "chai";\nuse(plugin);', 'use(, with "chai" imported'),
+    (
+      'Object.defineProperty(globalThis, "describe", { value: d });',
+      'Object.defineProperty(globalThis,"describe"',
+    ),
+    (
+      "Object.assign(global, {\n  a,\n  test: t,\n});",
+      "Object.assign(global,{a,test",
+    ),
+    ("jasmine.getEnv().addReporter(r);", "jasmine.getEnv"),
+    ("chai.use(plugin);", "chai.use"),
+    ("chai.Assertion.prototype.equal = f;", "chai.Assertion"),
+    ('Assertion.overwriteMethod("equal", f);', "Assertion.overwriteMethod"),
+    ("Object.setPrototypeOf(expect, fake);", "setPrototypeOf(expect"),
+    (
+      'globalThis[Symbol.for("$$jest-matchers-object")].x = 1;',
+      '"$$jest-matchers-object"',
+    ),
+    # Lines added inside a template literal or a comment of the lines
+    # before them, which they close and open again.
+    ("`;\nglobalThis.expect = fake;\nconst s = `", "globalThis.expect ="),
+    ("*/\nexpect.extend(m);\n/*", "expect.extend"),
+    # A business function named expect, the frameworks' names in strings,
+    # comments and regular expressions, a local named self, another
+    # module, prototypes and setPrototypeOf on code of the project's own,
+    # vitest's in-source tests and supertest's expect.
+    ("export function expect(value) {\n  return new Check(value);\n}", None),
+    ('const msg = "call expect.extend() in a setup file";', None),
+    ("// expect.extend({}) adds matchers\n/* global.it = f */ a();", None),
+    ("const re = /expect.extend|global.it = /g;", None),
+    ('req.headers["expect"] = "100-continue";', None),
+    ("const self = this;\nself.test = 1;", None),
+    ('import { describe } from "./describe";\nfoo.extend(bar);', None),
+    ('import assert from "node:assert";\nFoo.prototype.bar = 1;', None),
+    ("Object.setPrototypeOf(this, HttpError.prototype);", None),
+    (
+      "if (import.meta.vitest) {\n"
+      + "  const { it, expect } = import.meta.vitest;\n"
+      + '  it("adds", () => expect(add(1, 1)).toBe(2));\n}',
+      None,
+    ),
+    ("request(app).get('/').expect(200);", None),
+    (
+      'import { defineConfig } from "vitest/config";\n'
+      + "export default defineConfig(base.extend({}));",
+      None,
+    ),
+  ],
+)
+def test_a_js_fix_that_rewires_tests_is_found(added: str, found: str | None):
+  assert core.rewires("src/a.ts", added) == found
+
+
+@pytest.mark.parametrize(
+  ("added", "found"),
+  [
+    ("import builtins\nbuiltins.print = lambda *a: None", "builtins.print ="),
+    ('__builtins__["len"] = fake', '__builtins__["len"] ='),
+    ('setattr(builtins, "isinstance", fake)', "setattr(builtins"),
+    (
+      "import builtins as b\nb.AssertionError = Exception",
+      "b.AssertionError =",
+    ),
+    (
+      "unittest.TestCase.assertEqual = lambda *a: None",
+      "unittest.TestCase.assertEqual =",
+    ),
+    (
+      "from unittest.case import (\n  Foo,\n  TestCase as Base,\n)\n"
+      + 'setattr(Base, "assertIn", f)',
+      "setattr(Base",
+    ),
+    (
+      "del unittest.TestCase.assertRaises",
+      "del unittest.TestCase.assertRaises",
+    ),
+    ("pytest.fail = lambda *a, **k: None", "pytest.fail ="),
+    ('sys.modules["pytest"] = fake', 'sys.modules["pytest"'),
+    (
+      'patch.dict(sys.modules, {"unittest": fake}).start()',
+      'sys.modules,{"unittest"',
+    ),
+    (
+      "def pytest_collection_modifyitems(items):\n  items.clear()",
+      ("def pytest_collection_modifyitems"),
+    ),
+    ('pytest_plugins = ["pkg.plugin"]', "pytest_plugins"),
+    ('pytest.register_assert_rewrite("pkg")', "register_assert_rewrite"),
+    ("from _pytest import assertion", "_pytest"),
+    ("@pytest.hookimpl(tryfirst=True)\ndef f():\n  pass", "pytest.hookimpl"),
+    ("config.pluginmanager.register(p)", "config.pluginmanager"),
+    (
+      'mock.patch("unittest.TestCase.assertEqual", f).start()',
+      'patch("unittest.TestCase.assertEqual"',
+    ),
+    ('monkeypatch.setattr("pytest.approx", f)', 'setattr("pytest.approx"'),
+    ('b = __import__("builtins")\nb.print = f', "b.print ="),
+    ('__import__("builtins").print = f', '__import__("builtins").print ='),
+    (
+      'importlib.import_module("unittest").TestCase.run = f',
+      'import_module("unittest").TestCase.run =',
+    ),
+    ("pytestconfig.pluginmanager.register(p)", "pytestconfig.pluginmanager"),
+    ('vars(builtins)["print"] = f', 'vars(builtins)["print"] ='),
+    ("builtins.__dict__.update(print=f)", "builtins.__dict__.update("),
+    (
+      'type.__setattr__(unittest.TestCase, "assertEqual", f)',
+      "__setattr__(unittest",
+    ),
+    # Lines added inside a docstring of the lines before them, which they
+    # close and open again.
+    ('"""\nbuiltins.print = f\n"""', "builtins.print ="),
+    # A business function named expect, the patterns in strings and
+    # comments, the check for pytest a library makes, pytest's fixtures, a
+    # method named as an assertion, a comparison and a patch of the
+    # project's own code.
+    ("def expect(value):\n  return value", None),
+    ('msg = "builtins.print = x"\n# pytest_plugins = []', None),
+    ('if "pytest" in sys.modules:\n  DEBUG = True', None),
+    ("import pytest\n\n@pytest.fixture\ndef client():\n  return C()", None),
+    ("class Check:\n  def assertValid(self):\n    self.ok = True", None),
+    ("ok = pytest.approx(1.0) == y\nself.assertEqual(a, b)", None),
+    ('from unittest import mock\nwith mock.patch("pkg.fn"):\n  pass', None),
+    ("from unittest import mock\nmock.DEFAULT = 1", None),
+    ("from unittest.mock import MagicMock\nMagicMock.return_value = 3", None),
+    ("import unittest.mock as um\num.DEFAULT = 1", None),
+    ("from unittest import mock as m\nm.DEFAULT = 1", None),
+    ('self.pluginmanager = PluginManager("app")', None),
+  ],
+)
+def test_a_python_fix_that_rewires_tests_is_found(
+  added: str, found: str | None
+):
+  assert core.rewires("src/a.py", added) == found
+
+
+@pytest.mark.parametrize(
+  ("path", "found"),
+  [
+    ("lib/a.js", "expect.extend"),
+    ("lib/a.mjs", "expect.extend"),
+    ("lib/a.cjs", "expect.extend"),
+    ("lib/a.jsx", "expect.extend"),
+    ("lib/a.mts", "expect.extend"),
+    ("lib/a.cts", "expect.extend"),
+    ("lib/a.tsx", "expect.extend"),
+    ("lib/a.pyi", None),
+    ("lib/a.md", None),
+    ("lib/a.go", None),
+  ],
+)
+def test_the_js_and_python_checks_read_their_own_files(
+  path: str, found: str | None
+):
+  assert core.rewires(path, "expect.extend(m)\nbuiltins.x = 1") == found
+
+
 # What tells each module of GUARDS from the others, and its check's
 # finding there.
 GUARD_CASES = {
   "cargo": [("crates/spec/a.rs", "macro_rules! assert {")],
   "cpp": [("src/a.cc", "#define TEST 1")],
   "gotest": [("pkg/spec/a.go", "")],
+  "jsguard": [("src/a.ts", "globalThis.expect = f")],
+  "pyguard": [("src/a.py", "builtins.print = f")],
 }
 HOST_FOUND = {
   "cargo": [[False, "macro_rules! assert"]],
   "cpp": [[False, "#define TEST"]],
   "gotest": [[False, None]],
+  "jsguard": [[False, "globalThis.expect ="]],
+  "pyguard": [[False, "builtins.print ="]],
 }
 
 
@@ -235,11 +443,17 @@ def test_a_copy_has_a_languages_checks_only_with_its_module(
     (("go",), [], ["gotest"]),
     (("gtest",), [], ["cpp"]),
     (("ctest",), [], ["cpp"]),
-    (("pytest",), ["Cargo.toml", "src/lib.rs", "a.py"], ["cargo"]),
+    (("pytest",), ["Cargo.toml", "src/lib.rs", "a.py"], ["cargo", "pyguard"]),
+    (("jest", "pytest"), [], []),
+    (("node",), ["a.py"], ["pyguard"]),
+    ((), ["src/a.tsx", "b.cjs"], ["jsguard"]),
+    ((), ["setup.py"], ["pyguard"]),
+    (("go",), ["go.mod", "web/app.ts"], ["gotest", "jsguard"]),
+    ((), ["a.pyi", "a.json", "a.vue"], []),
     ((), ["include/a.hpp"], ["cpp"]),
     ((), ["src/a.cxx"], ["cpp"]),
     ((), ["go.mod", "x/a.go"], ["gotest"]),
-    ((), ["a.rs", "b.c", "c.go"], ["gotest", "cargo", "cpp"]),
+    ((), ["a.rs", "b.c", "c.go", "d.js", "e.py"], list(GUARDS)),
     ((), ["go.mod", "Cargo.toml", "rs", "a.rsx"], []),
   ],
 )
@@ -259,15 +473,21 @@ def test_a_tasks_copy_names_the_guards_it_has():
   assert "testrunner/cargo.py" not in copied
   assert guards_of(copied["testrunner/registry.py"]) == ["cpp"]
   assert guards_of(registry(("go",), ("cpp",))) == ["gotest", "cpp"]
+  assert guards_of(registry(("vitest", "pytest"))) == []
+  assert guards_of(registry(("vitest",), ("pyguard", "jsguard"))) == [
+    "jsguard",
+    "pyguard",
+  ]
   assert guards_of(registry(())) == []
   # A copy of the old layout, written before GUARDS, names none.
   old = registry(()).split(b"\nGUARDS")[0]
   with pytest.raises(ValueError, match="names no GUARDS: a copy of the old"):
     _ = guards_of(old)
-  with pytest.raises(ValueError, match="unknown guards: js"):
+  with pytest.raises(ValueError, match="unknown guards: maven"):
     _ = guards_of(
       registry(()).replace(
-        b"GUARDS: tuple[str, ...] = ()", b"GUARDS: tuple[str, ...] = ('js',)"
+        b"GUARDS: tuple[str, ...] = ()",
+        b"GUARDS: tuple[str, ...] = ('maven',)",
       )
     )
 
