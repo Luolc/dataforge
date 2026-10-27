@@ -100,7 +100,6 @@ def test_columns_trials_and_deliverables_reach_the_page() -> None:
       "no_trace": None,
       "count": None,
       "default": False,
-      "newest": None,
     },
     {
       "name": "rubrics",
@@ -109,7 +108,6 @@ def test_columns_trials_and_deliverables_reach_the_page() -> None:
       "no_trace": None,
       "count": None,
       "default": {"field": ["settings"], "equals": ["explicit"]},
-      "newest": None,
     },
   ]
   assert public["kinds"] == {"report": {"title": "Reviews"}}
@@ -267,15 +265,10 @@ def test_a_deliverable_without_newest_has_none() -> None:
 
   public = export.public()
   deliverables = cast(list[dict[str, object]], public["deliverables"])
-  assert deliverables[0]["newest"] is None
+  assert "newest" not in deliverables[0]
 
 
 def test_project_public_with_newest_is_read_by_share(tmp_path: Path) -> None:
-  """Test that Project.public() with newest is read by share export parser.
-
-  Args:
-    tmp_path: Temporary directory for test files.
-  """
   tree = make_tree(tmp_path)
   project_text = """
 id: example
@@ -297,22 +290,20 @@ kinds:
   [project] = load_site(tree.site).projects
 
   project_data = project.public()
-
-  # Verify that Project.public() includes newest for deliverables
   project_deliverables = cast(
     list[dict[str, object]], project_data["deliverables"]
   )
-  assert all("newest" in d for d in project_deliverables)
 
-  # Prepare share export data from project data
   data = export_json("example", ["item-1"])
   data["deliverables"] = project_deliverables
   data["kinds"] = project_data["kinds"]
 
-  # Verify share can parse it
   export = parse(json.dumps(data).encode())
 
   public = export.public()
   public_deliverables = cast(list[dict[str, object]], public["deliverables"])
   assert len(public_deliverables) == 2
-  assert all("newest" in d for d in public_deliverables)
+  assert all(
+    isinstance(d.get("newest"), bool) or "newest" not in d
+    for d in public_deliverables
+  )

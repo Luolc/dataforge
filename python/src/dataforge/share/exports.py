@@ -394,17 +394,17 @@ def _deliverables(value: object) -> tuple[dict[str, object], ...]:
     newest = fields.get("newest")
     if newest is not None and not isinstance(newest, bool):
       raise ExportError(f"{where}.newest: not a boolean")
-    entries.append(
-      {
-        "name": name,
-        "kind": _str(f"{where}.kind", fields["kind"]),
-        "title": _str(f"{where}.title", fields["title"]),
-        "no_trace": _optional(f"{where}.no_trace", fields, "no_trace"),
-        "count": _optional(f"{where}.count", fields, "count"),
-        "default": _default(f"{where}.default", fields.get("default", False)),
-        "newest": newest,
-      }
-    )
+    entry: dict[str, object] = {
+      "name": name,
+      "kind": _str(f"{where}.kind", fields["kind"]),
+      "title": _str(f"{where}.title", fields["title"]),
+      "no_trace": _optional(f"{where}.no_trace", fields, "no_trace"),
+      "count": _optional(f"{where}.count", fields, "count"),
+      "default": _default(f"{where}.default", fields.get("default", False)),
+    }
+    if newest is not None:
+      entry["newest"] = newest
+    entries.append(entry)
   return tuple(entries)
 
 
