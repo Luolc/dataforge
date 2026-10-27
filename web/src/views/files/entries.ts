@@ -1,5 +1,5 @@
 // The order of a files deliverable's tree, and the file it opens with.
-import type { FileSource } from "../../api/client";
+import { type FileSource, inDir } from "../../api/client";
 import type { Listing } from "../../api/types";
 
 export type Entry = Listing["entries"][number];
@@ -34,12 +34,12 @@ export async function firstFile(
     if (dir === root) {
       for (const name of ["instruction.md", "README.md"]) {
         if (entries.some((e) => e.type === "file" && e.name === name)) {
-          return `${dir}/${name}`;
+          return inDir(dir, name);
         }
       }
     }
     for (const entry of inTreeOrder(entries)) {
-      const path = `${dir}/${entry.name}`;
+      const path = inDir(dir, entry.name);
       if (entry.type === "file") return path;
       if (entry.type === "dir") {
         const found = await walk(path);
@@ -63,9 +63,10 @@ export async function fileAt(
   path: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const parent = path.slice(0, path.lastIndexOf("/"));
+  const slash = path.lastIndexOf("/");
+  const parent = slash < 0 ? "" : path.slice(0, slash);
   const listed = await source.listing(project, attempt, parent, signal);
-  const name = path.slice(parent.length + 1);
+  const name = path.slice(slash + 1);
   return listed.entries.some((e) => e.type === "dir" && e.name === name)
     ? firstFile(source, project, attempt, path, signal)
     : path;

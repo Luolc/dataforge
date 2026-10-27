@@ -8,17 +8,21 @@ document.body.style.color = saved === "dark" ? "#eee" : "#111";
 document.body.textContent = "Loading…";
 setTimeout(() => {
   if (location.pathname === "/") { document.body.textContent = "Projects"; return; }
+  // A share site's item page, /example/items/a, names its panel deliverable.
+  const share = location.pathname.startsWith("/example/items/");
+  const param = share ? "deliverable" : "part";
   const tab = params.get("tab") ?? "runs";
-  const part = params.get("part") ?? "summary";
+  const part = params.get(param) ?? "summary";
+  const page = share ? "/example/items/a?" : "/example/attempt?id=a&";
   const link = (q, text, on) =>
-    `<a href="/example/attempt?id=a&${q}" ${on ? 'aria-current="page"' : ""}>${text}</a>`;
-  let html = '<nav aria-label="Attempt">'
+    `<a href="${page}${q}" ${on ? 'aria-current="page"' : ""}>${text}</a>`;
+  let html = `<nav aria-label="${share ? "Item" : "Attempt"}">`
     + ["runs", "report"].map((t) => link(`tab=${t}`, t, t === tab)).join("")
     + "</nav>";
   if (tab === "report") {
     const shown = ["summary", "details"].includes(part) ? part : "summary";
     html += "<nav aria-label=\"Panels\">" + ["summary", "details"]
-      .map((p) => link(`tab=report&part=${p}`, p, p === shown)).join("") + "</nav>";
+      .map((p) => link(`tab=report&${param}=${p}`, p, p === shown)).join("") + "</nav>";
     html += `<main>The ${shown} panel</main>`;
   } else {
     html += "<main>Runs of the attempt</main>";

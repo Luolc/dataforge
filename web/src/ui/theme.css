@@ -683,6 +683,10 @@ html[data-template="dark"] {
     margin: 0 0 calc(var(--spacing) * 3);
     font-weight: var(--font-weight-semibold);
   }
+  /* A heading a link moves to stops below the page's sticky tabs. */
+  .md :where(h1, h2, h3, h4, h5, h6) {
+    scroll-margin-top: calc(var(--spacing-tabs) + var(--spacing) * 3);
+  }
   .md h1,
   .md h2 {
     font-size: var(--text-xl);

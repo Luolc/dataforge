@@ -97,6 +97,16 @@ export interface FileSource {
   href?: (p: string, attempt: string, path: string) => string;
 }
 
+/** The path of name in dir, a path relative to the attempt, "" for its own. */
+export const inDir = (dir: string, name: string) =>
+  dir === "" ? name : `${dir}/${name}`;
+
+/** The path relative to root of a path under it; null when it is not. */
+export function underRoot(root: string, path: string): string | null {
+  if (root === "") return path === "" ? null : path;
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : null;
+}
+
 /**
  * The files of a route that answers a directory with its listing and a file
  * with its bytes, at the URL of a path under an attempt or a root.
@@ -339,7 +349,7 @@ async function countFiles(
     const found = await source.listing(p, attempt, dir, signal);
     for (const entry of found.entries) {
       if (entry.type === "file") files++;
-      if (entry.type === "dir") queue.push(`${dir}/${entry.name}`);
+      if (entry.type === "dir") queue.push(inDir(dir, entry.name));
     }
   }
   return { files, complete: queue.length === 0 };

@@ -3,15 +3,15 @@
   "revision": 1,
   "deliverables": [
     {
-      "name": "task",
+      "name": "packet",
       "kind": "files",
-      "title": "Harbor task",
+      "title": "Files",
       "state": "",
       "output": null,
       "visit": null,
       "visit_index": null,
       "reason": null,
-      "path": "task"
+      "path": ""
     },
     {
       "name": "pass_at_k",

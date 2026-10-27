@@ -21,6 +21,7 @@ const requested = (fetch: ReturnType<typeof fakeStatic>) =>
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
 });
 
 describe("the share site as a static site", () => {
@@ -45,20 +46,56 @@ describe("the share site as a static site", () => {
   });
 
   it("draws an item's three tabs from its files", async () => {
-    const fetch = open("/demo/items/k7m2q9xr4t?tab=report");
+    const fetch = open("/demo/items/k7m2q9xr4t");
 
-    expect((await screen.findAllByText("Pass")).length).toBeGreaterThan(0);
+    expect(
+      await screen.findByRole("heading", { name: "The bug" }),
+    ).toBeVisible();
+    expect(screen.getAllByRole("table")[0]).toHaveTextContent(
+      "test_stops_at_blankFailPass",
+    );
+    expect(screen.getByText("def").closest("pre")).toHaveTextContent(
+      "def read_header(lines):",
+    );
     fireEvent.click(screen.getByRole("link", { name: /^Pass@k/ }));
     expect(await screen.findByText("3 / 4 solved")).toBeVisible();
     await screen.findByRole("button", { name: "Expand all" });
-    fireEvent.click(screen.getByRole("link", { name: /^Harbor task/ }));
-    expect(await screen.findByText(/Fix the header reader/)).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: /^Files/ }));
+    const tree = await screen.findByRole("navigation", { name: "Files" });
     expect(
-      await screen.findByRole("link", { name: /^Harbor task9/ }),
+      await within(tree).findByRole("link", { name: /^STANDARD\.md/ }),
     ).toBeVisible();
+    // The tree opens the folders above the first file once it is found.
+    await within(tree).findByRole("button", { name: "reference" });
+    expect(
+      within(tree)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual([
+      "baselines",
+      "reference",
+      "reviews",
+      "task",
+      "trials",
+      "variants",
+    ]);
+    expect(await screen.findByRole("link", { name: /^Files29/ })).toBeVisible();
     expect(requested(fetch).every((url) => url.startsWith("/data/"))).toBe(
       true,
     );
+  });
+
+  it("moves to a heading of the report that a link in it names", async () => {
+    // jsdom draws nothing, so it has no scrollIntoView.
+    const moved = vi.fn();
+    Element.prototype.scrollIntoView = moved;
+    open("/demo/items/k7m2q9xr4t");
+
+    fireEvent.click(await screen.findByRole("link", { name: "Baselines" }));
+
+    const heading = screen.getByRole("heading", { name: "Baselines" });
+    expect(moved.mock.contexts).toEqual([heading]);
+    expect(heading).toHaveFocus();
   });
 
   it("lists an older export's items by their IDs alone", async () => {
@@ -86,8 +123,9 @@ describe("the share site as a static site", () => {
   });
 
   it("lists a file listed only by its name and size, with no way to open it", async () => {
-    const fetch = open("/demo/items/k7m2q9xr4t?tab=task");
+    const fetch = open("/demo/items/k7m2q9xr4t?tab=files");
 
+    fireEvent.click(await screen.findByRole("button", { name: "task" }));
     fireEvent.click(await screen.findByRole("button", { name: "environment" }));
     const row = await screen.findByText("source.tar.gz");
     expect(row.closest("a")).toBeNull();
@@ -101,7 +139,7 @@ describe("the share site as a static site", () => {
 
   it("does not show a file listed only, even when the page names it", async () => {
     const fetch = open(
-      "/demo/items/k7m2q9xr4t?tab=task&file=task/environment/source.tar.gz",
+      "/demo/items/k7m2q9xr4t?tab=files&file=task/environment/source.tar.gz",
     );
 
     expect(
@@ -134,7 +172,7 @@ describe("the share site as a static site", () => {
   });
 
   it("downloads a file it shows from the site's copy of it", async () => {
-    open("/demo/items/k7m2q9xr4t?tab=task&file=task/instruction.md");
+    open("/demo/items/k7m2q9xr4t?tab=files&file=task/instruction.md");
 
     expect(
       await screen.findByRole("link", { name: "Download" }),

@@ -1,21 +1,60 @@
 // Markdown from an attempt, which agents and the code under test wrote: it is
 // untrusted. Raw HTML shows as text, an image is a link that loads nothing,
-// and a link opens only on a click, in a new tab with no opener or referrer.
+// and a link opens only on a click, in a new tab with no opener or referrer,
+// but a link to #<id> moves to that heading or footnote of the same text.
 // react-markdown turns raw HTML into text unless a plugin such as rehype-raw
 // is added; none may be.
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Highlighted } from "./code";
 import { fenceLanguage } from "./language";
 
+// A heading's id starts with what remark-gfm's footnotes start theirs with,
+// so that no id of the text is one the page's own code looks up.
+const PREFIX = "user-content-";
+
+/**
+ * Move to the element of the link's own text whose id the link's #<id>
+ * names, with or without PREFIX, and focus it; a name the text does not hold
+ * moves nothing.
+ */
+function moveTo(event: MouseEvent<HTMLAnchorElement>, href: string) {
+  event.preventDefault();
+  let name;
+  try {
+    name = decodeURIComponent(href.slice(1));
+  } catch {
+    return;
+  }
+  const ids = [`${PREFIX}${name}`, name];
+  const text = event.currentTarget.closest(".md");
+  const all = [...(text?.querySelectorAll<HTMLElement>("[id]") ?? [])];
+  const target = ids
+    .map((id) => all.find((e) => e.id === id))
+    .find((e) => e !== undefined);
+  if (target === undefined) return;
+  target.scrollIntoView();
+  target.focus({ preventScroll: true });
+}
+
 const components: Components = {
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) =>
+    href?.startsWith("#") === true ? (
+      <a
+        href={href}
+        onClick={(event) => {
+          moveTo(event, href);
+        }}
+      >
+        {children}
+      </a>
+    ) : (
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    ),
   img: ({ src, alt }) => {
     const url = typeof src === "string" ? src : "";
     return (
@@ -50,6 +89,45 @@ interface MdNode {
   lang?: string | null;
   children?: MdNode[];
   data?: { hName?: string; hProperties?: Record<string, unknown> };
+}
+
+const textOf = (node: MdNode): string =>
+  node.value ?? (node.children ?? []).map(textOf).join("");
+
+/**
+ * A heading's anchor as GitHub makes it from the heading's text: lower case,
+ * with no punctuation or symbol, and a hyphen for each space.
+ */
+function slug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, "")
+    .replace(/ /g, "-");
+}
+
+// Gives each heading the id of its slug after PREFIX, a slug the text has
+// already taken followed by -1, -2 and so on, as GitHub numbers them; a
+// heading can be focused, so that a link to it moves the focus there too.
+function headingIds(tree: MdNode) {
+  const taken = new Set<string>();
+  const visit = (node: MdNode) => {
+    if (node.type === "heading") {
+      const base = slug(textOf(node));
+      let id = base;
+      for (let n = 1; taken.has(id); n++) id = `${base}-${n.toString()}`;
+      taken.add(id);
+      node.data = {
+        ...node.data,
+        hProperties: {
+          ...node.data?.hProperties,
+          id: PREFIX + id,
+          tabIndex: -1,
+        },
+      };
+    }
+    node.children?.forEach(visit);
+  };
+  visit(tree);
 }
 
 const nameOf = (spelled: string) =>
@@ -152,7 +230,10 @@ export function Markdown({
             </td>
           ),
         };
-  const plugins: NonNullable<Options["remarkPlugins"]> = [remarkGfm];
+  const plugins: NonNullable<Options["remarkPlugins"]> = [
+    remarkGfm,
+    () => headingIds,
+  ];
   if (variables !== undefined) {
     plugins.push(() => (tree: MdNode) => {
       splitVariables(tree, variables.pattern);

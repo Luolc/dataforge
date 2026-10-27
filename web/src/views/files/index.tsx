@@ -5,7 +5,7 @@
 import type { ReactNode } from "react";
 import { useLocation, useSearchParams } from "react-router";
 
-import { useFileSource, useLoaded } from "../../api/client";
+import { underRoot, useFileSource, useLoaded } from "../../api/client";
 import type { Deliverable } from "../../api/types";
 import { Card, Note } from "../../ui/card";
 import { Split } from "../../ui/split";
@@ -90,7 +90,8 @@ export function Files({
 }) {
   const [query] = useSearchParams();
   const asked = query.get("file") ?? given ?? null;
-  const chosen = asked?.startsWith(`${root}/`) === true ? asked : null;
+  const chosen =
+    asked !== null && underRoot(root, asked) !== null ? asked : null;
   const source = useFileSource();
   const first = useLoaded(
     chosen === null ? JSON.stringify([project, attempt, root]) : null,
@@ -140,7 +141,7 @@ export function Files({
           project={project}
           attempt={attempt}
           path={selected}
-          name={selected.slice(root.length + 1)}
+          name={underRoot(root, selected) ?? selected}
         />
       ) : shown.state === "loading" ? (
         <Note>Loading…</Note>

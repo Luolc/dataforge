@@ -78,9 +78,14 @@
   },
   "deliverables": [
     {
-      "name": "task",
+      "name": "rationale",
+      "kind": "report",
+      "title": "Report"
+    },
+    {
+      "name": "packet",
       "kind": "files",
-      "title": "Harbor task"
+      "title": "Files"
     },
     {
       "name": "pass_at_k",
@@ -101,7 +106,7 @@
   ],
   "kinds": {
     "report": {
-      "title": "Reviews"
+      "title": "Reports"
     }
   },
   "items": [

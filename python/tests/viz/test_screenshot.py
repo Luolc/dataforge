@@ -16,7 +16,7 @@ from dataforge.viz import screenshot
 # A synthetic viewer: a page that applies the template kept in localStorage
 # as the real one does, shows "Loading…" until its content lands, then a tab
 # bar and, for the Report tab, a column of two panels, the shown one marked
-# aria-current="page".
+# aria-current="page"; under /example/items/ it is a share site's item page.
 PAGE = (Path(__file__).parent / "fixtures" / "viewer-page.html").read_text()
 
 CHROME_MISSING = not Path(screenshot.CHROME).exists() and not os.environ.get(
@@ -143,6 +143,23 @@ def test_a_tab_without_a_panel_is_shot_with_its_first_panel(
 
   assert run(viewer, out, theme="light") == 0
   assert out.exists()
+
+
+def test_a_share_site_s_item_tab_and_deliverable_are_shot(
+  viewer: str, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+  out = tmp_path / "item.png"
+  share = ("--share", "--tab", "report")
+
+  assert run(viewer, out, *share, "--panel", "details") == 0
+  assert run(viewer, tmp_path / "x.png", *share, "--panel", "nope") == 1
+
+  assert out.exists()
+  assert "no panel 'nope'" in capfd.readouterr().err
+
+
+def test_a_share_site_s_shot_needs_its_tab(tmp_path: Path) -> None:
+  assert run("http://127.0.0.1:1", tmp_path / "x.png", "--share") == 2
 
 
 def test_a_theme_the_page_did_not_apply_fails_and_writes_nothing(

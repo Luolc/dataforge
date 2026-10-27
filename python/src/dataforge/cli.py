@@ -49,9 +49,10 @@ def main(argv: Sequence[str] | None = None) -> int:
   serve|site|token" serves the read-only site of exports, writes it as a
   static site, or makes, lists or revokes its access tokens; see
   dataforge.share.command. "dataforge viz screenshot --url <address>
-  --project <id> --attempt <id> [--tab <name>] [--panel <name>] [--width <px>]
-  --theme light|dark --out <file.png>" takes a PNG of one panel of the
-  running viewer; see dataforge.viz.screenshot.
+  [--share] --project <id> --attempt <id> [--tab <name>] [--panel <name>]
+  [--width <px>] --theme light|dark --out <file.png>" takes a PNG of one
+  panel of the running viewer, or of a share site's item page; see
+  dataforge.viz.screenshot.
 
   Args:
     argv: The arguments; None for the command line's.

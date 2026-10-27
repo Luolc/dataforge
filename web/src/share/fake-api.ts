@@ -94,7 +94,8 @@ function answer(state: Fake, input: string, init?: RequestInit): Response {
     return file(`items/${item}/record.json`, "application/json");
   if (url.pathname === `${base}/files`) {
     const path = url.searchParams.get("path") ?? "";
-    return file(`items/${item}/${path}`, "application/octet-stream");
+    const at = path === "" ? `items/${item}` : `items/${item}/${path}`;
+    return file(at, "application/octet-stream");
   }
   return Response.json(
     { error: "not found", reason: "no such route" },

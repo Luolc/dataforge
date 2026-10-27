@@ -1,7 +1,18 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Markdown } from "./markdown";
+
+// jsdom draws nothing, so it has no scrollIntoView: a test puts a spy there.
+function spyOnScroll() {
+  const moved = vi.fn();
+  Element.prototype.scrollIntoView = moved;
+  return moved;
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+});
 
 describe("Markdown", () => {
   it("raw HTML shows as text", () => {
@@ -36,6 +47,36 @@ describe("Markdown", () => {
     const link = screen.getByRole("link", { name: "notes" });
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("a link to a heading of the text moves there and focuses it", () => {
+    const moved = spyOnScroll();
+    render(
+      <Markdown
+        text={
+          "- [Scope](#scope)\n- [Scope, again](#scope-1)\n- [Why `x` fails?](#why-x-fails)\n\n## Scope\n\n## Scope\n\n## Why `x` fails?\n"
+        }
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "Scope, again" });
+    expect(link).not.toHaveAttribute("target");
+    fireEvent.click(link);
+    const [, second] = screen.getAllByRole("heading", { name: "Scope" });
+    expect(moved.mock.contexts).toEqual([second]);
+    expect(second).toHaveFocus();
+    fireEvent.click(screen.getByRole("link", { name: "Why x fails?" }));
+    expect(moved.mock.contexts.at(-1)).toBe(
+      screen.getByRole("heading", { name: "Why x fails?" }),
+    );
+  });
+
+  it("a link to a name the text does not hold moves nothing", () => {
+    const moved = spyOnScroll();
+    render(<Markdown text={"[gone](#gone)\n\n## Here\n"} />);
+
+    fireEvent.click(screen.getByRole("link", { name: "gone" }));
+    expect(moved).not.toHaveBeenCalled();
   });
 
   it("a javascript: link loses its URL", () => {
