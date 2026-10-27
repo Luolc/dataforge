@@ -1,12 +1,15 @@
 import json
+import logging
 import os
 from pathlib import Path
+import re
 from typing import cast
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 import pytest
 
+from dataforge.viz import app as viz_app
 from dataforge.viz.app import create_app
 from dataforge.viz.config import load_site
 from tests.viz.sites import FIXTURES, make_tree, PROJECT, Tree, with_pages
@@ -685,3 +688,23 @@ def test_rounds_are_the_last_visit_of_each_round(
     {"round": 1, "state": "check", "outcome": "fail"},
     {"round": 2, "state": "solve", "outcome": None},
   ]
+
+
+def test_a_request_slower_than_slow_s_is_logged_with_its_time(
+  tree: Tree,
+  static: Path,
+  monkeypatch: pytest.MonkeyPatch,
+  caplog: pytest.LogCaptureFixture,
+) -> None:
+  web = client(tree, static)
+  with caplog.at_level(logging.WARNING, logger="dataforge.viz.app"):
+    assert web.get(f"{API}/record", params=QUERY).status_code == 200
+    assert caplog.messages == []
+    monkeypatch.setattr(viz_app, "SLOW_S", 0.0)
+    assert web.get(f"{API}/record", params=QUERY).status_code == 200
+  [message] = caplog.messages
+  assert re.fullmatch(
+    r"GET /api/projects/example/record\?attempt=batch-1%2Ftask-1"
+    + r" took \d+\.\d\d s to answer",
+    message,
+  )

@@ -70,6 +70,16 @@ describe("an attempt's heading tags", () => {
     expect(screen.queryByText(/Kind/)).toBeNull();
   });
 
+  it("reads the listing of the attempt's item alone", async () => {
+    const fetch = show(project, "a/1");
+
+    expect(await screen.findByText("Python")).toBeVisible();
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/projects/${project.id}/attempts?item=a`,
+      expect.anything(),
+    );
+  });
+
   it("says so when the listing cannot be read, instead of drawing no tag", async () => {
     show(
       project,

@@ -516,7 +516,7 @@ describe("an attempt read again while it runs", () => {
   // The reads of the record and /live; the listing the heading reads is
   // another, with its own cadence.
   const recordReads = (fetch: ReturnType<typeof showReads>) =>
-    fetch.mock.calls.filter(([url]) => !url.endsWith("/attempts")).length;
+    fetch.mock.calls.filter(([url]) => !url.includes("/attempts")).length;
 
   const tick = async () => {
     // Let the effects of what has landed run first, the poll's timer among
@@ -765,7 +765,7 @@ describe("an attempt whose server stops answering", () => {
     let out = 0;
     let most = 0;
     const fetch = vi.fn((url: string, init?: RequestInit) => {
-      if (!answering && !url.endsWith("/attempts")) {
+      if (!answering && !url.includes("/attempts")) {
         most = Math.max(most, ++out);
         init?.signal?.addEventListener("abort", () => {
           out--;
