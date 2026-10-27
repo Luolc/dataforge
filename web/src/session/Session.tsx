@@ -177,7 +177,7 @@ function TraceLengthTotal({ length }: { length: TraceLength }) {
       <Tooltip.Provider delayDuration={200}>
         <Hint hint={hint}>
           <span className="underline decoration-faint decoration-dotted underline-offset-3">
-            {length.state === "ok" ? count.format(length.tokens) : "—"}
+            {length.state === "ok" ? count.format(length.tokens) : "not known"}
           </span>
         </Hint>
       </Tooltip.Provider>
