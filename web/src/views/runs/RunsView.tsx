@@ -27,8 +27,10 @@ import { Summary } from "./summary/Summary";
 import { RunningLine, VisitLine } from "./visit-line";
 
 // The run that is not in the record yet is no link: it has no page. The
-// column scrolls as a whole only when the runs' list would be shorter than
-// its least height.
+// definition's list and the runs' list each scroll on their own, the first
+// at most --spacing-definition-list tall and the second at least
+// --spacing-run-list, so that neither pushes the other out of view; the
+// column scrolls as a whole only when they do not fit.
 const runningItem =
   "flex items-center gap-2 rounded-row px-2 py-1.5 font-medium text-fg-2";
 
@@ -66,16 +68,16 @@ export function RunsView({
   // The run or discarded visit shown is scrolled to the top of the list,
   // which may reach below the frame until the page scrolls; again once the
   // definition's links above the list have loaded, as they make it shorter.
+  // So is the definition's entry shown, in its own list.
   const listRef = useRef<HTMLDivElement>(null);
+  const definitionRef = useRef<HTMLDivElement>(null);
   const definitionState = definition?.state;
   useEffect(() => {
-    const box = listRef.current;
-    const shown = box?.querySelector<HTMLElement>("[aria-current=page]");
-    if (!box || !shown) return;
-    const top = shown.offsetTop;
-    if (top < box.scrollTop || top > box.scrollTop + box.clientHeight / 2)
-      box.scrollTop = top;
+    toTop(listRef.current);
   }, [run, discarded, definitionState]);
+  useEffect(() => {
+    toTop(definitionRef.current);
+  }, [defn, definitionState]);
   // The visit the attempt is in while it runs: the record's last, or one
   // after it that the record does not hold yet.
   const current = currentOf(record, live);
@@ -114,7 +116,14 @@ export function RunsView({
               Summary
             </Link>
             {definition !== null && (
-              <div className="mt-3 border-b border-line pb-3">
+              <div
+                // eslint-disable-next-line jsx-a11y-x/no-noninteractive-tabindex -- a keyboard scrolls the list
+                tabIndex={0}
+                role="region"
+                aria-label="Definition list"
+                ref={definitionRef}
+                className="relative mt-3 max-h-definition-list flex-none overflow-y-auto rounded-row border-b border-line pb-3"
+              >
                 <DefinitionLinks
                   project={project}
                   snapshot={snapshot}
@@ -126,7 +135,7 @@ export function RunsView({
             <h2 className="mt-3 mb-1 px-2 text-xs font-medium text-fg-3">
               Runs · {runs}
             </h2>
-            {/* The runs scroll on their own, so the parts above stay in view. */}
+            {/* The runs scroll on their own, as the definition above does. */}
             <div
               // eslint-disable-next-line jsx-a11y-x/no-noninteractive-tabindex -- a keyboard scrolls the list
               tabIndex={0}
@@ -231,4 +240,16 @@ export function RunsView({
       </SideColumn>
     </div>
   );
+}
+
+/**
+ * Scroll a list so that its entry shown is at its top, when that entry is
+ * above what the list shows or below its first half.
+ */
+function toTop(box: HTMLElement | null) {
+  const shown = box?.querySelector<HTMLElement>("[aria-current=page]");
+  if (!box || !shown) return;
+  const top = shown.offsetTop;
+  if (top < box.scrollTop || top > box.scrollTop + box.clientHeight / 2)
+    box.scrollTop = top;
 }
