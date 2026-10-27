@@ -166,8 +166,55 @@ describe("the machine's graph", () => {
   it("writes each outcome on its edge as the project labels it, else as `readable` spells it", () => {
     const { edge } = show(early);
 
-    expect(edge("build", "smoke")).toHaveTextContent(/^Pass ×1$/);
-    expect(edge("draft", "build")).toHaveTextContent(/^Done ×1$/);
+    expect(edge("build", "smoke")).toHaveTextContent(/^Pass · run2$/);
+    expect(edge("draft", "build")).toHaveTextContent(/^Done · run1$/);
+  });
+
+  it("links each run a transition names to that run", () => {
+    const { edge } = show(busy);
+
+    const links = [...edge("draft", "build").querySelectorAll("a")];
+    expect(links.map((l) => l.getAttribute("href"))).toEqual([
+      "/run/0",
+      "/run/3",
+      "/run/9",
+      "/run/22",
+    ]);
+    expect(links.map((l) => l.textContent)).toEqual(["1", "4", "10", "23"]);
+    expect(links[1]).toHaveAccessibleName(
+      "Done · runs 1, 4, 10, 23: open run 4",
+    );
+    expect(edge("draft", "build")).toHaveTextContent(/^Done · runs141023$/);
+
+    fireEvent.click(must(links[1]));
+    expect(where()).toBe("/run/3");
+  });
+
+  it("lists the runs of a state that ran more than once when its runs are opened, each a link to its run", () => {
+    const { graph } = show(busy);
+
+    const toggle = within(graph).getByRole("button", {
+      name: "Draft: 5 runs, list them",
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(graph).queryByRole("button", { name: /^Audit:/ })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const list = must(
+      document.getElementById(toggle.getAttribute("aria-controls") ?? ""),
+    );
+    const runs = within(list).getAllByRole("link");
+    expect(runs.map((l) => l.textContent)).toEqual([
+      "Run 1Done",
+      "Run 3Invalid",
+      "Run 4Done",
+      "Run 10Done",
+      "Run 23Done",
+    ]);
+
+    fireEvent.click(must(runs[1]));
+    expect(where()).toBe("/run/2");
   });
 
   it("opens at scale 1 in a frame narrower than the graph", () => {
@@ -660,7 +707,7 @@ describe("a running attempt's machine", () => {
       .filter((l) => l.font === "sub")
       .map((l) => l.text);
     expect(under).toEqual([
-      "Run 2 · Running",
+      "Run 4 · Running",
       "1h 30m",
       "2 runs · 1h 42m in",
       "all",

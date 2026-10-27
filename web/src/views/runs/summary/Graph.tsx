@@ -1,4 +1,5 @@
 import { CircleDashed, Maximize, Minimize, Minus, Plus } from "lucide-react";
+import { Popover } from "radix-ui";
 import {
   Fragment,
   type PointerEvent as ReactPointerEvent,
@@ -15,10 +16,11 @@ import { Link } from "react-router";
 import { Elapsed, RunningIcon } from "../../../ui/running";
 import { ToneIcon } from "../../../ui/status-mark";
 import {
+  CHIP_HEIGHT,
   type Edge,
   labelLine,
+  labelText,
   type Layout,
-  LINE,
   SUB_LINE,
   textTop,
   TITLE_LINE,
@@ -49,11 +51,12 @@ const clamp = (v: number, lo: number, hi: number) =>
 
 /**
  * The machine as laid out, in a frame that zooms and pans: transitions not
- * taken dashed, taken ones solid in the accent with their counts. Hovering or
- * focusing a state lights its edges and the states they join and dims the
- * rest, and pulses run along the lit edges the attempt may still take or
- * took, from the state each leaves to the one it goes to; a state links to
- * its last run.
+ * taken dashed, taken ones solid in the accent with links to the runs that
+ * took them. Hovering or focusing a state lights its edges and the states
+ * they join and dims the rest, and pulses run along the lit edges the
+ * attempt may still take or took, from the state each leaves to the one it
+ * goes to; a state links to its last run, and one that ran more than once
+ * lists its runs.
  */
 export function Graph({
   layout,
@@ -319,6 +322,7 @@ export function Graph({
               key={edge.key}
               edge={edge}
               head={`url(#${id}-head${lit(edge) ? "-lit" : ""})`}
+              runHref={runHref}
               lit={lit(edge)}
               dim={active !== null && !lit(edge)}
               // Once the attempt has ended, only what it took is left to
@@ -350,20 +354,28 @@ export function Graph({
                 setFocused(null);
               },
             };
-            return node.lastVisit === null ? (
-              <g key={node.key} data-node={node.key} {...events}>
-                {card}
-              </g>
-            ) : (
-              <Link
-                key={node.key}
-                to={runHref(node.lastVisit)}
-                aria-label={`${accessibleName(node)}: open its last run`}
-                data-node={node.key}
-                {...events}
-              >
-                {card}
-              </Link>
+            return (
+              <Fragment key={node.key}>
+                {node.lastVisit === null ? (
+                  <g data-node={node.key} {...events}>
+                    {card}
+                  </g>
+                ) : (
+                  <Link
+                    to={runHref(node.lastVisit)}
+                    aria-label={`${accessibleName(node)}: open its last run`}
+                    data-node={node.key}
+                    {...events}
+                  >
+                    {card}
+                  </Link>
+                )}
+                <RunsList
+                  node={node}
+                  target={layout.target}
+                  runHref={runHref}
+                />
+              </Fragment>
             );
           })}
         </g>
@@ -440,6 +452,7 @@ function ControlButton({
 function EdgeView({
   edge,
   head,
+  runHref,
   lit,
   dim,
   pulse,
@@ -447,6 +460,7 @@ function EdgeView({
 }: {
   edge: Edge;
   head: string;
+  runHref: (index: number) => string;
   lit: boolean;
   dim: boolean;
   pulse: boolean;
@@ -469,11 +483,11 @@ function EdgeView({
       <path d={edge.path} markerEnd={head} className={`fill-none ${stroke}`} />
       {pulse && <Pulse d={edge.path} taken={edge.taken} box={box} />}
       <text x={label.x} y={label.y} className="text-xs">
-        {label.parts.map((part, i, all) => (
+        {label.parts.map((part, i) => (
           <tspan
             key={part.outcome}
             x={label.x}
-            y={label.y - (all.length - 1 - i) * LINE}
+            y={label.lines[i]?.y}
             className={
               part.taken > 0
                 ? "fill-fg font-semibold"
@@ -486,7 +500,144 @@ function EdgeView({
           </tspan>
         ))}
       </text>
+      {label.parts.map((part, i) => {
+        const line = label.lines[i];
+        if (line === undefined) return null;
+        return line.chips.map((chip) => {
+          const n = (chip.index + 1).toString();
+          const middle = chip.x + chip.width / 2;
+          return (
+            <Link
+              key={`${part.outcome}-${n}`}
+              to={runHref(chip.index)}
+              aria-label={`${labelText(part)}: open run ${n}`}
+              data-run={chip.index}
+              className="group"
+            >
+              <rect
+                x={chip.x}
+                y={line.top}
+                width={chip.width}
+                height={line.height}
+                className="fill-transparent"
+              />
+              <rect
+                x={middle - chip.pill / 2}
+                y={line.top + (line.height - CHIP_HEIGHT) / 2}
+                width={chip.pill}
+                height={CHIP_HEIGHT}
+                className="fill-panel stroke-line [rx:var(--radius-row)] group-hover:fill-hover group-hover:stroke-fg-3"
+              />
+              <text
+                x={middle}
+                y={line.y}
+                textAnchor="middle"
+                className="fill-fg text-xs font-semibold [font-variant-numeric:tabular-nums]"
+              >
+                {n}
+              </text>
+            </Link>
+          );
+        });
+      })}
     </g>
+  );
+}
+
+/**
+ * The control on a card that ran more than once, over where the card names
+ * how many times, which opens the list of its runs: each run's number in
+ * the Runs tab and its outcome, a link to the run where it has a page.
+ */
+function RunsList({
+  node,
+  target,
+  runHref,
+}: {
+  node: Layout["nodes"][number];
+  target: number;
+  runHref: (index: number) => string;
+}) {
+  const at = node.runsText;
+  if (at === null) return null;
+  // The first line under the title, or the running card's first live line,
+  // which starts at the card's padding.
+  const top = textTop(node) + node.lines.length * TITLE_LINE + 12;
+  const left = node.running ? 12 : 36;
+  const width = Math.max(target, Math.ceil(at.width) + 8);
+  // Centred on the line's text, as tall as a target.
+  const y = node.y + top - 4 - target / 2;
+  const x = node.x + left - 4;
+  return (
+    <>
+      <line
+        x1={node.x + left}
+        x2={node.x + left + at.width}
+        y1={node.y + top + 3}
+        y2={node.y + top + 3}
+        aria-hidden
+        className="pointer-events-none stroke-fg-3 [stroke-dasharray:var(--dash-not-taken)]"
+      />
+      <foreignObject x={x} y={y} width={width} height={target}>
+        <Popover.Root>
+          <Popover.Trigger
+            aria-label={`${node.title}: ${at.text}, list them`}
+            data-runs={node.key}
+            className="block size-full rounded-row hover:outline-1 hover:outline-fg-3 data-[state=open]:outline-1 data-[state=open]:outline-fg-3"
+          />
+          <Popover.Portal>
+            <Popover.Content
+              side="bottom"
+              align="start"
+              sideOffset={4}
+              collisionPadding={8}
+              aria-label={`${node.title}: its runs`}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              className="z-10 flex max-h-(--radix-popover-content-available-height) min-w-48 flex-col gap-0.5 overflow-y-auto rounded-panel border border-line bg-panel p-1.5 text-fg"
+            >
+              <p className="px-2 py-1 text-xs text-fg-3">
+                {node.title} · {node.runs.length} runs
+              </p>
+              <ul className="flex flex-col gap-0.5">
+                {node.runs.map((run, i, all) => {
+                  const line = (
+                    <>
+                      {node.running && i === all.length - 1 ? (
+                        <RunningIcon />
+                      ) : (
+                        <ToneIcon label={run.label} tone={run.tone} />
+                      )}
+                      <span className="text-fg-3 tabular-nums">
+                        Run {run.index + 1}
+                      </span>
+                      <span>{run.label}</span>
+                    </>
+                  );
+                  const row =
+                    "flex target items-center gap-2 rounded-row px-2 py-1 text-fg-2";
+                  return (
+                    <li key={run.index}>
+                      {run.recorded ? (
+                        <Link
+                          to={runHref(run.index)}
+                          className={`${row} hover:bg-hover hover:text-fg`}
+                        >
+                          {line}
+                        </Link>
+                      ) : (
+                        <span className={row}>{line}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      </foreignObject>
+    </>
   );
 }
 

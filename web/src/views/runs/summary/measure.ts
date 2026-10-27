@@ -4,7 +4,7 @@
 // time; where there is no canvas, every character counts as wide as the
 // widest the font has, so that nothing overflows.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** A card's title, the lines under it, and a line of an edge's label. */
 export type Font = "title" | "sub" | "label";
@@ -66,6 +66,42 @@ export function canvasMeasure(): Measure {
     seen.set(key, width);
     return width;
   };
+}
+
+/**
+ * The least side of a link on the graph's labels, 24px, 44px for a coarse
+ * pointer (R246); a line that holds links is as tall as that. They are the
+ * values of the tokens --spacing-target and --spacing-target-coarse in
+ * theme.css, which the layout needs as numbers before anything is drawn.
+ */
+export const TARGET = 24;
+const TARGET_COARSE = 44;
+
+const COARSE = "(pointer: coarse)";
+const coarseQuery = () =>
+  typeof window === "undefined" || typeof window.matchMedia !== "function"
+    ? null
+    : window.matchMedia(COARSE);
+
+function onCoarseChange(change: () => void): () => void {
+  const query = coarseQuery();
+  query?.addEventListener("change", change);
+  return () => {
+    query?.removeEventListener("change", change);
+  };
+}
+
+/**
+ * The least side of a link drawn on the graph: TARGET_COARSE where the
+ * pointer is coarse, a touch screen, TARGET elsewhere.
+ */
+export function useTarget(): number {
+  const coarse = useSyncExternalStore(
+    onCoarseChange,
+    () => coarseQuery()?.matches ?? false,
+    () => false,
+  );
+  return coarse ? TARGET_COARSE : TARGET;
 }
 
 /**

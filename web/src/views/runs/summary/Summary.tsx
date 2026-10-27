@@ -22,7 +22,7 @@ import { declared } from "../../kind";
 import { KindLine } from "../../registry";
 import { Graph } from "./Graph";
 import { hiddenOf, layout, type Scope } from "./graph";
-import { useMeasure } from "./measure";
+import { useMeasure, useTarget } from "./measure";
 import { TaskCard } from "./Task";
 
 interface Props {
@@ -44,10 +44,11 @@ export function Summary({
     attemptHref(project.id, attempt, { tab: "runs", run: index });
   const current = currentOf(record, live);
   const measure = useMeasure();
+  const target = useTarget();
   const [scope, setScope] = useState<Scope>("taken");
   const frameId = useId();
   const hidden = hiddenOf(record, project, current);
-  const machine = layout(record, project, current, measure, scope);
+  const machine = layout(record, project, current, measure, scope, target);
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
   const shown =
     hidden === null || scope === "all"
