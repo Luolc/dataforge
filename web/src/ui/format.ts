@@ -1,6 +1,6 @@
 // How numbers, times and costs read on every page.
 import type { Action, AttemptRecord, Column, Read, Visit } from "../api/types";
-import { NOT_GIVEN, NOT_RUN } from "./status";
+import { NONE, NOT_GIVEN, NOT_RUN } from "./status";
 
 /**
  * The parts of a time in the browser's own time zone, the zone's
@@ -79,13 +79,14 @@ type Shown = Pick<Column, "format" | "labels">;
 
 /**
  * A value's label among a column's or a tab field's labels: a string's by
- * itself, a boolean's or a number's by its JSON text; undefined for none.
+ * itself, a boolean's, a number's or null's by its JSON text; undefined for
+ * none.
  */
 export function labelOf(
   value: unknown,
   labels: Column["labels"],
 ): string | undefined {
-  if (value === null || value === undefined) return undefined;
+  if (value === undefined) return undefined;
   return labels?.[typeof value === "string" ? value : JSON.stringify(value)];
 }
 
@@ -96,13 +97,15 @@ const isScalar = (v: unknown): boolean =>
  * A value a project's column or tab field reads, as its labels name it
  * (labelOf), else as its format says; "—" when there is none. A list of
  * strings, numbers and booleans shows each item so, joined with ", ", and an
- * empty list is none; a list holding anything else shows as its JSON text.
+ * empty list as NONE, so that it does not read as no value; a list holding
+ * anything else shows as its JSON text.
  */
 export function formatValue(value: unknown, shown: Shown): string {
   const { format, labels } = shown;
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined)
+    return labelOf(value, labels) ?? "—";
   if (Array.isArray(value)) {
-    if (value.length === 0) return "—";
+    if (value.length === 0) return NONE;
     if (value.every(isScalar))
       return value.map((item) => formatValue(item, shown)).join(", ");
   }
@@ -119,13 +122,15 @@ export function formatValue(value: unknown, shown: Shown): string {
 
 /**
  * A value read from a file as it stands: Not run when its file is not
- * there, "—" when it is there without it, Not given for null, else as
- * formatValue shows it.
+ * there, "—" when it is there without it, Not given for null with no label
+ * of its own, else as formatValue shows it.
  */
 export function readValue(read: Read, value: unknown, shown: Shown): string {
   if (read === "not run") return NOT_RUN;
   if (read === "missing") return "—";
-  return value === null ? NOT_GIVEN : formatValue(value, shown);
+  return value === null
+    ? (labelOf(null, shown.labels) ?? NOT_GIVEN)
+    : formatValue(value, shown);
 }
 
 /** The seconds from one ISO 8601 time to another; null when one is bad. */

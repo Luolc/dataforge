@@ -758,7 +758,7 @@ describe("the home page", () => {
     expect(itemsOf("Ended")).toEqual(["b", "c", "a"]);
   });
 
-  it("shows a column's list value as its items joined with commas, and sorts by that", async () => {
+  it("shows a column's list value as its items joined with commas, an empty one as None, and sorts by that", async () => {
     const withColumns: Project = {
       ...project,
       columns: [
@@ -790,7 +790,8 @@ describe("the home page", () => {
 
     expect(screen.getByText("X-2, Nine")).toBeVisible();
     expect(screen.getByText("X-1")).toBeVisible();
-    // "X-1" before "X-2, Nine"; the empty list is no value.
+    expect(screen.getByText("None")).toBeVisible();
+    // "X-1" before "X-2, Nine"; the empty list sorts as no value.
     expect(itemsOf("Ended")).toEqual(["b", "a", "c"]);
   });
 

@@ -1,9 +1,10 @@
 // The only place a deliverable's kind picks what shows it: the view in its
-// tab, whether several of the kind stack or one is chosen from a menu, the
+// tab, whether several of the kind are listed in a column or one is chosen
+// from a menu, the
 // tab's count and one line on its card in the Summary.
 import { CircleAlert } from "lucide-react";
 import { type ComponentType } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { useFileCount } from "../api/client";
 import type {
@@ -15,12 +16,14 @@ import type {
 import { TabBadge } from "../ui/count";
 import { counted } from "../ui/format";
 import { ChoiceMenu } from "../ui/menu";
+import { SideColumn, sideEntry } from "../ui/side-column";
 import { NOT_RUN } from "../ui/status";
 import { DeliverableCard } from "./DeliverableCard";
 import FilesView from "./files";
 import {
   declared,
   type DeliverableProps,
+  kindTitle,
   leadersFirst,
   leading,
   reachedFirst,
@@ -47,8 +50,11 @@ interface ItemProps {
 
 interface Kind {
   View: ComponentType<DeliverableProps>;
-  /** Show every deliverable of the kind, one under another, not a menu. */
-  stack: boolean;
+  /**
+   * List every deliverable of the kind, each its own entry of a column
+   * beside the one shown, not in a menu, and count them all.
+   */
+  listed: boolean;
   /**
    * The tab's count, of the deliverable given for a kind that shows one at
    * a time, else of every deliverable of the kind; said with `of` before it.
@@ -137,7 +143,7 @@ function reachedBadge(items: Deliverable[], unit: string) {
 const kinds: Partial<Record<string, Kind>> = {
   files: {
     View: FilesView,
-    stack: false,
+    listed: false,
     Count: ({ of, ...props }) =>
       props.item.path === null ? (
         <TabBadge label={of + NOT_RUN}>{NOT_RUN}</TabBadge>
@@ -152,7 +158,7 @@ const kinds: Partial<Record<string, Kind>> = {
   },
   trials: {
     View: TrialsView,
-    stack: false,
+    listed: false,
     Count: ({ item, of, word }) => {
       const { short, full } = solved(item, word ?? COUNTED);
       return <TabBadge label={of + full}>{short}</TabBadge>;
@@ -162,7 +168,7 @@ const kinds: Partial<Record<string, Kind>> = {
   },
   report: {
     View: ReportView,
-    stack: true,
+    listed: true,
     Count: ({ items }) => reachedBadge(items, "report"),
     Line: ({ item }) => (
       <code className="font-mono text-xs">{item.path?.split("/").at(-1)}</code>
@@ -172,7 +178,7 @@ const kinds: Partial<Record<string, Kind>> = {
 
 const unknown: Kind = {
   View: ({ deliverable }) => <DeliverableCard item={deliverable} />,
-  stack: true,
+  listed: true,
   Count: ({ items }) => reachedBadge(items, "deliverable"),
   Line: ({ item }) => <code className="font-mono text-xs">{item.kind}</code>,
 };
@@ -192,8 +198,9 @@ export function KindCount({
   title,
   ...props
 }: ItemProps & { items: Deliverable[]; kind: string; title: string }) {
-  const { Count, stack } = kindOf(kind);
-  const of = stack || title === props.item.title ? "" : `${props.item.title}: `;
+  const { Count, listed } = kindOf(kind);
+  const of =
+    listed || title === props.item.title ? "" : `${props.item.title}: `;
   return <Count of={of} {...props} />;
 }
 
@@ -204,31 +211,60 @@ export function KindLine({ item, ...props }: ItemProps) {
 }
 
 /**
- * A kind's tab: its deliverables stacked, those reached first, or one chosen
- * from a menu, the one the page's `deliverable` names, else the leading one.
+ * A kind's tab: one deliverable, the one the page's `deliverable` names, else
+ * the leading one; chosen, for a kind that lists them, from a column of all
+ * of them, those reached first, else from a menu.
  */
 export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
-  const { View, stack, Count } = kindOf(kind);
+  const { View, listed, Count } = kindOf(kind);
   const [query, setQuery] = useSearchParams();
   const asked = props.items.find((d) => d.name === query.get("deliverable"));
-  const chosen = (asked ?? leading(props.project, props.record, props.items))
-    ?.name;
+  const shown = asked ?? leading(props.project, props.record, props.items);
   const setChosen = (name: string) => {
-    setQuery((before) => {
-      const next = new URLSearchParams(before);
-      next.set("deliverable", name);
-      // What else the page shows belongs to the deliverable it leaves.
-      next.delete("trial");
-      next.delete("file");
-      return next;
-    });
+    setQuery((before) => withDeliverable(before, name));
   };
-  const shown = stack
-    ? reachedFirst(props.project, props.record, props.items)
-    : props.items.filter((d) => d.name === chosen).slice(0, 1);
+  const view = shown && (
+    <View
+      key={shown.name}
+      project={props.project}
+      attempt={props.attempt}
+      record={props.record}
+      deliverable={shown}
+      live={props.live ?? null}
+    />
+  );
+  if (listed && props.items.length > 1)
+    return (
+      <div className="px-7 pt-5 pb-12">
+        <SideColumn
+          label={kindTitle(props.project, props.record, kind, props.items)}
+          entries={reachedFirst(props.project, props.record, props.items).map(
+            (item) => (
+              <Link
+                key={item.name}
+                to={{
+                  search: `?${withDeliverable(query, item.name).toString()}`,
+                }}
+                aria-current={item === shown ? "page" : undefined}
+                className={`${sideEntry} justify-between`}
+              >
+                <span className="wrap-anywhere">{item.title}</span>
+                {item.path === null && (
+                  <span className="flex-none text-xs font-normal text-fg-3">
+                    {NOT_RUN}
+                  </span>
+                )}
+              </Link>
+            ),
+          )}
+        >
+          <div className="flex min-w-0 flex-col gap-3">{view}</div>
+        </SideColumn>
+      </div>
+    );
   return (
     <div className="flex flex-col gap-3 px-7 pt-5 pb-12">
-      {!stack && props.items.length > 1 && (
+      {props.items.length > 1 && (
         <ChoiceMenu
           items={leadersFirst(props.project, props.record, props.items).map(
             (item) => ({
@@ -245,22 +281,23 @@ export function KindTab({ kind, ...props }: TabProps & { kind: string }) {
               ),
             }),
           )}
-          chosen={shown[0] && choice(shown[0])}
+          chosen={shown && choice(shown)}
           onChoose={setChosen}
         />
       )}
-      {shown.map((deliverable) => (
-        <View
-          key={deliverable.name}
-          project={props.project}
-          attempt={props.attempt}
-          record={props.record}
-          deliverable={deliverable}
-          live={props.live ?? null}
-        />
-      ))}
+      {view}
     </div>
   );
+}
+
+/** The page's query with the deliverable named, on the attempt page as on the share site. */
+function withDeliverable(query: URLSearchParams, name: string) {
+  const next = new URLSearchParams(query);
+  next.set("deliverable", name);
+  // What else the page shows belongs to the deliverable it leaves.
+  next.delete("trial");
+  next.delete("file");
+  return next;
 }
 
 const choice = (item: Deliverable) => ({ key: item.name, title: item.title });

@@ -1,4 +1,10 @@
-import { act, render as plain, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  render as plain,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -79,12 +85,20 @@ describe("the kind registry", () => {
     expect(screen.queryByText(/ view: /)).toBeNull();
   });
 
-  it("reports stack; files show one, chosen from a menu", () => {
+  it("reports show one, chosen from a column of each by its title; files show one, chosen from a menu", () => {
     const { unmount } = show("report", [
       item("one", "report"),
       item("two", "report"),
     ]);
-    expect(screen.getAllByRole("heading")).toHaveLength(2);
+    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual([
+      "report view: Title of one",
+    ]);
+    const column = screen.getByRole("navigation");
+    expect(
+      within(column)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["Title of oneNot run", "Title of twoNot run"]);
     unmount();
 
     show("files", [item("one", "files"), item("two", "files")]);

@@ -67,10 +67,21 @@ tabs:
     versions:
       - notes
       - "notes-*"
+      # A check, the rounds below it nested under it in the tab's column:
+      # each label names its group before " › " and its entry after it.
+      - pattern: "checks/*"
+        label: "Check {1} › Both rounds"
+        file: summary.md
+        fields:
+          - { title: Problems, file: summary.json, field: [problems] }
+          - title: Cut
+            file: summary.json
+            field: [cut]
+            labels: { timeout: Timed out, "null": Not cut }
       # Two levels down, each round by its check and round number; one
       # Markdown file of its own in place of the tab's parts.
       - pattern: "checks/*/round-*"
-        label: "Check {1}, round {2}"
+        label: "Check {1} › Round {2}"
         file: out/check.md
         fields:
           - { title: Verdict, file: check.json, field: [rounds, 0, verdict] }

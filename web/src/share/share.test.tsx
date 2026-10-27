@@ -241,15 +241,26 @@ describe("the share site's item page", () => {
     );
   });
 
-  it("stacks the reviews in one tab, their result cells as status labels", async () => {
+  it("lists the reviews in a column of one tab, their result cells as status labels", async () => {
     open("/demo/items/k7m2q9xr4t?tab=report");
 
     expect(
       await screen.findByRole("heading", { name: "Reviews (Tighten)" }),
     ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Reviews" })).toBeVisible();
     expect((await screen.findAllByText("Pass")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Fail")).toBeVisible();
+    const column = screen.getByRole("navigation", { name: "Reviews" });
+    expect(
+      within(column)
+        .getAllByRole("link")
+        .map((l) => l.textContent),
+    ).toEqual(["Reviews (Tighten)", "Reviews"]);
+
+    fireEvent.click(within(column).getByRole("link", { name: "Reviews" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Reviews" }),
+    ).toBeVisible();
+    expect(await screen.findByText("Fail")).toBeVisible();
   });
 
   it("opens the tab of a deliverable a link names", async () => {

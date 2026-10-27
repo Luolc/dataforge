@@ -410,26 +410,47 @@ describe("a tab of several deliverables of one kind", () => {
     expect(await counts()).toContain("2 reports");
   });
 
-  it("of reports stacks the reached ones first, then the others", async () => {
+  // The entries of the reports' column, and the title of each report shown.
+  const column = () =>
+    within(
+      screen.getByRole("navigation", { name: /^(Review|Tightened review)$/ }),
+    )
+      .getAllByRole("link")
+      .map((l) => l.textContent);
+  const shownReports = () =>
+    screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+
+  it("of reports lists each in a column, the reached ones first, and shows the first", async () => {
     show(withTightened(false), "&tab=report", reviews);
 
-    await screen.findByText("Not run: the attempt never reached Tighten.");
+    await waitFor(() => {
+      expect(column()).toEqual(["Review", "Tightened reviewNot run"]);
+    });
+    expect(shownReports()).toEqual(["Review"]);
+    expect(screen.getByRole("link", { name: "Review" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /^Tightened review/ }));
+
     expect(
-      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Review", "Tightened review"]);
+      await screen.findByText("Not run: the attempt never reached Tighten."),
+    ).toBeVisible();
+    expect(shownReports()).toEqual(["Tightened review"]);
   });
 
   it("opens the tab of a deliverable's kind from a link made with its name", async () => {
     show(withTightened(false), "&tab=tightened", reviews);
 
-    await screen.findByText("Not run: the attempt never reached Tighten.");
-    expect(
-      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Review", "Tightened review"]);
+    await waitFor(() => {
+      expect(column()).toEqual(["Review", "Tightened reviewNot run"]);
+    });
+    expect(shownReports()).toEqual(["Review"]);
     expect(screen.queryByText(/has no deliverable of kind/)).toBeNull();
   });
 
-  it("of reports stacks first the one whose condition holds", async () => {
+  it("of reports lists first and shows the one whose condition holds", async () => {
     const record = structuredClone(passed);
     const review = record.deliverables.find((d) => d.name === "review");
     Object.assign(must(record.visits[must(review?.visit_index)]).data, {
@@ -449,20 +470,18 @@ describe("a tab of several deliverables of one kind", () => {
     });
 
     await waitFor(() => {
-      expect(
-        screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-      ).toEqual(["Review", "Tightened review"]);
+      expect(column()).toEqual(["Review", "Tightened review"]);
     });
+    expect(shownReports()).toEqual(["Review"]);
   });
 
   it("of reports keeps the declared order when all were reached", async () => {
     show(withTightened(true), "&tab=report", reviews);
 
     await waitFor(() => {
-      expect(
-        screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-      ).toEqual(["Tightened review", "Review"]);
+      expect(column()).toEqual(["Tightened review", "Review"]);
     });
+    expect(shownReports()).toEqual(["Tightened review"]);
   });
 });
 
