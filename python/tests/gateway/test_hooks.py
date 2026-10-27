@@ -234,13 +234,13 @@ states:
 
 
 def test_bindings_give_a_declaration_the_gateway(
-  launcher: Launcher, tmp_path: Path
+  launcher: Launcher, tmp_path: Path, socket_dir: Path
 ):
   claude = executable(tmp_path)
   found = bindings(
-    tmp_path / "root", clients={"claude-code": claude, "pi": package(tmp_path)}
+    socket_dir, clients={"claude-code": claude, "pi": package(tmp_path)}
   )
-  gateway = tmp_path / "root" / "dataforge-gateway"
+  gateway = socket_dir / "dataforge-gateway"
   assert gateway.stat().st_mode & 0o777 == 0o700
   assert found["socket-dir"] == gateway / "socket"
   assert (gateway / "socket").stat().st_mode & 0o777 == 0o711
@@ -279,9 +279,9 @@ def test_bindings_give_a_declaration_the_gateway(
 
 
 def test_the_serves_of_one_socket_take_turns(
-  launcher: Launcher, tmp_path: Path
+  launcher: Launcher, socket_dir: Path
 ):
-  serve = cast(Serve, bindings(tmp_path / "root", clients={})["serve"])
+  serve = cast(Serve, bindings(socket_dir, clients={})["serve"])
   inside = threading.Event()
   release = threading.Event()
   second = threading.Event()
@@ -355,10 +355,10 @@ def test_start_forwarder_stops_waiting_once_its_calls_stop_is_set():
 
 
 def test_a_serve_that_waits_for_another_ends_once_its_calls_stop_is_set(
-  launcher: Launcher, tmp_path: Path
+  launcher: Launcher, socket_dir: Path
 ):
-  serve = cast(Serve, bindings(tmp_path / "root", clients={})["serve"])
-  lock = tmp_path / "root" / "dataforge-gateway" / "serve.lock"
+  serve = cast(Serve, bindings(socket_dir, clients={})["serve"])
+  lock = socket_dir / "dataforge-gateway" / "serve.lock"
   stop = stopping.Stop()
 
   def enter() -> None:
