@@ -8,7 +8,7 @@ import { NOT_RUN } from "../../ui/status";
 import { size, tooLarge, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
-import { hasSource } from "../source";
+import { useHasSource } from "../newest";
 import { ReportMarkdown } from "./markdown";
 
 /** The report view, for a deliverable of kind report. */
@@ -18,13 +18,14 @@ export default function ReportView({
   record,
   deliverable,
 }: DeliverableProps) {
+  const sourced = useHasSource(deliverable);
   return (
     <ReportCard
       project={project}
       attempt={attempt}
       deliverable={deliverable}
       byline={
-        hasSource(deliverable) ? (
+        sourced ? (
           <FromRun
             project={project}
             attempt={attempt}

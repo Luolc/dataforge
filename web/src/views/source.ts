@@ -5,16 +5,12 @@ import type { AttemptRecord, Deliverable } from "../api/types";
 
 export type Placed = Pick<
   Deliverable,
-  "kind" | "state" | "visit_index" | "path" | "from_dir"
+  "name" | "kind" | "state" | "visit_index" | "path"
 >;
 
 /** Whether a deliverable was reached from a run the record names. */
 export const fromARun = (deliverable: Placed): boolean =>
   deliverable.path !== null && deliverable.visit_index !== null;
-
-/** Whether a deliverable's card says where it came from: a run or a directory. */
-export const hasSource = (deliverable: Placed): boolean =>
-  fromARun(deliverable) || deliverable.from_dir !== undefined;
 
 /** A reached deliverable's title, state and run. */
 export interface Made {

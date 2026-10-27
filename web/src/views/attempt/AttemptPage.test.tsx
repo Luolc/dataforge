@@ -822,21 +822,38 @@ describe("a deliverable whose path a directory of the attempt gives", () => {
     ],
   };
 
-  function showNewest(found: unknown, at: string) {
+  /** /newest answers found, a 500 for "fail", or nothing for "pending". */
+  function showNewest(
+    found: unknown,
+    at: string,
+    record: unknown = records.passed,
+  ) {
     const files: Record<string, string> = {
       "rev-2/report.md": "The newest review.",
       "again-9/summary.md": "The newest summary.",
+      "artifacts/review/1/report.md": "The kept review.",
     };
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
         const read = new URL(url, "http://viz");
         const path = read.searchParams.get("path");
-        const body = read.pathname.endsWith("/newest")
-          ? JSON.stringify(found)
-          : read.pathname.endsWith("/files") && path !== null
+        if (read.pathname.endsWith("/newest")) {
+          if (found === "pending")
+            return new Promise<Response>(() => undefined);
+          if (found === "fail")
+            return Promise.resolve(
+              Response.json(
+                { error: "failed", reason: "the server failed" },
+                { status: 500 },
+              ),
+            );
+          return Promise.resolve(Response.json(found));
+        }
+        const body =
+          read.pathname.endsWith("/files") && path !== null
             ? (files[path] ?? "")
-            : JSON.stringify(records.passed);
+            : JSON.stringify(record);
         return Promise.resolve(new Response(body, { status: 200 }));
       }),
     );
@@ -878,7 +895,42 @@ describe("a deliverable whose path a directory of the attempt gives", () => {
   it("keeps the record's path and run where no directory gives one", async () => {
     showNewest({}, "&tab=report&deliverable=review");
 
-    expect(await screen.findByRole("link", { name: /· run/ })).toBeVisible();
+    expect(await screen.findByText("The kept review.")).toBeVisible();
+    expect(screen.getByRole("link", { name: /· run/ })).toBeVisible();
     expect(screen.queryByText("rev-2/")).toBeNull();
+  });
+
+  it("says so when it cannot read which directory, and shows the record's", async () => {
+    showNewest("fail", "&tab=report&deliverable=review");
+
+    expect(
+      await screen.findByText(
+        /^Could not read which directory gives this deliverable: .*Shown from the record\.$/,
+      ),
+    ).toBeVisible();
+    expect(await screen.findByText("The kept review.")).toBeVisible();
+  });
+
+  it("shows the record's file only once it has read which directory", async () => {
+    showNewest("pending", "&tab=report&deliverable=review");
+
+    await screen.findAllByRole("link", { name: /^Review/ });
+    expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
+    await act(() => new Promise((done) => setTimeout(done, 300)));
+    expect(screen.queryByText("The kept review.")).toBeNull();
+  });
+
+  it("names no directory a record names for itself", async () => {
+    const own = {
+      ...records.passed,
+      deliverables: (records.passed.deliverables ?? []).map((d) =>
+        d.name === "review" ? { ...d, from_dir: "planted" } : d,
+      ),
+    };
+    showNewest({}, "&tab=report&deliverable=review", own);
+
+    expect(await screen.findByText("The kept review.")).toBeVisible();
+    expect(screen.queryByText("planted/")).toBeNull();
+    expect(screen.getByRole("link", { name: /· run/ })).toBeVisible();
   });
 });

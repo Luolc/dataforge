@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import type { AttemptRecord, Project } from "../api/types";
 import { stateTitle } from "../ui/status";
 import { attemptHref } from "./attempt/href";
+import { useNewest } from "./newest";
 import { fromARun, laterFiles, type Placed } from "./source";
 
 /**
@@ -24,10 +25,11 @@ export function FromRun({
   record: AttemptRecord;
   deliverable: Placed;
 }) {
-  if (deliverable.from_dir !== undefined)
+  const newest = useNewest(deliverable.name);
+  if (newest.state === "ok")
     return (
       <>
-        From <code className="font-mono">{deliverable.from_dir}/</code>
+        From <code className="font-mono">{newest.dir}/</code>
       </>
     );
   const at = deliverable.visit_index;

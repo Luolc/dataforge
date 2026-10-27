@@ -1,6 +1,7 @@
 // The deliverables whose path a directory of the attempt gives in place of
 // the record's (/newest): the project names where to look, and the page
-// shows each with its path and the directory it came from.
+// shows each at its path, saying which directory it came from
+// (NewestContext).
 import { z } from "zod";
 
 import {
@@ -11,6 +12,7 @@ import {
   useRefresh,
 } from "../../api/client";
 import type { AttemptRecord, Deliverable, Project } from "../../api/types";
+import type { NewestRead } from "../newest";
 
 const newestPaths = z.record(
   z.string(),
@@ -19,7 +21,7 @@ const newestPaths = z.record(
 type NewestPaths = z.infer<typeof newestPaths>;
 
 /** /newest for an attempt; nothing is read for a project that names none. */
-export function useNewest(
+export function useNewestPaths(
   project: Project,
   attempt: string,
 ): Loaded<NewestPaths> {
@@ -34,10 +36,32 @@ export function useNewest(
 }
 
 /**
+ * What /newest says of each deliverable, by name, for NewestContext: none
+ * for one the project does not cover or /newest names no directory for.
+ */
+export function newestOf(
+  project: Project,
+  loaded: Loaded<NewestPaths>,
+): (name: string) => NewestRead {
+  return (name) => {
+    const covered = (project.deliverables ?? []).some(
+      (d) => d.name === name && d.newest === true,
+    );
+    if (!covered) return { state: "none" };
+    if (loaded.state === "loading") return { state: "loading" };
+    if (loaded.state === "error")
+      return { state: "error", message: loaded.message };
+    const found = loaded.data[name];
+    return found === undefined
+      ? { state: "none" }
+      : { state: "ok", dir: found.dir };
+  };
+}
+
+/**
  * The record with each deliverable /newest names at the path it gives, from
- * the directory it gives and from no run; one the record lacks is added as
- * the project declares it. The record as it is while /newest is loading or
- * failed.
+ * no run; one the record lacks is added as the project declares it. The
+ * record as it is while /newest is loading or failed.
  */
 export function withNewest(
   project: Project,
@@ -47,10 +71,9 @@ export function withNewest(
   if (loaded.state !== "ok" || Object.keys(loaded.data).length === 0)
     return record;
   const found = loaded.data;
-  const placed = (d: Deliverable, at: { path: string; dir: string }) => ({
+  const placed = (d: Deliverable, at: { path: string }) => ({
     ...d,
     path: at.path,
-    from_dir: at.dir,
     visit: null,
     visit_index: null,
     reason: null,

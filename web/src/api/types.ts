@@ -592,9 +592,6 @@ const deliverable = z.looseObject({
     .nullable()
     .optional(),
   trials: z.array(trial).optional(),
-  // The directory its path was read from in place of the record's, which
-  // the page sets from /newest; a record names none.
-  from_dir: z.string().optional(),
 });
 export type Deliverable = z.infer<typeof deliverable>;
 
