@@ -18,6 +18,6 @@ MODULES: dict[str, str] = {
 """The module of each runner, whose SPECS gives the runner's Spec
 (core.spec)."""
 
-GUARDS: tuple[str, ...] = ("gotest", "cargo", "cpp")
+GUARDS: tuple[str, ...] = ("gotest", "cargo", "cpp", "jsguard", "pyguard")
 """The modules that also hold a language's checks of a fix's files (core's
 is_test_file, kept_lines and rewires), whose hooks core gathers."""
