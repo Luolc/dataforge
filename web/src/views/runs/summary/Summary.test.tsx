@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import wide from "../../../../fixtures/graph/attempts/batch-1/task-0305/record.json";
 import {
   everyTaken,
   inReview,
@@ -11,8 +12,10 @@ import {
   runningIn,
   sampleProject,
 } from "../../../../fixtures/sample";
-import type { AttemptRecord, LiveInfo } from "../../../api/types";
+import { type AttemptRecord, type LiveInfo, record } from "../../../api/types";
 import { asShown } from "../../attempt/declared";
+import { layout } from "./graph";
+import { widest } from "./measure";
 import { Summary } from "./Summary";
 
 // The record as the attempt page hands it to the Summary.
@@ -84,6 +87,51 @@ describe("Summary", () => {
 
     expect(screen.getByText(/^6 runs · solid lines/)).toBeVisible();
     expect(screen.queryByRole("button", { name: /^Show / })).toBeNull();
+  });
+
+  it("breaks the machine's labels onto more lines where it is wider than its card", () => {
+    const wideRecord = record.parse(wide);
+    const natural = must(
+      layout(wideRecord, sampleProject, null, widest, "taken"),
+    ).width;
+    // The lines a label's text and chips are drawn on, by their tops and
+    // baselines, and the links to runs.
+    const drawn = () => {
+      const graph = must(
+        screen.getAllByRole("group", { name: "State machine" }).at(-1),
+      );
+      const lines = new Set(
+        [...graph.querySelectorAll("[data-edge]")].flatMap((edge) =>
+          [
+            ...edge.querySelectorAll(
+              ":scope > text > tspan, a[data-run] > rect:first-child",
+            ),
+          ].map(
+            (el) =>
+              `${edge.getAttribute("data-edge") ?? ""} ${el.getAttribute("y") ?? ""}`,
+          ),
+        ),
+      );
+      return {
+        lines: lines.size,
+        runs: graph.querySelectorAll("[data-edge] a[data-run]").length,
+      };
+    };
+    show(wideRecord);
+    const roomy = drawn();
+    // A card narrower than the graph would be, as the browser measures it.
+    const width = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockReturnValue(natural - 120);
+    try {
+      show(wideRecord);
+      const narrow = drawn();
+
+      expect(narrow.lines).toBeGreaterThan(roomy.lines);
+      expect(narrow.runs).toBe(roomy.runs);
+    } finally {
+      width.mockRestore();
+    }
   });
 
   it("renders the actions' summaries as untrusted Markdown", () => {

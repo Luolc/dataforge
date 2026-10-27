@@ -18,7 +18,6 @@ import { ToneIcon } from "../../../ui/status-mark";
 import {
   CHIP_HEIGHT,
   type Edge,
-  labelLine,
   labelText,
   type Layout,
   SUB_LINE,
@@ -483,26 +482,30 @@ function EdgeView({
       <path d={edge.path} markerEnd={head} className={`fill-none ${stroke}`} />
       {pulse && <Pulse d={edge.path} taken={edge.taken} box={box} />}
       <text x={label.x} y={label.y} className="text-xs">
-        {label.parts.map((part, i) => (
-          <tspan
-            key={part.outcome}
-            x={label.x}
-            y={label.lines[i]?.y}
-            className={
-              part.taken > 0
-                ? "fill-fg font-semibold"
-                : lit
-                  ? "fill-fg-2"
-                  : "fill-fg-3"
-            }
-          >
-            {labelLine(part)}
-          </tspan>
-        ))}
+        {label.lines.map((line) => {
+          const part = label.parts[line.part];
+          if (part === undefined || line.text === "") return null;
+          return (
+            <tspan
+              key={`${part.outcome}-${line.top.toString()}`}
+              x={label.x}
+              y={line.y}
+              className={
+                part.taken > 0
+                  ? "fill-fg font-semibold"
+                  : lit
+                    ? "fill-fg-2"
+                    : "fill-fg-3"
+              }
+            >
+              {line.text}
+            </tspan>
+          );
+        })}
       </text>
-      {label.parts.map((part, i) => {
-        const line = label.lines[i];
-        if (line === undefined) return null;
+      {label.lines.map((line) => {
+        const part = label.parts[line.part];
+        if (part === undefined) return null;
         return line.chips.map((chip) => {
           const n = (chip.index + 1).toString();
           const middle = chip.x + chip.width / 2;

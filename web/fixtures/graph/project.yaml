@@ -4,8 +4,11 @@
 # each loop on themselves, a fork, many long edges back and states not run,
 # and ended too easy. task-0304 runs on a third machine, of eleven states,
 # three that loop on themselves, one with a long title, and two that never
-# ran with edges back out of them, and passed. They were made up and ran
-# nowhere.
+# ran with edges back out of them, and passed. task-0305 runs on the
+# machine of task-0301 cut to eight states, with long outcomes that the
+# project gives no label, and went back many times by the edges on its
+# right, so that its labels are wider than the card and break onto more
+# lines; it passed. They were made up and ran nowhere.
 id: graph-sample
 name: Graph sample
 color: "#7fb5f5"
