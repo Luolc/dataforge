@@ -132,6 +132,9 @@
   --color-app: #e4eadd;
   --color-panel: #f6f8f3;
   --color-card: #f6f8f3;
+  /* The card of the state an attempt runs now: the card tinted towards
+     the accent, its text as readable as on the card. */
+  --color-running-bg: #e7e1d9;
   --color-head: #e6ece0;
   --color-group: #dde5d5;
   --color-tree: #eef2ea;
@@ -268,6 +271,7 @@ html[data-template="ac"] {
   --color-app: #d1dcc8;
   --color-panel: #dde6d5;
   --color-card: #e3eadc;
+  --color-running-bg: #dcdecf;
   --color-head: #d1dcc8;
   --color-group: #d1dacb;
   --color-tree: #d8e1d0;
@@ -384,6 +388,7 @@ html[data-template="neutral"] {
   --color-app: #f6f8fa;
   --color-panel: #ffffff;
   --color-card: #ffffff;
+  --color-running-bg: #e1eaf5;
   --color-head: #f6f8fa;
   --color-group: #eef1f4;
   --color-tree: #fafbfc;
@@ -501,6 +506,7 @@ html[data-template="dark"] {
   --color-app: #161b17;
   --color-panel: #1e2520;
   --color-card: #222a24;
+  --color-running-bg: #2f322a;
   --color-head: #29322b;
   --color-group: #2f3931;
   --color-tree: #1b211c;

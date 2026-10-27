@@ -26,7 +26,7 @@ import {
   statusOf,
 } from "../../../ui/status";
 import { layered } from "./layered";
-import { type Font, type Measure, TARGET, widest } from "./measure";
+import { type Font, type Measure, widest } from "./measure";
 
 export const END = "\0end";
 
@@ -51,7 +51,7 @@ const R = 8;
  * The height of a line of an edge's label, and how far its baseline sits
  * above the line's bottom.
  */
-const LINE = 14;
+export const LINE = 14;
 const DESCENT = 4;
 /** How far a loop reaches out of its card, and how tall it is. */
 const LOOP = 30;
@@ -59,17 +59,9 @@ export const LOOP_WIDTH = 28;
 /** How far a loop's label keeps from the loop. */
 const LOOP_GAP = 6;
 /**
- * How far a run's chip on a label keeps from the text before it and from
- * the chip beside it, the room either side of its number, and how tall it
- * is drawn.
- */
-const CHIP_GAP = 4;
-const CHIP_PAD = 5;
-export const CHIP_HEIGHT = 16;
-/**
  * The narrowest a label's lines are broken to so that the graph fits its
- * frame, half a card's width; a piece of its text or a chip wider than that
- * keeps a line of its own.
+ * frame, half a card's width; a piece of its text wider than that keeps a
+ * line of its own.
  */
 export const LABEL_LEAST = CARD_WIDTH / 2;
 
@@ -103,15 +95,14 @@ interface Node {
   /** The index in visits of the state's last visit; null for none. */
   lastVisit: number | null;
   /**
-   * Each of the state's runs, in the order it ran them, when it ran more
-   * than once: its index in visits and its outcome, the run it runs now
-   * included; empty otherwise.
+   * Each of the state's runs, in the order it ran them, the run it runs now
+   * included: its index in visits and its outcome; empty for none.
    */
   runs: NodeRun[];
   /**
    * What on the card names how many times the state ran, at the start of
-   * its first line under the title: "3 runs", or, while it runs, the run
-   * now by its number in the Runs tab, "Run 7"; null when runs is empty.
+   * its first line under the title: "3 runs", or, while it runs, "Run 3";
+   * null when it ran once or not at all.
    */
   runsText: { text: string; width: number } | null;
   /**
@@ -152,8 +143,6 @@ interface LabelPart {
   /** The outcome's label, as a visit's outcome reads (outcomeOf). */
   label: string;
   taken: number;
-  /** The index in visits of each visit that took it, in order. */
-  runs: number[];
   /** The title of the state a stub's transition goes to; null for none. */
   to: string | null;
 }
@@ -167,8 +156,8 @@ export interface Edge {
   /** Whether it is drawn as a stub, its label naming where it goes. */
   stub: boolean;
   /**
-   * The parts from x, the last line's baseline at y, and the lines they
-   * are drawn on, a part's text and its runs' chips.
+   * The parts from x, the last line's baseline at y, and the lines their
+   * text is drawn on.
    */
   label: {
     x: number;
@@ -179,30 +168,15 @@ export interface Edge {
 }
 
 /**
- * A line of a label: its top and height, its text's baseline, the index in
- * parts of the part it is of, the part's text on it ("" on a line of its
- * chips alone), and a chip for each of the part's runs on it, which links
- * to that run. A part starts on a line of its own.
+ * A line of a label: its top, its text's baseline, the index in parts of
+ * the part it is of, and the part's text on it. A part starts on a line of
+ * its own.
  */
 interface LabelLine {
   part: number;
   text: string;
   top: number;
-  height: number;
   y: number;
-  chips: Chip[];
-}
-
-/**
- * A run's link on a label: the visit's index, the left and width of the
- * area that takes the pointer, and the width of the chip drawn in its
- * middle.
- */
-interface Chip {
-  index: number;
-  x: number;
-  width: number;
-  pill: number;
 }
 
 export interface Layout {
@@ -210,8 +184,6 @@ export interface Layout {
   height: number;
   /** Whether the attempt has ended: no transition but those taken is left. */
   ended: boolean;
-  /** The least side of a link or a control drawn on it, in px. */
-  target: number;
   nodes: Node[];
   edges: Edge[];
   /**
@@ -229,36 +201,19 @@ export interface Layout {
 export type Scope = "all" | "taken";
 
 /**
- * How many times the attempt took each transition, by "from\0outcome"
- * (takenRuns).
+ * How many times the attempt took each transition, by "from\0outcome": a
+ * visit took it when the next visit is of the state it goes to, the visit
+ * the attempt runs now that its record does not hold yet included, or, for
+ * the last visit, when it goes to the end and the attempt has ended with a
+ * status.
  */
 export function takenCounts(
   record: AttemptRecord,
   project: Project,
   current: Current | null = null,
 ): Map<string, number> {
-  return new Map(
-    [...takenRuns(record, project, current)].map(([key, runs]) => [
-      key,
-      runs.length,
-    ]),
-  );
-}
-
-/**
- * The visits that took each transition, by "from\0outcome", as their
- * indices in visits, in order: a visit took it when the next visit is of
- * the state it goes to, the visit the attempt runs now that its record does
- * not hold yet included, or, for the last visit, when it goes to the end
- * and the attempt has ended with a status.
- */
-function takenRuns(
-  record: AttemptRecord,
-  project: Project,
-  current: Current | null = null,
-): Map<string, number[]> {
   const ended = endWord(project, record) !== null;
-  const runs = new Map<string, number[]>();
+  const counts = new Map<string, number>();
   const edges = record.graph?.edges ?? [];
   const pending = current !== null && !current.recorded ? current : null;
   record.visits.forEach((visit, i) => {
@@ -272,9 +227,9 @@ function takenRuns(
     const took = next ? edge.to === next.state : edge.to === null && ended;
     if (!took) return;
     const key = `${edge.from}\0${edge.outcome}`;
-    runs.set(key, [...(runs.get(key) ?? []), i]);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   });
-  return runs;
+  return counts;
 }
 
 /**
@@ -339,9 +294,8 @@ function rounded(points: [number, number][]): string {
 
 /**
  * Lay out the record's graph, with current, the visit a running attempt is
- * in (currentOf), drawn as running, the links on its labels target px a
- * side at least, and its labels' lines broken to make it at most room wide
- * where they can be; null when the record has none.
+ * in (currentOf), drawn as running, and its labels' lines broken to make it
+ * at most room wide where they can be; null when the record has none.
  */
 export function layout(
   record: AttemptRecord,
@@ -349,12 +303,10 @@ export function layout(
   current: Current | null = null,
   measure: Measure = widest,
   scope: Scope = "all",
-  target: number = TARGET,
   room = Infinity,
 ): Layout | null {
   const graph = record.graph;
   if (!graph) return null;
-  const runsOf = takenRuns(record, project, current);
   const taken = takenCounts(record, project, current);
   const attemptEnded = attemptStatus(project, record) !== null;
   const reached = reachedIn(record, current, taken);
@@ -391,12 +343,18 @@ export function layout(
         running: null,
       };
     }
-    const visits = record.visits.flatMap((v, index) =>
+    const mine = record.visits.filter((v) => v.state === key);
+    const visits = record.visits.flatMap((v, index): NodeRun[] =>
       v.state === key
-        ? [{ ...outcomeOf(project, v.outcome, attemptEnded), index }]
+        ? [
+            {
+              ...outcomeOf(project, v.outcome, attemptEnded),
+              index,
+              recorded: true,
+            },
+          ]
         : [],
     );
-    const mine = record.visits.filter((v) => v.state === key);
     const last = mine.at(-1);
     const times = mine.flatMap((v) => {
       const s = visitSeconds(v);
@@ -417,22 +375,7 @@ export function layout(
     if (current?.state === key) {
       const done = current.recorded ? mine.slice(0, -1) : mine;
       const runs = done.length + 1;
-      // The run now by its number in the Runs tab, as every run is named.
-      const at = current.recorded ? current.index : record.visits.length;
-      const all: NodeRun[] = [
-        ...visits.slice(0, done.length).map(({ index, label, tone }) => ({
-          index,
-          label,
-          tone,
-          recorded: true,
-        })),
-        {
-          index: at,
-          ...liveStatus.running,
-          recorded: current.recorded,
-        },
-      ];
-      const text = `Run ${(at + 1).toString()}`;
+      const text = `Run ${runs.toString()}`;
       const timed = current.since !== null;
       const rows = [
         ...liveRows(
@@ -449,7 +392,7 @@ export function layout(
         ...box,
         title: stateTitle(project, key),
         lines: wrap(stateTitle(project, key), "title", measure),
-        sub: `${text} · ${runCount(runs)}`,
+        sub: `Run ${runs.toString()} of ${runs.toString()}`,
         time: null,
         under: [],
         status: liveStatus.running,
@@ -459,7 +402,14 @@ export function layout(
           : last
             ? record.visits.lastIndexOf(last)
             : null,
-        runs: runs > 1 ? all : [],
+        runs: [
+          ...visits.slice(0, done.length),
+          {
+            index: current.recorded ? current.index : record.visits.length,
+            ...liveStatus.running,
+            recorded: current.recorded,
+          },
+        ],
         runsText: runs > 1 ? { text, width: measure(text, "sub") } : null,
         running: {
           since: current.since,
@@ -478,15 +428,7 @@ export function layout(
       status: last ? outcomeOf(project, last.outcome, attemptEnded) : null,
       idle: mine.length === 0,
       lastVisit: last ? record.visits.lastIndexOf(last) : null,
-      runs:
-        mine.length > 1
-          ? visits.map(({ index, label, tone }) => ({
-              index,
-              label,
-              tone,
-              recorded: true,
-            }))
-          : [],
+      runs: visits,
       runsText:
         mine.length > 1 ? { text: sub, width: measure(sub, "sub") } : null,
       running: null,
@@ -507,7 +449,6 @@ export function layout(
       outcome: e.outcome,
       label: outcomeOf(project, e.outcome, false).label,
       taken: count,
-      runs: runsOf.get(`${e.from}\0${e.outcome}`) ?? [],
       to: null,
     });
     groups.set(key, group);
@@ -543,7 +484,7 @@ export function layout(
     const lines = new Map(
       [...groups.entries()].map(([key, g]) => [
         key,
-        labelLines(g.parts, wrap, measure, target),
+        labelLines(g.parts, wrap, measure),
       ]),
     );
     const linesOf = (key: string) => must(lines.get(key));
@@ -555,7 +496,7 @@ export function layout(
           width: n.width,
           height: Math.max(
             textHeight(n),
-            loop ? linesHeight(loop) + LOOP_WIDTH : 0,
+            loop ? loop.length * LINE + LOOP_WIDTH : 0,
           ),
           beside: loop ? LOOP + LOOP_GAP + linesWidth(loop, measure) : 0,
         };
@@ -567,7 +508,7 @@ export function layout(
         stub: stubbed.has(key),
         label: {
           width: linesWidth(linesOf(key), measure),
-          height: linesHeight(linesOf(key)),
+          height: linesOf(key).length * LINE,
         },
       })),
     );
@@ -622,18 +563,13 @@ export function layout(
       const x = node.x + node.width;
       const a = node.y + (node.height - LOOP_WIDTH) / 2;
       const b = a + LOOP_WIDTH;
-      const left = x + LOOP + LOOP_GAP;
       const own = placed.linesOf(key);
-      const lines = moved(
-        own,
-        left,
-        node.y + (node.height - linesHeight(own)) / 2,
-      );
+      const lines = moved(own, node.y + (node.height - own.length * LINE) / 2);
       return {
         ...common,
         path: `M${x} ${a} C ${x + LOOP} ${a}, ${x + LOOP} ${b}, ${x + 3} ${b}`,
         label: {
-          x: left,
+          x: x + LOOP + LOOP_GAP,
           y: must(lines.at(-1)).y,
           parts: g.parts,
           lines,
@@ -645,7 +581,7 @@ export function layout(
     const [x, y] = r.ports[0];
     const from = box(g.from);
     from.ports.push([x - from.x, y - from.y]);
-    const lines = moved(placed.linesOf(key), r.label.x, r.label.y);
+    const lines = moved(placed.linesOf(key), r.label.y);
     return {
       ...common,
       path: rounded(r.points),
@@ -663,7 +599,6 @@ export function layout(
     width: drawn.width,
     height: drawn.height,
     ended: attemptEnded,
-    target,
     nodes,
     edges,
     hidden,
@@ -769,139 +704,77 @@ function below(sub: string, time: string | null, measure: Measure): string[] {
 }
 
 /**
- * The text of a part's line of an edge's label: its outcome's label, then,
- * where the attempt took it, "run" or "runs" before the chips of the runs
- * that took it, and, for a stub, where it goes.
+ * A part's line of an edge's label: its outcome's label, how many times the
+ * attempt took it and, for a stub, where it goes.
  */
 export function labelLine(part: LabelPart): string {
-  const taken =
-    part.runs.length === 0 ? "" : part.runs.length === 1 ? " · run" : " · runs";
+  const taken = part.taken > 0 ? ` ×${part.taken.toString()}` : "";
   const to = part.to === null ? "" : ` → ${part.to}`;
   return `${part.label}${taken}${to}`;
 }
 
 /**
- * A part's line of a label as a reader reads it: its text, then the number
- * each of its runs has in the Runs tab, as in "None solved · runs 2, 4".
- */
-export function labelText(part: LabelPart): string {
-  const numbers = part.runs.map((i) => (i + 1).toString()).join(", ");
-  return numbers === "" ? labelLine(part) : `${labelLine(part)} ${numbers}`;
-}
-
-/**
- * A run's chip: its number as wide as it is drawn with room either side,
- * and the area that takes the pointer at least target px wide.
- */
-function chipOf(
-  index: number,
-  x: number,
-  measure: Measure,
-  target: number,
-): Chip {
-  const pill =
-    Math.ceil(measure((index + 1).toString(), "label")) + 2 * CHIP_PAD;
-  return { index, x, width: Math.max(target, pill + CHIP_GAP), pill };
-}
-
-/**
  * A part's text in pieces that a line may break between: its words, a
- * "·" or "→" kept with the word after it.
+ * "·" or "→" kept with the word after it and the words in parentheses
+ * kept together.
  */
 function pieces(text: string): string[] {
   const out: string[] = [];
+  let open = false;
   for (const word of text.split(" ")) {
     const last = out.at(-1);
-    if (last === "·" || last === "→") out[out.length - 1] = `${last} ${word}`;
+    if (last !== undefined && (open || last === "·" || last === "→"))
+      out[out.length - 1] = `${last} ${word}`;
     else out.push(word);
+    if (word.startsWith("(")) open = true;
+    if (word.endsWith(")")) open = false;
   }
   return out;
 }
 
 /**
- * Where each part of a label is drawn, from 0 across and 0 down: its text
- * on as many lines as it needs to be at most room wide, a piece too wide
- * for a line on one of its own, and the chips of its runs one beside
- * another after it, on further lines where they do not fit. A line with
- * chips is target tall, the others LINE, each text's baseline in its
- * line's middle.
+ * Where each part of a label is drawn, from 0 down: its text on as many
+ * lines as it needs to be at most room wide, a piece too wide for a line
+ * on one of its own, each line LINE tall.
  */
 function labelLines(
   parts: LabelPart[],
   room: number,
   measure: Measure,
-  target: number,
 ): LabelLine[] {
   const lines: LabelLine[] = [];
-  let top = 0;
   parts.forEach((part, p) => {
-    const mine: { text: string; end: number; chips: Chip[] }[] = [];
+    const mine: string[] = [];
     for (const piece of pieces(labelLine(part))) {
       const last = mine.at(-1);
-      const text = last === undefined ? piece : `${last.text} ${piece}`;
-      const end = Math.ceil(measure(text, "label"));
-      if (last !== undefined && end <= room) Object.assign(last, { text, end });
-      else
-        mine.push({
-          text: piece,
-          end: Math.ceil(measure(piece, "label")),
-          chips: [],
-        });
+      const text = last === undefined ? piece : `${last} ${piece}`;
+      if (last !== undefined && Math.ceil(measure(text, "label")) <= room)
+        mine[mine.length - 1] = text;
+      else mine.push(piece);
     }
-    for (const index of part.runs) {
-      const last = must(mine.at(-1));
-      const x = last.chips.length > 0 ? last.end : last.end + CHIP_GAP;
-      const chip = chipOf(index, x, measure, target);
-      if (x + chip.width <= room) {
-        last.chips.push(chip);
-        last.end = x + chip.width;
-      } else {
-        const first = chipOf(index, 0, measure, target);
-        mine.push({ text: "", end: first.width, chips: [first] });
-      }
-    }
-    for (const { text, chips } of mine) {
-      const height = chips.length > 0 ? target : LINE;
-      lines.push({
-        part: p,
-        text,
-        top,
-        height,
-        y: top + (height + LINE) / 2 - DESCENT,
-        chips,
-      });
-      top += height;
+    for (const text of mine) {
+      const top = lines.length * LINE;
+      lines.push({ part: p, text, top, y: top + LINE - DESCENT });
     }
   });
   return lines;
 }
 
-/** Moves a label's lines from 0 across and 0 down to left and top. */
-function moved(lines: LabelLine[], left: number, top: number): LabelLine[] {
+/** Moves a label's lines from 0 down to top. */
+function moved(lines: LabelLine[], top: number): LabelLine[] {
   return lines.map((line) => ({
     ...line,
     top: line.top + top,
     y: line.y + top,
-    chips: line.chips.map((chip) => ({ ...chip, x: chip.x + left })),
   }));
 }
 
-/** How wide a label's lines are, from 0 across. */
+/** How wide a label's lines are. */
 function linesWidth(lines: LabelLine[], measure: Measure): number {
   return Math.max(
     0,
-    ...lines.map((line) => {
-      const last = line.chips.at(-1);
-      return last
-        ? last.x + last.width
-        : Math.ceil(measure(line.text, "label"));
-    }),
+    ...lines.map((line) => Math.ceil(measure(line.text, "label"))),
   );
-}
-
-/** How tall a label's lines are. */
-function linesHeight(lines: LabelLine[]): number {
-  return lines.reduce((sum, line) => sum + line.height, 0);
 }
 
 function must<T>(value: T | undefined): T {
