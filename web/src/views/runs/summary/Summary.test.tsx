@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  everyTaken,
   inReview,
   mayHaveStopped,
   must,
@@ -76,6 +77,13 @@ describe("Summary", () => {
     expect(
       screen.getByRole("button", { name: "Show only what this attempt took" }),
     ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("draws the whole machine with no button when the attempt left nothing out", () => {
+    show(everyTaken);
+
+    expect(screen.getByText(/^6 runs · solid lines/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Show / })).toBeNull();
   });
 
   it("renders the actions' summaries as untrusted Markdown", () => {

@@ -63,9 +63,9 @@ function readable(name: string): string {
 
 /**
  * A status word's label and tone. A word the project file has no entry for
- * reads as readable gives it, neutral; but the engine's own words, raised and interrupted,
- * read as Exception, bad, and Run interrupted, warn; and no status (null) is
- * Not ended, neutral.
+ * reads as `readable` spells it, neutral; but the engine's own words, raised
+ * and interrupted, read as Exception, bad, and Run interrupted, warn; and no
+ * status (null) is Not ended, neutral.
  */
 export function statusOf(
   project: Pick<Project, "statuses">,
@@ -174,7 +174,7 @@ export const liveStatus: Record<Live, { label: string; tone: Tone }> = {
   "not ended": { label: NOT_ENDED, tone: "neutral" },
 };
 
-/** A state's title, else its name as readable gives it. */
+/** A state's title, else its name as `readable` spells it. */
 export function stateTitle(project: Project, state: string): string {
   return project.states[state]?.title ?? readable(state);
 }

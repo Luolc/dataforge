@@ -6,6 +6,7 @@ import tangle from "../../../../fixtures/graph/attempts/batch-1/task-0303/record
 import rollout from "../../../../fixtures/graph/attempts/batch-1/task-0304/record.json";
 import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
+  everyTaken,
   inReview,
   measured,
   must,
@@ -15,11 +16,11 @@ import {
   sampleProject,
 } from "../../../../fixtures/sample";
 import { type AttemptRecord, record } from "../../../api/types";
-import { endWord } from "../../../ui/status";
 import {
   CARD_WIDTH,
   type Edge,
   END,
+  hiddenOf,
   labelLine,
   type Layout,
   layout,
@@ -66,7 +67,7 @@ describe("the graph", () => {
     ]);
   });
 
-  it("draws, when asked for what was taken, only the states that ran, the end once ended and the outcomes taken", () => {
+  it("draws, when asked for what was taken, only the states that ran, the end once a transition into it was taken, and the outcomes taken", () => {
     for (const r of [records.passed, records.raised, records.exhausted]) {
       const whole = must(layout(r, sampleProject));
       const taken = must(layout(r, sampleProject, null, undefined, "taken"));
@@ -78,7 +79,8 @@ describe("the graph", () => {
           .map((n) => n.key)
           .filter(
             (k) =>
-              ran.has(k) || (k === END && endWord(sampleProject, r) !== null),
+              ran.has(k) ||
+              (k === END && whole.edges.some((e) => e.to === END && e.taken)),
           ),
       );
       expect(taken.edges.flatMap((e) => e.label.parts)).toEqual(
@@ -95,6 +97,19 @@ describe("the graph", () => {
       });
       expect(whole.hidden).toBeNull();
     }
+  });
+
+  it("draws the whole machine, when asked for what was taken, of an attempt that reached every state and took every transition", () => {
+    const whole = must(layout(everyTaken, sampleProject));
+    const taken = must(
+      layout(everyTaken, sampleProject, null, undefined, "taken"),
+    );
+
+    expect(hiddenOf(everyTaken, sampleProject)).toBeNull();
+    expect(taken.hidden).toBeNull();
+    expect(taken.nodes.map((n) => n.key)).toEqual(
+      whole.nodes.map((n) => n.key),
+    );
   });
 
   it("draws the whole machine, when asked for what was taken, while no state has run", () => {
@@ -153,7 +168,7 @@ describe("the graph", () => {
     expect(check.status).toEqual({ label: "Exception", tone: "bad" });
   });
 
-  it("names each outcome on an edge by the project's label, else as readable gives it", () => {
+  it("names each outcome on an edge by the project's label, else as `readable` spells it", () => {
     const project = {
       ...sampleProject,
       statuses: {

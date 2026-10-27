@@ -37,7 +37,7 @@ describe("names the project file gives no words for", () => {
 });
 
 describe("status words", () => {
-  it("the engine's raised and interrupted read as Exception and Run interrupted, any other unmapped word as readable gives it", () => {
+  it("the engine's raised and interrupted read as Exception and Run interrupted, any other unmapped word as `readable` spells it", () => {
     expect(statusOf(sampleProject, "raised")).toEqual({
       label: "Exception",
       tone: "bad",

@@ -163,7 +163,7 @@ describe("the machine's graph", () => {
     expect(check).toHaveAttribute("href", "/run/25");
   });
 
-  it("writes each outcome on its edge as the project labels it, else as readable gives it", () => {
+  it("writes each outcome on its edge as the project labels it, else as `readable` spells it", () => {
     const { edge } = show(early);
 
     expect(edge("build", "smoke")).toHaveTextContent(/^Pass ×1$/);

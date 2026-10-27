@@ -191,16 +191,19 @@ export function takenCounts(
 
 /**
  * Whether the attempt reached a node: a state it ran or runs, or the end
- * once it has ended with a status.
+ * through a transition it took, so that the end is never drawn with no line
+ * into it.
  */
 function reachedIn(
   record: AttemptRecord,
-  project: Project,
   current: Current | null,
+  taken: Map<string, number>,
 ): (key: string) => boolean {
-  const ended = endWord(project, record) !== null;
   const ran = new Set(record.visits.map((v) => v.state));
   if (current !== null) ran.add(current.state);
+  const ended = (record.graph?.edges ?? []).some(
+    (e) => e.to === null && (taken.get(`${e.from}\0${e.outcome}`) ?? 0) > 0,
+  );
   return (key) => (key === END ? ended : ran.has(key));
 }
 
@@ -216,9 +219,9 @@ export function hiddenOf(
 ): { states: number; transitions: number } | null {
   const graph = record.graph;
   if (!graph) return null;
-  const reached = reachedIn(record, project, current);
-  if (!graph.states.some((s) => reached(s.name))) return null;
   const taken = takenCounts(record, project, current);
+  const reached = reachedIn(record, current, taken);
+  if (!graph.states.some((s) => reached(s.name))) return null;
   const states = graph.states.filter((s) => !reached(s.name)).length;
   const transitions = graph.edges.filter(
     (e) => (taken.get(`${e.from}\0${e.outcome}`) ?? 0) === 0,
@@ -261,7 +264,7 @@ export function layout(
   if (!graph) return null;
   const taken = takenCounts(record, project, current);
   const attemptEnded = attemptStatus(project, record) !== null;
-  const reached = reachedIn(record, project, current);
+  const reached = reachedIn(record, current, taken);
   const hidden = scope === "taken" ? hiddenOf(record, project, current) : null;
   const order = [...graph.states.map((s) => s.name), END].filter(
     (key) => hidden === null || reached(key),

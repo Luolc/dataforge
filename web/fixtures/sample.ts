@@ -74,6 +74,22 @@ export const inReview: AttemptRecord = {
   deliverables: [],
 };
 
+/**
+ * passed on a machine of only the transitions its runs took: it reached every
+ * state and took every transition, so a narrowed machine leaves out nothing.
+ */
+export const everyTaken: AttemptRecord = {
+  ...records.passed,
+  graph: records.passed.graph && {
+    ...records.passed.graph,
+    edges: records.passed.graph.edges.filter((e) =>
+      records.passed.visits.some(
+        (v) => v.state === e.from && v.outcome === e.outcome,
+      ),
+    ),
+  },
+};
+
 /** When inReview's check ended, so its review began. */
 export const reviewSince = "2026-03-02T09:43:39+00:00";
 
