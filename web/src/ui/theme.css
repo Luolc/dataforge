@@ -49,6 +49,9 @@
   );
   /* The least height of the runs' list in the Runs tab's column. */
   --spacing-run-list: 160px;
+  /* The most height of the definition's list above it, so that the runs'
+     list keeps the rest of the column. */
+  --spacing-definition-list: calc(var(--spacing-frame) * 0.45);
   /* A template's variables beside its text on a definition page. */
   --spacing-variables: 416px;
   /* The smallest side of a control, for a fine and a coarse pointer. */
