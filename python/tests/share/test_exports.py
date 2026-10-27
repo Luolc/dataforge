@@ -190,3 +190,127 @@ def test_a_trial_path_that_is_not_relative_is_refused(path: str) -> None:
 
   with pytest.raises(ExportError, match=r"^trials\.diff: "):
     _ = parse(json.dumps(data).encode())
+
+
+def test_a_deliverable_with_newest_true_is_accepted() -> None:
+  data = with_columns(
+    deliverables=[
+      {
+        "name": "pass_at_k",
+        "kind": "trials",
+        "title": "Pass@k",
+        "newest": True,
+      },
+      {
+        "name": "rubrics",
+        "kind": "report",
+        "title": "Reviews",
+        "newest": False,
+      },
+    ],
+    kinds={"trials": {"title": "Trials"}, "report": {"title": "Reviews"}},
+  )
+
+  export = parse(json.dumps(data).encode())
+
+  public = export.public()
+  assert public["deliverables"] == [
+    {
+      "name": "pass_at_k",
+      "kind": "trials",
+      "title": "Pass@k",
+      "no_trace": None,
+      "count": None,
+      "default": False,
+      "newest": True,
+    },
+    {
+      "name": "rubrics",
+      "kind": "report",
+      "title": "Reviews",
+      "no_trace": None,
+      "count": None,
+      "default": False,
+      "newest": False,
+    },
+  ]
+
+
+def test_a_deliverable_newest_that_is_not_a_boolean_is_refused() -> None:
+  data = with_columns(
+    deliverables=[
+      {
+        "name": "pass_at_k",
+        "kind": "trials",
+        "title": "Pass@k",
+        "newest": "yes",
+      }
+    ]
+  )
+
+  with pytest.raises(
+    ExportError, match=r"deliverables\[0\]\.newest: not a boolean"
+  ):
+    _ = parse(json.dumps(data).encode())
+
+
+def test_a_deliverable_without_newest_has_none() -> None:
+  data = with_columns(
+    deliverables=[
+      {"name": "pass_at_k", "kind": "trials", "title": "Pass@k"},
+    ]
+  )
+
+  export = parse(json.dumps(data).encode())
+
+  public = export.public()
+  deliverables = cast(list[dict[str, object]], public["deliverables"])
+  assert "newest" not in deliverables[0]
+
+
+def test_project_public_with_newest_is_read_by_share(tmp_path: Path) -> None:
+  tree = make_tree(tmp_path)
+  project_text = """
+id: example
+name: Example
+color: "#e5a54b"
+attempts_dir: attempts
+attempts: "*/*"
+record: record.json
+item: {depth: 1, title: Batch}
+statuses:
+  passed: {label: Passed, tone: good}
+deliverables:
+  - name: output
+    kind: files
+    title: Output
+    newest:
+      dirs: "*"
+      file: newest.json
+      when: {field: [status], equals: passed}
+      path: [id]
+  - {name: "logs", kind: "files", title: "Logs"}
+kinds:
+  files: {title: Files}
+"""
+  _ = tree.project.write_text(project_text)
+  [project] = load_site(tree.site).projects
+
+  project_data = project.public()
+  project_deliverables = cast(
+    list[dict[str, object]], project_data["deliverables"]
+  )
+  assert project_deliverables[0]["newest"] is True
+  assert project_deliverables[1]["newest"] is False
+
+  data = export_json("example", ["item-1"])
+  data["deliverables"] = project_deliverables
+  data["kinds"] = project_data["kinds"]
+
+  export = parse(json.dumps(data).encode())
+
+  public = export.public()
+  public_deliverables = cast(list[dict[str, object]], public["deliverables"])
+  assert len(public_deliverables) == 2
+  assert public_deliverables[0]["newest"] is True
+  assert public_deliverables[1]["newest"] is False

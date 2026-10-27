@@ -386,21 +386,25 @@ def _deliverables(value: object) -> tuple[dict[str, object], ...]:
       where,
       entry,
       {"name", "kind", "title"},
-      {"no_trace", "count", "default"},
+      {"no_trace", "count", "default", "newest"},
     )
     name = _str(f"{where}.name", fields["name"])
     if any(e["name"] == name for e in entries):
       raise ExportError(f"{where}.name: {name} is repeated")
-    entries.append(
-      {
-        "name": name,
-        "kind": _str(f"{where}.kind", fields["kind"]),
-        "title": _str(f"{where}.title", fields["title"]),
-        "no_trace": _optional(f"{where}.no_trace", fields, "no_trace"),
-        "count": _optional(f"{where}.count", fields, "count"),
-        "default": _default(f"{where}.default", fields.get("default", False)),
-      }
-    )
+    newest = fields.get("newest")
+    if newest is not None and not isinstance(newest, bool):
+      raise ExportError(f"{where}.newest: not a boolean")
+    deliverable: dict[str, object] = {
+      "name": name,
+      "kind": _str(f"{where}.kind", fields["kind"]),
+      "title": _str(f"{where}.title", fields["title"]),
+      "no_trace": _optional(f"{where}.no_trace", fields, "no_trace"),
+      "count": _optional(f"{where}.count", fields, "count"),
+      "default": _default(f"{where}.default", fields.get("default", False)),
+    }
+    if newest is not None:
+      deliverable["newest"] = newest
+    entries.append(deliverable)
   return tuple(entries)
 
 
