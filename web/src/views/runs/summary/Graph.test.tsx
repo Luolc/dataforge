@@ -202,6 +202,35 @@ describe("the machine's graph", () => {
     expect(rows()).toEqual(["#30 Pass"]);
   });
 
+  it("shows a state's runs down from its card's top, or up from its bottom where there is more room above it", () => {
+    frameOf(600, 300);
+    const { node } = show(busy);
+    const tip = () => screen.getByRole("tooltip");
+
+    fireEvent.pointerEnter(node("draft"));
+    expect(tip().style.top).not.toBe("");
+    expect(tip().style.bottom).toBe("");
+    fireEvent.pointerLeave(node("draft"));
+
+    // A state far down a frame 300 tall.
+    fireEvent.pointerEnter(node("audit"));
+    expect(tip().style.bottom).not.toBe("");
+    expect(tip().style.top).toBe("");
+  });
+
+  it("does not show a state's runs beside it while its list of runs is open", () => {
+    const { graph, node } = show(busy);
+
+    fireEvent.click(
+      within(graph).getByRole("button", { name: "Draft: 5 runs, list them" }),
+    );
+    fireEvent.pointerEnter(node("draft"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.pointerEnter(node("audit"));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Audit/);
+  });
+
   it("lists the runs of a state that ran more than once when its runs are opened, each a link to its run", () => {
     const { graph } = show(busy);
 
@@ -771,6 +800,9 @@ describe("a running attempt's machine", () => {
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual(["#3 Running"]);
-    expect(within(tip).getByRole("img", { name: "Running" })).toBeVisible();
+    // The running icon, which turns, not the icon of a tone.
+    expect(
+      within(tip).getByRole("img", { name: "Running" }).querySelector("svg"),
+    ).toHaveClass("animate-spin");
   });
 });

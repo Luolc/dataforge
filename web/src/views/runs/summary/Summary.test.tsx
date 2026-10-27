@@ -161,6 +161,38 @@ describe("Summary", () => {
         Reflect.deleteProperty(document, "fullscreenElement");
       }
     });
+
+    it("follows the screen's width as the window changes in full screen", () => {
+      let screenWidth = natural + 400;
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
+        function (this: HTMLElement) {
+          return this.id === "" ? natural - 120 : screenWidth;
+        },
+      );
+      show(wideRecord);
+      const frame = must(
+        screen.getAllByRole("group", { name: "State machine" }).at(-1)
+          ?.parentElement,
+      );
+      Object.defineProperty(document, "fullscreenElement", {
+        configurable: true,
+        get: () => frame,
+      });
+      try {
+        act(() => {
+          document.dispatchEvent(new Event("fullscreenchange"));
+        });
+        const wideScreen = drawn().lines;
+        screenWidth = natural - 120;
+        act(() => {
+          window.dispatchEvent(new Event("resize"));
+        });
+
+        expect(drawn().lines).toBeGreaterThan(wideScreen);
+      } finally {
+        Reflect.deleteProperty(document, "fullscreenElement");
+      }
+    });
   });
 
   it("renders the actions' summaries as untrusted Markdown", () => {

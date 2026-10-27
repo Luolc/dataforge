@@ -70,6 +70,9 @@ export function Graph({
   // The state under the pointer wins over the one with the focus.
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  // The state whose list of runs is open, which its rows beside it would
+  // repeat.
+  const [listed, setListed] = useState<string | null>(null);
   const active = hovered ?? focused;
   // The state the attempt ran in when the graph was first shown: the page
   // reading the attempt again does not move the view to where it runs now.
@@ -254,7 +257,9 @@ export function Graph({
   const dim = (key: string) => active !== null && !near.has(key);
   // The state whose runs show beside it.
   const tipped =
-    layout.nodes.find((n) => n.key === active && n.runs.length > 0) ?? null;
+    layout.nodes.find(
+      (n) => n.key === active && n.key !== listed && n.runs.length > 0,
+    ) ?? null;
   // Taken edges over the rest, so that a lane they share stays solid only
   // where an edge was taken, then lit edges over unlit ones.
   const edges = [...layout.edges].sort((a, b) => {
@@ -369,7 +374,16 @@ export function Graph({
                     {card}
                   </Link>
                 )}
-                <RunsList node={node} target={target} runHref={runHref} />
+                <RunsList
+                  node={node}
+                  target={target}
+                  runHref={runHref}
+                  onOpenChange={(open) => {
+                    setListed((key) =>
+                      open ? node.key : key === node.key ? null : key,
+                    );
+                  }}
+                />
               </Fragment>
             );
           })}
@@ -555,9 +569,10 @@ const runsHeading = (node: GraphNode) =>
 
 /**
  * Each run of the state under the pointer or with the focus, beside its
- * card on the side with more room in the frame, the last of several marked
- * latest and the one it runs now marked running. It takes no pointer, so
- * that the graph pans and its links open under it.
+ * card on the side with more room in the frame, from the card's top down
+ * or, where there is more room above it, from its bottom up, the last of
+ * several marked latest and the one it runs now marked running. It takes
+ * no pointer, so that the graph pans and its links open under it.
  */
 function RunsTip({
   id,
@@ -573,11 +588,18 @@ function RunsTip({
   const gap = 8;
   const left = node.x * view.k + view.x;
   const right = (node.x + node.width) * view.k + view.x;
-  const top = Math.max(gap, node.y * view.k + view.y);
-  const at =
+  const top = node.y * view.k + view.y;
+  const bottom = (node.y + node.height) * view.k + view.y;
+  const across =
     frame.w - right >= left
-      ? { left: right + gap, top }
-      : { right: frame.w - left + gap, top };
+      ? { left: right + gap }
+      : { right: frame.w - left + gap };
+  const at = {
+    ...across,
+    ...(frame.h - top >= bottom
+      ? { top: Math.max(gap, top) }
+      : { bottom: Math.max(gap, frame.h - bottom) }),
+  };
   return (
     <div
       id={id}
@@ -611,16 +633,18 @@ function RunsTip({
 /**
  * The control on a card that ran more than once, over where the card names
  * how many times, which opens the list of its runs, a link to each run that
- * has a page.
+ * has a page, and says when the list opens or closes.
  */
 function RunsList({
   node,
   target,
   runHref,
+  onOpenChange,
 }: {
   node: GraphNode;
   target: number;
   runHref: (index: number) => string;
+  onOpenChange: (open: boolean) => void;
 }) {
   const at = node.runsText;
   if (at === null) return null;
@@ -643,7 +667,7 @@ function RunsList({
         className="pointer-events-none stroke-fg-3 [stroke-dasharray:var(--dash-not-taken)]"
       />
       <foreignObject x={x} y={y} width={width} height={target}>
-        <Popover.Root>
+        <Popover.Root onOpenChange={onOpenChange}>
           <Popover.Trigger
             aria-label={`${node.title}: ${runCount(node.runs.length)}, list them`}
             data-runs={node.key}
