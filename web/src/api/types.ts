@@ -177,7 +177,7 @@ export type Project = z.infer<typeof project>;
 export type Page = NonNullable<Project["pages"]>[number];
 export type Column = Project["columns"][number];
 export type ProjectTab = NonNullable<Project["tabs"]>[number];
-export type TabSource = ProjectTab["versions"][number];
+type TabSource = ProjectTab["versions"][number];
 export type TabPart = TabSource["parts"][number];
 export const projects = z.array(project);
 

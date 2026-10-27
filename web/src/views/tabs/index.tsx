@@ -1,11 +1,11 @@
 // A project's own tab of the attempt page: Markdown files found in one or
 // more directories of the attempt, its versions, one shown at a time, with
 // the values the project names read from JSON files beside each. A tab of
-// two or more files, its parts, shows one at a time, chosen from a column
-// beside it.
-import { CircleAlert, CirclePause, FileText } from "lucide-react";
-import { type ReactNode, useState } from "react";
-import { Link } from "react-router";
+// two or more versions, or of two or more files, its parts, shows one at a
+// time, chosen from a column beside it.
+import { ChevronRight, CircleAlert, CirclePause, FileText } from "lucide-react";
+import { Fragment } from "react";
+import { Link, useSearchParams } from "react-router";
 
 import { type Loaded, useLoaded, useRefresh } from "../../api/client";
 import type {
@@ -13,14 +13,12 @@ import type {
   ProjectTab,
   Queued,
   TabPart,
-  TabSource,
   TabVersion,
   TabVersions,
 } from "../../api/types";
 import { Card, Note } from "../../ui/card";
 import { TabBadge } from "../../ui/count";
 import { counted, readValue } from "../../ui/format";
-import { ChoiceMenu } from "../../ui/menu";
 import { SideColumn, sideEntry } from "../../ui/side-column";
 import { NOT_RUN } from "../../ui/status";
 import { ToneLabel } from "../../ui/status-mark";
@@ -28,6 +26,7 @@ import { attemptHref } from "../attempt/href";
 import { fetchFile, size } from "../files/file";
 import { jobLabel, jobTimes, pausedLine } from "../queue/status";
 import { ReportMarkdown } from "../report/markdown";
+import { entryOf, versionGroups, versionTitle } from "./tree";
 import { queuedOf, versionsOf } from "./versions";
 
 /** A tab's count: its versions, Not run with none; nothing while loading. */
@@ -61,9 +60,11 @@ export function TabCount({
 }
 
 /**
- * A tab's view: one version, the first unless another is chosen, and of it
- * the part named, else the first; the version chosen stays as another part
- * is shown.
+ * A tab's view: one version, the one the page's `version` names, else the
+ * first, and of it the part named, else the first. A tab of two or more
+ * versions lists them in a column beside it, grouped (versionGroups), with
+ * the parts of the one shown under its entry; a version that others lie in
+ * opens each of them from a row at its top.
  */
 export function TabView({
   project,
@@ -78,22 +79,52 @@ export function TabView({
   part: string | null;
   loaded: Loaded<TabVersions[]>;
 }) {
-  const [chosen, setChosen] = useState<string>();
+  const [query] = useSearchParams();
   if (loaded.state === "loading") return <Note>Loading…</Note>;
   if (loaded.state === "error") return <Note>{loaded.message}</Note>;
   const versions = versionsOf(loaded, tab);
-  const shown = versions.find((v) => v.dir === chosen) ?? versions[0];
+  const shown =
+    versions.find((v) => v.dir === query.get("version")) ?? versions[0];
   if (shown === undefined)
     return <NoVersion tab={tab} queued={queuedOf(loaded, tab)} />;
-  const sourceOf = (v: TabVersion) => tab.versions[v.source] ?? tab.versions[0];
-  const { parts } = sourceOf(shown);
+  const { parts } = tab.versions[shown.source] ?? tab.versions[0];
   const part = parts.find((p) => p.name === named) ?? parts[0];
-  const choices = versions.map((v) => ({
-    key: v.dir,
-    title: versionTitle(v, sourceOf(v)),
-  }));
+  const href = (version: string, name?: string) =>
+    attemptHref(project.id, attempt, {
+      tab: tab.name,
+      version,
+      ...(name === undefined ? {} : { part: name }),
+    });
+  const groups = versionGroups(versions, tab);
+  const under = entryOf(groups, shown)?.under ?? [];
+  const title = versionTitle(shown, tab);
   const view = (
-    <>
+    <div className="flex min-w-0 flex-col gap-3">
+      <p className="flex flex-wrap items-baseline gap-2">
+        <span className="text-fg-3">Version</span>
+        <span className="font-medium">{title}</span>
+        {!title.includes(shown.dir) && (
+          <code className="font-mono text-xs text-fg-3">{shown.dir}</code>
+        )}
+      </p>
+      {under.length > 0 && (
+        <nav
+          aria-label={`Versions under ${title}`}
+          className="flex flex-wrap items-center gap-2"
+        >
+          <span className="text-fg-3">Under this version</span>
+          {under.map((e) => (
+            <Link
+              key={e.version.dir}
+              to={href(e.version.dir, named ?? undefined)}
+              className="flex target items-center gap-1.5 rounded-row border border-line px-2.5 font-medium hover:bg-hover"
+            >
+              {e.title}
+              <ChevronRight className="size-3 text-icon" aria-hidden />
+            </Link>
+          ))}
+        </nav>
+      )}
       {part.fields.length > 0 && <Fields part={part} version={shown} />}
       <TabMarkdown
         key={`${shown.dir}/${part.name}`}
@@ -102,47 +133,70 @@ export function TabView({
         part={part}
         version={shown}
       />
-    </>
+    </div>
   );
-  return (
-    <div className="flex flex-col gap-3 px-7 pt-5 pb-12">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-fg-3">Version</span>
-        {versions.length > 1 ? (
-          <ChoiceMenu
-            label="Version"
-            items={choices}
-            chosen={{
-              key: shown.dir,
-              title: versionTitle(shown, sourceOf(shown)),
-            }}
-            onChoose={setChosen}
-          />
-        ) : (
-          <span
-            className={
-              versionTitle(shown, sourceOf(shown)) === shown.dir
-                ? "font-mono"
-                : undefined
-            }
+  const partEntries = (depth: number) =>
+    parts.length > 1
+      ? parts.map((p) => (
+          <Link
+            key={`part-${p.name}`}
+            to={href(shown.dir, p.name)}
+            aria-current={p === part ? "page" : undefined}
+            className={`${sideEntry} ${indent(depth)}`}
           >
-            {versionTitle(shown, sourceOf(shown))}
-          </span>
-        )}
-        <span className="text-fg-3">
-          {`${(versions.indexOf(shown) + 1).toString()} of ${versions.length.toString()}`}
-        </span>
-      </div>
-      {parts.length > 1 ? (
-        <Parts
-          project={project}
-          attempt={attempt}
-          tab={tab}
-          parts={parts}
-          shown={part}
+            <FileText className="size-4 flex-none" aria-hidden />
+            {p.title}
+          </Link>
+        ))
+      : [];
+  if (versions.length > 1)
+    return (
+      <div className="px-7 pt-5 pb-12">
+        <SideColumn
+          label={`${tab.title} versions`}
+          entries={groups.map((g) => (
+            <div
+              key={g.key}
+              role="group"
+              aria-label={g.heading ?? undefined}
+              className="flex flex-col gap-0.5 not-first:pt-2"
+            >
+              {g.heading !== null && (
+                <p className="px-2 py-1 text-xs font-medium text-fg-3">
+                  {g.heading}
+                </p>
+              )}
+              {g.entries.map((e) => (
+                <Fragment key={e.version.dir}>
+                  <Link
+                    to={href(e.version.dir, named ?? undefined)}
+                    aria-current={
+                      e.version !== shown
+                        ? undefined
+                        : parts.length > 1
+                          ? "true"
+                          : "page"
+                    }
+                    className={`${sideEntry} ${indent(e.depth)} aria-[current=true]:text-fg`}
+                  >
+                    <span className="wrap-anywhere">{e.title}</span>
+                  </Link>
+                  {e.version === shown && partEntries(e.depth + 1)}
+                </Fragment>
+              ))}
+            </div>
+          ))}
         >
           {view}
-        </Parts>
+        </SideColumn>
+      </div>
+    );
+  return (
+    <div className="px-7 pt-5 pb-12">
+      {parts.length > 1 ? (
+        <SideColumn label={tab.title} entries={partEntries(0)}>
+          {view}
+        </SideColumn>
       ) : (
         view
       )}
@@ -150,25 +204,9 @@ export function TabView({
   );
 }
 
-/**
- * What a version's menu entry says: its label, then the value its pattern's
- * version_title names, or its directory where that value is not read; its
- * label alone for a pattern with no version_title; and with no label, the
- * value, else its directory.
- */
-function versionTitle(version: TabVersion, source: TabSource): string {
-  const format = source.version_title?.format;
-  const value =
-    format !== undefined &&
-    version.title?.read === "found" &&
-    version.title.value !== null
-      ? readValue("found", version.title.value, { format })
-      : null;
-  const label = version.label ?? null;
-  if (label === null) return value ?? version.dir;
-  if (format === undefined) return label;
-  return `${label} · ${value ?? version.dir}`;
-}
+/** How far an entry of the column stands in, by its depth. */
+const indent = (depth: number) =>
+  depth === 0 ? "" : depth === 1 ? "pl-6" : depth === 2 ? "pl-10" : "pl-14";
 
 /**
  * A tab with no version: that the attempt has none yet, and, for a tab that
@@ -217,42 +255,18 @@ function NoVersion({
 }
 
 /**
- * The parts of the version shown in a column, as the Runs tab's, beside the
- * one shown.
+ * Why a value or a file of a version is not there: Not run, then, for a file
+ * that is not there, its path in the version's directory, else the reason as
+ * read.
  */
-function Parts({
-  project,
-  attempt,
-  tab,
-  parts,
-  shown,
-  children,
-}: {
-  project: Project;
-  attempt: string;
-  tab: ProjectTab;
-  parts: TabPart[];
-  shown: TabPart;
-  children: ReactNode;
-}) {
-  return (
-    <SideColumn
-      label={tab.title}
-      entries={parts.map((p) => (
-        <Link
-          key={p.name}
-          to={attemptHref(project.id, attempt, { tab: tab.name, part: p.name })}
-          aria-current={p === shown ? "page" : undefined}
-          className={sideEntry}
-        >
-          <FileText className="size-4 flex-none" aria-hidden />
-          {p.title}
-        </Link>
-      ))}
-    >
-      <div className="flex min-w-0 flex-col gap-3">{children}</div>
-    </SideColumn>
-  );
+function notRun(reason: string, version: TabVersion): string {
+  const missing = /^(.+): No such file or directory$/.exec(reason)?.[1];
+  if (missing === undefined) return `${NOT_RUN}: ${reason}`;
+  const prefix = `${version.dir}/`;
+  const path = missing.startsWith(prefix)
+    ? missing.slice(prefix.length)
+    : missing;
+  return `${NOT_RUN}: no ${path} was written`;
 }
 
 /** Each field's title and value, or why it has none. */
@@ -273,11 +287,11 @@ function Fields({ part, version }: { part: TabPart; version: TabVersion }) {
               <dt className="text-fg-3">{field.title}</dt>
               <dd className="wrap-anywhere">
                 {found?.read === "found" ? (
-                  readValue(found.read, found.value, field)
+                  <FieldValue value={found.value} field={field} />
                 ) : (
                   <span className="text-fg-3">
                     {found?.read === "not run"
-                      ? `${NOT_RUN}: ${found.reason ?? ""}`
+                      ? notRun(found.reason ?? "", version)
                       : (found?.reason ?? "—")}
                   </span>
                 )}
@@ -288,6 +302,34 @@ function Fields({ part, version }: { part: TabPart; version: TabVersion }) {
       </dl>
     </section>
   );
+}
+
+/**
+ * A field's value as read: a list of two or more strings, numbers and
+ * booleans as a list, an item a line, else as readValue shows it.
+ */
+function FieldValue({
+  value,
+  field,
+}: {
+  value: unknown;
+  field: TabPart["fields"][number];
+}) {
+  if (
+    Array.isArray(value) &&
+    value.length > 1 &&
+    value.every((v) => ["string", "number", "boolean"].includes(typeof v))
+  )
+    return (
+      <ul className="flex flex-col gap-0.5">
+        {value.map((item, i) => (
+          // The items of a list read from a file: two may be the same.
+          // eslint-disable-next-line @eslint-react/no-array-index-key
+          <li key={i}>{readValue("found", item, field)}</li>
+        ))}
+      </ul>
+    );
+  return readValue("found", value, field);
 }
 
 /** The version's Markdown, or why it is not shown. */
@@ -314,7 +356,7 @@ function TabMarkdown({
   if (loaded.state === "loading") body = "Loading…";
   else if (loaded.state === "error") body = loaded.message;
   else if (loaded.data.kind === "missing")
-    body = `${NOT_RUN}: ${loaded.data.reason}`;
+    body = notRun(loaded.data.reason, version);
   else if (loaded.data.kind === "too-large")
     body = `Not shown: ${loaded.data.reason}`;
   else if (loaded.data.kind === "binary")

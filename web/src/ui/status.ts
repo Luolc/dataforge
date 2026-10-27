@@ -21,6 +21,8 @@ export const NOT_ENDED = "Not ended";
 export const NOT_RUN = "Not run";
 /** A value a file holds as null: there, with nothing given for it. */
 export const NOT_GIVEN = "Not given";
+/** A value a file holds as an empty list: there, and empty. */
+export const NONE = "None";
 /**
  * An attempt that ended with no status word: its status is null and the
  * project names its own words for not ended (design-viz.md section 4).

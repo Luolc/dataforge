@@ -11,6 +11,7 @@ import {
   formatValue,
   instant,
   moment,
+  readValue,
   time,
 } from "./format";
 
@@ -73,10 +74,23 @@ describe("a list value of a column or a tab field", () => {
     expect(formatValue([1.5, 2], { format: "usd" })).toBe("$1.50, $2.00");
   });
 
-  it("is no value when empty, and keeps its JSON text when it holds a list or an object", () => {
-    expect(formatValue([], text)).toBe("—");
+  it("is None when empty, not no value, and keeps its JSON text when it holds a list or an object", () => {
+    expect(formatValue([], text)).toBe("None");
     expect(formatValue([["X-1"]], text)).toBe('[["X-1"]]');
     expect(formatValue(["X-1", { a: 1 }], text)).toBe('["X-1",{"a":1}]');
     expect(formatValue(["X-1", null], text)).toBe('["X-1",null]');
+  });
+});
+
+describe("a null value of a column or a tab field", () => {
+  it("shows the label its labels give null, else Not given", () => {
+    const labels = { timeout: "Timed out", null: "Not cut" };
+    expect(readValue("found", null, { format: "text", labels })).toBe(
+      "Not cut",
+    );
+    expect(readValue("found", null, { format: "text" })).toBe("Not given");
+    expect(readValue("found", "timeout", { format: "text", labels })).toBe(
+      "Timed out",
+    );
   });
 });
