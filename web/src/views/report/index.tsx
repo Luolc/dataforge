@@ -8,7 +8,7 @@ import { NOT_RUN } from "../../ui/status";
 import { size, tooLarge, useFile } from "../files/file";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
-import { fromARun } from "../source";
+import { hasSource } from "../source";
 import { ReportMarkdown } from "./markdown";
 
 /** The report view, for a deliverable of kind report. */
@@ -24,7 +24,7 @@ export default function ReportView({
       attempt={attempt}
       deliverable={deliverable}
       byline={
-        fromARun(deliverable) ? (
+        hasSource(deliverable) ? (
           <FromRun
             project={project}
             attempt={attempt}

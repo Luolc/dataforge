@@ -57,7 +57,16 @@ columns:
 deliverables:
   - { name: task, kind: files, title: Task }
   - { name: pass_at_k, kind: trials, title: Pass@k }
-  - { name: review, kind: report, title: Review }
+  # A review written again after the attempt ended, in a directory of its
+  # own: the newest one written is shown in place of the record's.
+  - name: review
+    kind: report
+    title: Review
+    newest:
+      dirs: "review-again-*"
+      file: status.json
+      when: { field: [outcome], equals: written }
+      path: [report]
 # Each attempt's notes and the prompt they were written from, Markdown files
 # in one or more of its directories, the first of them shown by default; made
 # up, as the attempts are.

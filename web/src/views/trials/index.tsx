@@ -24,7 +24,7 @@ import { RunningIcon } from "../../ui/running";
 import { attemptStatus, statusOf, toneGlyph, toneText } from "../../ui/status";
 import { OutcomeLabel } from "../../ui/status-mark";
 import { attemptHref } from "../attempt/href";
-import { fromARun } from "../source";
+import { hasSource } from "../source";
 import { size, useFile } from "../files/file";
 import { FromRun } from "../FromRun";
 import { declared, type DeliverableProps, notRun } from "../kind";
@@ -158,7 +158,7 @@ export default function TrialsView({
             <p className="text-xl font-semibold tabular-nums">
               {shown} / {deliverable.k ?? counted} {entry?.count ?? COUNTED}
             </p>
-            {fromARun(deliverable) && (
+            {hasSource(deliverable) && (
               <p className="text-xs text-fg-3">
                 <FromRun
                   project={project}

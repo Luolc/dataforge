@@ -812,3 +812,73 @@ describe("an attempt whose server stops answering", () => {
     expect(most).toBe(2);
   });
 });
+
+describe("a deliverable whose path a directory of the attempt gives", () => {
+  const withNewest: Project = {
+    ...project,
+    deliverables: [
+      { name: "summary", kind: "report", title: "Summary", newest: true },
+      { name: "review", kind: "report", title: "Review", newest: true },
+    ],
+  };
+
+  function showNewest(found: unknown, at: string) {
+    const files: Record<string, string> = {
+      "rev-2/report.md": "The newest review.",
+      "again-9/summary.md": "The newest summary.",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const read = new URL(url, "http://viz");
+        const path = read.searchParams.get("path");
+        const body = read.pathname.endsWith("/newest")
+          ? JSON.stringify(found)
+          : read.pathname.endsWith("/files") && path !== null
+            ? (files[path] ?? "")
+            : JSON.stringify(records.passed);
+        return Promise.resolve(new Response(body, { status: 200 }));
+      }),
+    );
+    render(
+      <ProjectsContext value={{ state: "ok", data: [withNewest] }}>
+        <MemoryRouter initialEntries={[`/${project.id}/attempt?id=b/t${at}`]}>
+          <Routes>
+            <Route path=":project/attempt" element={<AttemptPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ProjectsContext>,
+    );
+  }
+
+  const found = {
+    review: { path: "rev-2/report.md", dir: "rev-2" },
+    summary: { path: "again-9/summary.md", dir: "again-9" },
+  };
+
+  it("shows the record's deliverable at that path, from that directory", async () => {
+    showNewest(found, "&tab=report&deliverable=review");
+
+    expect(await screen.findByText("The newest review.")).toBeVisible();
+    expect(screen.getByText("rev-2/").parentElement).toHaveTextContent(
+      "From rev-2/",
+    );
+    expect(screen.queryByRole("link", { name: /· run/ })).toBeNull();
+  });
+
+  it("shows one the record lacks, from that directory", async () => {
+    showNewest(found, "&tab=report&deliverable=summary");
+
+    expect(await screen.findByText("The newest summary.")).toBeVisible();
+    expect(screen.getByText("again-9/").parentElement).toHaveTextContent(
+      "From again-9/",
+    );
+  });
+
+  it("keeps the record's path and run where no directory gives one", async () => {
+    showNewest({}, "&tab=report&deliverable=review");
+
+    expect(await screen.findByRole("link", { name: /· run/ })).toBeVisible();
+    expect(screen.queryByText("rev-2/")).toBeNull();
+  });
+});

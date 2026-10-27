@@ -61,6 +61,8 @@ export const urls = {
     `${api(p)}/tabs?${new URLSearchParams({ attempt }).toString()}`,
   task: (p: string, attempt: string) =>
     `${api(p)}/task?${new URLSearchParams({ attempt }).toString()}`,
+  newest: (p: string, attempt: string) =>
+    `${api(p)}/newest?${new URLSearchParams({ attempt }).toString()}`,
   actions: (p: string, item: string) =>
     `${api(p)}/actions?${new URLSearchParams({ item }).toString()}`,
   submit: (

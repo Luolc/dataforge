@@ -12,7 +12,7 @@ import { Split } from "../../ui/split";
 import { NOT_RUN } from "../../ui/status";
 import type { DeliverableProps } from "../kind";
 import { FromRun } from "../FromRun";
-import { fromARun } from "../source";
+import { hasSource } from "../source";
 import { fileAt, firstFile, isKnownFile } from "./entries";
 import { Preview } from "./Preview";
 import { Tree } from "./Tree";
@@ -30,7 +30,7 @@ export default function FilesView({
       attempt={attempt}
       deliverable={deliverable}
       byline={
-        fromARun(deliverable) ? (
+        hasSource(deliverable) ? (
           <FromRun
             project={project}
             attempt={attempt}

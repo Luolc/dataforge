@@ -81,7 +81,8 @@ export const project = z.looseObject({
   // in an attempt whose visit it came from has `equals` at `field` of its
   // outcome data.
   // no_trace: for a deliverable of trials, why a trial of it with no trace
-  // has none, in the project's words.
+  // has none, in the project's words. newest: whether its path may come from
+  // a directory of the attempt in place of the record's (/newest).
   deliverables: z
     .array(
       z.looseObject({
@@ -96,6 +97,7 @@ export const project = z.looseObject({
             z.looseObject({ field: z.array(z.string()), equals: z.unknown() }),
           ])
           .optional(),
+        newest: z.boolean().optional(),
       }),
     )
     .optional(),
@@ -590,6 +592,9 @@ const deliverable = z.looseObject({
     .nullable()
     .optional(),
   trials: z.array(trial).optional(),
+  // The directory its path was read from in place of the record's, which
+  // the page sets from /newest; a record names none.
+  from_dir: z.string().optional(),
 });
 export type Deliverable = z.infer<typeof deliverable>;
 

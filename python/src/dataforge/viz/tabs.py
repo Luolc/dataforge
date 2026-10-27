@@ -1,7 +1,8 @@
 """A project's tabs of Markdown files, and the values read beside them.
 
 The versions an attempt has of each tab, and the values its fields and the
-listing's columns read from JSON files.
+listing's columns read from JSON files; and the directory a deliverable's
+path comes from in place of the record's, found as a tab's versions are.
 
 Every read goes through paths.open_path, so no symlink is followed and no
 read leaves the attempt's directory.
@@ -15,7 +16,9 @@ from typing import cast
 
 from dataforge.viz.config import (
   Column,
+  Newest,
   Project,
+  split_relative,
   Tab,
   TabField,
   TabPart,
@@ -163,6 +166,39 @@ def column_value(
     base = found[0]
   field = TabField(column.title, column.file or (), column.field, column.format)
   return _found(_reader(attempt), base, field)
+
+
+def newest(source: Newest, attempt: int) -> dict[str, str] | None:
+  """Find the path a deliverable takes in place of the record's.
+
+  The directories source.dirs matches are tried in a tab's versions' order,
+  last first; the first whose file is JSON, meets source.when and gives at
+  source.path a path in the attempt gives it. One that does not is skipped.
+
+  Args:
+    source: The deliverable's newest.
+    attempt: The attempt's directory.
+
+  Returns:
+    {path, dir}: the path, relative to the attempt's directory, and the
+    directory it was read from; None when no directory gives one.
+  """
+  read = _reader(attempt)
+
+  def at(directory: str, keys: tuple[str | int, ...]) -> dict[str, object]:
+    return _found(read, directory, TabField("", source.file, keys, "text"))
+
+  pattern = tuple(source.dirs.split("/"))
+  for directory in sorted(
+    find_dirs(attempt, pattern, _matches), key=_path_order, reverse=True
+  ):
+    when = at(directory, source.when.field)
+    if when["read"] != FOUND or when["value"] != source.when.equals:
+      continue
+    path = at(directory, source.path)["value"]
+    if isinstance(path, str) and split_relative(path):
+      return {"path": path, "dir": directory}
+  return None
 
 
 class _NotJSONError(ValueError):

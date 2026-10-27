@@ -54,6 +54,7 @@ import { asShown, declaredMissing, tabKinds } from "./declared";
 import { AttemptFacts } from "./facts";
 import { HeaderExtras } from "./extras";
 import { attemptHref } from "./href";
+import { useNewest, withNewest } from "./newest";
 import { TabNav } from "./TabNav";
 import { TabCount, TabView } from "../tabs";
 import { useTabVersions } from "../tabs/versions";
@@ -266,7 +267,8 @@ function Attempt({
   /** The part of a project's tab shown, by name; null for its first. */
   part: string | null;
 }) {
-  const record = asShown(project, recordRead);
+  const newest = useNewest(project, attempt);
+  const record = withNewest(project, asShown(project, recordRead), newest);
   // A record that has ended wins over a /live read before it ended: the page
   // then shows the record alone.
   const live = attemptStatus(project, record) === null ? read : null;

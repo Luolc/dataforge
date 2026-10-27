@@ -120,6 +120,7 @@ def create_app(site: Site, static: Path) -> FastAPI:
     ("/api/projects/{p}/files", api.files),
     ("/api/projects/{p}/tabs", api.tabs),
     ("/api/projects/{p}/task", api.task),
+    ("/api/projects/{p}/newest", api.newest),
     ("/api/projects/{p}/actions", api.actions),
     ("/api/projects/{p}/monitor/runs", api.monitor_runs),
     ("/api/projects/{p}/monitor/window", api.monitor_window),
@@ -285,6 +286,16 @@ class _Api:
           for tab in project.tabs
         ]
       )
+
+  def newest(self, p: str, attempt: str | None = None) -> Response:
+    project = self._project(p)
+    with open_attempt(project, _attempt(attempt)) as root:
+      found = {
+        d.name: tabs.newest(d.newest, root)
+        for d in project.deliverables
+        if d.newest is not None
+      }
+    return JSONResponse({k: v for k, v in found.items() if v is not None})
 
   def task(self, p: str, attempt: str | None = None) -> Response:
     project = self._project(p)

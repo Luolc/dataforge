@@ -1,4 +1,5 @@
-// The line under a deliverable's title that says which run made it.
+// The line under a deliverable's title that says which run made it, or the
+// directory its path was read from in place of the record's.
 import { Link } from "react-router";
 
 import type { AttemptRecord, Project } from "../api/types";
@@ -7,9 +8,10 @@ import { attemptHref } from "./attempt/href";
 import { fromARun, laterFiles, type Placed } from "./source";
 
 /**
- * The run a reached deliverable came from, a link to its run page, and the
- * later files deliverable, if any, with its run; nothing for a deliverable
- * not reached or with no run.
+ * The directory a deliverable's path was read from in place of the
+ * record's; else the run a reached deliverable came from, a link to its run
+ * page, and the later files deliverable, if any, with its run; nothing for a
+ * deliverable not reached or with no run.
  */
 export function FromRun({
   project,
@@ -22,6 +24,12 @@ export function FromRun({
   record: AttemptRecord;
   deliverable: Placed;
 }) {
+  if (deliverable.from_dir !== undefined)
+    return (
+      <>
+        From <code className="font-mono">{deliverable.from_dir}/</code>
+      </>
+    );
   const at = deliverable.visit_index;
   if (!fromARun(deliverable) || at === null) return null;
   const run = (state: string, index: number) => (
