@@ -13,6 +13,8 @@ import {
 import type { Loaded } from "../../api/client";
 import type { AttemptRecord, LiveInfo, Project } from "../../api/types";
 import type { Snapshot } from "../definition/load";
+import { readDefinition } from "../definition/types";
+import snapshotFile from "../../../fixtures/attempts/batch-1/task-0001/definition.json";
 import { RunsView } from "./RunsView";
 
 function show(
@@ -369,6 +371,60 @@ describe("the run shown in the Runs column", () => {
     list.scrollTop = 0;
     rerender(view({ state: "ok", data: { shape: "none" } }));
     expect(list.scrollTop).toBe(120);
+    vi.restoreAllMocks();
+  });
+});
+
+describe("the Runs column's two lists", () => {
+  const project = { ...sampleProject, definition: "definition.json" };
+  const snapshot = readDefinition(JSON.stringify(snapshotFile));
+  const view = (defn: string | null) => (
+    <MemoryRouter>
+      <RunsView
+        project={project}
+        attempt="batch-1/task-0001"
+        record={records.passed}
+        run={null}
+        definition={{ state: "ok", data: snapshot }}
+        defn={defn}
+      />
+    </MemoryRouter>
+  );
+
+  it("each scroll on their own, the definition's at most its token tall and the runs' at least theirs, a keyboard reaching each", () => {
+    render(view(null));
+
+    const definition = screen.getByRole("region", { name: "Definition list" });
+    const runs = screen.getByRole("region", { name: "Runs list" });
+    expect(within(definition).getAllByRole("link").length).toBeGreaterThan(1);
+    expect(definition).toHaveAttribute("tabindex", "0");
+    expect(definition).toHaveClass(
+      "max-h-definition-list",
+      "flex-none",
+      "overflow-y-auto",
+    );
+    expect(runs).toHaveAttribute("tabindex", "0");
+    expect(runs).toHaveClass("min-h-run-list", "flex-auto", "overflow-y-auto");
+    expect(definition.contains(runs)).toBe(false);
+  });
+
+  it("brings the definition's entry shown to the top of its list", () => {
+    // jsdom lays nothing out: the entry shown sits 90px down its list.
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.getAttribute("aria-current") === "page" ? 90 : 0;
+      },
+    );
+    const { rerender } = render(view(null));
+    const definition = screen.getByRole("region", { name: "Definition list" });
+    expect(definition.scrollTop).toBe(0);
+
+    rerender(view("workflow"));
+
+    expect(
+      within(definition).getByRole("link", { current: "page" }),
+    ).toBeVisible();
+    expect(definition.scrollTop).toBe(90);
     vi.restoreAllMocks();
   });
 });
