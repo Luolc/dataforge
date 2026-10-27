@@ -355,10 +355,10 @@ def test_start_forwarder_stops_waiting_once_its_calls_stop_is_set():
 
 
 def test_a_serve_that_waits_for_another_ends_once_its_calls_stop_is_set(
-  launcher: Launcher, tmp_path: Path
+  launcher: Launcher, socket_dir: Path
 ):
-  serve = cast(Serve, bindings(tmp_path / "root", clients={})["serve"])
-  lock = tmp_path / "root" / "dataforge-gateway" / "serve.lock"
+  serve = cast(Serve, bindings(socket_dir, clients={})["serve"])
+  lock = socket_dir / "dataforge-gateway" / "serve.lock"
   stop = stopping.Stop()
 
   def enter() -> None:
