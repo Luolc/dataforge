@@ -27,7 +27,7 @@ from dataforge.testrunner.core import (
   RUNNERS,
   spec,
 )
-from dataforge.testrunner.registry import MODULES
+from dataforge.testrunner.registry import GUARDS, MODULES
 from tests.testrunner.projects import write
 
 PACKAGE = Path(core.__file__).parent
@@ -291,10 +291,11 @@ def test_a_run_group_gets_the_files_of_its_parse_format():
 
 
 def test_the_host_registry_names_every_runner():
-  # A task's registry names only its runners; the host's names them all.
+  # A task's registry names only its runners; the host's names them all,
+  # and every guard.
   assert _modules(files(RUNNERS, ())) == MODULES
   host = (PACKAGE / "registry.py").read_bytes()
-  assert registry(RUNNERS) == host
+  assert registry(RUNNERS, GUARDS) == host
 
 
 # A manifest of each runner, and of a run group of each format.
@@ -340,10 +341,14 @@ def test_every_file_of_the_package_is_common_or_a_runners_or_a_formats():
     for p in PACKAGE.rglob("*")
     if p.suffix in (".py", ".cjs") and "__pycache__" not in p.parts
   }
-  assert package == needed | HOST
-  assert not needed & HOST
+  guards = {f"{m}.py" for m in GUARDS}
+  assert package == needed | guards | HOST
+  assert not (needed | guards) & HOST
   assert set(FORMAT_FILES) == set(FORMATS)
   assert set(files(RUNNERS, FORMATS)) == {f"testrunner/{n}" for n in needed}
+  assert set(files(RUNNERS, FORMATS, guards=GUARDS)) == {
+    f"testrunner/{n}" for n in needed | guards
+  }
 
 
 def test_the_common_files_name_no_runner_or_language_file():
