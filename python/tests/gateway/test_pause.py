@@ -481,8 +481,15 @@ def test_lift_reads_a_file_with_no_lifted_key(tmp_path: Path):
   found = Pause.create(tmp_path / "pause.json", Backoff())
   state = json.loads(found.path.read_text())
   assert "lifted" not in state
+  assert found.limited()
   assert found.lift("a@b")
   assert found.remaining() <= 0
+
+
+def test_lift_records_nothing_when_no_pause_is_under_way(tmp_path: Path):
+  found = Pause.create(tmp_path / "pause.json", Backoff())
+  assert not found.lift("a@b")
+  assert "lifted" not in json.loads(found.path.read_text())
 
 
 def test_lift_leaves_a_missing_file_missing(tmp_path: Path):

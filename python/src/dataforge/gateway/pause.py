@@ -196,7 +196,9 @@ class Pause:
       try:
         state = typing.cast(_State, json.loads(self.path.read_text()))
       except FileNotFoundError:
-        # A file removed by hand holds no pause; a change is written anew.
+        # A file removed by hand holds no pause; a change is written anew,
+        # with the backoff `create` or `shared` gave this pause, else the
+        # default (a proxy's pause knows none).
         state = _new(self._backoff)
       before = state.copy()
       yield state
@@ -335,16 +337,19 @@ class Pause:
       by: Who lifts it.
 
     Returns:
-      Whether a file holds the pause; a missing file is left missing.
+      Whether a pause was under way; when none was, or the file is missing,
+      nothing is written.
     """
-    if not self.path.exists():
-      return False
     now = time.time()
     with self._state() as state:
-      left = max(state["until"] - now, 0.0)
-      state.update(
-        until=state["until"] - left, paused_s=state["paused_s"] - left
-      )
+      if (
+        state["stopped"] is not None
+        or state["until"] <= now
+        or not self.path.exists()
+      ):
+        return False
+      left = state["until"] - now
+      state.update(until=now, paused_s=state["paused_s"] - left)
       state["lifted"] = {"by": by, "at": now}
     return True
 

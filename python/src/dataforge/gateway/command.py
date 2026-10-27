@@ -38,7 +38,7 @@ def run(args: argparse.Namespace) -> int:
       pause = Pause(state_dir() / "pause" / f"{channel.value}.json")
       if lift:
         done = pause.lift(f"{getpass.getuser()}@{socket.gethostname()}")
-        print(f"{channel.value}: {'cleared' if done else 'no pause'}")
+        print(f"{channel.value}: {'cleared' if done else 'no pause under way'}")
       else:
         print(f"{channel.value}: {_describe(pause)}")
   except (OSError, ValueError, KeyError) as error:
