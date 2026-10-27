@@ -281,7 +281,14 @@ item: {depth: 1, title: Batch}
 statuses:
   passed: {label: Passed, tone: good}
 deliverables:
-  - {name: "output", kind: "files", title: "Output"}
+  - name: output
+    kind: files
+    title: Output
+    newest:
+      dirs: "*"
+      file: newest.json
+      when: {field: [status], equals: passed}
+      path: [id]
   - {name: "logs", kind: "files", title: "Logs"}
 kinds:
   files: {title: Files}
@@ -293,6 +300,8 @@ kinds:
   project_deliverables = cast(
     list[dict[str, object]], project_data["deliverables"]
   )
+  assert project_deliverables[0]["newest"] is True
+  assert project_deliverables[1]["newest"] is False
 
   data = export_json("example", ["item-1"])
   data["deliverables"] = project_deliverables
@@ -303,7 +312,5 @@ kinds:
   public = export.public()
   public_deliverables = cast(list[dict[str, object]], public["deliverables"])
   assert len(public_deliverables) == 2
-  assert all(
-    isinstance(d.get("newest"), bool) or "newest" not in d
-    for d in public_deliverables
-  )
+  assert public_deliverables[0]["newest"] is True
+  assert public_deliverables[1]["newest"] is False
