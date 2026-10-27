@@ -50,12 +50,14 @@ interface Totals {
  * The session's last call, its last assistant event at the top level that
  * a fallback did not retract: its message ID, its input tokens, cached ones
  * counted, and the output tokens the event gives, which is how far its
- * output had got when the event was written, not its final count.
+ * output had got when the event was written, not its final count; and its
+ * final output tokens when the trace gives them.
  */
 interface LastCall {
   id: string | null;
   input: number | null;
   output: number | null;
+  final: number | null;
 }
 
 export interface Session {
@@ -227,6 +229,7 @@ export function parseTrace(text: string): Session {
     (c) => c.uuid === null || !retracted.has(c.uuid),
   );
   const last = kept.at(-1);
+  const input = last === undefined ? null : inputOf(last.usage);
   return {
     totals: {
       seconds: ms === null ? null : ms / 1000,
@@ -240,8 +243,9 @@ export function parseTrace(text: string): Session {
         ? null
         : {
             id: last.id,
-            input: inputOf(last.usage),
+            input,
             output: num(last.usage["output_tokens"]),
+            final: resultOutput(assistants, input, result),
           },
     preamble: begun ? preamble : [],
     entries: begun ? entries : preamble,
@@ -249,6 +253,23 @@ export function parseTrace(text: string): Session {
     failed: all.filter((call) => call.failed).length,
     thinking: countThinking(entries),
   };
+}
+
+/**
+ * The final output tokens of a session's only call, from its result line,
+ * whose usage sums all its calls: null when the session made more than one
+ * call at the top level, or when the result's input tokens differ from the
+ * call's, as they do when a subagent's calls are counted in them.
+ */
+function resultOutput(
+  assistants: { id: string | null }[],
+  input: number | null,
+  result: Json | null,
+): number | null {
+  if (input === null || result === null) return null;
+  if (new Set(assistants.map((a) => a.id)).size !== 1) return null;
+  const usage = isObject(result["usage"]) ? result["usage"] : {};
+  return inputOf(usage) === input ? num(usage["output_tokens"]) : null;
 }
 
 /** A call's input tokens, cached ones counted; null when it gives none. */

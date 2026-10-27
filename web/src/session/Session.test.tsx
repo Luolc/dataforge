@@ -286,7 +286,7 @@ describe("the session view", () => {
       traceLength: { state: "none", why: "Not recorded." },
     });
     expect(screen.getByText("trace length").parentElement).toHaveTextContent(
-      "trace length —",
+      "trace length not known",
     );
   });
 
@@ -527,6 +527,53 @@ describe("SessionView", () => {
     expect(await screen.findByText("40K")).toBeVisible();
   });
 
+  it("reads a one-call session's trace length from its result line, with no transcript", async () => {
+    const trace = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "s-2" }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "m1",
+          content: [{ type: "text", text: "Pass." }],
+          usage: {
+            input_tokens: 2,
+            cache_creation_input_tokens: 16889,
+            output_tokens: 2,
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "result",
+        num_turns: 1,
+        usage: {
+          input_tokens: 2,
+          cache_creation_input_tokens: 16889,
+          output_tokens: 1831,
+        },
+      }),
+    ].join("\n");
+    const read = vi.fn((url: string) => {
+      const path = new URL(url, "http://viz").searchParams.get("path");
+      if (path === "review.trace.jsonl")
+        return Promise.resolve(new Response(trace));
+      return Promise.resolve(
+        Response.json({ error: "not found", reason: "" }, { status: 404 }),
+      );
+    });
+    vi.stubGlobal("fetch", read);
+    render(
+      <SessionView
+        project={project}
+        attempt="a/b"
+        path="review.trace.jsonl"
+        format="claude-code-stream-json"
+      />,
+    );
+
+    expect(await screen.findByText("19K")).toBeVisible();
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
   /** The trace at trial/trace.jsonl, its transcripts' listing and one. */
   function serveTrace(
     transcripts: () => Response,
@@ -558,12 +605,12 @@ describe("SessionView", () => {
     );
   }
 
-  /** Focus the trace length's dash, once its read has ended. */
-  async function focusDash() {
+  /** Focus the trace length's "not known", once its read has ended. */
+  async function focusNotKnown() {
     const shown = await screen.findByText(
-      (_, el) => el?.textContent === "trace length —",
+      (_, el) => el?.textContent === "trace length not known",
     );
-    fireEvent.focus(within(shown).getByText("—"));
+    fireEvent.focus(within(shown).getByText("not known"));
   }
 
   it("shows no trace length when no transcript records the last call", async () => {
@@ -571,11 +618,11 @@ describe("SessionView", () => {
       Response.json({ entries: [{ name: "-app", type: "dir", size: null }] }),
     );
 
-    await focusDash();
+    await focusNotKnown();
     expect(
       (
         await screen.findAllByText(
-          /^The final output of its last call is not known: no transcript/,
+          /^The final output of its last call is not known: the trace gives it only for a session of one call, in its result line, and no transcript/,
         )
       )[0],
     ).toBeInTheDocument();
@@ -589,7 +636,7 @@ describe("SessionView", () => {
       ),
     );
 
-    await focusDash();
+    await focusNotKnown();
     expect(
       (
         await screen.findAllByText(
@@ -604,7 +651,7 @@ describe("SessionView", () => {
         Response.json({ entries: [{ name: "-app", type: "dir", size: null }] }),
       () => new Response("", { status: 503 }),
     );
-    await focusDash();
+    await focusNotKnown();
     expect(
       (
         await screen.findAllByText(
