@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
+import { sampleProject } from "../../fixtures/sample";
+import { POLL_MS } from "../api/poll";
 import { Frame, Shell } from "./Shell";
 
 describe("the breadcrumb", () => {
@@ -68,6 +70,39 @@ describe("the breadcrumb", () => {
       expect(crumb).not.toHaveClass("whitespace-nowrap");
       expect(crumb).not.toHaveClass("truncate");
     }
+  });
+});
+
+describe("the projects", () => {
+  it("are read again while the page is open, so that a project file switched to shows", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let name = "Before the switch";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify([{ ...sampleProject, name }]), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <Shell />
+      </MemoryRouter>,
+    );
+    const site = within(screen.getByRole("navigation", { name: "Site" }));
+    expect(await site.findByText("Before the switch")).toBeVisible();
+
+    name = "After the switch";
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    });
+
+    expect(await site.findByText("After the switch")).toBeVisible();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 });
 

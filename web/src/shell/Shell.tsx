@@ -8,10 +8,11 @@ import {
   ListOrdered,
 } from "lucide-react";
 import { Collapsible } from "radix-ui";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 
-import { useJson, urls } from "../api/client";
+import { nextGeneration, useJson, urls } from "../api/client";
+import { usePolling } from "../api/poll";
 import {
   type Page,
   type Project,
@@ -26,7 +27,13 @@ const navItem =
   "target flex min-h-row w-full items-center gap-2 rounded-row px-1.5 font-medium hover:bg-hover aria-[current=page]:bg-active";
 
 export function Shell() {
-  const projects = useJson(urls.projects(), projectsSchema);
+  // Read again while the page is open, so that a project file the server
+  // was switched to reaches a page opened before the switch.
+  const [refresh, setRefresh] = useState(0);
+  usePolling(true, () => {
+    setRefresh(nextGeneration());
+  });
+  const projects = useSame(useJson(urls.projects(), projectsSchema, refresh));
   return (
     <ProjectsContext value={projects}>
       <Sidebar label="Site" page={<Outlet />}>
@@ -179,4 +186,15 @@ export function Frame({
       <div className="min-h-0 flex-auto overflow-auto">{children}</div>
     </div>
   );
+}
+
+/**
+ * The value, or the one before it while the two hold the same, so that a
+ * read again that brings nothing new renders nothing anew.
+ */
+function useSame<T>(value: T): T {
+  const [kept, setKept] = useState(value);
+  const same = kept === value || JSON.stringify(kept) === JSON.stringify(value);
+  if (!same) setKept(value);
+  return same ? kept : value;
 }

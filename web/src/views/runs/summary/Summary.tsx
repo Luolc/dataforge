@@ -1,6 +1,8 @@
 // The Summary of an attempt's runs: the top row, the machine with the
 // transitions taken, the task's tests and principles, the summaries its
 // actions wrote and its deliverables.
+import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { useId, useState } from "react";
 import { Link } from "react-router";
 
 import {
@@ -11,7 +13,7 @@ import {
   type Project,
 } from "../../../api/types";
 import { Card } from "../../../ui/card";
-import { runCount } from "../../../ui/format";
+import { counted, runCount } from "../../../ui/format";
 import { Markdown } from "../../../ui/markdown";
 import { NOT_RUN, stateTitle } from "../../../ui/status";
 import { declaredMissing, unfinished } from "../../attempt/declared";
@@ -19,7 +21,7 @@ import { attemptHref } from "../../attempt/href";
 import { declared } from "../../kind";
 import { KindLine } from "../../registry";
 import { Graph } from "./Graph";
-import { layout } from "./graph";
+import { hiddenOf, layout, type Scope } from "./graph";
 import { useMeasure } from "./measure";
 import { TaskCard } from "./Task";
 
@@ -42,18 +44,62 @@ export function Summary({
     attemptHref(project.id, attempt, { tab: "runs", run: index });
   const current = currentOf(record, live);
   const measure = useMeasure();
-  const machine = layout(record, project, current, measure);
+  const [scope, setScope] = useState<Scope>("taken");
+  const frameId = useId();
+  const hidden = hiddenOf(record, project, current);
+  const machine = layout(record, project, current, measure, scope);
   const runs = record.visits.length + (current && !current.recorded ? 1 : 0);
+  const shown =
+    hidden === null || scope === "all"
+      ? "solid lines are the transitions this attempt took"
+      : `${[
+          hidden.states > 0
+            ? counted(hidden.states, "state not run", "states not run")
+            : null,
+          hidden.transitions > 0
+            ? counted(
+                hidden.transitions,
+                "transition not taken",
+                "transitions not taken",
+              )
+            : null,
+        ]
+          .filter((part) => part !== null)
+          .join(" and ")} hidden`;
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <TopRow project={project} record={record} />
       <Card
         title="State machine"
-        aside={`${runCount(runs)} · solid lines are the transitions this attempt took · drag to pan, Ctrl+scroll to zoom`}
+        aside={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{`${runCount(runs)} · ${shown} · drag to pan, Ctrl+scroll to zoom`}</span>
+            {machine && hidden !== null && (
+              <button
+                type="button"
+                aria-expanded={scope === "all"}
+                aria-controls={frameId}
+                onClick={() => {
+                  setScope((s) => (s === "all" ? "taken" : "all"));
+                }}
+                className="inline-flex target items-center gap-1.5 rounded-row border border-line bg-panel px-2 font-medium text-fg-2 hover:bg-hover hover:text-fg"
+              >
+                {scope === "all" ? (
+                  <ChevronsDownUp className="size-3.5 text-icon" aria-hidden />
+                ) : (
+                  <ChevronsUpDown className="size-3.5 text-icon" aria-hidden />
+                )}
+                {scope === "all"
+                  ? "Show only what this attempt took"
+                  : "Show the whole machine"}
+              </button>
+            )}
+          </span>
+        }
         flush
       >
         {machine ? (
-          <Graph layout={machine} runHref={runHref} />
+          <Graph layout={machine} runHref={runHref} frameId={frameId} />
         ) : (
           <p className="p-4 text-fg-3">This record has no graph.</p>
         )}

@@ -6,6 +6,7 @@ import tangle from "../../../../fixtures/graph/attempts/batch-1/task-0303/record
 import rollout from "../../../../fixtures/graph/attempts/batch-1/task-0304/record.json";
 import swapped from "../../../../fixtures/graph/swapped-heights.json";
 import {
+  everyTaken,
   inReview,
   measured,
   must,
@@ -19,6 +20,7 @@ import {
   CARD_WIDTH,
   type Edge,
   END,
+  hiddenOf,
   labelLine,
   type Layout,
   layout,
@@ -52,17 +54,70 @@ describe("the graph", () => {
 
     expect(edge("author", "check").taken).toBe(true);
     expect(edge("author", "check").label.parts).toEqual([
-      { outcome: "done", label: "done", taken: 2, to: null },
+      { outcome: "done", label: "Done", taken: 2, to: null },
     ]);
     expect(edge("review", "author").taken).toBe(false);
     expect(edge("author", END).taken).toBe(false);
     expect(edge("solve", END).taken).toBe(true);
     // Every outcome is named, the taken one with its count.
     expect(edge("solve", END).label.parts).toEqual([
-      { outcome: "in_range", label: "in_range", taken: 1, to: null },
-      { outcome: "all_solved", label: "all_solved", taken: 0, to: null },
-      { outcome: "none_solved", label: "none_solved", taken: 0, to: null },
+      { outcome: "in_range", label: "In range", taken: 1, to: null },
+      { outcome: "all_solved", label: "All solved", taken: 0, to: null },
+      { outcome: "none_solved", label: "None solved", taken: 0, to: null },
     ]);
+  });
+
+  it("draws, when asked for what was taken, only the states that ran, the end once a transition into it was taken, and the outcomes taken", () => {
+    for (const r of [records.passed, records.raised, records.exhausted]) {
+      const whole = must(layout(r, sampleProject));
+      const taken = must(layout(r, sampleProject, null, undefined, "taken"));
+      const ran = new Set(r.visits.map((v) => v.state));
+      const counts = takenCounts(r, sampleProject);
+
+      expect(taken.nodes.map((n) => n.key)).toEqual(
+        whole.nodes
+          .map((n) => n.key)
+          .filter(
+            (k) =>
+              ran.has(k) ||
+              (k === END && whole.edges.some((e) => e.to === END && e.taken)),
+          ),
+      );
+      expect(taken.edges.flatMap((e) => e.label.parts)).toEqual(
+        whole.edges
+          .flatMap((e) => e.label.parts)
+          .filter((p) => p.taken > 0)
+          .map((p) => ({ ...p, to: null })),
+      );
+      expect(taken.hidden).toEqual({
+        states: must(r.graph).states.filter((s) => !ran.has(s.name)).length,
+        transitions: must(r.graph).edges.filter(
+          (e) => !counts.has(`${e.from}\0${e.outcome}`),
+        ).length,
+      });
+      expect(whole.hidden).toBeNull();
+    }
+  });
+
+  it("draws the whole machine, when asked for what was taken, of an attempt that reached every state and took every transition", () => {
+    const whole = must(layout(everyTaken, sampleProject));
+    const taken = must(
+      layout(everyTaken, sampleProject, null, undefined, "taken"),
+    );
+
+    expect(hiddenOf(everyTaken, sampleProject)).toBeNull();
+    expect(taken.hidden).toBeNull();
+    expect(taken.nodes.map((n) => n.key)).toEqual(
+      whole.nodes.map((n) => n.key),
+    );
+  });
+
+  it("draws the whole machine, when asked for what was taken, while no state has run", () => {
+    const none = { ...records.passed, status: null, visits: [] };
+    const taken = must(layout(none, sampleProject, null, undefined, "taken"));
+
+    expect(taken.hidden).toBeNull();
+    expect(taken.nodes).toHaveLength(must(none.graph).states.length + 1);
   });
 
   it("says a state's runs recorded no time when none had an action, not 0s", () => {
@@ -113,7 +168,7 @@ describe("the graph", () => {
     expect(check.status).toEqual({ label: "Exception", tone: "bad" });
   });
 
-  it("names each outcome on an edge by the project's label, else by itself", () => {
+  it("names each outcome on an edge by the project's label, else as `readable` spells it", () => {
     const project = {
       ...sampleProject,
       statuses: {
@@ -128,7 +183,7 @@ describe("the graph", () => {
     expect(solve.label.parts.map(labelLine)).toEqual([
       "In range ×1",
       "All solved",
-      "none_solved",
+      "None solved",
     ]);
   });
 
@@ -143,7 +198,7 @@ describe("the graph", () => {
       taken: false,
     });
     expect(edge("review", "author").label.parts).toEqual([
-      { outcome: "fail", label: "Fail", taken: 0, to: "author" },
+      { outcome: "fail", label: "Fail", taken: 0, to: "Author" },
     ]);
     // Not taken, to the end.
     expect(edge("author", END)).toMatchObject({ stub: true, taken: false });
