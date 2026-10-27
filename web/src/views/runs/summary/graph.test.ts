@@ -582,6 +582,21 @@ describe("the layout's shapes", () => {
     expect(found).toEqual({ busy: [], early: [], tangle: [], rollout: [] });
   });
 
+  it("keep every label inside the graph's width and height", () => {
+    for (const json of [busy, early, tangle, rollout, wide]) {
+      for (const scope of ["all", "taken"] as const) {
+        const drawn = must(
+          layout(record.parse(json), sampleProject, null, widest, scope),
+        );
+        for (const e of drawn.edges) {
+          const box = labelBox(e);
+          expect(box.x1).toBeLessThanOrEqual(drawn.width);
+          expect(box.y1).toBeLessThanOrEqual(drawn.height);
+        }
+      }
+    }
+  });
+
   it("keep each label as wide as the project's label of its outcome", () => {
     // Every outcome of these records labelled far wider than its name.
     const outcomes = Object.values({ busy, early, tangle, rollout }).flatMap(
