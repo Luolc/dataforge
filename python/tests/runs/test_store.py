@@ -279,6 +279,26 @@ def _kept(state: str, holder: Leader) -> AttemptRow:
   )
 
 
+def test_listing_gives_the_rows_of_the_ids_and_the_item_asked_alone(
+  store: Store, me: Leader
+) -> None:
+  old = _kept("ended", me)
+  assert store.add(old)
+  new = _in(store, "ended", me)
+  other = _in(store, "ended", me, item="item-2")
+
+  def listed(
+    item: str | None = None, ids: list[str] | None = None
+  ) -> list[str]:
+    return [row.id for row in store.listing(item=item, ids=ids)]
+
+  assert listed() == [old.id, new, other]
+  assert listed(ids=[other]) == [other]
+  assert listed(ids=[new, old.id, "item-9/none"]) == [old.id, new]
+  assert listed(ids=[]) == []
+  assert listed(item=ITEM, ids=[new, other]) == [new]
+
+
 @pytest.mark.parametrize("state", ["ended", "interrupted"])
 def test_add_keeps_a_row_as_it_is_given_with_no_holder(
   store: Store, gone: Leader, state: str
