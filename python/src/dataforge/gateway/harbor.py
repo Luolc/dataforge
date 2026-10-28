@@ -115,8 +115,8 @@ class ClaudeCode(HarborClaudeCode):
 
   A loaded session goes where Harbor puts it, under the project of the
   working directory /app, with the directory of its tool results and
-  subagents beside it; a session from another working directory is not
-  found there.
+  subagents beside it, given to the agent's user as Harbor gives the
+  session; a session from another working directory is not found there.
   """
 
   def __init__(
@@ -162,8 +162,13 @@ class ClaudeCode(HarborClaudeCode):
     beside = source.with_suffix("")
     if beside.is_dir(follow_symlinks=False):
       projects = EnvironmentPaths.agent_dir / "sessions" / "projects"
-      target = projects / "-app" / beside.name
-      await environment.upload_dir(beside, target.as_posix())
+      target = (projects / "-app" / beside.name).as_posix()
+      await environment.upload_dir(beside, target)
+      if environment.default_user is not None:
+        user = shlex.quote(str(environment.default_user))
+        await self.exec_as_root(
+          environment, command=f"chown -R {user} {shlex.quote(target)}"
+        )
 
   @override
   async def install(self, environment: BaseEnvironment) -> None:

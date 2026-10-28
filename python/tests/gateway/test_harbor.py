@@ -251,7 +251,11 @@ def session_files(tmp_path: Path) -> Path:
 
 
 def run_claude(
-  tmp_path: Path, *, load: bool, resume_instruction: Path | None
+  tmp_path: Path,
+  *,
+  load: bool,
+  resume_instruction: Path | None,
+  user: str | None = None,
 ) -> Session:
   agent = ClaudeCode(
     logs_dir=tmp_path / "logs",
@@ -262,6 +266,7 @@ def run_claude(
     else str(resume_instruction),
   )
   environment = Session()
+  environment.default_user = user
   start = agent.load if load else agent.run
   asyncio.run(
     start("The task's instruction.", container(environment), AgentContext())
@@ -312,3 +317,18 @@ def test_claude_code_loaded_without_a_resume_instruction_gets_the_tasks(
   environment = run_claude(tmp_path, load=True, resume_instruction=None)
   assert f"--resume {SESSION_ID} " in environment.commands[-1]
   assert message(environment) == "The task's instruction."
+
+
+def test_claude_code_gives_a_loaded_sessions_files_to_the_agents_user(
+  tmp_path: Path,
+):
+  # As Harbor gives the session's file to the task's agent user, so the
+  # directory beside it, which the session writes on into.
+  environment = run_claude(
+    tmp_path, load=True, resume_instruction=None, user="agent"
+  )
+  project = "/logs/agent/sessions/projects/-app"
+  # Harbor runs each command after a prefix of its own.
+  ran = [c.rsplit("; ", 1)[-1] for c in environment.commands]
+  assert f"chown agent {project}/{SESSION_ID}.jsonl" in ran
+  assert f"chown -R agent {project}/{SESSION_ID}" in ran

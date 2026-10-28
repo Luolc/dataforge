@@ -2037,7 +2037,8 @@ def test_a_trial_goes_on_with_the_earlier_session_at_the_hosts_cost(
   tmp_path: Path, fakes: tuple[Path, Path]
 ) -> None:
   # The session counts 1.504 USD, within the tolerance of the 1.5 this host
-  # recorded; the cap and the cost rest on 1.5 alone.
+  # recorded; the cost rests on 1.5 alone. The cap is passed as it is:
+  # Claude Code caps only what the session spends once loaded.
   earlier = earlier_trial(tmp_path, cost_state=1.504)
   instruction = tmp_path / "continue.md"
   _ = instruction.write_text("Go on.\n")
@@ -2052,7 +2053,7 @@ def test_a_trial_goes_on_with_the_earlier_session_at_the_hosts_cost(
     (session / f"{SESSION_ID}.jsonl").resolve()
   )
   assert kwargs_of(argv) == {
-    "max_budget_usd": "11.500000",
+    "max_budget_usd": "10.0",
     "resume_instruction": str(instruction.resolve()),
   }
   assert result.cost_usd == 0.75
@@ -2073,8 +2074,13 @@ def test_a_trial_goes_on_from_what_a_session_gone_on_with_had_cost(
     tmp_path, resume={"session": SESSION_ID, "base_usd": 1.0, "why": None}
   )
   out = outdir(tmp_path)
-  _ = runner(fakes).run(task(tmp_path), resuming(earlier, 0.5), Limits(2), out)
-  assert kwargs_of(seen_argv(out))["max_budget_usd"] == "11.500000"
+  env = {"FAKE_COST": "none", "FAKE_TRACE": "2.25"}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), resuming(earlier, 0.5), Limits(2), out
+  )
+  assert kwargs_of(seen_argv(out))["max_budget_usd"] == "10.0"
+  assert json.loads((out / harbor.RESUME_FILE).read_text())["base_usd"] == 1.5
+  assert result.cost_usd == 0.75
 
 
 def test_a_trial_without_resume_runs_as_before(
@@ -2122,6 +2128,19 @@ def test_a_trial_without_resume_runs_as_before(
         }
       },
       "the earlier session ended on a refusal",
+    ),
+    (
+      # A subagent's response refused, the main loop ending as usual.
+      {
+        "result": {
+          "type": "result",
+          "subtype": "success",
+          "stop_reason": "end_turn",
+          "safety_stops": 1,
+          "session_id": SESSION_ID,
+        }
+      },
+      "the earlier session counts 1 safety stops",
     ),
     (
       {

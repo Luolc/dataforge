@@ -99,13 +99,15 @@ spans the whole trial and may add to the other three for that trial.
 A trial of Claude Code may go on with the session of an earlier trial
 (`resumption`): Harbor loads that session (`--load-trajectory`), and
 `dataforge.gateway.harbor.ClaudeCode` uploads it and sends it the next
-message. A session that ended on a fault or a refusal, or whose own count of
-its cost is not this host's, is not loaded, and the trial starts anew. As a
-loaded session counts its cost from what it had cost, its spend cap is raised
-by that much and the trial's cost is what the count grew by; what it had
-cost is this host's count, never the session file's, which the earlier
-trial's container could write. The trial's directory says in RESUME_FILE
-which it did and why.
+message. A session that ended on a fault or a refusal, or that the model's
+safety system stopped at any point, or whose own count of its cost is not
+this host's, is not loaded, and the trial starts anew. A loaded session's
+`max_budget_usd` is passed as it is: Claude Code caps only what a session
+spends after it was loaded. Its trace counts its cost on from what it had
+cost, so the trial's cost is what that count grew by; what it had cost is
+this host's count, never the session file's, which the earlier trial's
+container could write. The trial's directory says in RESUME_FILE which it
+did and why.
 """
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -1057,9 +1059,6 @@ def _agent_args(agent: TrialAgent, resumed: Resumed | None) -> list[str]:
   kwargs = dict(cast(Mapping[str, object], agent.get("kwargs", {})))
   if resumed is not None and resumed.session is not None:
     args += ["--load-trajectory", str(resumed.session.resolve())]
-    if "max_budget_usd" in kwargs:
-      cap = float(cast(str | float, kwargs["max_budget_usd"]))
-      kwargs["max_budget_usd"] = f"{cap + resumed.base_usd:.6f}"
     if resumed.instruction is not None:
       kwargs["resume_instruction"] = str(resumed.instruction.resolve())
   for key, value in kwargs.items():
@@ -1143,7 +1142,9 @@ def resumption(
   """Say whether a trial can go on with the Claude Code session of another.
 
   It can when the earlier trial is one Harbor trial whose trace says the
-  session ended `success` with no fault and no refusal, and gives its ID;
+  session ended `success` with no fault and no refusal, counts no safety
+  stop (`safety_stops`, a refused response anywhere in the session, its
+  subagents' included), and gives its ID;
   when the trial holds that one session, `<id>.jsonl`, under SESSIONS; and
   when the session's own count of its cost, its last `cost-state`, is
   within COST_TOLERANCE_USD of this host's: cost_usd, plus, when the earlier
@@ -1201,6 +1202,9 @@ def _session_file(trial: Path) -> Path | str:
     return "the earlier session ended on a refusal"
   if session.subtype != "success" or session.fault is not None:
     return f"the earlier session ended {session.subtype} ({session.fault})"
+  stops = session.result.get("safety_stops", 0)
+  if isinstance(stops, bool) or not isinstance(stops, int) or stops != 0:
+    return f"the earlier session counts {stops!r} safety stops"
   try:
     session_id = str(uuid.UUID(session.session_id or ""))
   except ValueError:
