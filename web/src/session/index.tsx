@@ -131,11 +131,10 @@ export function SessionView({
   path,
   format,
   badge,
-  startOpen,
   totals,
   output = "transcript",
 }: {
-  /** The project's ID and how its sessions show thinking. */
+  /** The project's ID and its sessions' thinking and start_open. */
   project: Pick<Project, "id" | "session">;
   attempt: string;
   /** The trace, relative to the attempt's directory. */
@@ -143,8 +142,6 @@ export function SessionView({
   format: string | null;
   /** The result at the head of the session, such as a trial's reward. */
   badge?: ReactNode;
-  /** Whether every fold starts open, as in SessionBody. */
-  startOpen?: boolean;
   /** Which totals the header shows, as in SessionBody. */
   totals?: SessionTotals;
   /**
@@ -192,7 +189,7 @@ export function SessionView({
         thinking={project.session.thinking}
         badge={badge}
         traceLength={traceLength}
-        {...(startOpen === undefined ? {} : { startOpen })}
+        startOpen={project.session.start_open === true}
         {...(totals === undefined ? {} : { totals })}
       />
     );

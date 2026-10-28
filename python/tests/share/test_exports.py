@@ -314,3 +314,31 @@ kinds:
   assert len(public_deliverables) == 2
   assert public_deliverables[0]["newest"] is True
   assert public_deliverables[1]["newest"] is False
+
+
+def test_a_session_that_starts_open_reaches_the_page() -> None:
+  data = with_columns(session={"thinking": "collapsed", "start_open": True})
+
+  export = parse(json.dumps(data).encode())
+
+  assert export.public()["session"] == {
+    "thinking": "collapsed",
+    "start_open": True,
+  }
+
+
+def test_a_session_without_start_open_starts_folded() -> None:
+  export = parse(json.dumps(with_columns()).encode())
+
+  assert export.public()["session"] == {
+    "thinking": "collapsed",
+    "start_open": False,
+  }
+
+
+@pytest.mark.parametrize("value", ["yes", 1, None])
+def test_a_start_open_that_is_not_a_boolean_is_refused(value: object) -> None:
+  data = with_columns(session={"thinking": "collapsed", "start_open": value})
+
+  with pytest.raises(ExportError, match=r"session\.start_open: not a boolean"):
+    _ = parse(json.dumps(data).encode())

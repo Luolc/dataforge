@@ -239,6 +239,36 @@ describe("the trials view", () => {
     expect(field("Cost")).toHaveTextContent(/^—$/);
   });
 
+  it("opens every fold of the session from the start when the project's session says start_open", async () => {
+    const view = (shown: Project) =>
+      render(
+        <TrialsView
+          project={shown}
+          attempt="pass-at-k"
+          record={attempt}
+          deliverable={must(attempt.deliverables?.[0])}
+        />,
+      );
+    const folds = async () => {
+      const trace = screen.getByRole("tabpanel", { name: "Trace" });
+      await within(trace).findByText("Expand all");
+      return within(trace)
+        .getAllByRole("button")
+        .filter((button) => button.hasAttribute("aria-expanded"));
+    };
+
+    view({ ...project, session: { thinking: "collapsed", start_open: true } });
+    const open = await folds();
+    expect(open.some((b) => b.textContent.startsWith("Thinking"))).toBe(true);
+    expect(open.some((b) => b.textContent.startsWith("Read"))).toBe(true);
+    expect(open.every((b) => b.ariaExpanded === "true")).toBe(true);
+    expect(screen.getByRole("button", { name: "Collapse all" })).toBeVisible();
+    cleanup();
+
+    view(project);
+    expect((await folds()).some((b) => b.ariaExpanded === "false")).toBe(true);
+  });
+
   it("takes the badge from the reward, not from the agent's last word", async () => {
     show();
     fireEvent.click(trial("Trial 2"));
