@@ -1460,3 +1460,79 @@ def test_each_state_names_the_outcomes_it_may_give_after_rename(
     "rubric": {"pass", "fail"},
     "state": None,
   }
+
+
+RESUMING: dict[str, object] = {"name": "claude-code", "kwargs": {"x": 1}}
+
+
+def test_pass_at_k_resumes_each_slots_last_trial_of_the_visit_before(
+  tmp_path: Path,
+) -> None:
+  script, file = tmp_path / "retry.py", tmp_path / "plan.json"
+  _ = script.write_text(RETRY)
+  # Slot 1 runs again on each visit's first retry call; then none does.
+  _ = file.write_text(json.dumps([[1], []]))
+  instruction = tmp_path / "continue.md"
+  _ = instruction.write_text("Go on.\n")
+  costs = {"trial-0": 0.5, "trial-1": 0.25, "trial-1-r1": 0.75}
+  trials = Trials({n: priced(0.0, cost_usd=c) for n, c in costs.items()})
+  state = PassAtKState(
+    "p",
+    {"none_solved": Goto("p")},
+    max_visits=2,
+    actions=Actions(trial_runner=trials),
+    task_dir=tmp_path,
+    agent=RESUMING,
+    limits=Limits(1.0),
+    k=2,
+    retry=ScriptSpec([sys.executable, "-I", str(script)], inputs=[file]),
+    max_retries=4,
+    max_cost_usd=8.0,
+    resume=True,
+    resume_instruction=instruction,
+  )
+  root = tmp_path / "a"
+  _ = Machine([state]).run(root)
+  agents = [cast(dict[str, object], a) for a in trials.agents]
+  # The first visit's three trials resume nothing.
+  assert agents[:3] == [RESUMING] * 3
+  # The second visit's: slot 0 its trial of the first visit, slot 1 the one
+  # run again in its place, each with the cost its record gives; the trial
+  # run again starts anew.
+  visit = root / "artifacts" / "p" / "1"
+  assert trials.calls["trial-0"][1] == {
+    **RESUMING,
+    "resume": {
+      "trial": str(visit / "trial-0"),
+      "cost_usd": 0.5,
+      "instruction": str(instruction),
+    },
+  }
+  assert trials.calls["trial-1"][1] == {
+    **RESUMING,
+    "resume": {
+      "trial": str(visit / "trial-1-r1"),
+      "cost_usd": 0.75,
+      "instruction": str(instruction),
+    },
+  }
+  assert trials.calls["trial-1-r1"][1] == RESUMING
+  assert len(agents) == 6
+
+
+def test_pass_at_k_without_resume_gives_its_agent_as_it_is(
+  tmp_path: Path,
+) -> None:
+  trials = Trials({f"trial-{i}": result(0.0) for i in range(2)})
+  state = PassAtKState(
+    "p",
+    {"none_solved": Goto("p")},
+    max_visits=2,
+    actions=Actions(trial_runner=trials),
+    task_dir=tmp_path,
+    agent=RESUMING,
+    limits=Limits(1.0),
+    k=2,
+  )
+  _ = Machine([state]).run(tmp_path / "a")
+  assert trials.agents == [RESUMING] * 4

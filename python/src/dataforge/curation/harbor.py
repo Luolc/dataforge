@@ -95,6 +95,19 @@ twice, so the overlay leaves out the items the task's `main` already has, and
 A dataset connects its own host side (a model gateway, say) through `mounts`,
 `env`, extra compose files in `compose_overlay`, and `setup`, a context that
 spans the whole trial and may add to the other three for that trial.
+
+A trial of Claude Code may go on with the session of an earlier trial
+(`resumption`): Harbor loads that session (`--load-trajectory`), and
+`dataforge.gateway.harbor.ClaudeCode` uploads it and sends it the next
+message. A session that ended on a fault or a refusal, or that the model's
+safety system stopped at any point, or whose own count of its cost is not
+this host's, is not loaded, and the trial starts anew. A loaded session's
+`max_budget_usd` is passed as it is: Claude Code caps only what a session
+spends after it was loaded. Its trace counts its cost on from what it had
+cost, so the trial's cost is what that count grew by; what it had cost is
+this host's count, never the session file's, which the earlier trial's
+container could write. The trial's directory says in RESUME_FILE which it
+did and why.
 """
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -200,6 +213,15 @@ WRITTEN_FILE_LIMIT = 4096
 PIDS_HIT = "the agent's container hit its process limit"
 # The most bytes of PIDS_FILE read.
 PIDS_FILE_LIMIT = 4096
+# The file in a trial's directory that says whether it went on with an
+# earlier trial's session (`resumption`).
+RESUME_FILE = "resume.json"
+# How far a session's own count of its cost may be from this host's, in US
+# dollars, for the session to be loaded.
+COST_TOLERANCE_USD = 0.01
+# Where a Harbor trial of Claude Code keeps its sessions, relative to the
+# trial's directory, a project directory under it.
+SESSIONS = Path("agent", "sessions", "projects")
 
 
 class DockerError(subprocess.SubprocessError, RuntimeError):
@@ -296,10 +318,11 @@ class HarborRunner:
   """A TrialRunner that runs each trial as a Harbor job of one attempt.
 
   A trial's agent is "nop", "oracle", or a mapping with "name" (a Harbor agent)
-  or "import_path", and optionally "model" and "kwargs" (Harbor's
-  --agent-kwarg). The task's container gets limits.memory_gb and limits.cpus;
-  the egress sidecar, when there is one, gets sidecar's limits and SIDECAR_PIDS
-  processes.
+  or "import_path", and optionally "model", "kwargs" (Harbor's
+  --agent-kwarg) and "resume", the earlier trial whose session it goes on
+  with (`resumption`). The task's container gets limits.memory_gb and
+  limits.cpus; the egress sidecar, when there is one, gets sidecar's limits
+  and SIDECAR_PIDS processes.
 
   A trial's trace is the first file of TRACES that is a regular file in the
   trial's directory, not a symlink: `agent/claude-code.txt`, which Harbor's
@@ -413,13 +436,15 @@ class HarborRunner:
         budget, and no run follows it.
     """  # noqa: DOC502
     deadline = time.monotonic() + self.timeout
+    resumed = _resumed(agent)
+    args = _agent_args(agent, resumed)
     number = 1
     while True:
       result = self._set_up_and_run(
-        task_dir, agent, limits, outdir, deadline, number
+        task_dir, agent, limits, outdir, deadline, number, args
       )
       if number > RETRIES or _started(outdir) or time.monotonic() >= deadline:
-        return result
+        return result if resumed is None else resumed.record(outdir, result)
       kept = outdir / f"not-started-{number}"
       kept.mkdir()
       for name in ("harbor.log", "job", "overlay.json"):
@@ -435,6 +460,7 @@ class HarborRunner:
     outdir: Path,
     deadline: float,
     number: int,
+    args: Sequence[str],
   ) -> TrialResult:
     # Before anything that the cleanup would have to undo, on every run.
     stopping.check()
@@ -450,19 +476,18 @@ class HarborRunner:
         env={**self.env, **extra.env},
         compose_overlay=(*self.compose_overlay, *extra.compose_overlay),
       )
-      return runner._run(task_dir, agent, limits, outdir, deadline, number)
+      return runner._run(task_dir, args, limits, outdir, deadline, number)
 
   def _run(
     self,
     task_dir: Path,
-    agent: TrialAgent,
+    agent_args: Sequence[str],
     limits: Limits,
     outdir: Path,
     deadline: float,
     number: int,
   ) -> TrialResult:
     egress = _has_sidecar(task_dir)
-    agent_args = _agent_args(agent)
     label = uuid.uuid4().hex
     overlay = outdir / "overlay.json"
     task = _task_main(task_dir, self.docker)
@@ -1015,12 +1040,14 @@ def _has_sidecar(task_dir: Path) -> bool:
   return any(m not in (None, "public") for m in modes)
 
 
-def _agent_args(agent: TrialAgent) -> list[str]:
+def _agent_args(agent: TrialAgent, resumed: Resumed | None) -> list[str]:
   if isinstance(agent, str):
     return ["--agent", agent]
-  unknown = set(agent) - {"name", "import_path", "model", "kwargs"}
+  unknown = set(agent) - {"name", "import_path", "model", "kwargs", "resume"}
   if unknown or ("name" in agent) == ("import_path" in agent):
-    allowed = "one of name and import_path, and optionally model and kwargs"
+    allowed = (
+      "one of name and import_path, and optionally model, kwargs and resume"
+    )
     raise ValueError(f"an agent takes {allowed}, not {sorted(agent)}")
   args = (
     ["--agent", str(agent["name"])]
@@ -1029,10 +1056,222 @@ def _agent_args(agent: TrialAgent) -> list[str]:
   )
   if "model" in agent:
     args += ["--model", str(agent["model"])]
-  kwargs = cast(Mapping[str, object], agent.get("kwargs", {}))
+  kwargs = dict(cast(Mapping[str, object], agent.get("kwargs", {})))
+  if resumed is not None and resumed.session is not None:
+    args += ["--load-trajectory", str(resumed.session.resolve())]
+    if resumed.instruction is not None:
+      kwargs["resume_instruction"] = str(resumed.instruction.resolve())
   for key, value in kwargs.items():
     args += ["--agent-kwarg", f"{key}={value}"]
   return args
+
+
+@dataclass(frozen=True)
+class Resumed:
+  """How a trial asked to go on with an earlier trial's session starts.
+
+  Attributes:
+    trial: The earlier trial's output directory.
+    base_usd: What the session had cost before this trial, by this host's
+      count; 0 when the trial starts anew.
+    session: The session's file, `<id>.jsonl`, when the trial goes on with
+      it; None when it starts anew.
+    instruction: The file whose text the session gets as its next message,
+      if one does.
+    why: Why the trial starts anew; None when it goes on.
+  """
+
+  trial: Path
+  base_usd: float = 0.0
+  session: Path | None = None
+  instruction: Path | None = None
+  why: str | None = None
+
+  def record(self, outdir: Path, result: TrialResult) -> TrialResult:
+    """Write RESUME_FILE, and take what the session had cost from the cost.
+
+    Args:
+      outdir: The trial's output directory.
+      result: The trial's result.
+
+    Returns:
+      The result, its cost what the session's count grew by when it went
+      on, and no less than 0.
+    """
+    data = {
+      "trial": str(self.trial),
+      "session": None if self.session is None else self.session.stem,
+      "base_usd": self.base_usd,
+      "why": self.why,
+    }
+    with (outdir / RESUME_FILE).open("x") as out:
+      _ = out.write(json.dumps(data, indent=2) + "\n")
+    if self.session is None:
+      return result
+    return replace(result, cost_usd=max(result.cost_usd - self.base_usd, 0.0))
+
+
+def _resumed(agent: TrialAgent) -> Resumed | None:
+  # The agent's "resume", checked, and how the trial starts on it.
+  if isinstance(agent, str) or "resume" not in agent:
+    return None
+  spec = agent["resume"]
+  if not isinstance(spec, Mapping):
+    raise ValueError(f"an agent's resume is a mapping, not {spec!r}")
+  spec = cast(Mapping[str, object], spec)
+  trial, cost = spec.get("trial"), spec.get("cost_usd")
+  instruction = spec.get("instruction")
+  if (
+    set(spec) - {"trial", "cost_usd", "instruction"}
+    or not isinstance(trial, str | Path)
+    or isinstance(cost, bool)
+    or not isinstance(cost, int | float)
+    or cost < 0
+    or not isinstance(instruction, str | Path | None)
+  ):
+    allowed = "trial and cost_usd >= 0, and optionally instruction"
+    raise ValueError(f"an agent's resume takes {allowed}, not {dict(spec)}")
+  return resumption(
+    Path(trial), float(cost), None if instruction is None else Path(instruction)
+  )
+
+
+def resumption(
+  trial: Path, cost_usd: float, instruction: Path | None = None
+) -> Resumed:
+  """Say whether a trial can go on with the Claude Code session of another.
+
+  It can when the earlier trial is one Harbor trial whose trace says the
+  session ended `success` with no fault and no refusal, counts no safety
+  stop (`safety_stops`, a refused response anywhere in the session, its
+  subagents' included), and gives its ID;
+  when the trial holds that one session, `<id>.jsonl`, under SESSIONS; and
+  when the session's own count of its cost, its last `cost-state`, is
+  within COST_TOLERANCE_USD of this host's: cost_usd, plus, when the earlier
+  trial went on with a session too, what that one had cost before it by its
+  RESUME_FILE. Files the earlier trial's container wrote are read only up to
+  TRACE_LIMIT bytes and never through a link.
+
+  Args:
+    trial: The earlier trial's output directory.
+    cost_usd: The earlier trial's cost, as this host recorded it.
+    instruction: The file whose text the session gets next, if one does.
+
+  Returns:
+    How the trial starts: on the session, with what it had cost, or anew,
+    with why.
+  """
+  found = _resumable(trial, cost_usd)
+  if isinstance(found, str):
+    return Resumed(trial, why=found)
+  session, base = found
+  return Resumed(trial, base, session, instruction)
+
+
+def _resumable(trial: Path, cost_usd: float) -> tuple[Path, float] | str:
+  # The earlier trial's session and what it had cost, or why there is none.
+  earlier = resumed_base(trial)
+  if isinstance(earlier, str):
+    return earlier
+  base = cost_usd + earlier
+  found = _session_file(trial)
+  if isinstance(found, str):
+    return found
+  counted = _session_cost(found)
+  if isinstance(counted, str):
+    return counted
+  if abs(counted - base) > COST_TOLERANCE_USD:
+    return (
+      f"the session counts its cost {counted:.6f} USD, this host {base:.6f} USD"
+    )
+  return found, base
+
+
+def _session_file(trial: Path) -> Path | str:
+  # The file of the session that ended the earlier trial, or why it is not
+  # one to go on with.
+  results = sorted((trial / "job").glob("*/result.json"))
+  if len(results) != 1 or results[0].parent.is_symlink():
+    return f"the earlier trial has {len(results)} Harbor trials, not 1"
+  harbor_trial = results[0].parent
+  trace = harbor_trial / TRACES[0].path
+  if not _small_file(trace):
+    return f"the earlier trial has no {TRACES[0].path} to read"
+  session = claude.read_trace(trace)
+  if session.stop_reason == "refusal":
+    return "the earlier session ended on a refusal"
+  if session.subtype != "success" or session.fault is not None:
+    return f"the earlier session ended {session.subtype} ({session.fault})"
+  stops = session.result.get("safety_stops", 0)
+  if isinstance(stops, bool) or not isinstance(stops, int) or stops != 0:
+    return f"the earlier session counts {stops!r} safety stops"
+  try:
+    session_id = str(uuid.UUID(session.session_id or ""))
+  except ValueError:
+    return "the earlier session's trace gives no session ID"
+  files = sorted((harbor_trial / SESSIONS).glob(f"*/{session_id}.jsonl"))
+  if len(files) != 1 or not _small_file(files[0]):
+    return f"the earlier trial has {len(files)} files of session {session_id}"
+  if files[0].parent.is_symlink():
+    return f"the project of session {session_id} is a link"
+  return files[0]
+
+
+def resumed_base(trial: Path) -> float | str:
+  """Read what a trial's session had cost before it, by its RESUME_FILE.
+
+  Args:
+    trial: The trial's output directory.
+
+  Returns:
+    The `base_usd` of the session it went on with, by this host's count; 0
+    for a trial that went on with none; why it cannot be read, for a
+    RESUME_FILE that is not a regular file of the form `Resumed.record`
+    writes.
+  """
+  path = trial / RESUME_FILE
+  if not os.path.lexists(path):
+    return 0.0
+  if not _small_file(path):
+    return f"{path} is not a regular file of at most {TRACE_LIMIT} bytes"
+  try:
+    data = cast(object, json.loads(path.read_bytes()))
+  except (OSError, ValueError) as error:
+    return f"{path} cannot be read: {error}"
+  data = cast(dict[str, object], data) if isinstance(data, dict) else {}
+  base = data.get("base_usd")
+  if isinstance(base, bool) or not isinstance(base, int | float):
+    return f"{path} gives no base_usd"
+  return 0.0 if data.get("session") is None else float(base)
+
+
+def _session_cost(path: Path) -> float | str:
+  # The session's own count of its cost, its last `cost-state`, which Claude
+  # Code takes back when it goes on with the session.
+  counted: float | str = "the session has no cost-state"
+  for line in path.read_text(errors="replace").splitlines():
+    try:
+      event = cast(object, json.loads(line))
+    except json.JSONDecodeError:
+      continue
+    if not isinstance(event, dict):
+      continue
+    event = cast(dict[str, object], event)
+    if event.get("type") != "cost-state":
+      continue
+    total = event.get("totalCostUSD")
+    if isinstance(total, bool) or not isinstance(total, int | float):
+      return "the session has a cost-state with no totalCostUSD"
+    counted = float(total)
+  return counted
+
+
+def _small_file(path: Path) -> bool:
+  # A regular file, not a link, of at most TRACE_LIMIT bytes.
+  return (
+    path.is_file(follow_symlinks=False)
+    and path.stat(follow_symlinks=False).st_size <= TRACE_LIMIT
+  )
 
 
 def _stop(process: subprocess.Popen[bytes]) -> None:

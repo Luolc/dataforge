@@ -37,6 +37,7 @@ from dataforge.curation.engine import (
   Context,
   End,
   Goto,
+  Input,
   Outcome,
   read_json,
   State,
@@ -587,6 +588,14 @@ class PassAtKState(TrialState):
   outcome counts, and the judge, if any, gets the room left as
   DATAFORGE_RETRY_ROOM.
 
+  With resume, from the state's second visit on, the first trial of each
+  slot goes on with the session of the last trial of the same slot in the
+  visit before: an agent's configuration gets "resume", which names that
+  trial's output and the cost its record gives, and, with
+  resume_instruction, an input whose path is the file the session gets as
+  its next message, when that file exists (HarborRunner, `resumption`). A
+  slot the visit before ran no trial in, and a trial run again, start anew.
+
   Attributes:
     OUTCOMES: The outcomes it gives, before rename; with a judge, the
       judge's.
@@ -611,6 +620,8 @@ class PassAtKState(TrialState):
     judge: Judge | None = None,
     retry: ScriptSpec | None = None,
     max_retries: int = 0,
+    resume: bool = False,
+    resume_instruction: Input | None = None,
     rename: Mapping[str, str] | None = None,
     feedback: str | None = None,
     max_cost_usd: float = 0.0,
@@ -633,6 +644,10 @@ class PassAtKState(TrialState):
       retry: What chooses the slots whose trial runs again, if any do; it
         names no outputs.
       max_retries: With a retry, the most trials one visit runs again.
+      resume: Whether each slot's trial goes on with the session of the
+        slot's last trial in the visit before.
+      resume_instruction: With resume, the input whose path is the file
+        that a session gone on with gets as its next message, if any.
       rename: A new name for each outcome that is to have one, by its name.
       feedback: The state's feedback template.
       max_cost_usd: The most one visit may spend, in US dollars.
@@ -666,6 +681,52 @@ class PassAtKState(TrialState):
     self.judge: Judge | None = judge
     self.retry: ScriptSpec | None = retry
     self.max_retries: int = max_retries
+    self.resume: bool = resume
+    self.resume_instruction: Input | None = resume_instruction
+
+  def resumed(self, ctx: Context, name: str) -> TrialAgent:
+    """Return the agent of a slot's first trial, with what it resumes.
+
+    Args:
+      ctx: The visit's context.
+      name: The trial's output.
+
+    Returns:
+      The state's agent; with resume, from the second visit on, with
+      "resume" for the slot's last trial in the visit before, when there is
+      one.
+    """
+    agent = self.agent(ctx)
+    slot = pass_at_k_slot(name)
+    if not self.resume or isinstance(agent, str) or slot is None:
+      return agent
+    before = [
+      v
+      for v in ctx.attempt.visits
+      if v.state == ctx.state and v.visit == ctx.visit - 1
+    ]
+    found: tuple[int, ActionRecord, Path] | None = None
+    for action in before[-1].actions if before else ():
+      for output, path in action.outputs.items():
+        at = pass_at_k_slot(output) if action.kind == "trial" else None
+        if (
+          at is not None
+          and at[0] == slot[0]
+          and (found is None or at[1] > found[0])
+        ):
+          found = (at[1], action, path)
+    if found is None:
+      return agent
+    _, action, path = found
+    resume: dict[str, object] = {
+      "trial": str(ctx.attempt.root / path),
+      "cost_usd": action.cost_usd,
+    }
+    if self.resume_instruction is not None:
+      given = ctx.resolve([], [self.resume_instruction]).values()
+      if (instruction := next(iter(given), None)) is not None:
+        resume["instruction"] = str(instruction)
+    return {**agent, "resume": resume}
 
   @override
   def given_outcomes(self) -> frozenset[str] | None:
@@ -744,7 +805,11 @@ class PassAtKState(TrialState):
     start = ctx.attempt.cost_usd
 
     def one(name: str) -> Callable[[], TrialResult]:
-      return lambda: self.trial(ctx, name)
+      if not self.resume:
+        return lambda: self.trial(ctx, name)
+      return lambda: self.actions.trial(
+        ctx, name, self.task_dir(ctx), self.resumed(ctx, name), self.limits(ctx)
+      )
 
     def again(name: str, replaces: str) -> Callable[[], TrialResult]:
       return lambda: self.trial(ctx, name, replaces)
