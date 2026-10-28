@@ -123,7 +123,7 @@ def test_the_site_has_its_layout(tmp_path: Path) -> None:
       "id": "example",
       "name": "Example",
       "color": "#3a7bd5",
-      "session": {"thinking": "collapsed"},
+      "session": {"thinking": "collapsed", "start_open": False},
       "statuses": {"pass": {"label": "Pass", "tone": "good"}},
       "columns": [],
       "trials": None,

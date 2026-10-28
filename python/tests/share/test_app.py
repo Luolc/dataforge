@@ -268,7 +268,7 @@ def test_a_token_sees_only_the_projects_it_names(tree: Tree) -> None:
       "id": "example",
       "name": "Example",
       "color": "#3a7bd5",
-      "session": {"thinking": "collapsed"},
+      "session": {"thinking": "collapsed", "start_open": False},
       "statuses": {"pass": {"label": "Pass", "tone": "good"}},
       "columns": [],
       "trials": None,

@@ -60,10 +60,10 @@ function Where() {
   return <output data-testid="where">{useLocation().search}</output>;
 }
 
-function show(at: string, outside = false) {
+function show(at: string, outside = false, shown: Project = project) {
   render(
     <OutsideContext value={outside}>
-      <ProjectsContext value={{ state: "ok", data: [project] }}>
+      <ProjectsContext value={{ state: "ok", data: [shown] }}>
         <MemoryRouter initialEntries={[`/regrade/attempt?id=regrade${at}`]}>
           <Routes>
             <Route
@@ -127,6 +127,21 @@ describe("a trial that judged another trial's output again", () => {
     expect(screen.getByRole("button", { name: "Pass@k" })).toBeVisible();
     expect(trial("Trial 1")).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByText("Expand all")).toBeVisible();
+  });
+
+  it("opens every fold of the trace it judged from the start when the project's session says start_open", async () => {
+    show("&tab=trials&deliverable=regrade&trial=regrade-1", true, {
+      ...project,
+      session: { thinking: "collapsed", start_open: true },
+    });
+
+    const trace = await screen.findByRole("tabpanel", { name: "Trace" });
+    expect(await within(trace).findByText("Collapse all")).toBeVisible();
+    const folds = within(trace)
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("aria-expanded"));
+    expect(folds.length).toBeGreaterThan(0);
+    expect(folds.every((b) => b.ariaExpanded === "true")).toBe(true);
   });
 
   it("in the viewer, heads the trace it judged with its cost, and with no trace length when no transcript gives it", async () => {

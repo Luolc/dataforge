@@ -3,7 +3,8 @@
 An export directory holds:
 
   export.json          {format, project: {id, name, color},
-                        session: {thinking}, statuses, columns, trials,
+                        session: {thinking, start_open}, statuses,
+                        columns, trials,
                         deliverables, kinds,
                         items: [{id, revision, values, reads}],
                         listed_only: [<path>]}
@@ -114,6 +115,7 @@ class Export:
     deliverables: The entries of the deliverables, as a viewer's project
       gives them.
     kinds: The title of each deliverable kind's tab, by kind.
+    start_open: Whether every fold of a session view starts open.
   """
 
   id: str
@@ -127,6 +129,7 @@ class Export:
   trials: dict[str, object] | None = None
   deliverables: tuple[dict[str, object], ...] = ()
   kinds: dict[str, dict[str, str]] = field(default_factory=dict)
+  start_open: bool = False
 
   def public(self) -> dict[str, object]:
     """Return the project as a page reads it, without its items.
@@ -138,7 +141,7 @@ class Export:
       "id": self.id,
       "name": self.name,
       "color": self.color,
-      "session": {"thinking": self.thinking},
+      "session": {"thinking": self.thinking, "start_open": self.start_open},
       "statuses": self.statuses,
       "columns": list(self.columns),
       "trials": self.trials,
@@ -246,9 +249,14 @@ def parse(data: bytes) -> Export:
   color = _str("project.color", project["color"])
   if not _COLOR.fullmatch(color):
     raise ExportError(f"project.color: {color!r} is not #rrggbb")
-  session = _mapping("session", top.get("session", {}), set(), {"thinking"})
+  session = _mapping(
+    "session", top.get("session", {}), set(), {"thinking", "start_open"}
+  )
   thinking = _str("session.thinking", session.get("thinking", "hidden"))
   _one_of("session.thinking", thinking, THINKING)
+  start_open = session.get("start_open", False)
+  if not isinstance(start_open, bool):
+    raise ExportError("session.start_open: not a boolean")
   columns = _columns(top.get("columns", []))
   return Export(
     id=id_,
@@ -262,6 +270,7 @@ def parse(data: bytes) -> Export:
     trials=_trials(top.get("trials")),
     deliverables=_deliverables(top.get("deliverables", [])),
     kinds=_kinds(top.get("kinds", {})),
+    start_open=start_open,
   )
 
 

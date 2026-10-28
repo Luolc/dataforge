@@ -67,6 +67,8 @@ export const project = z.looseObject({
   ),
   session: z.looseObject({
     thinking: z.enum(["collapsed", "expanded", "hidden"]),
+    // Whether every fold of a session view starts open; false when not given.
+    start_open: z.boolean().optional(),
   }),
   not_ended: z.array(z.string()).nullable().optional(),
   // The store of the attempts, which then says how each stands: the status
