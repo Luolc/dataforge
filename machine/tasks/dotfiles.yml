@@ -1,6 +1,7 @@
 # The agent user's dotfiles, from the chezmoi source in machine/dotfiles/:
 # ~/.zshenv, ~/.zshrc and, with zsh_personal, ~/.p10k.zsh, oh-my-zsh and
-# powerlevel10k (externals pinned in versions.yml), and the setup's keys in
+# powerlevel10k (externals pinned in versions.yml), Claude Code's status line
+# script ~/.claude/statusline-herdr.sh, and the setup's keys in
 # ~/.claude/settings.json and ~/.claude.json (modify templates).
 #
 # chezmoi runs with a config, state and cache of the setup's own, each named

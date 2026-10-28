@@ -12,7 +12,9 @@
 # The dotfiles, written through the setup's own chezmoi, must leave the
 # owner's own chezmoi alone; the first run must back up the file it replaces,
 # a run must leave a file Claude Code rewrote and stop at a file changed by
-# hand, and check mode must write no file, state or cache.
+# hand, and check mode must write no file, state or cache. The Claude Code
+# status line command in the settings must run the installed script and
+# render a sample stdin.
 # Then it drives the gateway client install from a fake release (a missing
 # checksum file or a tampered download must not replace it), the zshenv
 # extension point, fednet being brought to its latest release and the
@@ -416,6 +418,24 @@ ok "Docker logs rotate: $(jq -c '."log-opts"' "$daemon"), existing keys kept"
 ok "Claude Code settings merged, existing key kept, DISABLE_AUTOUPDATER removed"
 [ "$(stat -c %a "$HOME/.claude")" = 700 ] || fail "~/.claude is $(stat -c %a "$HOME/.claude"), not 700"
 ok "~/.claude still 700"
+# The status line: the setup's script installed executable, and the command in
+# the settings, run through sh as Claude Code runs it, renders a synthetic
+# stdin, with and without the numbers that come only after a first response.
+statusline=$HOME/.claude/statusline-herdr.sh
+cmp -s "$m/dotfiles/private_dot_claude/executable_statusline-herdr.sh" "$statusline" || fail "~/.claude/statusline-herdr.sh is not the setup's"
+[ "$(stat -c %a "$statusline")" = 755 ] || fail "~/.claude/statusline-herdr.sh is $(stat -c %a "$statusline"), not 755"
+[ "$(jq -c '.statusLine | [.type, .padding, .refreshInterval]' "$settings")" = '["command",0,60]' ] || fail "statusLine: $(jq -c .statusLine "$settings")"
+statusline_cmd=$(jq -r .statusLine.command "$settings")
+got=$(jq -nc --arg d "$HOME/dev/repo" '{workspace: {current_dir: $d}, model: {display_name: "Model X"},
+  context_window: {total_input_tokens: 412345, context_window_size: 1000000, used_percentage: 41.2},
+  rate_limits: {five_hour: {used_percentage: 32.4}, seven_day: {used_percentage: 53}}}' | sh -c "$statusline_cmd")
+# shellcheck disable=SC2088  # the literal ~ is what the script prints
+want='~/dev/repo · Model X · ctx 412k/1M 41% · 5h 32% · 7d 53%'
+[ "$got" = "$want" ] || fail "status line: want '$want', got '$got'"
+got=$(echo '{"model": {"display_name": "Model X"}, "context_window": {"total_input_tokens": 0, "context_window_size": 200000, "used_percentage": null}}' |
+  sh -c "$statusline_cmd")
+[ "$got" = 'Model X · ctx 0/200k' ] || fail "status line before a first response: got '$got'"
+ok "status line installed and in the settings: $want"
 owner_chezmoi | cmp -s - "$out/owner-chezmoi.sha256" || fail "the setup changed the owner's own chezmoi files"
 ok "the owner's own chezmoi config, state, source and cache unchanged"
 

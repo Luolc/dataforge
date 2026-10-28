@@ -45,6 +45,12 @@
 #   shows them in the conversation and the transcript view; the default is
 #   false.
 # - disableRemoteControl: data machines have no Remote Control.
+# - statusLine: one line under the input box from the dotfiles'
+#   ~/.claude/statusline-herdr.sh (directory, model, context tokens over the
+#   window size and its percentage, the 5-hour and weekly quota), so that a
+#   session's context length shows at a glance. Claude Code runs the command
+#   in a shell, which expands the ~. Claude Code redraws the line on each new
+#   message; refreshInterval 60 also reruns it once a minute in between.
 #
 # Keys the setup does not own stay as they are. The one exception is
 # env.DISABLE_AUTOUPDATER in ~/.claude/settings.json, which is removed: the
