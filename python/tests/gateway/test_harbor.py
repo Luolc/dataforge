@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import stat
 import subprocess
-from typing import cast
+from typing import cast, override
 
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.models.agent.context import AgentContext
@@ -215,3 +215,100 @@ def test_an_agent_reads_nothing_under_agent_after_the_run(
   assert context.n_input_tokens is None
   assert sorted(p.relative_to(logs) for p in logs.rglob("*")) == before
   assert host.read_text() == session_line(0.5) + "\n"
+
+
+SESSION_ID = "0b6c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d"
+
+
+class Session(Environment):
+  # As Environment, keeping each command's env and each directory uploaded.
+
+  def __init__(self) -> None:
+    super().__init__("2.1.292 (Claude Code)")
+    self.envs: list[dict[str, str]] = []
+    self.dirs: dict[str, list[str]] = {}
+
+  @override
+  async def exec(self, command: str, **kwargs: object) -> ExecResult:
+    self.envs.append(cast(dict[str, str], kwargs.get("env") or {}))
+    return await super().exec(command, **kwargs)
+
+  async def upload_dir(self, source: Path, target: str) -> None:
+    self.dirs[target] = sorted(
+      p.relative_to(source).as_posix() for p in source.rglob("*")
+    )
+
+
+def session_files(tmp_path: Path) -> Path:
+  # An earlier trial's session and the directory of its tool results.
+  project = tmp_path / "earlier" / "-app"
+  results = project / SESSION_ID / "tool-results"
+  results.mkdir(parents=True)
+  _ = (results / "out.txt").write_text("a tool's output\n")
+  session = project / f"{SESSION_ID}.jsonl"
+  _ = session.write_text(json.dumps({"type": "user", "cwd": "/app"}) + "\n")
+  return session
+
+
+def run_claude(
+  tmp_path: Path, *, load: bool, resume_instruction: Path | None
+) -> Session:
+  agent = ClaudeCode(
+    logs_dir=tmp_path / "logs",
+    model_name="claude-model",
+    load_trajectory=str(session_files(tmp_path)) if load else None,
+    resume_instruction=None
+    if resume_instruction is None
+    else str(resume_instruction),
+  )
+  environment = Session()
+  start = agent.load if load else agent.run
+  asyncio.run(
+    start("The task's instruction.", container(environment), AgentContext())
+  )
+  return environment
+
+
+def message(environment: Session) -> str:
+  # The text the last command pipes into `claude`.
+  env = environment.envs[-1]
+  return next(
+    v for k, v in env.items() if k.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION")
+  )
+
+
+def test_claude_code_goes_on_with_a_loaded_session_and_its_tool_results(
+  tmp_path: Path,
+):
+  instruction = tmp_path / "continue.md"
+  _ = instruction.write_text("Go on from where you were.\n")
+  environment = run_claude(tmp_path, load=True, resume_instruction=instruction)
+  project = "/logs/agent/sessions/projects/-app"
+  assert environment.uploads == {
+    f"{project}/{SESSION_ID}.jsonl": '{"type": "user", "cwd": "/app"}\n'
+  }
+  assert environment.dirs == {
+    f"{project}/{SESSION_ID}": ["tool-results", "tool-results/out.txt"]
+  }
+  assert f"--resume {SESSION_ID} " in environment.commands[-1]
+  assert message(environment) == "Go on from where you were.\n"
+
+
+def test_claude_code_without_a_loaded_session_gets_the_tasks_instruction(
+  tmp_path: Path,
+):
+  instruction = tmp_path / "continue.md"
+  _ = instruction.write_text("Go on from where you were.\n")
+  environment = run_claude(tmp_path, load=False, resume_instruction=instruction)
+  assert environment.uploads == {}
+  assert environment.dirs == {}
+  assert "--resume" not in environment.commands[-1]
+  assert message(environment) == "The task's instruction."
+
+
+def test_claude_code_loaded_without_a_resume_instruction_gets_the_tasks(
+  tmp_path: Path,
+):
+  environment = run_claude(tmp_path, load=True, resume_instruction=None)
+  assert f"--resume {SESSION_ID} " in environment.commands[-1]
+  assert message(environment) == "The task's instruction."

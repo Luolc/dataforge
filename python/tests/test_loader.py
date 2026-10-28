@@ -1577,3 +1577,30 @@ def test_env_and_runner_bindings_must_be_of_their_kind(tmp_path: Path) -> None:
   assert str(raised.value) == (
     "states.write.runner: 'agents' is not an AgentRunner"
   )
+
+
+@pytest.mark.parametrize(
+  ("resume", "instruction"),
+  [(None, None), ({}, None), ({"instruction": "out/next.md"}, "out/next.md")],
+)
+def test_pass_at_k_resumes_only_when_it_declares_resume(
+  resume: object, instruction: str | None
+) -> None:
+  doc = pass_at_k_doc(None, 8.0, None)
+  given = cast(dict[str, object], states_of(doc)["check"]["with"])
+  del given["retry"]
+  if resume is not None:
+    given["resume"] = resume
+  machine = load_doc(doc, bindings={"trials": Trials()})
+  state = next(s for s in machine.states if isinstance(s, PassAtKState))
+  assert state.resume is (resume is not None)
+  assert state.resume_instruction == instruction
+
+
+def test_a_resume_of_pass_at_k_takes_only_an_instruction() -> None:
+  doc = pass_at_k_doc(None, 8.0, None)
+  given = cast(dict[str, object], states_of(doc)["check"]["with"])
+  del given["retry"]
+  given["resume"] = {"prompt": "out/next.md"}
+  with pytest.raises(SpecError, match=re.escape("resume.prompt")):
+    _ = load_doc(doc, bindings={"trials": Trials()})

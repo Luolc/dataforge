@@ -13,6 +13,13 @@ the agent's phase, Harbor's own agents read their logs under `agent/`, which
 the container, still running, can point at a file of the host through a link;
 these read nothing there, and the trial's trace and cost come from
 `HarborRunner` once the containers are gone.
+
+`ClaudeCode` goes on with an earlier session when Harbor loads one
+(`--load-trajectory <id>.jsonl`): it uploads, besides the session, the
+directory of the same name beside it, whose tool results and subagents'
+sessions the session names by their paths in the container, and with
+`resume_instruction` sends that file's text as the session's next message in
+place of the task's instruction.
 """
 
 # Harbor is a development dependency only; its classes are typed loosely.
@@ -23,6 +30,7 @@ these read nothing there, and the trial's trace and cost come from
 from copy import deepcopy
 import json
 import os
+from pathlib import Path
 import shlex
 from typing import Any, override
 
@@ -31,6 +39,7 @@ from harbor.agents.installed.codex import Codex as HarborCodex
 from harbor.agents.installed.pi import Pi as HarborPi
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
+from harbor.models.trial.paths import EnvironmentPaths
 
 from dataforge.gateway.hooks import ADDRESS, VERSION_VAR
 
@@ -102,7 +111,59 @@ def _read_nothing(context: AgentContext) -> None:
 
 
 class ClaudeCode(HarborClaudeCode):
-  """Harbor's claude-code agent, its client pinned and its logs unread."""
+  """Harbor's claude-code agent, its client pinned and its logs unread.
+
+  A loaded session goes where Harbor puts it, under the project of the
+  working directory /app, with the directory of its tool results and
+  subagents beside it; a session from another working directory is not
+  found there.
+  """
+
+  def __init__(
+    self,
+    logs_dir: Path,
+    *args: Any,
+    resume_instruction: str | None = None,
+    **kwargs: Any,
+  ) -> None:
+    """Make the agent.
+
+    Args:
+      logs_dir: Where Harbor keeps the agent's logs.
+      *args: Harbor's.
+      resume_instruction: A file on this host whose text a loaded session
+        gets as its next message, in place of the task's instruction.
+      **kwargs: Harbor's.
+    """
+    self._resume_instruction: Path | None = (
+      Path(resume_instruction) if resume_instruction else None
+    )
+    super().__init__(logs_dir, *args, **kwargs)
+
+  @override
+  def render_instruction(self, instruction: str) -> str:
+    """Give a loaded session `resume_instruction`'s text, if there is one.
+
+    Args:
+      instruction: The task's instruction.
+
+    Returns:
+      The session's message.
+    """
+    if self._load and self._resume_instruction is not None:
+      return self._resume_instruction.read_text()
+    return super().render_instruction(instruction)
+
+  @override
+  async def _upload_load_trajectory(
+    self, environment: BaseEnvironment, source: Path
+  ) -> None:
+    await super()._upload_load_trajectory(environment, source)
+    beside = source.with_suffix("")
+    if beside.is_dir(follow_symlinks=False):
+      projects = EnvironmentPaths.agent_dir / "sessions" / "projects"
+      target = projects / "-app" / beside.name
+      await environment.upload_dir(beside, target.as_posix())
 
   @override
   async def install(self, environment: BaseEnvironment) -> None:

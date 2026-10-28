@@ -59,7 +59,9 @@ The schema, version 1:
                                       # optional_inputs, memory_gb}, which
                                       # chooses the slots run again, and
                                       # max_retries: <integer>, required with
-                                      # it
+                                      # it, and resume: {instruction:
+                                      # <input>}, which goes on with each
+                                      # slot's session of the visit before
       env: <environment> | <binding>  # agent, script, rubric
       runner: <runner> | <binding>    # agent and rubric: an AgentRunner;
                                       # trial, pass-at-k, trials: TrialRunner
@@ -1044,7 +1046,7 @@ def _pass_at_k(
     value,
     at,
     required={"task_dir", "agent", "limits", "k"},
-    optional={"judge", "retry", "max_retries"},
+    optional={"judge", "retry", "max_retries", "resume"},
   )
   judge = fields.get("judge")
   retry = fields.get("retry")
@@ -1065,9 +1067,21 @@ def _pass_at_k(
     retries["max_retries"] = loader.integer(
       fields["max_retries"], f"{at}.max_retries", minimum=1
     )
+  # As retry: only a declared resume is passed on.
+  resume: dict[str, object] = {}
+  if "resume" in fields:
+    given = _fields(
+      fields["resume"], f"{at}.resume", required=set(), optional={"instruction"}
+    )
+    resume["resume"] = True
+    if "instruction" in given:
+      resume["resume_instruction"] = loader.input_ref(
+        given["instruction"], f"{at}.resume.instruction"
+      )
   return {
     **_trial_args(loader, fields, at),
     **retries,
+    **resume,
     "k": loader.integer(fields["k"], f"{at}.k", minimum=1),
     "judge": None if judge is None else loader.judge(judge, f"{at}.judge"),
   }

@@ -1959,3 +1959,236 @@ def _read(path: Path) -> str | None:
     return path.read_text()[:40]
   except OSError:
     return None
+
+
+SESSION_ID = "0b6c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d"
+
+
+def earlier_trial(
+  tmp_path: Path,
+  *,
+  cost_state: object = 1.5,
+  result: dict[str, object] | None = None,
+  session: bool = True,
+  resume: dict[str, object] | None = None,
+) -> Path:
+  """Write what an earlier trial of Claude Code left: its trace, its session.
+
+  Args:
+    tmp_path: The test's directory.
+    cost_state: The session's own count of its cost, its last cost-state's
+      totalCostUSD; None for a session with no cost-state.
+    result: The trace's result event in place of a success.
+    session: Whether the trial holds the session's file.
+    resume: The earlier trial's own RESUME_FILE, if it has one.
+
+  Returns:
+    The earlier trial's output directory.
+  """
+  out = outdir(tmp_path, "earlier")
+  trial = out / "job" / "task__old"
+  agent = trial / "agent"
+  project = agent / "sessions" / "projects" / "-app"
+  project.mkdir(parents=True)
+  _ = (trial / "result.json").write_text("{}")
+  event = result or {
+    "type": "result",
+    "subtype": "success",
+    "is_error": False,
+    "session_id": SESSION_ID,
+    "total_cost_usd": 1.5,
+  }
+  _ = (agent / "claude-code.txt").write_text(json.dumps(event) + "\n")
+  if session:
+    lines: list[dict[str, object]] = [{"type": "user", "cwd": "/app"}]
+    if cost_state is not None:
+      lines.append({"type": "cost-state", "totalCostUSD": 0.4})
+      lines.append({"type": "cost-state", "totalCostUSD": cost_state})
+    _ = (project / f"{SESSION_ID}.jsonl").write_text(
+      "".join(json.dumps(line) + "\n" for line in lines)
+    )
+    results = project / SESSION_ID / "tool-results"
+    results.mkdir(parents=True)
+    _ = (results / "out.txt").write_text("a tool's output\n")
+  if resume is not None:
+    _ = (out / harbor.RESUME_FILE).write_text(json.dumps(resume))
+  return out
+
+
+def resuming(
+  earlier: Path, cost_usd: float = 1.5, instruction: Path | None = None
+) -> dict[str, object]:
+  resume: dict[str, object] = {"trial": str(earlier), "cost_usd": cost_usd}
+  if instruction is not None:
+    resume["instruction"] = str(instruction)
+  return {
+    "import_path": "dataforge.gateway.harbor:ClaudeCode",
+    "kwargs": {"max_budget_usd": 10.0},
+    "resume": resume,
+  }
+
+
+def kwargs_of(argv: list[str]) -> dict[str, str]:
+  pairs = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--agent-kwarg"]
+  return dict(pair.split("=", 1) for pair in pairs)
+
+
+def test_a_trial_goes_on_with_the_earlier_session_at_the_hosts_cost(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  # The session counts 1.504 USD, within the tolerance of the 1.5 this host
+  # recorded; the cap and the cost rest on 1.5 alone.
+  earlier = earlier_trial(tmp_path, cost_state=1.504)
+  instruction = tmp_path / "continue.md"
+  _ = instruction.write_text("Go on.\n")
+  out = outdir(tmp_path)
+  env = {"FAKE_COST": "none", "FAKE_TRACE": "2.25"}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), resuming(earlier, 1.5, instruction), Limits(2), out
+  )
+  argv = seen_argv(out)
+  session = earlier / "job/task__old/agent/sessions/projects/-app"
+  assert argv[argv.index("--load-trajectory") + 1] == str(
+    (session / f"{SESSION_ID}.jsonl").resolve()
+  )
+  assert kwargs_of(argv) == {
+    "max_budget_usd": "11.500000",
+    "resume_instruction": str(instruction.resolve()),
+  }
+  assert result.cost_usd == 0.75
+  assert json.loads((out / harbor.RESUME_FILE).read_text()) == {
+    "trial": str(earlier),
+    "session": SESSION_ID,
+    "base_usd": 1.5,
+    "why": None,
+  }
+
+
+def test_a_trial_goes_on_from_what_a_session_gone_on_with_had_cost(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  # The earlier trial went on with a session that had cost 1.0 and cost 0.5
+  # itself, by this host's records: the session had cost 1.5 in all.
+  earlier = earlier_trial(
+    tmp_path, resume={"session": SESSION_ID, "base_usd": 1.0, "why": None}
+  )
+  out = outdir(tmp_path)
+  _ = runner(fakes).run(task(tmp_path), resuming(earlier, 0.5), Limits(2), out)
+  assert kwargs_of(seen_argv(out))["max_budget_usd"] == "11.500000"
+
+
+def test_a_trial_without_resume_runs_as_before(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  agent = resuming(tmp_path)
+  del agent["resume"]
+  env = {"FAKE_COST": "none", "FAKE_TRACE": "2.25"}
+  result = runner(fakes, env=env).run(task(tmp_path), agent, Limits(2), out)
+  argv = seen_argv(out)
+  assert "--load-trajectory" not in argv
+  assert kwargs_of(argv) == {"max_budget_usd": "10.0"}
+  assert result.cost_usd == 2.25
+  assert not (out / harbor.RESUME_FILE).exists()
+
+
+@pytest.mark.parametrize(
+  ("earlier", "why"),
+  [
+    (
+      {"cost_state": 1.6},
+      "the session counts its cost 1.600000 USD, this host 1.500000 USD",
+    ),
+    (
+      {"cost_state": 1.4},
+      "the session counts its cost 1.400000 USD, this host 1.500000 USD",
+    ),
+    ({"cost_state": None}, "the session has no cost-state"),
+    (
+      {"cost_state": "1.5"},
+      "the session has a cost-state with no totalCostUSD",
+    ),
+    (
+      {"session": False},
+      f"the earlier trial has 0 files of session {SESSION_ID}",
+    ),
+    (
+      {
+        "result": {
+          "type": "result",
+          "subtype": "success",
+          "stop_reason": "refusal",
+          "session_id": SESSION_ID,
+        }
+      },
+      "the earlier session ended on a refusal",
+    ),
+    (
+      {
+        "result": {
+          "type": "result",
+          "subtype": "error_max_budget_usd",
+          "is_error": True,
+          "session_id": SESSION_ID,
+        }
+      },
+      "the earlier session ended error_max_budget_usd (budget)",
+    ),
+    (
+      {"result": {"type": "result", "subtype": "success"}},
+      "the earlier session's trace gives no session ID",
+    ),
+  ],
+)
+def test_a_trial_that_cannot_go_on_starts_anew_and_says_why(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  earlier: dict[str, object],
+  why: str,
+) -> None:
+  before = earlier_trial(tmp_path, **earlier)  # pyright: ignore[reportArgumentType]
+  out = outdir(tmp_path)
+  env = {"FAKE_COST": "none", "FAKE_TRACE": "2.25"}
+  result = runner(fakes, env=env).run(
+    task(tmp_path), resuming(before), Limits(2), out
+  )
+  argv = seen_argv(out)
+  assert "--load-trajectory" not in argv
+  assert kwargs_of(argv) == {"max_budget_usd": "10.0"}
+  assert result.cost_usd == 2.25
+  recorded = json.loads((out / harbor.RESUME_FILE).read_text())
+  assert recorded == {
+    "trial": str(before),
+    "session": None,
+    "base_usd": 0.0,
+    "why": why,
+  }
+
+
+def test_a_trial_whose_earlier_trial_left_nothing_starts_anew(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  out = outdir(tmp_path)
+  missing = tmp_path / "attempt" / "missing"
+  _ = runner(fakes).run(task(tmp_path), resuming(missing), Limits(2), out)
+  assert "--load-trajectory" not in seen_argv(out)
+  why = json.loads((out / harbor.RESUME_FILE).read_text())["why"]
+  assert why == "the earlier trial has 0 Harbor trials, not 1"
+
+
+@pytest.mark.parametrize(
+  "resume",
+  [
+    "a-trial",
+    {"trial": "t"},
+    {"trial": "t", "cost_usd": -1.0},
+    {"trial": "t", "cost_usd": True},
+    {"trial": "t", "cost_usd": 1.0, "more": 1},
+  ],
+)
+def test_a_resume_that_is_not_one_is_refused(
+  tmp_path: Path, fakes: tuple[Path, Path], resume: object
+) -> None:
+  agent = {"name": "claude-code", "resume": resume}
+  with pytest.raises(ValueError, match="an agent's resume"):
+    _ = runner(fakes).run(task(tmp_path), agent, Limits(2), outdir(tmp_path))
