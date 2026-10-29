@@ -15,6 +15,14 @@ ubuntu_bootstrap_packages: ca-certificates curl python3 python3-apt
 # rg and fd (as fdfind) from PATH; without them it downloads their latest
 # release, unverified, the first time it needs them.
 ubuntu_packages: [git, jq, zsh, direnv, fonts-noto-cjk, ripgrep, fd-find]
+# The XeLaTeX and Beamer toolchain, installed without apt's Recommends (which
+# would add some 265 packages of documentation and fonts): texlive-xetex has
+# xelatex and, as dependencies, beamer, fontspec, xcolor, graphicx and tikz
+# (texlive-latex-recommended, texlive-latex-base, texlive-pictures),
+# texlive-fonts-recommended has the Zapf Dingbats metrics that hyperref,
+# which beamer loads, needs under XeLaTeX, and latexmk drives the build.
+# poppler-utils has pdftoppm, which renders the built PDF page by page.
+ubuntu_tex_packages: [texlive-xetex, texlive-fonts-recommended, latexmk, poppler-utils]
 
 # Read by bootstrap.sh: uv itself, then Ansible run through uv.
 uv_version: 0.12.22

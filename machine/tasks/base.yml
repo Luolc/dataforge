@@ -5,6 +5,13 @@
     update_cache: true
     cache_valid_time: 86400
 
+- name: TeX packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ ubuntu_tex_packages }}"
+    install_recommends: false
+    cache_valid_time: 86400
+
 - name: Working directories
   ansible.builtin.file:
     path: "{{ home }}/{{ item }}"
