@@ -32,6 +32,8 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
+import tempfile
 from typing import Any, ClassVar, override
 
 from harbor.agents.base import AgentOptions
@@ -112,6 +114,30 @@ def _read_nothing(context: AgentContext) -> None:
   context.model_usage = {}
 
 
+UPLOAD_SUFFIX = ".upload"
+
+
+def _share(directory: Path) -> None:
+  """Make a staged tree readable by all, and removable by whoever copies it.
+
+  A container without CAP_DAC_OVERRIDE cannot remove what a directory of the
+  host's user holds unless the directory is writable by all.
+
+  Args:
+    directory: The root of the tree; symlinks inside it are left as they are.
+  """
+  directory.chmod(0o777)
+  for parent, directories, files in os.walk(directory):
+    for name in directories:
+      path = Path(parent) / name
+      if not path.is_symlink():
+        path.chmod(0o777)
+    for name in files:
+      path = Path(parent) / name
+      if not path.is_symlink():
+        path.chmod(0o644)
+
+
 class ResumableOptions(ClaudeCodeOptions):
   """Harbor's claude-code options and `resume_instruction`.
 
@@ -128,8 +154,8 @@ class ClaudeCode(HarborClaudeCode):
 
   A loaded session goes where Harbor puts it, under the project of the
   working directory /app, with the directory of its tool results and
-  subagents beside it, given to the agent's user as Harbor gives the
-  session; a session from another working directory is not found there.
+  subagents beside it, each copied into place by the agent's user; a session
+  from another working directory is not found there.
 
   Attributes:
     options_model: The options Harbor checks the agent's kwargs against.
@@ -176,16 +202,48 @@ class ClaudeCode(HarborClaudeCode):
   async def _upload_load_trajectory(
     self, environment: BaseEnvironment, source: Path
   ) -> None:
-    await super()._upload_load_trajectory(environment, source)
+    # Harbor copies a file in with its host owner and mode, then chowns it to
+    # the agent's user as root; a container without CAP_CHOWN and
+    # CAP_DAC_OVERRIDE can then neither chown it nor, as root, read or write
+    # a file the host's user owns with mode 0600. Each file is instead copied
+    # in readable by all, beside its target, and copied into place by a
+    # command of the agent's user, which then owns it.
+    project = (
+      EnvironmentPaths.agent_dir / "sessions" / "projects" / "-app"
+    ).as_posix()
     beside = source.with_suffix("")
-    if beside.is_dir(follow_symlinks=False):
-      projects = EnvironmentPaths.agent_dir / "sessions" / "projects"
-      target = (projects / "-app" / beside.name).as_posix()
-      await environment.upload_dir(beside, target)
-      if environment.default_user is not None:
-        user = shlex.quote(str(environment.default_user))
-        await self.exec_as_root(
-          environment, command=f"chown -R {user} {shlex.quote(target)}"
+    with tempfile.TemporaryDirectory(prefix="dataforge-session-") as scratch:
+      staged = Path(scratch)
+      session = staged / source.name
+      _ = shutil.copyfile(source, session)
+      session.chmod(0o644)
+      await self.exec_as_agent(
+        environment, command=f"mkdir -p {shlex.quote(project)}"
+      )
+      target = f"{project}/{source.name}"
+      temporary = f"{target}{UPLOAD_SUFFIX}"
+      await environment.upload_file(session, temporary)
+      await self.exec_as_agent(
+        environment,
+        command=(
+          f"cp {shlex.quote(temporary)} {shlex.quote(target)} && "
+          f"rm {shlex.quote(temporary)}"
+        ),
+      )
+      if beside.is_dir(follow_symlinks=False):
+        copy = staged / beside.name
+        _ = shutil.copytree(beside, copy, symlinks=True)
+        _share(copy)
+        target = f"{project}/{beside.name}"
+        temporary = f"{target}{UPLOAD_SUFFIX}"
+        await environment.upload_dir(copy, temporary)
+        await self.exec_as_agent(
+          environment,
+          command=(
+            f"mkdir -p {shlex.quote(target)} && "
+            f"cp -R {shlex.quote(temporary)}/. {shlex.quote(target)} && "
+            f"rm -rf {shlex.quote(temporary)}"
+          ),
         )
 
   @override

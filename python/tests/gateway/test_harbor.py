@@ -10,11 +10,15 @@ the client's version is not the pinned one, and read nothing under `agent/`.
 """
 
 import asyncio
+from collections.abc import Iterator
 import json
+import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 from typing import cast, override
+import uuid
 
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.models.agent.context import AgentContext
@@ -227,16 +231,27 @@ class Session(Environment):
     super().__init__("2.1.292 (Claude Code)")
     self.envs: list[dict[str, str]] = []
     self.dirs: dict[str, list[str]] = {}
+    self.modes: dict[str, int] = {}
 
   @override
   async def exec(self, command: str, **kwargs: object) -> ExecResult:
     self.envs.append(cast(dict[str, str], kwargs.get("env") or {}))
     return await super().exec(command, **kwargs)
 
+  @override
+  async def upload_file(self, source: Path, target: str) -> None:
+    self.modes[target] = stat.S_IMODE(source.stat().st_mode)
+    await super().upload_file(source, target)
+
   async def upload_dir(self, source: Path, target: str) -> None:
     self.dirs[target] = sorted(
       p.relative_to(source).as_posix() for p in source.rglob("*")
     )
+    self.modes[target] = stat.S_IMODE(source.stat().st_mode)
+    for p in source.rglob("*"):
+      self.modes[f"{target}/{p.relative_to(source)}"] = stat.S_IMODE(
+        p.lstat().st_mode
+      )
 
 
 def session_files(tmp_path: Path) -> Path:
@@ -247,6 +262,12 @@ def session_files(tmp_path: Path) -> Path:
   _ = (results / "out.txt").write_text("a tool's output\n")
   session = project / f"{SESSION_ID}.jsonl"
   _ = session.write_text(json.dumps({"type": "user", "cwd": "/app"}) + "\n")
+  # As the host's user leaves them after a trial.
+  session.chmod(0o600)
+  for path in (results / "out.txt",):
+    path.chmod(0o600)
+  for path in (results, results.parent):
+    path.chmod(0o700)
   return session
 
 
@@ -290,10 +311,10 @@ def test_claude_code_goes_on_with_a_loaded_session_and_its_tool_results(
   environment = run_claude(tmp_path, load=True, resume_instruction=instruction)
   project = "/logs/agent/sessions/projects/-app"
   assert environment.uploads == {
-    f"{project}/{SESSION_ID}.jsonl": '{"type": "user", "cwd": "/app"}\n'
+    f"{project}/{SESSION_ID}.jsonl.upload": '{"type": "user", "cwd": "/app"}\n'
   }
   assert environment.dirs == {
-    f"{project}/{SESSION_ID}": ["tool-results", "tool-results/out.txt"]
+    f"{project}/{SESSION_ID}.upload": ["tool-results", "tool-results/out.txt"]
   }
   assert f"--resume {SESSION_ID} " in environment.commands[-1]
   assert message(environment) == "Go on from where you were.\n"
@@ -327,16 +348,129 @@ def test_claude_code_loaded_without_a_resume_instruction_gets_the_tasks(
   assert message(environment) == "The task's instruction."
 
 
-def test_claude_code_gives_a_loaded_sessions_files_to_the_agents_user(
+def test_claude_code_copies_a_loaded_sessions_files_in_as_the_agents_user(
   tmp_path: Path,
 ):
-  # As Harbor gives the session's file to the task's agent user, so the
-  # directory beside it, which the session writes on into.
   environment = run_claude(
     tmp_path, load=True, resume_instruction=None, user="agent"
   )
   project = "/logs/agent/sessions/projects/-app"
+  session = f"{project}/{SESSION_ID}.jsonl"
+  beside = f"{project}/{SESSION_ID}"
   # Harbor runs each command after a prefix of its own.
-  ran = [c.rsplit("; ", 1)[-1] for c in environment.commands]
-  assert f"chown agent {project}/{SESSION_ID}.jsonl" in ran
-  assert f"chown -R agent {project}/{SESSION_ID}" in ran
+  ran = [c.split("; ", 1)[-1] for c in environment.commands]
+  assert f"cp {session}.upload {session} && rm {session}.upload" in ran
+  assert (
+    f"mkdir -p {beside} && cp -R {beside}.upload/. {beside} && "
+    f"rm -rf {beside}.upload"
+  ) in ran
+  assert not any("chown" in c or "chmod" in c for c in ran)
+  # The copies are readable by all, and a directory of them removable by the
+  # command that copies them, which a container without CAP_DAC_OVERRIDE
+  # needs whoever owns them.
+  assert environment.modes[f"{session}.upload"] == 0o644
+  assert environment.modes[f"{beside}.upload/tool-results/out.txt"] == 0o644
+  for directory in ("", "/tool-results"):
+    assert environment.modes[f"{beside}.upload{directory}"] == 0o777
+
+
+def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+  return subprocess.run(
+    ["docker", *args], check=check, capture_output=True, text=True
+  )
+
+
+IMAGE = "ubuntu:24.04"
+
+
+class Hardened(Environment):
+  # A container as the curated tasks run: no network, no capabilities, root.
+
+  def __init__(self, name: str) -> None:
+    super().__init__("2.1.292 (Claude Code)")
+    self.name: str = name
+
+  @override
+  async def exec(self, command: str, **_: object) -> ExecResult:
+    done = docker("exec", self.name, "bash", "-c", command, check=False)
+    return ExecResult(
+      stdout=done.stdout, stderr=done.stderr, return_code=done.returncode
+    )
+
+  @override
+  async def upload_file(self, source: Path, target: str) -> None:
+    _ = docker("cp", str(source), f"{self.name}:{target}")
+
+  async def upload_dir(self, source: Path, target: str) -> None:
+    _ = docker("cp", f"{source}/.", f"{self.name}:{target}")
+
+
+@pytest.fixture
+def hardened() -> Iterator[Hardened]:
+  if shutil.which("docker") is None or os.getuid() == 0:
+    pytest.skip("needs docker and a host user other than root")
+  if (
+    docker("image", "inspect", IMAGE, check=False).returncode != 0
+    and docker("pull", IMAGE, check=False).returncode != 0
+  ):
+    pytest.skip(f"needs {IMAGE}")
+  name = f"dataforge-resume-test-{uuid.uuid4().hex[:12]}"
+  _ = docker(
+    "run", "-d", "--name", name, "--network", "none", "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges", "--init", IMAGE, "sleep", "300",
+  )  # fmt: skip
+  try:
+    _ = docker(
+      "exec", name, "mkdir", "-p", "/logs/agent/sessions/projects/-app"
+    )
+    yield Hardened(name)
+  finally:
+    _ = docker("rm", "-f", name, check=False)
+
+
+def reads_and_writes(name: str, path: str) -> bool:
+  done = docker(
+    "exec", name, "bash", "-c", f"head -c 1 {path} >/dev/null && : >> {path}",
+    check=False,
+  )  # fmt: skip
+  return done.returncode == 0
+
+
+def test_a_file_copied_in_with_the_hosts_owner_is_out_of_reach_of_root(
+  tmp_path: Path, hardened: Hardened
+):
+  # What Harbor's own upload leaves, and why it is not used.
+  session = session_files(tmp_path)
+  project = "/logs/agent/sessions/projects/-app"
+  _ = docker("exec", hardened.name, "mkdir", "-p", project)
+  _ = docker("cp", str(session), f"{hardened.name}:{project}/{session.name}")
+  assert not reads_and_writes(hardened.name, f"{project}/{session.name}")
+
+
+def test_a_loaded_session_and_its_directory_are_readable_and_writable_by_root(
+  tmp_path: Path, hardened: Hardened
+):
+  session = session_files(tmp_path)
+  agent = ClaudeCode(
+    logs_dir=tmp_path / "logs",
+    model_name="claude-model",
+    load_trajectory=str(session),
+  )
+  asyncio.run(agent._upload_load_trajectory(container(hardened), session))
+  project = "/logs/agent/sessions/projects/-app"
+  files = [
+    f"{project}/{session.name}",
+    f"{project}/{SESSION_ID}/tool-results/out.txt",
+  ]
+  for path in files:
+    assert reads_and_writes(hardened.name, path), path
+  # A subagent's or a tool's new file goes into the directories.
+  inside = f"{project}/{SESSION_ID}"
+  made = docker(
+    "exec", hardened.name, "bash", "-c",
+    f"echo x > {inside}/tool-results/new.txt && echo x > {inside}/new.txt",
+    check=False,
+  )  # fmt: skip
+  assert made.returncode == 0, made.stderr
+  left = docker("exec", hardened.name, "ls", "-A", project).stdout.split()
+  assert sorted(left) == [SESSION_ID, f"{SESSION_ID}.jsonl"]
