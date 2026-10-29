@@ -21,8 +21,8 @@ ubuntu_packages: [git, jq, zsh, direnv, fonts-noto-cjk, ripgrep, fd-find]
 # texlive-pictures has tikz, texlive-latex-base (pulled in as a dependency)
 # has graphicx, texlive-fonts-recommended has the Zapf Dingbats metrics that
 # hyperref, which beamer loads, needs under XeLaTeX, and latexmk drives the
-# build.
-ubuntu_tex_packages: [texlive-xetex, texlive-latex-recommended, texlive-fonts-recommended, texlive-pictures, latexmk]
+# build. poppler-utils has pdftoppm, which renders the built PDF page by page.
+ubuntu_tex_packages: [texlive-xetex, texlive-latex-recommended, texlive-fonts-recommended, texlive-pictures, latexmk, poppler-utils]
 
 # Read by bootstrap.sh: uv itself, then Ansible run through uv.
 uv_version: 0.12.22

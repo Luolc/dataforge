@@ -9,7 +9,8 @@
 # A Pi or Codex CLI tarball with the wrong sha256 must stop the run and
 # leave the installed version in use, and rg and fdfind, which Pi would
 # otherwise download, must be on PATH. xelatex and latexmk must be on PATH
-# and build a Beamer deck with a font loaded by path and a TikZ picture.
+# and build a Beamer deck with a font loaded by path and a TikZ picture, which
+# pdftoppm must render to a PNG.
 # The dotfiles, written through the setup's own chezmoi, must leave the
 # owner's own chezmoi alone; the first run must back up the file it replaces,
 # a run must leave a file Claude Code rewrote and stop at a file changed by
@@ -359,6 +360,10 @@ DECK
   { tail -n 40 "$deck/latexmk.log"; fail "latexmk -xelatex did not build the Beamer deck"; }
 [ -s "$deck/deck.pdf" ] || fail "latexmk -xelatex produced no deck.pdf"
 ok "latexmk -xelatex built deck.pdf ($(wc -c <"$deck/deck.pdf") bytes) with $ttf"
+command -v pdftoppm >/dev/null || fail "pdftoppm not on PATH"
+pdftoppm -png -r 50 "$deck/deck.pdf" "$deck/page" || fail "pdftoppm did not render deck.pdf"
+[ -s "$deck/page-1.png" ] || fail "pdftoppm produced no page-1.png"
+ok "pdftoppm rendered page-1.png ($(wc -c <"$deck/page-1.png") bytes)"
 check_version direnv "$(dpkg-query -W -f '${Version}' direnv | sed 's/-.*//')" /usr/bin/direnv version
 check_version fleet "fleet $(tag_of fleet run2.log | sed 's/^v//')" /usr/local/bin/fleet --version
 check_version fednet "$(tag_of fednet run2.log)" /usr/local/bin/fednet version
