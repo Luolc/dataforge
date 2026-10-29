@@ -8,7 +8,8 @@
 # the release the run reports, statute's picked from a fake release list.
 # A Pi or Codex CLI tarball with the wrong sha256 must stop the run and
 # leave the installed version in use, and rg and fdfind, which Pi would
-# otherwise download, must be on PATH.
+# otherwise download, must be on PATH. xelatex and latexmk must be on PATH
+# and build a Beamer deck with a font loaded by path and a TikZ picture.
 # The dotfiles, written through the setup's own chezmoi, must leave the
 # owner's own chezmoi alone; the first run must back up the file it replaces,
 # a run must leave a file Claude Code rewrote and stop at a file changed by
@@ -331,6 +332,33 @@ for t in rg fdfind; do
   found=$(command -v "$t") || fail "$t not on PATH"
   ok "$t: $found"
 done
+# xelatex and latexmk are on PATH, and latexmk -xelatex builds a Beamer deck
+# that loads a TrueType font by its file path (as the decks' templates load
+# their fonts) and draws a TikZ picture.
+for t in xelatex latexmk; do
+  found=$(command -v "$t") || fail "$t not on PATH"
+  ok "$t: $found"
+done
+ttf=$(find /usr/share/fonts -name '*.ttf' | sort | head -n 1)
+[ -n "$ttf" ] || fail "no .ttf font installed to load by path"
+deck=$out/deck
+rm -rf "$deck"
+mkdir -p "$deck"
+cat >"$deck/deck.tex" <<DECK
+\\documentclass{beamer}
+\\usepackage{fontspec}
+\\usepackage{tikz}
+\\usepackage{graphicx}
+\\usepackage{xcolor}
+\\setmainfont{$(basename "$ttf")}[Path=$(dirname "$ttf")/]
+\\begin{document}
+\\begin{frame}{Title}Hello \\begin{tikzpicture}\\draw (0,0) circle (1);\\end{tikzpicture}\\end{frame}
+\\end{document}
+DECK
+(cd "$deck" && latexmk -xelatex -interaction=nonstopmode -file-line-error deck.tex >latexmk.log 2>&1) ||
+  { tail -n 40 "$deck/latexmk.log"; fail "latexmk -xelatex did not build the Beamer deck"; }
+[ -s "$deck/deck.pdf" ] || fail "latexmk -xelatex produced no deck.pdf"
+ok "latexmk -xelatex built deck.pdf ($(wc -c <"$deck/deck.pdf") bytes) with $ttf"
 check_version direnv "$(dpkg-query -W -f '${Version}' direnv | sed 's/-.*//')" /usr/bin/direnv version
 check_version fleet "fleet $(tag_of fleet run2.log | sed 's/^v//')" /usr/local/bin/fleet --version
 check_version fednet "$(tag_of fednet run2.log)" /usr/local/bin/fednet version
