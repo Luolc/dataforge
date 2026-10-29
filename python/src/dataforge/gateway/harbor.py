@@ -32,9 +32,11 @@ import json
 import os
 from pathlib import Path
 import shlex
-from typing import Any, override
+from typing import Any, ClassVar, override
 
+from harbor.agents.base import AgentOptions
 from harbor.agents.installed.claude_code import ClaudeCode as HarborClaudeCode
+from harbor.agents.installed.claude_code import ClaudeCodeOptions
 from harbor.agents.installed.codex import Codex as HarborCodex
 from harbor.agents.installed.pi import Pi as HarborPi
 from harbor.environments.base import BaseEnvironment
@@ -110,6 +112,17 @@ def _read_nothing(context: AgentContext) -> None:
   context.model_usage = {}
 
 
+class ResumableOptions(ClaudeCodeOptions):
+  """Harbor's claude-code options and `resume_instruction`.
+
+  Attributes:
+    resume_instruction: A file on this host whose text a loaded session gets
+      as its next message.
+  """
+
+  resume_instruction: str | None = None
+
+
 class ClaudeCode(HarborClaudeCode):
   """Harbor's claude-code agent, its client pinned and its logs unread.
 
@@ -117,7 +130,12 @@ class ClaudeCode(HarborClaudeCode):
   working directory /app, with the directory of its tool results and
   subagents beside it, given to the agent's user as Harbor gives the
   session; a session from another working directory is not found there.
+
+  Attributes:
+    options_model: The options Harbor checks the agent's kwargs against.
   """
+
+  options_model: ClassVar[type[AgentOptions] | None] = ResumableOptions
 
   def __init__(
     self,
