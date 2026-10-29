@@ -13,6 +13,7 @@
   "showThinkingSummaries": true,
   "skipDangerousModePermissionPrompt": true,
   "disableRemoteControl": true,
+  "switchModelsOnFlag": false,
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline-herdr.sh",
