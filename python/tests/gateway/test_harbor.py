@@ -299,6 +299,14 @@ def test_claude_code_goes_on_with_a_loaded_session_and_its_tool_results(
   assert message(environment) == "Go on from where you were.\n"
 
 
+def test_claude_code_preflight_takes_only_known_options() -> None:
+  ClaudeCode.preflight(
+    {"version": "2.1.296", "resume_instruction": "/x/resume.txt"}
+  )
+  with pytest.raises(ValueError, match="Unknown option 'no_such_option'"):
+    ClaudeCode.preflight({"version": "2.1.296", "no_such_option": 1})
+
+
 def test_claude_code_without_a_loaded_session_gets_the_tasks_instruction(
   tmp_path: Path,
 ):
