@@ -45,6 +45,10 @@
 #   shows them in the conversation and the transcript view; the default is
 #   false.
 # - disableRemoteControl: data machines have no Remote Control.
+# - switchModelsOnFlag false: when safeguards flag a message, an interactive
+#   session pauses instead of continuing on another model, so a flagged
+#   session does not go on unnoticed on a different model; a `-p` run that
+#   reads user settings ends with an error instead.
 # - statusLine: one line under the input box from the dotfiles'
 #   ~/.claude/statusline-herdr.sh (directory, model, context tokens over the
 #   window size and its percentage, the 5-hour and weekly quota), so that a
