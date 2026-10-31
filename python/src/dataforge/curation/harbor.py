@@ -32,7 +32,9 @@ interrupted, Harbor and its children are stopped first. Then, as the
 containers wrote into the trial's directory, each symlink there that resolves,
 or may, outside it, and each entry that is no regular file, directory or
 symlink, is removed and named in `harbor.log`, before run gives the trial to any
-reader; when the cleanup fails, run raises DockerError and gives no trial.
+reader; when the cleanup fails, run raises DockerError and gives no trial. The
+chown that gives the files back is tried once more when it ran past its
+timeout, and not when it exited non-zero.
 
 When Harbor exits before it starts the trial (no `job/*/config.json` or
 `job/*/result.json`), nothing of the task has run and no model has been called:
@@ -198,6 +200,9 @@ _ABORTED = f"{_AGENT_EXIT}: Command failed (exit 134)"
 PROJECT = "com.docker.compose.project"
 # How long one docker command of the cleanup may run, in seconds.
 DOCKER_TIMEOUT = 120.0
+# How long the chown that gives a trial's files back may run, in seconds; one
+# more try follows a chown that ran past it.
+CHOWN_TIMEOUT = 300.0
 # The file in a trial's directory, by the environment's session ID, that says
 # how often its `main` was at its process limit; Harbor names the trial's own
 # environment `<trial>__env`.
@@ -234,6 +239,10 @@ class DockerError(subprocess.SubprocessError, RuntimeError):
   `docker container ls` or `inspect` raised before, so that a caller that
   caught either catches it.
   """
+
+
+class DockerTimeoutError(DockerError):
+  """Docker ran past its timeout, as against failing or exiting non-zero."""
 
 
 @dataclass(frozen=True)
@@ -428,9 +437,10 @@ class HarborRunner:
 
     Raises:
       DockerError: When docker, in the cleanup after a run of Harbor, fails,
-        runs past DOCKER_TIMEOUT (300 s for the chown) or leaves a container
-        that mounts from under outdir or something with the trial's label; no
-        run follows it.
+        runs past DOCKER_TIMEOUT or leaves a container that mounts from under
+        outdir or something with the trial's label; no run follows it. The
+        chown, with CHOWN_TIMEOUT, is tried once more when it runs past that,
+        and fails when the second try fails.
       stopping.Stopped: The stop of the call this thread runs is set; a run
         then starts nothing, or stops Harbor and cleans up within the stop's
         budget, and no run follows it.
@@ -730,6 +740,27 @@ class HarborRunner:
       )
 
   def _chown(self, outdir: Path, label: str) -> None:
+    # Docker sometimes stalls for minutes before a container starts, so a
+    # chown that ran past its timeout is tried once more, in a container of its
+    # own; what the first left carries the label and goes with the cleanup.
+    # The files must be ours before anything reads them, so a second failure
+    # raises. A stopped call's budget has no room for a second try.
+    started = time.monotonic()
+    try:
+      self._chown_once(outdir, label)
+    except DockerTimeoutError as error:
+      if stopping.stopped():
+        raise
+      _log.warning(
+        "the chown of %s ran past %g s (%.0f s in all): %s; trying once more",
+        outdir,
+        CHOWN_TIMEOUT,
+        time.monotonic() - started,
+        error,
+      )
+      self._chown_once(outdir, label)
+
+  def _chown_once(self, outdir: Path, label: str) -> None:
     _ = _docker(
       self.docker, "run", "--rm",
       f"--label={LABEL}={label}",
@@ -741,7 +772,7 @@ class HarborRunner:
       f"--volume={outdir.resolve()}:/trial",
       CHOWN_IMAGE,
       "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/trial",
-      timeout=300,
+      timeout=CHOWN_TIMEOUT,
       check=True,
     )  # fmt: skip
 
@@ -963,7 +994,8 @@ def _docker(
     What it did.
 
   Raises:
-    DockerError: When it ran past timeout, or, with check, exited non-zero.
+    DockerTimeoutError: When it ran past timeout.
+    DockerError: With check, when it exited non-zero.
   """
   timeout = stopping.left(DOCKER_TIMEOUT if timeout is None else timeout)
   try:
@@ -976,7 +1008,7 @@ def _docker(
       check=False,
     )
   except subprocess.TimeoutExpired as e:
-    raise DockerError(
+    raise DockerTimeoutError(
       f"docker {args[0]} {args[1]} ran past {timeout:g} s"
     ) from e
   if check and done.returncode != 0:
