@@ -156,7 +156,8 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 
 # The fake docker appends its argv to calls.jsonl next to it, and first sleeps
 # 10 s when a file "slow-<argv[0]>-<argv[1]>" is there, and 600 s when a file
-# "hang" is. `<kind> ls` with a label
+# "hang" is; "slow-once-<argv[0]>-<argv[1]>" does that once, and a file
+# "fail-<argv[0]>" makes it exit 1. `<kind> ls` with a label
 # filter prints the ids in <kind>.ids; `rm` and `rmi` remove them unless a file
 # "stuck" is there. mounts.json maps the ids of containers without the label to
 # their mounts' sources: `container ls` without a filter prints each as JSON,
@@ -178,6 +179,12 @@ with (here / "calls.jsonl").open("a") as f:
     f.write(json.dumps(argv) + "\\n")
 if (here / f"slow-{argv[0]}-{argv[1]}").exists():
     time.sleep(10)
+once = here / f"slow-once-{argv[0]}-{argv[1]}"
+if once.exists():
+    once.unlink()
+    time.sleep(10)
+if (here / f"fail-{argv[0]}").exists():
+    sys.exit(1)
 if (here / "hang").exists():
     time.sleep(600)
 def running(pid):
@@ -1863,6 +1870,45 @@ def test_docker_past_its_timeout_in_the_cleanup_is_a_docker_error(
   _ = (fakes[1].parent / f"slow-{slow}").write_text("")
   with pytest.raises(DockerError, match="ran past"):
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+
+
+def chown_calls(fakes: tuple[Path, Path]) -> list[list[str]]:
+  return [call for call in docker_calls(fakes) if call[0] == "run"]
+
+
+def test_a_chown_past_its_timeout_is_tried_once_more(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
+  _ = (fakes[1].parent / "slow-once-run---rm").write_text("")
+  result = runner(fakes).run(
+    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
+  )
+  assert result.exception is None
+  assert len(chown_calls(fakes)) == 2
+
+
+def test_a_chown_past_its_timeout_twice_is_a_docker_error(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
+  _ = (fakes[1].parent / "slow-run---rm").write_text("")
+  with pytest.raises(DockerError, match="ran past"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
+  assert len(chown_calls(fakes)) == 2
+
+
+def test_a_chown_that_exits_non_zero_is_not_tried_again(
+  tmp_path: Path, fakes: tuple[Path, Path]
+) -> None:
+  _ = (fakes[1].parent / "fail-run").write_text("")
+  with pytest.raises(DockerError, match="exited 1"):
+    _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
+  assert len(chown_calls(fakes)) == 1
 
 
 def test_a_cleanup_past_its_timeout_raises_what_callers_caught_before(
