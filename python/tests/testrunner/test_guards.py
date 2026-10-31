@@ -518,6 +518,64 @@ def test_a_vendored_dependency_is_found(path: str, vendored: bool):
   assert deps.vendored(path, owners, crates) is vendored
 
 
+def test_the_package_managers_files_are_named():
+  assert deps.PACKAGE_MANIFEST == "package.json"
+  assert sorted(deps.SCRIPT_RUNNER_FILES) == [
+    ".npmrc",
+    ".pnp.cjs",
+    ".pnp.loader.mjs",
+    ".pnpmfile.cjs",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "pnpm-workspace.yaml",
+  ]
+
+
+@pytest.mark.parametrize(
+  ("name", "config"),
+  [
+    # Each tool, and each extension of a *.config.* among them.
+    ("tsdown.config.ts", True),
+    ("tsup.config.cts", True),
+    ("vite.config.mts", True),
+    ("rollup.config.mjs", True),
+    ("rolldown.config.ts", True),
+    ("webpack.config.cjs", True),
+    ("rspack.config.js", True),
+    ("esbuild.config.mjs", True),
+    ("babel.config.js", True),
+    ("postcss.config.cjs", True),
+    ("build.config.ts", True),
+    ("babel.config.json", True),
+    (".babelrc", True),
+    (".babelrc.json", True),
+    (".babelrc.js", True),
+    (".babelrc.cjs", True),
+    (".babelrc.mjs", True),
+    (".babelrc.ts", True),
+    (".babelrc.mts", True),
+    (".babelrc.cts", True),
+    (".postcssrc", True),
+    (".postcssrc.json", True),
+    (".postcssrc.yml", True),
+    ("vite.config.helper.ts", False),
+    # Vitest's own runner_files.
+    ("vitest.config.ts", False),
+    ("vite.config.json", False),
+    (".babelrc.yml", False),
+    ("tsconfig.json", False),
+    ("config.ts", False),
+    ("src/build.ts", False),
+    # A name, never a path.
+    ("src/vite.config.ts", False),
+  ],
+)
+def test_build_config_matches_a_bundlers_config_by_its_whole_name(
+  name: str, config: bool
+):
+  assert (deps.BUILD_CONFIG.fullmatch(name) is not None) is config
+
+
 def test_a_copy_that_lacks_a_module_its_guards_name_fails(tmp_path: Path):
   # The checks never skip a module the copy's GUARDS names: one that is
   # missing stops them, so that no check goes unseen.
