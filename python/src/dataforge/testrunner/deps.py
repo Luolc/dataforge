@@ -357,7 +357,8 @@ BUILD_CONFIG = re.compile(
 """The names, matched whole (fullmatch on a file's name, never its path),
 of the configuration files a JavaScript bundler or transpiler loads by
 itself as code or as a list of plugins, which can be files of the
-project's: tsdown, tsup, Vite, Rollup, Rolldown, webpack, Rspack, esbuild,
-Babel, PostCSS and unbuild (`build.config.*`). `.babelrc` also takes the
+project's: tsdown, tsup, Vite, Rollup, Rolldown, webpack, Rspack, Babel,
+PostCSS and unbuild (`build.config.*`); and esbuild's `esbuild.config.*`,
+by convention a script a build runs with `node`. `.babelrc` also takes the
 TypeScript extensions Babel reads, `.ts` and `.mts`, which it loads only from
 a path it is given."""
