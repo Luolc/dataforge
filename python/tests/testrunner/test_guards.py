@@ -552,6 +552,8 @@ def test_the_package_managers_files_are_named():
     (".babelrc.js", True),
     (".babelrc.cjs", True),
     (".babelrc.mjs", True),
+    (".babelrc.ts", True),
+    (".babelrc.mts", True),
     (".babelrc.cts", True),
     (".postcssrc", True),
     (".postcssrc.json", True),
@@ -560,7 +562,7 @@ def test_the_package_managers_files_are_named():
     # Vitest's own runner_files.
     ("vitest.config.ts", False),
     ("vite.config.json", False),
-    (".babelrc.ts", False),
+    (".babelrc.yml", False),
     ("tsconfig.json", False),
     ("config.ts", False),
     ("src/build.ts", False),

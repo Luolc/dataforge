@@ -352,10 +352,12 @@ in the workspace's or the package's directory."""
 BUILD_CONFIG = re.compile(
   r"(?:tsdown|tsup|vite|rollup|rolldown|webpack|rspack|esbuild|babel"
   + r"|postcss|build)\.config\.[cm]?[jt]s|babel\.config\.json"
-  + r"|\.babelrc(?:\.(?:json|[cm]?js|cts))?|\.postcssrc(?:\..+)?"
+  + r"|\.babelrc(?:\.(?:json|[cm]?[jt]s))?|\.postcssrc(?:\..+)?"
 )
 """The names, matched whole (fullmatch on a file's name, never its path),
 of the configuration files a JavaScript bundler or transpiler loads by
 itself as code or as a list of plugins, which can be files of the
 project's: tsdown, tsup, Vite, Rollup, Rolldown, webpack, Rspack, esbuild,
-Babel, PostCSS and unbuild (`build.config.*`)."""
+Babel, PostCSS and unbuild (`build.config.*`). `.babelrc` also takes the
+TypeScript extensions Babel reads, `.ts` and `.mts`, which it loads only from
+a path it is given."""
