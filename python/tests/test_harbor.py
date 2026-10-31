@@ -1902,6 +1902,24 @@ def test_a_chown_past_its_timeout_twice_is_a_docker_error(
   assert len(chown_calls(fakes)) == 2
 
 
+def test_a_chown_past_its_timeout_is_not_tried_again_once_stopped(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
+  _ = (fakes[1].parent / "slow-run---rm").write_text("")
+  stop, trial = stopping.Stop(), runner(fakes)
+
+  def chown() -> None:
+    stop.set()
+    trial._chown(outdir(tmp_path), "x")  # pyright: ignore[reportPrivateUsage]
+
+  with pytest.raises(DockerError, match="ran past"):
+    _ = stopping.under(stop, chown)()
+  assert len(chown_calls(fakes)) == 1
+
+
 def test_a_chown_that_exits_non_zero_is_not_tried_again(
   tmp_path: Path, fakes: tuple[Path, Path]
 ) -> None:
