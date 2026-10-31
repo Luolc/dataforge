@@ -328,20 +328,31 @@ runner_files (core.runner_files), and a dataset compares only its `scripts`
 with the base's."""
 
 SCRIPT_RUNNER_FILES = frozenset(
-  {".npmrc", ".pnpmfile.cjs", "pnpm-workspace.yaml", ".yarnrc", ".yarnrc.yml"}
+  {
+    ".npmrc",
+    ".pnpmfile.cjs",
+    "pnpm-workspace.yaml",
+    ".yarnrc",
+    ".yarnrc.yml",
+    ".pnp.cjs",
+    ".pnp.loader.mjs",
+  }
 )
 """The files npm, pnpm or yarn read by themselves, by their names, when they
 run a package's script: `.npmrc`, whose `script-shell` names the shell
 every script runs in, `node-options` the options of each `node` it starts
 and `pnpmfile` a file pnpm loads; `.pnpmfile.cjs`, which pnpm loads on
 every command, `pnpm run` among them; `pnpm-workspace.yaml`, which says
-whose scripts a recursive run runs; and `.yarnrc` and `.yarnrc.yml`, whose
-`yarn-path` and `yarnPath` name the yarn that runs."""
+whose scripts a recursive run runs; `.yarnrc` and `.yarnrc.yml`, whose
+`yarn-path` and `yarnPath` name the yarn that runs; and `.pnp.cjs` and
+`.pnp.loader.mjs`, Plug'n'Play's loaders, which yarn under Plug'n'Play adds
+to the `NODE_OPTIONS` of each script it runs, and pnpm a `.pnp.cjs` it finds
+in the workspace's or the package's directory."""
 
 BUILD_CONFIG = re.compile(
   r"(?:tsdown|tsup|vite|rollup|rolldown|webpack|rspack|esbuild|babel"
   + r"|postcss|build)\.config\.[cm]?[jt]s|babel\.config\.json"
-  + r"|\.babelrc(?:\.(?:json|[cm]?js))?|\.postcssrc(?:\..+)?"
+  + r"|\.babelrc(?:\.(?:json|[cm]?js|cts))?|\.postcssrc(?:\..+)?"
 )
 """The names, matched whole (fullmatch on a file's name, never its path),
 of the configuration files a JavaScript bundler or transpiler loads by

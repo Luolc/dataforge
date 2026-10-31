@@ -522,6 +522,8 @@ def test_the_package_managers_files_are_named():
   assert deps.PACKAGE_MANIFEST == "package.json"
   assert sorted(deps.SCRIPT_RUNNER_FILES) == [
     ".npmrc",
+    ".pnp.cjs",
+    ".pnp.loader.mjs",
     ".pnpmfile.cjs",
     ".yarnrc",
     ".yarnrc.yml",
@@ -550,6 +552,7 @@ def test_the_package_managers_files_are_named():
     (".babelrc.js", True),
     (".babelrc.cjs", True),
     (".babelrc.mjs", True),
+    (".babelrc.cts", True),
     (".postcssrc", True),
     (".postcssrc.json", True),
     (".postcssrc.yml", True),
