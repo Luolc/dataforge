@@ -1,4 +1,4 @@
-"""The checks of where a project's dependencies come from.
+"""Where a project's dependencies come from, and build files told by name.
 
 The dependency overrides check, of where build files take dependencies
 from, and where vendored dependencies are (vendor_dirs). Neither is a
@@ -6,6 +6,12 @@ runner's nor a language's: a project of any runner may hold such a build
 file or a vendored dependency, such as a native extension's, and a fix
 may add one, so every task's copy has this module (bundle.COMMON) and it
 imports no runner's.
+
+It also names the files through which package managers, bundlers and
+transpilers run code of the project's when it builds (PACKAGE_MANIFEST,
+SCRIPT_RUNNER_FILES, BUILD_CONFIG), which a dataset tells by name when it
+filters a fix's changes. They are here because every task has this module,
+so a dataset's code in a task takes them from it and names none of them.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ from collections.abc import Collection
 import json
 from pathlib import PurePosixPath
 import posixpath
+import re
 import tomllib
 from typing import cast
 
@@ -310,3 +317,34 @@ def vendor_dirs(
     elif p.name == CARGO_CHECKSUM and parent:
       crates.add(parent)
   return owners, crates
+
+
+PACKAGE_MANIFEST = "package.json"
+"""The manifest of a Node.js package, whose `scripts` npm, pnpm and yarn
+run by name: a build that runs a package's script runs that script and,
+under npm and pnpm, its `pre<name>` and `post<name>` around it. A fix may
+need to change the manifest's dependencies, so it is not one of a runner's
+runner_files (core.runner_files), and a dataset compares only its `scripts`
+with the base's."""
+
+SCRIPT_RUNNER_FILES = frozenset(
+  {".npmrc", ".pnpmfile.cjs", "pnpm-workspace.yaml", ".yarnrc", ".yarnrc.yml"}
+)
+"""The files npm, pnpm or yarn read by themselves, by their names, when they
+run a package's script: `.npmrc`, whose `script-shell` names the shell
+every script runs in, `node-options` the options of each `node` it starts
+and `pnpmfile` a file pnpm loads; `.pnpmfile.cjs`, which pnpm loads on
+every command, `pnpm run` among them; `pnpm-workspace.yaml`, which says
+whose scripts a recursive run runs; and `.yarnrc` and `.yarnrc.yml`, whose
+`yarn-path` and `yarnPath` name the yarn that runs."""
+
+BUILD_CONFIG = re.compile(
+  r"(?:tsdown|tsup|vite|rollup|rolldown|webpack|rspack|esbuild|babel"
+  + r"|postcss|build)\.config\.[cm]?[jt]s|babel\.config\.json"
+  + r"|\.babelrc(?:\.(?:json|[cm]?js))?|\.postcssrc(?:\..+)?"
+)
+"""The names, matched whole (fullmatch on a file's name, never its path),
+of the configuration files a JavaScript bundler or transpiler loads by
+itself as code or as a list of plugins, which can be files of the
+project's: tsdown, tsup, Vite, Rollup, Rolldown, webpack, Rspack, esbuild,
+Babel, PostCSS and unbuild (`build.config.*`)."""
