@@ -20,6 +20,11 @@ directory of the same name beside it, whose tool results and subagents'
 sessions the session names by their paths in the container, and with
 `resume_instruction` sends that file's text as the session's next message in
 place of the task's instruction.
+
+`ClaudeCode` hands `claude` its message through a file, not the variable in
+which Harbor passes it to `docker exec`: Linux refuses a variable or an
+argument over 128 KiB (`MAX_ARG_STRLEN`) with `E2BIG`, which would fail the
+trial before `claude` starts.
 """
 
 # Harbor is a development dependency only; its classes are typed loosely.
@@ -31,10 +36,12 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import tempfile
 from typing import Any, ClassVar, override
+import uuid
 
 from harbor.agents.base import AgentOptions
 from harbor.agents.installed.claude_code import ClaudeCode as HarborClaudeCode
@@ -115,6 +122,13 @@ def _read_nothing(context: AgentContext) -> None:
 
 
 UPLOAD_SUFFIX = ".upload"
+# The variable whose value Harbor 0.24.0's `ClaudeCode.run` pipes into
+# `claude`, its name followed by a random hex
+# (`harbor/agents/installed/claude_code.py`).
+INSTRUCTION_VAR = "HARBOR_CLAUDE_CODE_INSTRUCTION_"
+# Where the message waits in the container, in a directory of the agent's
+# user, until the command that runs `claude` reads and removes it.
+INSTRUCTION_DIR = "/tmp"
 
 
 def _share(directory: Path) -> None:
@@ -197,6 +211,66 @@ class ClaudeCode(HarborClaudeCode):
     if self._load and self._resume_instruction is not None:
       return self._resume_instruction.read_text()
     return super().render_instruction(instruction)
+
+  @override
+  async def exec_as_agent(
+    self,
+    environment: BaseEnvironment,
+    command: str,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+    timeout_sec: int | None = None,
+  ) -> Any:
+    """Run a command as the agent's user, the message read from a file.
+
+    Args:
+      environment: The trial's environment.
+      command: The command.
+      env: Its variables; Harbor's message among them is copied in as a file
+        instead, which the command reads into a shell variable of the same
+        name and removes before anything else runs.
+      cwd: Its working directory.
+      timeout_sec: Its timeout.
+
+    Returns:
+      Harbor's result of the command.
+
+    Raises:
+      ValueError: Harbor's variable has a name a shell does not take.
+    """
+    names = [name for name in env or {} if name.startswith(INSTRUCTION_VAR)]
+    if env is None or not names:
+      return await super().exec_as_agent(
+        environment, command, env=env, cwd=cwd, timeout_sec=timeout_sec
+      )
+    (name,) = names
+    if not re.fullmatch(r"[A-Z0-9_]+", name):
+      raise ValueError(f"not a shell variable's name: {name!r}")
+    rest = dict(env)
+    message = rest.pop(name)
+    directory = f"{INSTRUCTION_DIR}/dataforge-instruction-{uuid.uuid4().hex}"
+    path = f"{directory}/instruction"
+    # Made by the agent's user, which can then remove the file whoever owns
+    # it; mkdir fails when the directory is already there.
+    await super().exec_as_agent(
+      environment, command=f"mkdir -m 700 -- {shlex.quote(directory)}"
+    )
+    with tempfile.TemporaryDirectory(
+      prefix="dataforge-instruction-"
+    ) as scratch:
+      staged = Path(scratch) / "instruction"
+      _ = staged.write_bytes(message.encode())
+      staged.chmod(0o644)
+      await environment.upload_file(staged, path)
+    # The x keeps the message's trailing newlines, which $(...) strips.
+    read = (
+      f'{name}="$(cat -- {shlex.quote(path)} && printf x)" && '
+      f"rm -- {shlex.quote(path)} && rmdir -- {shlex.quote(directory)} "
+      f'|| exit 1; {name}="${{{name}%x}}"; '
+    )
+    return await super().exec_as_agent(
+      environment, read + command, env=rest, cwd=cwd, timeout_sec=timeout_sec
+    )
 
   @override
   async def _upload_load_trajectory(
