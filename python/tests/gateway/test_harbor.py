@@ -11,12 +11,14 @@ the client's version is not the pinned one, and read nothing under `agent/`.
 
 import asyncio
 from collections.abc import Iterator
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import stat
 import subprocess
+import tarfile
 from typing import cast, override
 import uuid
 
@@ -27,6 +29,8 @@ import pytest
 from dataforge.gateway.harbor import (
   ClaudeCode,
   Codex,
+  INSTRUCTION_DIR,
+  INSTRUCTION_VAR,
   Pi,
   PI_MODELS,
   PI_SETTINGS,
@@ -277,6 +281,7 @@ def run_claude(
   load: bool,
   resume_instruction: Path | None,
   user: str | None = None,
+  task: str = "The task's instruction.",
 ) -> Session:
   agent = ClaudeCode(
     logs_dir=tmp_path / "logs",
@@ -289,18 +294,33 @@ def run_claude(
   environment = Session()
   environment.default_user = user
   start = agent.load if load else agent.run
-  asyncio.run(
-    start("The task's instruction.", container(environment), AgentContext())
-  )
+  asyncio.run(start(task, container(environment), AgentContext()))
   return environment
 
 
+INSTRUCTION_FILES = f"{INSTRUCTION_DIR}/dataforge-instruction-"
+# Linux's MAX_ARG_STRLEN, the most an argument or a variable of a command can
+# hold, its terminating NUL counted.
+ARGUMENT_LIMIT = 131072
+
+
 def message(environment: Session) -> str:
-  # The text the last command pipes into `claude`.
-  env = environment.envs[-1]
+  # The text the last command reads into the variable it pipes into `claude`.
+  command = environment.commands[-1]
   return next(
-    v for k, v in env.items() if k.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION")
+    text
+    for path, text in environment.uploads.items()
+    if path.startswith(INSTRUCTION_FILES) and f" -- {path} " in command
   )
+
+
+def copied(environment: Session) -> dict[str, str]:
+  # What was uploaded besides the message.
+  return {
+    path: text
+    for path, text in environment.uploads.items()
+    if not path.startswith(INSTRUCTION_FILES)
+  }
 
 
 def test_claude_code_goes_on_with_a_loaded_session_and_its_tool_results(
@@ -310,7 +330,7 @@ def test_claude_code_goes_on_with_a_loaded_session_and_its_tool_results(
   _ = instruction.write_text("Go on from where you were.\n")
   environment = run_claude(tmp_path, load=True, resume_instruction=instruction)
   project = "/logs/agent/sessions/projects/-app"
-  assert environment.uploads == {
+  assert copied(environment) == {
     f"{project}/{SESSION_ID}.jsonl.upload": '{"type": "user", "cwd": "/app"}\n'
   }
   assert environment.dirs == {
@@ -334,7 +354,7 @@ def test_claude_code_without_a_loaded_session_gets_the_tasks_instruction(
   instruction = tmp_path / "continue.md"
   _ = instruction.write_text("Go on from where you were.\n")
   environment = run_claude(tmp_path, load=False, resume_instruction=instruction)
-  assert environment.uploads == {}
+  assert copied(environment) == {}
   assert environment.dirs == {}
   assert "--resume" not in environment.commands[-1]
   assert message(environment) == "The task's instruction."
@@ -346,6 +366,26 @@ def test_claude_code_loaded_without_a_resume_instruction_gets_the_tasks(
   environment = run_claude(tmp_path, load=True, resume_instruction=None)
   assert f"--resume {SESSION_ID} " in environment.commands[-1]
   assert message(environment) == "The task's instruction."
+
+
+@pytest.mark.parametrize("load", [False, True])
+def test_claude_code_passes_no_argument_over_the_kernels_limit(
+  tmp_path: Path, load: bool
+):
+  # A message Linux would refuse to `docker exec`, as a variable, with E2BIG.
+  text = "x" * ARGUMENT_LIMIT + "\n\n"
+  instruction = tmp_path / "continue.md"
+  _ = instruction.write_text(text)
+  environment = run_claude(
+    tmp_path, load=load, resume_instruction=instruction if load else None,
+    task=text,
+  )  # fmt: skip
+  for command, env in zip(environment.commands, environment.envs, strict=True):
+    assert len(command.encode()) < ARGUMENT_LIMIT
+    for name, value in env.items():
+      assert len(f"{name}={value}".encode()) < ARGUMENT_LIMIT
+    assert not any(name.startswith(INSTRUCTION_VAR) for name in env)
+  assert message(environment) == text
 
 
 def test_claude_code_copies_a_loaded_sessions_files_in_as_the_agents_user(
@@ -391,18 +431,46 @@ class Hardened(Environment):
     self.name: str = name
 
   @override
-  async def exec(self, command: str, **_: object) -> ExecResult:
-    done = docker("exec", self.name, "bash", "-c", command, check=False)
+  async def exec(self, command: str, **kwargs: object) -> ExecResult:
+    # Each variable an argument of `docker exec`, and the agent's user, as
+    # Harbor passes them.
+    env = cast(dict[str, str], kwargs.get("env") or {})
+    options = [a for k, v in env.items() for a in ("-e", f"{k}={v}")]
+    if self.default_user is not None:
+      options += ["-u", self.default_user]
+    done = docker(
+      "exec", *options, self.name, "bash", "-c", command, check=False
+    )
     return ExecResult(
       stdout=done.stdout, stderr=done.stderr, return_code=done.returncode
     )
 
   @override
   async def upload_file(self, source: Path, target: str) -> None:
-    _ = docker("cp", str(source), f"{self.name}:{target}")
+    # As Harbor 0.24.0's Docker environment: `docker cp`, which cannot reach
+    # a tmpfs, and else a tar of root's extracted by root
+    # (`harbor/environments/docker/docker_unix.py`).
+    if docker(
+      "cp", str(source), f"{self.name}:{target}", check=False
+    ).returncode:
+      directory, name = target.rsplit("/", 1)
+      archive = io.BytesIO()
+      with tarfile.open(fileobj=archive, mode="w") as tar:
+        tar.add(source, arcname=name, filter=owned_by_root)
+      _ = subprocess.run(
+        ["docker", "exec", "-i", "-u", "root", self.name, "tar", "-xf", "-",
+         "-C", directory],
+        input=archive.getvalue(), check=True, capture_output=True,
+      )  # fmt: skip
 
   async def upload_dir(self, source: Path, target: str) -> None:
     _ = docker("cp", f"{source}/.", f"{self.name}:{target}")
+
+
+def owned_by_root(info: tarfile.TarInfo) -> tarfile.TarInfo:
+  info.uid = info.gid = 0
+  info.uname = info.gname = "root"
+  return info
 
 
 @pytest.fixture
@@ -417,7 +485,8 @@ def hardened() -> Iterator[Hardened]:
   name = f"dataforge-resume-test-{uuid.uuid4().hex[:12]}"
   _ = docker(
     "run", "-d", "--name", name, "--network", "none", "--cap-drop", "ALL",
-    "--security-opt", "no-new-privileges", "--init", IMAGE, "sleep", "300",
+    "--security-opt", "no-new-privileges", "--cpus", "1", "--memory", "256m",
+    "--pids-limit", "64", "--tmpfs", "/tmp", "--init", IMAGE, "sleep", "300",
   )  # fmt: skip
   try:
     _ = docker(
@@ -474,3 +543,29 @@ def test_a_loaded_session_and_its_directory_are_readable_and_writable_by_root(
   assert made.returncode == 0, made.stderr
   left = docker("exec", hardened.name, "ls", "-A", project).stdout.split()
   assert sorted(left) == [SESSION_ID, f"{SESSION_ID}.jsonl"]
+
+
+@pytest.mark.parametrize("user", [None, "ubuntu"])
+def test_a_message_over_the_kernels_limit_reaches_claude_whole(
+  tmp_path: Path, hardened: Hardened, user: str | None
+):
+  # A `claude` that keeps what it reads.
+  claude = "/usr/local/bin/claude"
+  script = "#!/bin/sh\ncat > /tmp/received\n"
+  made = docker(
+    "exec", hardened.name, "bash", "-c",
+    f"printf %s '{script}' > {claude} && chmod +x {claude}",
+    check=False,
+  )  # fmt: skip
+  assert made.returncode == 0, made.stderr
+  # The image's user, root or another, the agent's when the task names none;
+  # `/logs` is open to it, so that Harbor's setup can write there.
+  _ = docker("exec", hardened.name, "chmod", "-R", "777", "/logs")
+  hardened.default_user = user
+  text = "x" * ARGUMENT_LIMIT + ' $HOME `true` \\ "\n\n'
+  agent = ClaudeCode(logs_dir=tmp_path / "logs", model_name="claude-model")
+  asyncio.run(agent.run(text, container(hardened), AgentContext()))
+  received = docker("exec", hardened.name, "cat", "/tmp/received").stdout
+  assert received == text
+  left = docker("exec", hardened.name, "ls", "-A", INSTRUCTION_DIR).stdout
+  assert left.split() == ["received"]
