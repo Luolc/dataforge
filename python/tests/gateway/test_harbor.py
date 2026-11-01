@@ -11,12 +11,14 @@ the client's version is not the pinned one, and read nothing under `agent/`.
 
 import asyncio
 from collections.abc import Iterator
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import stat
 import subprocess
+import tarfile
 from typing import cast, override
 import uuid
 
@@ -430,11 +432,14 @@ class Hardened(Environment):
 
   @override
   async def exec(self, command: str, **kwargs: object) -> ExecResult:
-    # Each variable an argument of `docker exec`, as Harbor passes it.
+    # Each variable an argument of `docker exec`, and the agent's user, as
+    # Harbor passes them.
     env = cast(dict[str, str], kwargs.get("env") or {})
-    variables = [a for k, v in env.items() for a in ("-e", f"{k}={v}")]
+    options = [a for k, v in env.items() for a in ("-e", f"{k}={v}")]
+    if self.default_user is not None:
+      options += ["-u", self.default_user]
     done = docker(
-      "exec", *variables, self.name, "bash", "-c", command, check=False
+      "exec", *options, self.name, "bash", "-c", command, check=False
     )
     return ExecResult(
       stdout=done.stdout, stderr=done.stderr, return_code=done.returncode
@@ -442,10 +447,30 @@ class Hardened(Environment):
 
   @override
   async def upload_file(self, source: Path, target: str) -> None:
-    _ = docker("cp", str(source), f"{self.name}:{target}")
+    # As Harbor 0.24.0's Docker environment: `docker cp`, which cannot reach
+    # a tmpfs, and else a tar of root's extracted by root
+    # (`harbor/environments/docker/docker_unix.py`).
+    if docker(
+      "cp", str(source), f"{self.name}:{target}", check=False
+    ).returncode:
+      directory, name = target.rsplit("/", 1)
+      archive = io.BytesIO()
+      with tarfile.open(fileobj=archive, mode="w") as tar:
+        tar.add(source, arcname=name, filter=owned_by_root)
+      _ = subprocess.run(
+        ["docker", "exec", "-i", "-u", "root", self.name, "tar", "-xf", "-",
+         "-C", directory],
+        input=archive.getvalue(), check=True, capture_output=True,
+      )  # fmt: skip
 
   async def upload_dir(self, source: Path, target: str) -> None:
     _ = docker("cp", f"{source}/.", f"{self.name}:{target}")
+
+
+def owned_by_root(info: tarfile.TarInfo) -> tarfile.TarInfo:
+  info.uid = info.gid = 0
+  info.uname = info.gname = "root"
+  return info
 
 
 @pytest.fixture
@@ -461,7 +486,7 @@ def hardened() -> Iterator[Hardened]:
   _ = docker(
     "run", "-d", "--name", name, "--network", "none", "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges", "--cpus", "1", "--memory", "256m",
-    "--pids-limit", "64", "--init", IMAGE, "sleep", "300",
+    "--pids-limit", "64", "--tmpfs", "/tmp", "--init", IMAGE, "sleep", "300",
   )  # fmt: skip
   try:
     _ = docker(
@@ -520,8 +545,9 @@ def test_a_loaded_session_and_its_directory_are_readable_and_writable_by_root(
   assert sorted(left) == [SESSION_ID, f"{SESSION_ID}.jsonl"]
 
 
+@pytest.mark.parametrize("user", [None, "ubuntu"])
 def test_a_message_over_the_kernels_limit_reaches_claude_whole(
-  tmp_path: Path, hardened: Hardened
+  tmp_path: Path, hardened: Hardened, user: str | None
 ):
   # A `claude` that keeps what it reads.
   claude = "/usr/local/bin/claude"
@@ -532,6 +558,10 @@ def test_a_message_over_the_kernels_limit_reaches_claude_whole(
     check=False,
   )  # fmt: skip
   assert made.returncode == 0, made.stderr
+  # The image's user, root or another, the agent's when the task names none;
+  # `/logs` is open to it, so that Harbor's setup can write there.
+  _ = docker("exec", hardened.name, "chmod", "-R", "777", "/logs")
+  hardened.default_user = user
   text = "x" * ARGUMENT_LIMIT + ' $HOME `true` \\ "\n\n'
   agent = ClaudeCode(logs_dir=tmp_path / "logs", model_name="claude-model")
   asyncio.run(agent.run(text, container(hardened), AgentContext()))

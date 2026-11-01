@@ -251,9 +251,12 @@ class ClaudeCode(HarborClaudeCode):
     directory = f"{INSTRUCTION_DIR}/dataforge-instruction-{uuid.uuid4().hex}"
     path = f"{directory}/instruction"
     # Made by the agent's user, which can then remove the file whoever owns
-    # it; mkdir fails when the directory is already there.
+    # it; mkdir fails when the directory is already there. Harbor copies into
+    # a tmpfs as root, which without CAP_DAC_OVERRIDE needs the directory
+    # writable by all; no other user can list it, and the sticky bit keeps
+    # them from replacing or removing what root copies in.
     await super().exec_as_agent(
-      environment, command=f"mkdir -m 700 -- {shlex.quote(directory)}"
+      environment, command=f"mkdir -m 1733 -- {shlex.quote(directory)}"
     )
     with tempfile.TemporaryDirectory(
       prefix="dataforge-instruction-"
