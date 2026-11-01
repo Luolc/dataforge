@@ -3,8 +3,9 @@
 What an action does (agent, script) and where it runs (Host, or a Docker
 container) are independent. Memory is shared through a ResourcePool, whose
 reservations every process of the machine counts: a Docker env reserves its
-memory_gb from start to stop, a trial what its runner's memory_gb gives, a host
-script its memory_gb; each waits while the pool is short. CPUs are not
+reserve_gb, by default its memory_gb, from start to stop, a trial what its
+runner's memory_gb gives, a host script its memory_gb; each waits while the
+pool is short. CPUs are not
 reserved; a container's cpus and cpu_shares divide them. Image builds, whose
 writes to the disk no limit of a container reaches, take one of the pool's
 build slots each.
@@ -571,9 +572,14 @@ class Docker:
       source, and this process to read what that user writes.
     cpus: The container's --cpus.
     cpu_shares: Its --cpu-shares.
-    memory_gb: Its memory, reserved from the pool from start to stop.
+    memory_gb: Its memory limit, its --memory.
     memory_swap_gb: Memory plus swap, as docker's --memory-swap counts it;
       needs memory_gb. Equal to it, the container gets no swap.
+    reserve_gb: The memory it reserves from the pool from start to stop, and
+      while replace runs; None for memory_gb. Less than memory_gb, more
+      containers share the pool than their limits add up to, and what one
+      uses past its reservation is held back by its own memory_gb alone,
+      not by the pool.
     pids: Its --pids-limit.
     network: Whether it has a network.
     labels: Its labels.
@@ -598,6 +604,7 @@ class Docker:
   cpu_shares: int | None = None
   memory_gb: float | None = None
   memory_swap_gb: float | None = None
+  reserve_gb: float | None = None
   pids: int | None = None
   network: bool = False
   labels: Mapping[str, str] = field(default_factory=dict[str, str])
@@ -620,6 +627,20 @@ class Docker:
   _summaries: dict[str, Path] = field(
     default_factory=dict[str, Path], init=False
   )
+
+  def __post_init__(self) -> None:
+    """Check reserve_gb.
+
+    Raises:
+      ValueError: When reserve_gb is not positive.
+    """
+    if self.reserve_gb is not None and self.reserve_gb <= 0:
+      raise ValueError(f"a reservation of {self.reserve_gb} GB")
+
+  @property
+  def reserved_gb(self) -> float | None:
+    """What it reserves of a pool while it runs: reserve_gb or memory_gb."""
+    return self.memory_gb if self.reserve_gb is None else self.reserve_gb
 
   @property
   def container(self) -> str | None:
@@ -786,7 +807,7 @@ class Docker:
     """Create the container if needed and start it, unless it runs already.
 
     Args:
-      pool: The pool to reserve memory_gb from, if any.
+      pool: The pool to reserve reserved_gb from, if any.
 
     Raises:
       BaseException: Whatever creating, starting or post_start raised; the
@@ -797,8 +818,8 @@ class Docker:
     """
     with self._lock:
       if self._users == 0:
-        if pool is not None and self.memory_gb is not None:
-          pool.acquire(self.memory_gb)
+        if pool is not None and self.reserved_gb is not None:
+          pool.acquire(self.reserved_gb)
           self._pool = pool
         try:
           # Also once the memory came, which may be long after the call began.
@@ -830,8 +851,8 @@ class Docker:
           self._release()
 
   def _release(self) -> None:
-    if self._pool is not None and self.memory_gb is not None:
-      self._pool.release(self.memory_gb)
+    if self._pool is not None and self.reserved_gb is not None:
+      self._pool.release(self.reserved_gb)
     self._pool = None
 
   def remove(self) -> None:
@@ -867,14 +888,15 @@ class Docker:
     a submodule's directory that holds files but is no repository, makes it
     raise before it creates the new one, since a diff holds only that
     repository's commit. The two run one at a time, only for git and
-    the copies, without pre_start and post_start, and with memory_gb reserved
-    from pool. An env with no container yet only takes the image.
+    the copies, without pre_start and post_start, and with reserved_gb
+    reserved from pool. An env with no container yet only takes the image.
 
     Args:
       image: The new container's image.
       carry: The work trees whose changes go along, by their paths in the
         container.
-      pool: The pool to reserve memory_gb from while a container runs, if any.
+      pool: The pool to reserve reserved_gb from while a container runs, if
+        any.
 
     Raises:
       RuntimeError: When an action runs in the env, a docker or git command
@@ -890,7 +912,7 @@ class Docker:
         self.image = image
         return
       with (
-        _reserve(pool, self.memory_gb),
+        _reserve(pool, self.reserved_gb),
         tempfile.TemporaryDirectory(prefix="dataforge-carry-") as into,
       ):
         taken = self._take(old, carry, Path(into))
