@@ -683,6 +683,26 @@ def test_a_failed_docker_start_returns_its_memory(tmp_path: Path) -> None:
     once(tmp_path, body)
 
 
+def test_a_docker_env_reserves_its_reserve_gb_and_keeps_its_memory_limit(
+  tmp_path: Path,
+) -> None:
+  docker = FakeDocker(tmp_path / "container")
+  pool = ResourcePool(1.0)
+  with Docker("solver:1", memory_gb=4.0, reserve_gb=0.25, cli=docker) as env:
+    env.start(pool)
+    assert pool.reserved_gb == 0.25
+    env.stop()
+  assert pool.reserved_gb == 0.0
+  create = next(call for call in docker.calls if call[0] == "create")
+  assert create[create.index("--memory") + 1] == "4096m"
+
+
+@pytest.mark.parametrize("reserve_gb", [0.0, -1.0])
+def test_a_docker_env_reserves_more_than_nothing(reserve_gb: float) -> None:
+  with pytest.raises(ValueError, match="a reservation of"):
+    _ = Docker("solver:1", memory_gb=4.0, reserve_gb=reserve_gb)
+
+
 class Twice(State):
   """Runs body on two visits; the first goes back to itself.
 
