@@ -995,6 +995,7 @@ def test_a_reply_of_claude_opus_5_is_priced_at_its_list_price(tmp_path: Path):
 @pytest.mark.parametrize(
   ("model", "prices"),
   [
+    ("gpt-6-astra", (10.0, 50.0, 1.0, 12.5, 25.0)),
     ("gpt-6.1-sol", (2.0, 10.0, 0.1, 2.5, 5.0)),
     ("gpt-6-sol", (2.0, 10.0, 0.2, 2.5, 5.0)),
     ("gpt-6-luna", (0.1, 0.5, 0.01, 0.125, 0.25)),
