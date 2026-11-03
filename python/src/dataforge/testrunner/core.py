@@ -113,6 +113,27 @@ over LIMIT bytes, not UTF-8, or not of its format's shape makes the whole
 report unreadable.
 
 Running the tests of a manifest on a project.
+
+Keeping a run's processes off its reports (Isolation, given to run).
+
+Without it, what the tests start may outlive them and change a report
+before it is read, as it runs as the same user as the harness. With it,
+the harness is a child subreaper, and after each command it kills every
+process left under it before it reads what the command wrote, or runs the
+next command (isolation.seal). Each command runs confined
+(isolation.confine): it changes files only beneath the isolation's
+writable paths and its own group's directory, never the harness's code nor
+another group's reports. A command's output that is its report
+(Call.output) goes to the isolation's private directory alone, which no
+command can open, and is put where the adapter reads it after the seal;
+its standard error goes to a file of its own there. A process the run
+starts can still change a report its group's runner writes into the
+group's directory while the runner runs, as the runner's own descendants
+are confined as it is; so where the runner chooses its tests by ID alone
+(Spec.exact), its canaries run apart, and a command that did not exit 0
+while its report has every test passed fails them all: a process other
+than the runner can change the report, not the status the runner exits
+with.
 """
 
 from __future__ import annotations
@@ -125,8 +146,10 @@ from collections.abc import (
   Mapping,
   Sequence,
 )
+import contextlib
 from dataclasses import dataclass, field
 import fnmatch
+import functools
 import importlib
 import itertools
 import json
@@ -140,8 +163,9 @@ import subprocess
 import tempfile
 import tomllib
 from types import ModuleType
-from typing import cast, Protocol
+from typing import cast, IO, Protocol
 
+from . import isolation as fence
 from .registry import GUARDS, MODULES
 
 ANY = "**"
@@ -690,6 +714,10 @@ ERROR = "error"
 MISSING = "listed in the manifest but not in the runner's report"
 """The message of a test the runner did not report."""
 
+DISOWNED = "the runner did not exit 0, yet its report has every test passed"
+"""The message of each test of a command whose status its report belies
+(run_group)."""
+
 STATUSES = ("passed", "failed", "skipped")
 """The statuses a case may have."""
 
@@ -943,12 +971,15 @@ class Context:
     work: An empty directory outside the project for the runner's report.
     base: The project's base commit, whose files the configuration is taken
       from, or None to take them as they are.
+    exact: Whether a runner whose Spec.exact is set runs only the tests it
+      is given, chosen by their IDs.
   """
 
   app: Path
   dir: Path
   work: Path
   base: str | None
+  exact: bool = False
 
   def base_text(self, path: Path) -> str | None:
     """Return the text a file of the project has at the base.
@@ -1130,6 +1161,9 @@ class Spec:
       ones (bundle.files).
     vendor_dir: Whether it loads dependencies from the `vendor` directory
       of a test's dir (vendor_test_dirs).
+    exact: Whether, given Context.exact, each of its commands runs only
+      the tests it is given, so that how the command exits is of them
+      alone (run_group).
   """
 
   adapter: type[Runner]
@@ -1139,6 +1173,7 @@ class Spec:
   restore_paths: Callable[[Test, Collection[str]], list[str]] | None = None
   files: tuple[str, ...] = ()
   vendor_dir: bool = False
+  exact: bool = False
 
 
 def spec(runner: str) -> Spec:
@@ -1794,6 +1829,63 @@ UNLISTED_LIMIT = 1000
 
 
 @dataclass(frozen=True, slots=True)
+class Isolation:
+  """How run keeps a run's processes off its reports and the harness.
+
+  Attributes:
+    private: A new, empty directory for the run's reports and outputs,
+      outside every path of writable.
+    writable: The paths beneath which a command may change files, such as
+      the project and the temporary directories; its group's directory
+      under private is added.
+    confine: Whether the commands are confined; False where the kernel
+      cannot (isolation.UnavailableError), which still seals and checks.
+  """
+
+  private: Path
+  writable: tuple[Path, ...] = ()
+  confine: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class _Fence:
+  # What one group's commands run under: the preexec_fn that confines
+  # them, and a directory of the private one for their outputs.
+  preexec: Callable[[], None] | None
+  outputs: Path
+
+
+def _fence(isolation: Isolation, here: Path) -> _Fence:
+  # The fence of the group whose directory is here.
+  preexec = None
+  if isolation.confine:
+    grants = [*map(str, isolation.writable), str(here)]
+    preexec = functools.partial(fence.confine, grants)
+  outputs = isolation.private / f"{here.name}.outputs"
+  outputs.mkdir()
+  return _Fence(preexec, outputs)
+
+
+def _check(isolation: Isolation) -> None:
+  # Refuses a private directory a command could change: one beneath, or
+  # above, a writable path.
+  private = isolation.private.resolve()
+  for path in isolation.writable:
+    root = path.resolve()
+    if private.is_relative_to(root) or root.is_relative_to(private):
+      raise ValueError(f"{private} is not apart from the writable {root}")
+
+
+def _seal() -> None:
+  # Kills what a command left under the harness, once subprocess has its
+  # status, and waits for it.
+  try:
+    _ = fence.seal(os.getpid())
+  finally:
+    fence.reap()
+
+
+@dataclass(frozen=True, slots=True)
 class Results:
   """What a run of a manifest's tests found.
 
@@ -1813,7 +1905,12 @@ class Results:
 
 
 def run(
-  manifest: Manifest, *, tests: Path, app: Path, base: str | None = None
+  manifest: Manifest,
+  *,
+  tests: Path,
+  app: Path,
+  base: str | None = None,
+  isolation: Isolation | None = None,
 ) -> Results:
   """Run a manifest's tests.
 
@@ -1829,6 +1926,10 @@ def run(
     app: The project.
     base: The project's base commit, which the runners' configuration is
       taken from; None takes it from the files as they are.
+    isolation: How to keep the run's processes off its reports, or None
+      to run as before, each group's directory a temporary one. With
+      one, a canary runs apart from the other tests of its runner, which
+      are chosen by their IDs alone where the runner can (Spec.exact).
 
   Returns:
     What the runs found.
@@ -1838,15 +1939,25 @@ def run(
   place(manifest.files, tests, app)
   groups = {g.name: g for g in manifest.runs}
   found = Results([])
-  with tempfile.TemporaryDirectory(prefix="testrunner-") as work:
-    for n, listed in enumerate(_groups(manifest.tests)):
-      here = Path(work) / str(n)
+  with contextlib.ExitStack() as stack:
+    if isolation is None:
+      temporary = tempfile.TemporaryDirectory(prefix="testrunner-")
+      work = Path(stack.enter_context(temporary))
+    else:
+      _check(isolation)
+      fence.subreaper()
+      work = isolation.private / "runs"
+      work.mkdir()
+    units = _units(manifest.tests, isolation is not None)
+    for n, listed in enumerate(units):
+      here = work / str(n)
       here.mkdir()
       first = listed[0]
+      wall = None if isolation is None else _fence(isolation, here)
       if first.runner is None:
         group = groups[str(first.run)]
         print(f"===== {group.name} {group.dir} =====", flush=True)
-        objects, names = run_own(group, tests, app, here, listed)
+        objects, names = run_own(group, tests, app, here, listed, wall=wall)
         found.tests.extend(objects)
         if names:
           found.unlisted.append(
@@ -1857,10 +1968,33 @@ def run(
             }
           )
         continue
-      ctx = Context(app, app / first.dir, here, base)
+      exact = wall is not None and spec(first.runner).exact
+      ctx = Context(app, app / first.dir, here, base, exact)
       print(f"===== {first.suite} {first.runner} {first.dir} =====", flush=True)
-      found.tests.extend(run_group(load_adapter(first.runner)(), ctx, listed))
+      adapter = load_adapter(first.runner)()
+      found.tests.extend(run_group(adapter, ctx, listed, wall=wall))
   return found
+
+
+def _units(tests: tuple[Test, ...], apart: bool) -> list[list[Test]]:
+  # The groups of tests run together (_groups); with apart, the canaries
+  # of a runner that chooses tests by ID (Spec.exact) in a group of their
+  # own after the rest, unless one of the rest's IDs covers one of them,
+  # which would run it all the same.
+  units: list[list[Test]] = []
+  for listed in _groups(tests):
+    runner = listed[0].runner
+    canaries = [t for t in listed if t.expect is not None]
+    rest = [t for t in listed if t.expect is None]
+    if not (apart and runner and spec(runner).exact and canaries and rest):
+      units.append(listed)
+      continue
+    adapter = load_adapter(runner)()
+    if any(adapter.covers(r.id, c.id) for r in rest for c in canaries):
+      units.append(listed)
+    else:
+      units += [rest, canaries]
+  return units
 
 
 def _groups(tests: tuple[Test, ...]) -> Iterator[list[Test]]:
@@ -1876,7 +2010,13 @@ def _groups(tests: tuple[Test, ...]) -> Iterator[list[Test]]:
 
 
 def run_own(
-  group: Run, tests_dir: Path, app: Path, work: Path, tests: list[Test]
+  group: Run,
+  tests_dir: Path,
+  app: Path,
+  work: Path,
+  tests: list[Test],
+  *,
+  wall: _Fence | None = None,
 ) -> tuple[list[TestObject], list[str]]:
   """Run a run group's own command and read its report.
 
@@ -1887,7 +2027,8 @@ def run_own(
   writes after the run, in a directory made once the run has ended. An
   argument of either argv that is a relative path of a regular file under
   tests/ is given as that file's absolute path. How each ended counts for
-  nothing but the message of a test the report lacks.
+  nothing but the message of a test the report lacks. Under a fence, each
+  argv runs confined, and what it left running is killed once it ends.
 
   Args:
     group: The run group.
@@ -1895,6 +2036,7 @@ def run_own(
     app: The project, resolved.
     work: An empty directory outside the project.
     tests: The group's tests.
+    wall: The fence its argv run under (run's isolation), or None.
 
   Returns:
     The tests' objects, as run gives them: a case belongs to the test whose
@@ -1910,7 +2052,7 @@ def run_own(
   out.mkdir()
   env = {k: v for k, v in os.environ.items() if k not in _DROPPED_ENV}
   env |= {OUT_ENV: str(out), DIR_ENV: str(where)}
-  ends = [_own(tests_dir, group.run or (), where, env, "run")]
+  ends = [_own(tests_dir, group.run or (), where, env, "run", wall)]
   if isinstance(group.parse, str):
     report, format_ = out, group.parse
   else:
@@ -1918,7 +2060,7 @@ def run_own(
     parsed.mkdir()
     report, format_ = parsed / FILE, "ctrf"
     env[CTRF_ENV] = str(report)
-    ends.append(_own(tests_dir, group.parse or (), where, env, "parse"))
+    ends.append(_own(tests_dir, group.parse or (), where, env, "parse", wall))
   why = ", ".join(ends)
   try:
     cases = read_report(format_, report)
@@ -1948,14 +2090,15 @@ def _own(
   where: Path,
   env: dict[str, str],
   what: str,
+  wall: _Fence | None = None,
 ) -> str:
   # Runs a group's argv and says how it ended.
   args = [_from_tests(tests_dir, a) for a in argv]
   try:
-    done = subprocess.run(args, cwd=where, env=env, check=False)
+    status = _run(args, where, env, wall)
   except OSError as e:
     return f"the {what} did not start: {e.strerror}"
-  return f"the {what} exited {done.returncode}"
+  return f"the {what} exited {status}"
 
 
 def _from_tests(tests_dir: Path, arg: str) -> str:
@@ -1972,14 +2115,27 @@ def _from_tests(tests_dir: Path, arg: str) -> str:
 
 
 def run_group(
-  runner: Runner, ctx: Context, tests: list[Test]
+  runner: Runner,
+  ctx: Context,
+  tests: list[Test],
+  *,
+  wall: _Fence | None = None,
 ) -> list[TestObject]:
   """Run tests of one suite, runner and directory.
+
+  Under a fence, each command runs confined, its output goes to the
+  fence's directory, and what it left running is killed once it ends,
+  before its report is read. When the commands choose their tests by ID
+  alone (Context.exact) and none of the tests is a canary, a command that
+  did not exit 0 while none of the tests failed fails every one of them:
+  what the run left may have changed the report, not the status the
+  runner exited with.
 
   Args:
     runner: The runner's adapter.
     ctx: Where it runs.
     tests: The tests.
+    wall: The fence its commands run under (run's isolation), or None.
 
   Returns:
     Their test objects, as run gives them.
@@ -1989,17 +2145,23 @@ def run_group(
       missing(t, "its dir is not a directory of the project") for t in tests
     ]
   written = runner.prepare(ctx, tests)
+  statuses: list[int] = []
   try:
     env = {k: v for k, v in os.environ.items() if k not in _DROPPED_ENV}
     calls = runner.commands(ctx, tests)
     if not calls:
       return [missing(t, "none of its files is there") for t in tests]
     ends: list[str] = []
-    for call in calls:
+    for n, call in enumerate(calls):
       try:
-        ends.append(f"exited {_call(call, ctx, {**env, **call.env})}")
+        status = _call(call, ctx, {**env, **call.env}, wall, n)
       except OSError as e:  # the runner is not there
         ends.append(f"did not start: {e.strerror}")
+        continue
+      statuses.append(status)
+      ends.append(f"exited {status}")
+    if wall is not None:
+      _deliver(calls, wall)
     why = "the runner " + ", ".join(dict.fromkeys(ends))
     cases = runner.cases(ctx)
   finally:
@@ -2007,28 +2169,97 @@ def run_group(
       path.unlink(missing_ok=True)
   if cases is None:
     return [missing(t, f"{why}, with no report") for t in tests]
-  return match(runner, tests, cases, why)
+  found = match(runner, tests, cases, why)
+  checked = ctx.exact and all(t.expect is None for t in tests)
+  if checked and any(statuses) and not any(_failed(o) for o in found):
+    said = f"{DISOWNED} ({why})"
+    return [
+      entry(Case(t.id, "failed", error=True, message=said), t.suite, labels(t))
+      for t in tests
+    ]
+  return found
 
 
-def _call(call: Call, ctx: Context, env: dict[str, str]) -> int:
+def _failed(test: TestObject) -> bool:
+  # Whether a test object is of a test that did not pass or skip.
+  return test.get("status") not in ("passed", "skipped")
+
+
+def _call(
+  call: Call,
+  ctx: Context,
+  env: dict[str, str],
+  wall: _Fence | None = None,
+  n: int = 0,
+) -> int:
   # Runs a call; one whose output is its report has it shown afterwards
-  # too, for the verifier's log.
+  # too, for the verifier's log. Under a fence, the output goes to the
+  # fence's directory, where the call cannot open it again, and its
+  # standard error to a file of its own there; run_group copies the
+  # output to where the adapter reads it once all its calls ran.
   if call.output is None:
+    return _run(call.argv, ctx.dir, env, wall)
+  output = call.output if wall is None else wall.outputs / f"{n}.out"
+  errors = None if wall is None else wall.outputs / f"{n}.err"
+  with contextlib.ExitStack() as stack:
+    out = stack.enter_context(output.open("xb"))
+    err: int | IO[bytes] = subprocess.STDOUT
+    if errors is not None:
+      err = stack.enter_context(errors.open("xb"))
+    status = _run(call.argv, ctx.dir, env, wall, out, err)
+  data = output.read_bytes()
+  shown = data + (b"" if errors is None else errors.read_bytes())
+  print(shown.decode("utf-8", errors="replace"), end="", flush=True)
+  return status
+
+
+def _deliver(calls: list[Call], wall: _Fence) -> None:
+  # Copies each call's output from the fence's directory to where the
+  # adapter reads it, once no process of the group's calls runs, as one
+  # left by a later call could change an earlier one's there.
+  for n, call in enumerate(calls):
+    output = wall.outputs / f"{n}.out"
+    if call.output is not None and output.exists():
+      _clear(call.output)
+      with call.output.open("xb") as f:
+        _ = f.write(output.read_bytes())
+
+
+def _run(
+  argv: Sequence[str],
+  cwd: Path,
+  env: Mapping[str, str],
+  wall: _Fence | None,
+  stdout: IO[bytes] | None = None,
+  stderr: int | IO[bytes] | None = None,
+) -> int:
+  # Runs a command and returns how it exited. Under a fence it runs
+  # confined, the orphans that end meanwhile are waited for (fence.wait),
+  # and once it ends, what it left running is killed.
+  if wall is None:
     return subprocess.run(
-      call.argv, cwd=ctx.dir, env=env, check=False
+      argv, cwd=cwd, env=env, stdout=stdout, stderr=stderr, check=False
     ).returncode
-  with call.output.open("xb") as out:
-    done = subprocess.run(
-      call.argv,
-      cwd=ctx.dir,
+  try:
+    with subprocess.Popen(
+      argv,
+      cwd=cwd,
       env=env,
-      stdout=out,
-      stderr=subprocess.STDOUT,
-      check=False,
-    )
-  text = call.output.read_text(encoding="utf-8", errors="replace")
-  print(text, end="", flush=True)
-  return done.returncode
+      stdout=stdout,
+      stderr=stderr,
+      preexec_fn=wall.preexec,
+    ) as command:
+      return fence.wait(command)
+  finally:
+    _seal()
+
+
+def _clear(path: Path) -> None:
+  # Removes what is at a name, a link and not what it points to.
+  if path.is_dir() and not path.is_symlink():
+    shutil.rmtree(path)
+  elif os.path.lexists(path):
+    path.unlink()
 
 
 def match(

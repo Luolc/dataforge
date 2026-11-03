@@ -147,6 +147,7 @@ SPECS = {
     restore_paths=restore_paths,
     files=("junit.py",),
     vendor_dir=True,
+    exact=True,
   )
 }
 """PHPUnit's Spec."""

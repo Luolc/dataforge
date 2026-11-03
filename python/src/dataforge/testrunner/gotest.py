@@ -7,7 +7,9 @@ package's tests, and a test its subtests. The tests run as `go test -json
 taken from go's test cache, and with `-run` choosing their top-level tests,
 whose subtests all run; when a package is listed whole there is no `-run`,
 and every listed package runs whole. What runs and is not listed is left
-out.
+out. Where the run is exact (Context.exact), each package runs as a
+command of its own, with only its own tests' `-run`, so that how the
+command exits is of its listed tests alone.
 """
 
 from __future__ import annotations
@@ -59,6 +61,15 @@ def _names(tests: list[Test]) -> tuple[list[str], list[str] | None]:
   return packages, names
 
 
+def _call(tests: list[Test], output: Path) -> Call:
+  # go test on the tests' packages, its events written to output.
+  packages, names = _names(tests)
+  argv = ["go", "test", "-json", "-count=1"]
+  if names is not None:
+    argv.append("-run=^(?:" + "|".join(map(re.escape, names)) + ")$")
+  return Call([*argv, *packages], output=output)
+
+
 @final
 class GoTest(Runner):
   """go test, its `-json` events read from its output.
@@ -73,24 +84,39 @@ class GoTest(Runner):
 
   _REPORT = "go.json"
 
+  def __init__(self) -> None:
+    """Make the adapter, for one run."""
+    self._reports = [self._REPORT]
+
   @override
   def prepare(self, ctx: Context, tests: list[Test]) -> list[Path]:
     return []
 
   @override
   def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
-    packages, names = _names(tests)
-    argv = ["go", "test", "-json", "-count=1"]
-    if names is not None:
-      argv.append("-run=^(?:" + "|".join(map(re.escape, names)) + ")$")
-    return [Call([*argv, *packages], output=ctx.work / self._REPORT)]
+    if not ctx.exact:
+      return [_call(tests, ctx.work / self._REPORT)]
+    packages, _ = _names(tests)
+    self._reports = [f"go-{n}.json" for n in range(len(packages))]
+    return [
+      _call(
+        [t for t in tests if t.id.partition(SEP)[0] == package],
+        ctx.work / report,
+      )
+      for package, report in zip(packages, self._reports, strict=True)
+    ]
 
   @override
   def cases(self, ctx: Context) -> list[Case] | None:
-    path = ctx.work / self._REPORT
-    if path.is_symlink() or not path.is_file():
+    paths = [ctx.work / r for r in self._reports]
+    texts = [
+      p.read_text(encoding="utf-8", errors="replace")
+      for p in paths
+      if not p.is_symlink() and p.is_file()
+    ]
+    if not texts:
       return None
-    return go_cases(path.read_text(encoding="utf-8", errors="replace"))
+    return go_cases("\n".join(texts))
 
   @override
   def covers(self, outer: str, inner: str) -> bool:
@@ -237,6 +263,7 @@ SPECS = {
     GoTest,
     runner_files=("go.work", "go.work.sum"),
     restore_paths=restore_paths,
+    exact=True,
   )
 }
 """go's Spec."""

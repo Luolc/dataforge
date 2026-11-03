@@ -117,10 +117,13 @@ class Pytest(Runner):
 
   @override
   def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
-    # Files, not nodeids: pytest runs nothing when one ID is not found.
+    # Files, not nodeids, but where the run is exact: pytest runs nothing
+    # when one ID is not found.
     paths: list[str] = []
-    for path in _paths(ctx, tests):
+    for test, path in zip(tests, _paths(ctx, tests), strict=True):
       arg = os.path.relpath(path, ctx.dir)
+      if ctx.exact and "::" in test.id:
+        arg += "::" + test.id.split("::", 1)[1]
       if os.path.lexists(path) and arg not in paths:
         paths.append(arg)
     if not paths:
@@ -259,6 +262,7 @@ SPECS = {
     runner_files=RUNNER_FILES,
     id_sep="::",
     files=("pytest_main.py", "junit.py"),
+    exact=True,
   )
 }
 """pytest's Spec."""
