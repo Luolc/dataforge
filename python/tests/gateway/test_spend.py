@@ -43,6 +43,9 @@ from dataforge.gateway.spend import (
   Total,
   total,
 )
+from dataforge.gateway.spend import (
+  PRICES as LIST_PRICES,
+)
 from tests.gateway.fakes import (
   call,
   Launcher,
@@ -987,6 +990,31 @@ def test_a_reply_of_claude_opus_5_is_priced_at_its_list_price(tmp_path: Path):
   )
   found = total(ledger)
   assert (found.usd, found.fallback_usd) == (pytest.approx(46.75), 0.0)
+
+
+@pytest.mark.parametrize(
+  ("model", "prices"),
+  [
+    ("gpt-6.1-sol", (2.0, 10.0, 0.1, 2.5, 5.0)),
+    ("gpt-6-sol", (2.0, 10.0, 0.2, 2.5, 5.0)),
+    ("gpt-6-luna", (0.1, 0.5, 0.01, 0.125, 0.25)),
+    ("gpt-5.6-sol", (4.0, 20.0, 0.4, 5.0, 10.0)),
+    ("gpt-5.6-terra", (2.0, 12.0, 0.2, 2.5, 5.0)),
+    ("gpt-5.6-luna", (0.2, 1.2, 0.02, 0.25, 0.5)),
+    ("gpt-5.5", (5.0, 30.0, 0.5, 6.25, 12.5)),
+  ],
+)
+def test_a_codex_model_is_listed_at_its_api_price(
+  model: str, prices: tuple[float, float, float, float, float]
+):
+  input_, output, cache_read, cache_write, cache_write_1h = prices
+  assert LIST_PRICES[model] == Price(
+    input=input_,
+    output=output,
+    cache_read=cache_read,
+    cache_write_5m=cache_write,
+    cache_write_1h=cache_write_1h,
+  )
 
 
 def test_by_model_sums_a_channels_lines_as_total_counts_them(tmp_path: Path):

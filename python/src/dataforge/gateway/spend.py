@@ -75,7 +75,15 @@ class Price:
 # 955bdaafa8b72b2b6ff728048f272fbc06049f63), read on 2026-10-20, the prices up
 # to 272k input tokens a request, so that a request past that, which that file
 # prices at about twice as much, counts for less than the API would charge;
-# its one price for cache writes is both of them.
+# its one price for cache writes is both of them. The `CODEX` models after
+# `gpt-6-astra` are priced from https://developers.openai.com/api/docs/pricing,
+# read on 2026-11-03, the Standard tier up to 272k input tokens a request, as
+# above: its "30m write" is `cache_write_5m` and its "12h write" is
+# `cache_write_1h`; the same file of litellm at commit
+# 482f3c37ed6de423daec8e65f36142cc5408d808 gives the same input, output, cache
+# read and, except for `gpt-5.5`, 30m write prices. The page shows no cache
+# write price for `gpt-5.5`, so its `cache_write_5m` is derived, 1.25 times its
+# input price, and its `cache_write_1h` twice that.
 PRICES: Mapping[str, Price] = MappingProxyType({
   "claude-opus-5-5": Price(
     input=4.0, output=20.0, cache_read=0.2, cache_write_5m=5.0,
@@ -99,6 +107,34 @@ PRICES: Mapping[str, Price] = MappingProxyType({
   ),
   "gpt-6-astra": Price(
     input=10.0, output=50.0, cache_read=1.0, cache_write_5m=12.5,
+    cache_write_1h=12.5,
+  ),
+  "gpt-6.1-sol": Price(
+    input=2.0, output=10.0, cache_read=0.1, cache_write_5m=2.5,
+    cache_write_1h=5.0,
+  ),
+  "gpt-6-sol": Price(
+    input=2.0, output=10.0, cache_read=0.2, cache_write_5m=2.5,
+    cache_write_1h=5.0,
+  ),
+  "gpt-6-luna": Price(
+    input=0.1, output=0.5, cache_read=0.01, cache_write_5m=0.125,
+    cache_write_1h=0.25,
+  ),
+  "gpt-5.6-sol": Price(
+    input=4.0, output=20.0, cache_read=0.4, cache_write_5m=5.0,
+    cache_write_1h=10.0,
+  ),
+  "gpt-5.6-terra": Price(
+    input=2.0, output=12.0, cache_read=0.2, cache_write_5m=2.5,
+    cache_write_1h=5.0,
+  ),
+  "gpt-5.6-luna": Price(
+    input=0.2, output=1.2, cache_read=0.02, cache_write_5m=0.25,
+    cache_write_1h=0.5,
+  ),
+  "gpt-5.5": Price(
+    input=5.0, output=30.0, cache_read=0.5, cache_write_5m=6.25,
     cache_write_1h=12.5,
   ),
 })  # fmt: skip
