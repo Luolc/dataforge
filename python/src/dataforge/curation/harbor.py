@@ -33,8 +33,11 @@ containers wrote into the trial's directory, each symlink there that resolves,
 or may, outside it, and each entry that is no regular file, directory or
 symlink, is removed and named in `harbor.log`, before run gives the trial to any
 reader; when the cleanup fails, run raises DockerError and gives no trial. The
-chown that gives the files back is tried once more when it ran past its
-timeout, and not when it exited non-zero.
+chown that gives the files back is tried again when it ran past its timeout,
+as a docker that stalls often recovers: after a wait that doubles from
+CHOWN_BACKOFF_S up to CHOWN_BACKOFF_MAX_S, while less than CHOWN_PATIENCE_S
+has passed since its first try, and not when it exited non-zero. A chown that
+never got through raises a DockerTimeoutError that starts with CHOWN_FAILED.
 
 When Harbor exits before it starts the trial (no `job/*/config.json` or
 `job/*/result.json`), nothing of the task has run and no model has been called:
@@ -200,9 +203,19 @@ _ABORTED = f"{_AGENT_EXIT}: Command failed (exit 134)"
 PROJECT = "com.docker.compose.project"
 # How long one docker command of the cleanup may run, in seconds.
 DOCKER_TIMEOUT = 120.0
-# How long the chown that gives a trial's files back may run, in seconds; one
-# more try follows a chown that ran past it.
+# How long the chown that gives a trial's files back may run, in seconds.
 CHOWN_TIMEOUT = 300.0
+# How long the cleanup waits before it tries a chown that ran past
+# CHOWN_TIMEOUT again, at first and at most, the wait doubling after each try,
+# and how long after the first try started it still starts one, in seconds.
+CHOWN_BACKOFF_S = 30.0
+CHOWN_BACKOFF_MAX_S = 300.0
+CHOWN_PATIENCE_S = 1800.0
+# How the message of a chown that never got through starts.
+CHOWN_FAILED = (
+  "the cleanup after the trial could not give its files back, an"
+  + " infrastructure failure, not the task's"
+)
 # The file in a trial's directory, by the environment's session ID, that says
 # how often its `main` was at its process limit; Harbor names the trial's own
 # environment `<trial>__env`.
@@ -439,8 +452,8 @@ class HarborRunner:
       DockerError: When docker, in the cleanup after a run of Harbor, fails,
         runs past DOCKER_TIMEOUT or leaves a container that mounts from under
         outdir or something with the trial's label; no run follows it. The
-        chown, with CHOWN_TIMEOUT, is tried once more when it runs past that,
-        and fails when the second try fails.
+        chown, with CHOWN_TIMEOUT, is tried again when it runs past that, for
+        up to CHOWN_PATIENCE_S, and fails when no try got through.
       stopping.Stopped: The stop of the call this thread runs is set; a run
         then starts nothing, or stops Harbor and cleans up within the stop's
         budget, and no run follows it.
@@ -740,25 +753,43 @@ class HarborRunner:
       )
 
   def _chown(self, outdir: Path, label: str) -> None:
-    # Docker sometimes stalls for minutes before a container starts, so a
-    # chown that ran past its timeout is tried once more, in a container of its
-    # own; what the first left carries the label and goes with the cleanup.
-    # The files must be ours before anything reads them, so a second failure
-    # raises. A stopped call's budget has no room for a second try.
+    # Docker sometimes stalls for many minutes before a container starts, as
+    # when the host's disk is short, and the trial is done by then, so a chown
+    # that ran past its timeout is tried again, each time in a container of its
+    # own, until docker recovers or CHOWN_PATIENCE_S is spent; what a try left
+    # carries the label and goes with the cleanup. The files must be ours
+    # before anything reads them, so a chown that never got through raises. A
+    # stopped call's budget has no room for another try or a wait.
     started = time.monotonic()
-    try:
-      self._chown_once(outdir, label)
-    except DockerTimeoutError as error:
-      if stopping.stopped():
-        raise
-      _log.warning(
-        "the chown of %s ran past %g s (%.0f s in all): %s; trying once more",
-        outdir,
-        CHOWN_TIMEOUT,
-        time.monotonic() - started,
-        error,
-      )
-      self._chown_once(outdir, label)
+    wait = CHOWN_BACKOFF_S
+    tries = 0
+    while True:
+      tries += 1
+      try:
+        self._chown_once(outdir, label)
+        return
+      except DockerTimeoutError as error:
+        spent = time.monotonic() - started
+        if stopping.stopped():
+          raise
+        if spent + wait >= CHOWN_PATIENCE_S:
+          raise DockerTimeoutError(
+            f"{CHOWN_FAILED}: {error}, on each of {tries} tries over"
+            + f" {spent:.0f} s"
+          ) from error
+        _log.warning(
+          "the chown of %s ran past %g s (%.0f s in all, %d tries): %s;"
+          + " trying again in %g s",
+          outdir,
+          CHOWN_TIMEOUT,
+          spent,
+          tries,
+          error,
+          wait,
+        )
+        if not _pause(wait):
+          raise
+        wait = min(2 * wait, CHOWN_BACKOFF_MAX_S)
 
   def _chown_once(self, outdir: Path, label: str) -> None:
     _ = _docker(
@@ -1017,6 +1048,24 @@ def _docker(
       f"docker {args[0]} {args[1]} exited {done.returncode}: {error}"
     )
   return done
+
+
+def _pause(seconds: float) -> bool:
+  """Wait, as time.sleep does, until the stop of this thread's call is set.
+
+  Args:
+    seconds: How long.
+
+  Returns:
+    Whether it waited that long; False once the stop is set.
+  """
+  end = time.monotonic() + seconds
+  while not stopping.stopped():
+    left = end - time.monotonic()
+    if left <= 0:
+      return True
+    time.sleep(min(left, stopping.POLL_S))
+  return False
 
 
 def _passed() -> dict[str, str]:
