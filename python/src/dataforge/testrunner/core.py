@@ -20,7 +20,8 @@ The manifest of a task's tests, tests/manifest.toml.
                the project it starts in (default "."); and either preset,
                one of RUNNERS, or run, an argv, parse, a format of
                FORMATS or an argv, and optionally outputs, globs of
-               the reports the framework writes inside the project
+               the reports the framework writes inside the project, and
+               exit, EXIT_TESTS or EXIT_NONE (run_own)
   [restore]    paths, globs of the project's files checked back to the base
                before the tests run (restore)
   [[test]]     suite, id, and either run, the name of its run group, or
@@ -35,10 +36,11 @@ The manifest of a task's tests, tests/manifest.toml.
 Only the structure is checked here: the types, that each test's (suite, id),
 each run group's name and each file's dest appear once, that a test's id
 appears once in a group that runs its own command, that the paths and globs
-stay inside their directories, that a suite of no_tests has no test, and,
-when the caller gives them, that each principle is one of the task's and
-that no dest is a file of the project's base. The values a kind or a suite
-may take, and which suite may have which kind, are the dataset's to check.
+stay inside their directories, that a suite of no_tests has no test, that
+a group that gives exit EXIT_TESTS has no canary, and, when the caller gives
+them, that each principle is one of the task's and that no dest is a file of
+the project's base. The values a kind or a suite may take, and which suite
+may have which kind, are the dataset's to check.
 
 The tests' outcomes as a CTRF report, written to /logs/verifier/ctrf.json.
 
@@ -133,7 +135,10 @@ are confined as it is; so where the runner chooses its tests by ID alone
 (Spec.exact), its canaries run apart, and a command that did not exit 0
 while its report has every test passed fails them all: a process other
 than the runner can change the report, not the status the runner exits
-with.
+with. A run group with a command of its own does the same, with an
+isolation or without, when it gives exit EXIT_TESTS: its run then runs only
+its listed tests and exits 0 exactly when they all pass, and its canary is
+in a group of its own.
 """
 
 from __future__ import annotations
@@ -267,6 +272,17 @@ FORMATS = ("junit", "ctrf")
 EXPECT_FAILED = "failed"
 """The one value of a test's expect, which makes it its group's canary."""
 
+EXIT_TESTS = "tests"
+"""A run group's exit when its run runs only its listed tests and exits 0
+exactly when they all pass (run_own)."""
+
+EXIT_NONE = "none"
+"""A run group's exit when its run's status says nothing of its tests: the
+same as no exit, but written."""
+
+EXITS = (EXIT_TESTS, EXIT_NONE)
+"""The values a run group's exit may take."""
+
 _TEST_KEYS = {
   "suite",
   "runner",
@@ -277,7 +293,7 @@ _TEST_KEYS = {
   "principle",
   "expect",
 }
-_RUN_KEYS = {"name", "dir", "preset", "run", "parse", "outputs"}
+_RUN_KEYS = {"name", "dir", "preset", "run", "parse", "outputs", "exit"}
 _FILE_KEYS = {"source", "dest"}
 _TOP_KEYS = {"test", "run", "restore", "file", "no_tests"}
 
@@ -341,6 +357,8 @@ class Run:
       CTRF to TESTRUNNER_CTRF; None with a preset.
     outputs: Globs of the reports the command writes inside the project,
       deleted before it runs.
+    exit: One of EXITS, what its run's status says of its tests; None when
+      it gives none, always with a preset.
   """
 
   name: str
@@ -349,6 +367,7 @@ class Run:
   run: tuple[str, ...] | None = None
   parse: str | tuple[str, ...] | None = None
   outputs: tuple[str, ...] = ()
+  exit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -531,6 +550,9 @@ def _tests(
     expect = _optional(table, "expect", where, problems)
     if expect is not None and expect != EXPECT_FAILED:
       problems.append(f"{where}: expect is not {EXPECT_FAILED!r}")
+    if expect is not None and group is not None and group.exit == EXIT_TESTS:
+      gives = f"run {group.name!r} gives exit {EXIT_TESTS!r}"
+      problems.append(f"{where}: {gives}, so its canary is in a group apart")
     tests.append(
       Test(
         suite,
@@ -600,17 +622,36 @@ def _runs(value: object, problems: list[str]) -> dict[str, Run]:
         problems.append(f"{where}: unknown preset {preset!r}")
       if any(k in table for k in ("run", "parse", "outputs")):
         problems.append(f"{where}: a preset has no run, parse or outputs")
+      if "exit" in table:
+        problems.append(f"{where}: a preset has no exit")
       group = Run(name, dir_ or ".", preset=preset)
     else:
-      argv = _argv(table.get("run"), f"{where}: run", problems)
-      parse = table.get("parse")
-      if not (isinstance(parse, str) and parse in FORMATS):
-        parse = _argv(parse, f"{where}: parse, if not a format,", problems)
-      outputs = _globs(table.get("outputs", []), f"{where}: outputs", problems)
-      group = Run(name, dir_ or ".", None, argv, parse, outputs)
+      group = _own_run(table, name, dir_ or ".", where, problems)
     if name not in runs:
       runs[name] = group
   return runs
+
+
+def _own_run(
+  table: dict[str, object],
+  name: str,
+  dir_: str,
+  where: str,
+  problems: list[str],
+) -> Run:
+  # A run group with a command of its own.
+  argv = _argv(table.get("run"), f"{where}: run", problems)
+  parse = table.get("parse")
+  if not (isinstance(parse, str) and parse in FORMATS):
+    parse = _argv(parse, f"{where}: parse, if not a format,", problems)
+  outputs = _globs(table.get("outputs", []), f"{where}: outputs", problems)
+  exit_ = _optional(table, "exit", where, problems)
+  if exit_ and exit_ not in EXITS:
+    problems.append(
+      f"{where}: exit {exit_!r} is not {EXIT_TESTS!r} or {EXIT_NONE!r}"
+    )
+  exit_ = exit_ if exit_ in EXITS else None
+  return Run(name, dir_, None, argv, parse, outputs, exit_)
 
 
 def _argv(value: object, where: str, problems: list[str]) -> tuple[str, ...]:
@@ -2041,9 +2082,13 @@ def run_own(
   reads, or from the file TESTRUNNER_CTRF names, which its parse argv
   writes after the run, in a directory made once the run has ended. An
   argument of either argv that is a relative path of a regular file under
-  tests/ is given as that file's absolute path. How each ended counts for
-  nothing but the message of a test the report lacks. Under a fence, each
-  argv runs confined, and what it left running is killed once it ends.
+  tests/ is given as that file's absolute path. How the parse ended counts
+  for nothing but the message of a test the report lacks, and so does how
+  the run ended, unless the group gives exit EXIT_TESTS: then a run that
+  did not exit 0 while none of the tests failed fails each of them, as
+  run_group does, since a process the run started may change its report,
+  not the status it exits with. Under a fence, each argv runs confined, and
+  what it left running is killed once it ends.
 
   Args:
     group: The run group.
@@ -2067,7 +2112,8 @@ def run_own(
   out.mkdir()
   env = {k: v for k, v in os.environ.items() if k not in _DROPPED_ENV}
   env |= {OUT_ENV: str(out), DIR_ENV: str(where)}
-  ends = [_own(tests_dir, group.run or (), where, env, "run", wall)]
+  status, ran = _own(tests_dir, group.run or (), where, env, "run", wall)
+  ends = [ran]
   if isinstance(group.parse, str):
     report, format_ = out, group.parse
   else:
@@ -2075,7 +2121,9 @@ def run_own(
     parsed.mkdir()
     report, format_ = parsed / FILE, "ctrf"
     env[CTRF_ENV] = str(report)
-    ends.append(_own(tests_dir, group.parse or (), where, env, "parse", wall))
+    ends.append(
+      _own(tests_dir, group.parse or (), where, env, "parse", wall)[1]
+    )
   why = ", ".join(ends)
   try:
     cases = read_report(format_, report)
@@ -2096,7 +2144,28 @@ def run_own(
       found.append(missing(test, why))
     for case in mine[test.id]:
       found.append(entry(case, test.suite, labels(test)))
-  return found, sorted(unlisted)
+  return _disowned(group, status, ran, tests, found), sorted(unlisted)
+
+
+def _disowned(
+  group: Run,
+  status: int | None,
+  ended: str,
+  tests: list[Test],
+  found: list[TestObject],
+) -> list[TestObject]:
+  # The test objects of a group with a command of its own, each a failure
+  # with how its run ended when the group gives exit EXIT_TESTS and the run
+  # did not exit 0 while none of them is of a test that failed.
+  if group.exit != EXIT_TESTS or status == 0:
+    return found
+  if any(_failed(o) for o in found):
+    return found
+  said = f"{DISOWNED} ({ended})"
+  return [
+    entry(Case(t.id, "failed", error=True, message=said), t.suite, labels(t))
+    for t in tests
+  ]
 
 
 def _own(
@@ -2106,14 +2175,15 @@ def _own(
   env: dict[str, str],
   what: str,
   wall: _Fence | None = None,
-) -> str:
-  # Runs a group's argv and says how it ended.
+) -> tuple[int | None, str]:
+  # Runs a group's argv; returns its exit status, None when it did not
+  # start, and how it ended in words.
   args = [_from_tests(tests_dir, a) for a in argv]
   try:
     status = _run(args, where, env, wall)
   except OSError as e:
-    return f"the {what} did not start: {e.strerror}"
-  return f"the {what} exited {status}"
+    return None, f"the {what} did not start: {e.strerror}"
+  return status, f"the {what} exited {status}"
 
 
 def _from_tests(tests_dir: Path, arg: str) -> str:

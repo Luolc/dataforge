@@ -254,6 +254,15 @@ id = "x"
       '[[run]]\nname = "a"\npreset = "go"\nparse = "junit"\n',
       "a preset has no run, parse or outputs",
     ),
+    ('[[run]]\nname = "a"\npreset = "go"\nexit = "tests"\n', "has no exit"),
+    (
+      '[[run]]\nname = "a"\nrun = ["x"]\nparse = "junit"\nexit = "all"\n',
+      "run 1 (a): exit 'all' is not 'tests' or 'none'",
+    ),
+    (
+      '[[run]]\nname = "a"\nrun = ["x"]\nparse = "junit"\nexit = 0\n',
+      "run 1 (a): exit is not a non-empty line of text",
+    ),
     (
       '[[run]]\nname = "a"\nrun = ["x"]\nparse = "junit"\noutputs = ["../r"]\n',
       "outputs: '../r' is not a glob inside the project",
@@ -299,3 +308,22 @@ def test_an_id_appears_once_in_a_group_with_its_own_command():
   ]
   preset = '[[run]]\nname = "a"\npreset = "go"\n'
   assert len(load(preset + test.format("p2p") + test.format("f2p")).tests) == 2
+
+
+def test_a_group_with_its_own_command_gives_exit_tests_none_or_nothing():
+  group = '[[run]]\nname = "{}"\nrun = ["x"]\nparse = "junit"\n{}'
+  text = "".join(
+    group.format(n, e)
+    for n, e in [("a", 'exit = "tests"\n'), ("b", 'exit = "none"\n'), ("c", "")]
+  )
+  assert [r.exit for r in load(text).runs] == ["tests", "none", None]
+
+
+def test_a_group_that_gives_exit_tests_has_no_canary():
+  group = '[[run]]\nname = "a"\nrun = ["x"]\nparse = "junit"\nexit = "{}"\n'
+  canary = '[[test]]\nsuite = "p2p"\nrun = "a"\nid = "c"\nexpect = "failed"\n'
+  gives = "run 'a' gives exit 'tests'"
+  assert problems(group.format("tests") + canary) == [
+    f"test 1 (p2p::c): {gives}, so its canary is in a group apart"
+  ]
+  assert len(load(group.format("none") + canary).tests) == 1

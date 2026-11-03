@@ -323,6 +323,27 @@ exit 3
   assert int((tmp_path / "app" / "zombies.txt").read_text()) < 50
 
 
+def test_an_isolated_run_that_gives_exit_and_exits_1_fails_its_passed_tests(
+  tmp_path: Path,
+):
+  run_sh = 'cp "$(dirname "$0")/passed.json" "$TESTRUNNER_OUT/r.json"\nexit 1\n'
+  parse_sh = 'cp "$TESTRUNNER_OUT/r.json" "$TESTRUNNER_CTRF"\n'
+  found = isolated(
+    tmp_path,
+    OWN.replace(
+      'parse = ["sh", "parse.sh"]', 'parse = ["sh", "parse.sh"]\nexit = "tests"'
+    ),
+    {},
+    {
+      "run.sh": run_sh,
+      "parse.sh": parse_sh,
+      "passed.json": CTRF.format("passed"),
+    },
+  )
+  said = f"{core.DISOWNED} (the run exited 1)"
+  assert found == [["a::fails", "failed", said]]
+
+
 # A conftest that makes each failed test of the JUnit report passed once
 # pytest has written it, before pytest exits 1.
 FORGER = """import re

@@ -77,7 +77,11 @@ inside the project, are deleted before the run. A `[[test]]` names its group wit
 name its report lacks, a report that cannot be read, `skipped` and a name with any case not `passed`
 do not pass. A test with `expect = "failed"` is its group's canary: it counts in no suite, and
 `results.extra.canary_broken` lists it when it is not a failure of an assertion; the names a group
-reported that the manifest does not list are in `results.extra.unlisted`. `testrunner.core.restore`
+reported that the manifest does not list are in `results.extra.unlisted`. A group with a `run` argv
+may give `exit = "tests"`, which says the argv runs only the group's listed tests and exits 0 exactly
+when they all pass: an argv that then does not exit 0 while none of them failed fails each of them,
+and the group's canary goes in a group of its own; `exit = "none"`, the same as no `exit`, says its
+status says nothing of its tests. `testrunner.core.restore`
 checks back to the base the files that globs match (`[restore]`'s `paths`, with the runners' files
 from `testrunner.core.globs`) from git's objects, running no filter or hook of the project.
 `python -m testrunner parse <format> <report> <out>` writes a format's CTRF, for a session that tries
