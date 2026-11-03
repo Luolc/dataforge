@@ -260,6 +260,7 @@ def test_maven_gets_no_other_runners_files():
       "__init__.py",
       "core.py",
       "deps.py",
+      "isolation.py",
       "registry.py",
       "junit.py",
       "maven.py",
@@ -280,7 +281,7 @@ def test_two_runners_get_both_their_files():
 
 def test_a_run_group_gets_the_files_of_its_parse_format():
   junit = files_for(load(OWN_GROUP), ())
-  common = {"__init__.py", "core.py", "deps.py", "registry.py"}
+  common = {"__init__.py", "core.py", "deps.py", "isolation.py", "registry.py"}
   assert set(junit) == {f"testrunner/{n}" for n in (*common, "junit.py")}
   assert _modules(junit) == {}
   argv = OWN_GROUP.replace('parse = "junit"', 'parse = ["sh", "parse.sh"]')

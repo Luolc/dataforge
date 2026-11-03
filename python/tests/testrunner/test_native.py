@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from pathlib import Path
 
@@ -57,6 +58,54 @@ def test_go_runs_the_listed_packages_top_level_tests(tmp_path: Path):
     "m/calc",
     "m/parse",
     "m/util",
+  ]
+
+
+def test_an_exact_go_run_runs_each_package_with_its_own_tests(tmp_path: Path):
+  # So an unlisted test of one package, named as a listed one of another,
+  # does not run.
+  ctx = dataclasses.replace(context(tmp_path), exact=True)
+  tests = [
+    Listed("p2p", "go", "m/calc::TestSub/two_words"),
+    Listed("p2p", "go", "m/parse::TestAdd"),
+    Listed("p2p", "go", "m/util"),
+  ]
+  runner = GoTest()
+  go = ["go", "test", "-json", "-count=1"]
+  work = ctx.work
+  assert runner.commands(ctx, tests) == [
+    Call(
+      [*go, "-run=^TestSub$/^two_words$", "m/calc"], output=work / "go-0.json"
+    ),
+    Call([*go, "-run=^(?:TestAdd)$", "m/parse"], output=work / "go-1.json"),
+    Call([*go, "m/util"], output=work / "go-2.json"),
+  ]
+  # A subtest of a test listed whole runs with it; one of another, and a
+  # deeper one, in a command of its own.
+  more = [
+    Listed("p2p", "go", "m/calc::TestAdd"),
+    Listed("p2p", "go", "m/calc::TestAdd/one"),
+    Listed("p2p", "go", "m/calc::TestSub/a.b/c"),
+  ]
+  assert [c.argv[4] for c in GoTest().commands(ctx, more)] == [
+    "-run=^(?:TestAdd)$",
+    "-run=^TestSub$/^a\\.b$/^c$",
+  ]
+  # Each command's events are read, and only theirs.
+  event = '{{"Action":"pass","Package":"m/{}","Test":"{}"}}\n'
+  write(
+    ctx.work,
+    {
+      "go-0.json": event.format("calc", "TestSub"),
+      "go-1.json": event.format("parse", "TestAdd"),
+      "go-3.json": event.format("util", "TestPlanted"),
+      "go.json": event.format("util", "TestPlanted"),
+    },
+  )
+  found = [(c.name, c.status) for c in runner.cases(ctx) or []]
+  assert found == [
+    ("m/calc::TestSub", "passed"),
+    ("m/parse::TestAdd", "passed"),
   ]
 
 

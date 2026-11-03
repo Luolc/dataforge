@@ -19,7 +19,7 @@ PACKAGE = "testrunner"
 """The directory under a task's tests/ the files are copied to, and the name
 the dataset's own runner imports them by."""
 
-COMMON = ("__init__.py", "core.py", "deps.py", "registry.py")
+COMMON = ("__init__.py", "core.py", "deps.py", "isolation.py", "registry.py")
 """The files every task needs: the core, the checks of where dependencies
 come from (deps), which guard every task whatever its runners and
 languages, and the registry of the runners and the modules of GUARDS,

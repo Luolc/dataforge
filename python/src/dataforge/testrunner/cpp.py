@@ -199,8 +199,9 @@ SPECS = {
     runner_files=("CTestCustom.cmake", "CTestCustom.ctest"),
     build_config=CMAKE,
     files=("junit.py",),
+    exact=True,
   ),
-  "gtest": Spec(GTest, build_config=CMAKE, files=("junit.py",)),
+  "gtest": Spec(GTest, build_config=CMAKE, files=("junit.py",), exact=True),
 }
 """The Spec of CTest and of a GoogleTest binary."""
 
