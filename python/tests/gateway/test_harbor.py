@@ -15,6 +15,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import stat
 import subprocess
@@ -22,10 +23,13 @@ import tarfile
 from typing import cast, override
 import uuid
 
+from harbor.agents.factory import AgentFactory
 from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.models.agent.context import AgentContext
 import pytest
 
+from dataforge.curation import Limits
+from dataforge.gateway import hooks, trial_setup
 from dataforge.gateway.harbor import (
   ClaudeCode,
   Codex,
@@ -35,6 +39,7 @@ from dataforge.gateway.harbor import (
   PI_MODELS,
   PI_SETTINGS,
 )
+from tests.gateway import fakes
 
 VERSION = "DATAFORGE_CLIENT_VERSION"
 AGENTS = {
@@ -231,8 +236,8 @@ SESSION_ID = "0b6c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d"
 class Session(Environment):
   # As Environment, keeping each command's env and each directory uploaded.
 
-  def __init__(self) -> None:
-    super().__init__("2.1.292 (Claude Code)")
+  def __init__(self, version_output: str = "2.1.292 (Claude Code)") -> None:
+    super().__init__(version_output)
     self.envs: list[dict[str, str]] = []
     self.dirs: dict[str, list[str]] = {}
     self.modes: dict[str, int] = {}
@@ -412,6 +417,120 @@ def test_claude_code_copies_a_loaded_sessions_files_in_as_the_agents_user(
   assert environment.modes[f"{beside}.upload/tool-results/out.txt"] == 0o644
   for directory in ("", "/tool-results"):
     assert environment.modes[f"{beside}.upload{directory}"] == 0o777
+
+
+def run_codex(tmp_path: Path, text: str, *, resume: bool = False) -> Session:
+  agent = Codex(logs_dir=tmp_path / "logs", model_name="codex-model")
+  environment = Session()
+  start = agent.resume if resume else agent.run
+  asyncio.run(start(text, container(environment), AgentContext()))
+  return environment
+
+
+def codex_command(environment: Session) -> str:
+  [command] = [c for c in environment.commands if "codex exec " in c]
+  return command
+
+
+def prompt_file(environment: Session) -> str:
+  # The file whose descriptor the command that runs `codex` gives it.
+  command = codex_command(environment)
+  [path] = [
+    path
+    for path in environment.uploads
+    if path.startswith(INSTRUCTION_FILES) and f"exec 3<{path} " in command
+  ]
+  return path
+
+
+@pytest.mark.parametrize("resume", [False, True])
+def test_codex_reads_its_instruction_on_stdin_from_a_file_it_removes(
+  tmp_path: Path, resume: bool
+):
+  text = "Fix it: $HOME `true` \\ \" '\n\n"
+  environment = run_codex(tmp_path, text, resume=resume)
+  command = codex_command(environment)
+  assert ("codex exec resume --last " in command) is resume
+  assert " -- - 2>&1 <&3 3<&- | tee /logs/agent/codex.txt" in command
+  path = prompt_file(environment)
+  directory = path.rsplit("/", 1)[0]
+  before = environment.commands[environment.commands.index(command) - 1]
+  assert f"; mkdir -m 1733 -- {directory}" in before
+  assert (
+    f"exec 3<{path} && rm -- {path} && rmdir -- {directory} || exit 1; "
+  ) in command
+  assert environment.uploads[path] == text
+  assert environment.modes[path] == 0o644
+  assert not any(
+    text in c or shlex.quote(text) in c for c in environment.commands
+  )
+
+
+def test_codex_passes_no_argument_over_the_kernels_limit(tmp_path: Path):
+  # An instruction Linux would refuse to `docker exec`, as an argument.
+  text = "x" * 140_000
+  environment = run_codex(tmp_path, text)
+  for command, env in zip(environment.commands, environment.envs, strict=True):
+    assert len(command.encode()) < ARGUMENT_LIMIT
+    for name, value in env.items():
+      assert len(f"{name}={value}".encode()) < ARGUMENT_LIMIT
+  assert environment.uploads[prompt_file(environment)] == text
+
+
+@pytest.mark.parametrize(
+  "command",
+  [
+    "codex exec --json -- - 2>&1 </dev/null | tee x",
+    "codex exec -- {0} 2>&1 </dev/null | codex exec -- {0} 2>&1 </dev/null | ",
+  ],
+)
+def test_codex_refuses_a_command_without_its_instruction_once(
+  tmp_path: Path, command: str
+):
+  text = "A secret instruction."
+  agent = Codex(logs_dir=tmp_path / "logs", model_name="codex-model")
+  _ = agent.render_instruction(text)
+  environment = Session()
+  given = command.format(shlex.quote(text))
+  with pytest.raises(RuntimeError) as raised:
+    asyncio.run(agent.exec_as_agent(container(environment), given))
+  assert text not in str(raised.value)
+  assert (environment.commands, environment.uploads) == ([], {})
+
+
+def test_a_trial_setup_codex_trial_runs_codex_with_no_instruction_in_commands(
+  launcher: fakes.Launcher, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  monkeypatch.setattr(hooks, "own_dir", lambda: tmp_path / "own")
+  client = fakes.tarball(
+    tmp_path / "codex.tar.gz",
+    [fakes.directory("bin"), fakes.file("bin/codex", b"#!/bin/sh\n", 0o755)],
+    version="0.159.3",
+    program="bin/codex",
+  )
+  trial = {"import_path": "dataforge.gateway.harbor:Codex", "model": "m"}
+  text = "Fix the parser so that it keeps empty lines."
+  environment = Session("codex-cli 0.159.3")
+  with fakes.upstream() as (base, _):
+    launcher.write(base)
+    with trial_setup(clients={"codex": client})(
+      tmp_path, trial, Limits(memory_gb=1), tmp_path
+    ) as found:
+      assert [m.target for m in found.mounts][-1] == "/usr/local/bin/codex"
+      assert found.env["DATAFORGE_CLIENT_VERSION"] == "0.159.3"
+      for name, value in found.env.items():
+        monkeypatch.setenv(name, value)
+      agent = AgentFactory.create_agent_from_import_path(
+        trial["import_path"], logs_dir=tmp_path / "logs", model_name="m"
+      )
+      assert isinstance(agent, Codex)
+      asyncio.run(agent.install(container(environment)))
+      asyncio.run(agent.run(text, container(environment), AgentContext()))
+  assert agent.version() == "0.159.3"
+  assert not any(
+    text in c or shlex.quote(text) in c for c in environment.commands
+  )
+  assert environment.uploads[prompt_file(environment)] == text
 
 
 def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -681,3 +800,42 @@ def test_claude_code_names_the_settings_directory_when_it_cannot_copy_them(
   assert "; mkdir -p -- /tmp/claude-code-settings " in first
   assert "mkdir -p $CLAUDE_CONFIG_DIR" in second
   assert environment.users[:2] == ["root", None]
+
+
+@pytest.mark.parametrize("hardened", [None, "ubuntu"], indirect=True)
+def test_an_instruction_over_the_kernels_limit_reaches_codex_whole(
+  tmp_path: Path, hardened: Hardened
+):
+  # A `codex` that keeps its last argument, what its stdin is and what it
+  # reads; the image's user, root or another, is the agent's. Harbor's own
+  # copy of its configuration into CODEX_HOME needs the directory writable
+  # by root, which is not what this checks.
+  codex = "/usr/local/bin/codex"
+  script = (
+    "#!/bin/bash\n"
+    'printf %s "${@: -1}" > /logs/argument\n'
+    "readlink /proc/self/fd/0 > /logs/stdin\n"
+    "cat > /logs/received\n"
+  )
+  made = docker(
+    "exec", "-u", "root", hardened.name, "bash", "-c",
+    (
+      f"printf %s {shlex.quote(script)} > {codex} && chmod +x {codex} "
+      "&& chmod -R 777 /logs && mkdir -m 777 /tmp/codex-home"
+    ),
+    check=False,
+  )  # fmt: skip
+  assert made.returncode == 0, made.stderr
+  text = "x" * ARGUMENT_LIMIT + ' $HOME `true` \\ "\n\n'
+  agent = Codex(logs_dir=tmp_path / "logs", model_name="codex-model")
+  asyncio.run(agent.run(text, container(hardened), AgentContext()))
+
+  def read(path: str) -> str:
+    return docker("exec", hardened.name, "cat", path).stdout
+
+  assert read("/logs/received") == text
+  assert read("/logs/argument") == "-"
+  # No other process finds the file by its path while `codex` reads it.
+  assert read("/logs/stdin").endswith(" (deleted)\n")
+  left = docker("exec", hardened.name, "ls", "-A", INSTRUCTION_DIR).stdout
+  assert not [n for n in left.split() if n.startswith("dataforge-instruction")]

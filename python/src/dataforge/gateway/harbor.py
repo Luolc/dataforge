@@ -22,9 +22,11 @@ sessions the session names by their paths in the container, and with
 place of the task's instruction.
 
 `ClaudeCode` hands `claude` its message through a file, not the variable in
-which Harbor passes it to `docker exec`: Linux refuses a variable or an
-argument over 128 KiB (`MAX_ARG_STRLEN`) with `E2BIG`, which would fail the
-trial before `claude` starts.
+which Harbor passes it to `docker exec`, and `Codex` hands `codex` its
+instruction through a file on its stdin, not the argument in which Harbor
+passes it: Linux refuses a variable or an argument over 128 KiB
+(`MAX_ARG_STRLEN`) with `E2BIG`, which would fail the trial before the agent
+starts.
 
 `ClaudeCode` has root make the directory of the settings Harbor gives `claude`
 (its `config`) before Harbor's setup runs, and copies the settings in with no
@@ -134,8 +136,39 @@ UPLOAD_SUFFIX = ".upload"
 # (`harbor/agents/installed/claude_code.py`).
 INSTRUCTION_VAR = "HARBOR_CLAUDE_CODE_INSTRUCTION_"
 # Where the message waits in the container, in a directory of the agent's
-# user, until the command that runs `claude` reads and removes it.
+# user, until the command that runs the agent reads and removes it.
 INSTRUCTION_DIR = "/tmp"
+
+
+async def _upload_message(
+  agent: Any, environment: BaseEnvironment, message: str
+) -> tuple[str, str]:
+  """Copy a message into a new directory of the agent's user.
+
+  Args:
+    agent: The agent, whose user makes the directory.
+    environment: The trial's environment.
+    message: The message.
+
+  Returns:
+    The directory and the message's path in it.
+  """
+  directory = f"{INSTRUCTION_DIR}/dataforge-instruction-{uuid.uuid4().hex}"
+  path = f"{directory}/{uuid.uuid4().hex}"
+  # Made by the agent's user, which can then remove the file whoever owns
+  # it; mkdir fails when the directory is already there. Harbor copies into
+  # a tmpfs as root, which without CAP_DAC_OVERRIDE needs the directory
+  # writable by all; no other user can list it to learn the file's random
+  # name, and the sticky bit keeps them from replacing or removing it.
+  await agent.exec_as_agent(
+    environment, command=f"mkdir -m 1733 -- {shlex.quote(directory)}"
+  )
+  with tempfile.TemporaryDirectory(prefix="dataforge-instruction-") as scratch:
+    staged = Path(scratch) / "instruction"
+    _ = staged.write_bytes(message.encode())
+    staged.chmod(0o644)
+    await environment.upload_file(staged, path)
+  return directory, path
 
 
 def _share(directory: Path) -> None:
@@ -254,24 +287,7 @@ class ClaudeCode(HarborClaudeCode):
     if not re.fullmatch(r"[A-Z0-9_]+", name):
       raise ValueError(f"not a shell variable's name: {name!r}")
     rest = dict(env)
-    message = rest.pop(name)
-    directory = f"{INSTRUCTION_DIR}/dataforge-instruction-{uuid.uuid4().hex}"
-    path = f"{directory}/instruction"
-    # Made by the agent's user, which can then remove the file whoever owns
-    # it; mkdir fails when the directory is already there. Harbor copies into
-    # a tmpfs as root, which without CAP_DAC_OVERRIDE needs the directory
-    # writable by all; no other user can list it, and the sticky bit keeps
-    # them from replacing or removing what root copies in.
-    await super().exec_as_agent(
-      environment, command=f"mkdir -m 1733 -- {shlex.quote(directory)}"
-    )
-    with tempfile.TemporaryDirectory(
-      prefix="dataforge-instruction-"
-    ) as scratch:
-      staged = Path(scratch) / "instruction"
-      _ = staged.write_bytes(message.encode())
-      staged.chmod(0o644)
-      await environment.upload_file(staged, path)
+    directory, path = await _upload_message(self, environment, rest.pop(name))
     # The x keeps the message's trailing newlines, which $(...) strips.
     read = (
       f'{name}="$(cat -- {shlex.quote(path)} && printf x)" && '
@@ -450,8 +466,87 @@ class Pi(HarborPi):
     _read_nothing(context)
 
 
+# The end of the command of Harbor 0.24.0's `Codex.run`, after its flags, with
+# the instruction in place of {}: an argument, and stdin from /dev/null
+# (`harbor/agents/installed/codex.py`).
+CODEX_PROMPT = "-- {} 2>&1 </dev/null | "
+# What takes its place: `codex exec -` reads the prompt from stdin, as does
+# `codex exec resume --last -`, given here the copied file's descriptor
+# (Codex CLI 0.159.3, `codex-rs/exec/src/lib.rs`, `resolve_prompt`).
+CODEX_STDIN = "-- - 2>&1 <&3 3<&- | "
+
+
 class Codex(HarborCodex):
   """Harbor's codex agent, through the gateway, its client pinned."""
+
+  _instruction: str | None = None
+
+  @override
+  def render_instruction(self, instruction: str) -> str:
+    """Keep the instruction Harbor's `run` passes `codex`.
+
+    Args:
+      instruction: The task's instruction.
+
+    Returns:
+      Harbor's rendering of it.
+    """
+    self._instruction = super().render_instruction(instruction)
+    return self._instruction
+
+  @override
+  async def exec_as_agent(
+    self,
+    environment: BaseEnvironment,
+    command: str,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+    timeout_sec: int | None = None,
+  ) -> Any:
+    """Run a command as the agent's user, `codex exec`'s prompt on stdin.
+
+    The command that runs `codex exec` instead reads the instruction from a
+    file copied in, which it opens and removes before `codex` starts.
+
+    Args:
+      environment: The trial's environment.
+      command: The command.
+      env: Its variables.
+      cwd: Its working directory.
+      timeout_sec: Its timeout.
+
+    Returns:
+      Harbor's result of the command.
+
+    Raises:
+      RuntimeError: The command that runs `codex exec` does not end its flags
+        with the instruction, read from /dev/null, exactly once.
+    """
+    instruction = self._instruction
+    if instruction is None or "codex exec " not in command:
+      return await super().exec_as_agent(
+        environment, command, env=env, cwd=cwd, timeout_sec=timeout_sec
+      )
+    given = CODEX_PROMPT.format(shlex.quote(instruction))
+    found = command.count(given)
+    if found != 1:
+      # Without the instruction, which the command holds in full.
+      raise RuntimeError(
+        f"Harbor's codex command has {CODEX_PROMPT!r} {found} times, not once"
+      )
+    self._instruction = None
+    directory, path = await _upload_message(self, environment, instruction)
+    read = (
+      f"exec 3<{shlex.quote(path)} && rm -- {shlex.quote(path)} && "
+      f"rmdir -- {shlex.quote(directory)} || exit 1; "
+    )
+    return await super().exec_as_agent(
+      environment,
+      read + command.replace(given, CODEX_STDIN),
+      env=env,
+      cwd=cwd,
+      timeout_sec=timeout_sec,
+    )
 
   @override
   def _load_base_config(self) -> dict[str, Any]:
