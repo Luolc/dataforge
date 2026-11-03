@@ -14,6 +14,7 @@ import gc
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -1910,15 +1911,18 @@ def test_a_chown_past_its_timeout_until_its_patience_is_spent_is_an_error(
   monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
   monkeypatch.setattr(harbor, "CHOWN_BACKOFF_S", 0.1)
   monkeypatch.setattr(harbor, "CHOWN_BACKOFF_MAX_S", 0.2)
-  monkeypatch.setattr(harbor, "CHOWN_PATIENCE_S", 2.0)
+  monkeypatch.setattr(harbor, "CHOWN_PATIENCE_S", 3.0)
   _ = (fakes[1].parent / "slow-run---rm").write_text("")
   with pytest.raises(DockerTimeoutError) as raised:
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
-  assert str(raised.value).startswith(f"{harbor.CHOWN_FAILED}: ")
-  assert "docker run --rm ran past 0.5 s, on each of 3 tries" in str(
-    raised.value
+  message = str(raised.value)
+  assert message.startswith(f"{harbor.CHOWN_FAILED}: ")
+  # How many tries fit in the patience depends on how long each took.
+  tries = re.search(
+    r"docker run --rm ran past 0\.5 s, on each of (\d+) tries", message
   )
-  assert len(chown_calls(fakes)) == 3
+  assert tries is not None
+  assert int(tries[1]) == len(chown_calls(fakes)) >= 3
 
 
 def test_a_chown_waiting_for_docker_stops_waiting_once_stopped(
