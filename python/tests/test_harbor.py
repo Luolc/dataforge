@@ -29,6 +29,7 @@ from dataforge.curation.actions import fan_out, Limits, Mount, TrialAgent
 from dataforge.curation.faults import trial_fault, trial_judged
 from dataforge.curation.harbor import (
   DockerError,
+  DockerTimeoutError,
   HarborRunner,
   LABEL,
   NOT_STARTED,
@@ -156,7 +157,8 @@ for name, to in json.loads(os.environ.get("FAKE_LINKS", "{}")).items():
 
 # The fake docker appends its argv to calls.jsonl next to it, and first sleeps
 # 10 s when a file "slow-<argv[0]>-<argv[1]>" is there, and 600 s when a file
-# "hang" is; "slow-once-<argv[0]>-<argv[1]>" does that once, and a file
+# "hang" is; "slow-once-<argv[0]>-<argv[1]>" does that once, or as many times
+# as the number it holds, and a file
 # "fail-<argv[0]>" makes it exit 1. `<kind> ls` with a label
 # filter prints the ids in <kind>.ids; `rm` and `rmi` remove them unless a file
 # "stuck" is there. mounts.json maps the ids of containers without the label to
@@ -181,7 +183,11 @@ if (here / f"slow-{argv[0]}-{argv[1]}").exists():
     time.sleep(10)
 once = here / f"slow-once-{argv[0]}-{argv[1]}"
 if once.exists():
-    once.unlink()
+    times = int(once.read_text() or 1)
+    if times > 1:
+        once.write_text(str(times - 1))
+    else:
+        once.unlink()
     time.sleep(10)
 if (here / f"fail-{argv[0]}").exists():
     sys.exit(1)
@@ -1876,30 +1882,65 @@ def chown_calls(fakes: tuple[Path, Path]) -> list[list[str]]:
   return [call for call in docker_calls(fakes) if call[0] == "run"]
 
 
-def test_a_chown_past_its_timeout_is_tried_once_more(
+def test_a_chown_past_its_timeout_is_tried_again_until_docker_recovers(
   tmp_path: Path,
   fakes: tuple[Path, Path],
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
   monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
-  _ = (fakes[1].parent / "slow-once-run---rm").write_text("")
-  result = runner(fakes).run(
-    task(tmp_path), "oracle", Limits(2), outdir(tmp_path)
-  )
+  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_S", 0.1)
+  _ = (fakes[1].parent / "slow-once-run---rm").write_text("2")
+  out = outdir(tmp_path)
+  result = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
   assert result.exception is None
-  assert len(chown_calls(fakes)) == 2
+  assert result.rewards == {"reward": 1.0}
+  chowns = chown_calls(fakes)
+  assert len(chowns) == 3
+  assert f"--volume={out.resolve()}:/trial" in chowns[-1]
+  assert chowns[-1][-4:] == [
+    "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/trial"
+  ]  # fmt: skip
 
 
-def test_a_chown_past_its_timeout_twice_is_a_docker_error(
+def test_a_chown_past_its_timeout_until_its_patience_is_spent_is_an_error(
   tmp_path: Path,
   fakes: tuple[Path, Path],
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
   monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
+  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_S", 0.1)
+  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_MAX_S", 0.2)
+  monkeypatch.setattr(harbor, "CHOWN_PATIENCE_S", 2.0)
   _ = (fakes[1].parent / "slow-run---rm").write_text("")
-  with pytest.raises(DockerError, match="ran past"):
+  with pytest.raises(DockerTimeoutError) as raised:
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
-  assert len(chown_calls(fakes)) == 2
+  assert str(raised.value).startswith(f"{harbor.CHOWN_FAILED}: ")
+  assert "docker run --rm ran past 0.5 s, on each of 3 tries" in str(
+    raised.value
+  )
+  assert len(chown_calls(fakes)) == 3
+
+
+def test_a_chown_waiting_for_docker_stops_waiting_once_stopped(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
+  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_S", 60.0)
+  _ = (fakes[1].parent / "slow-run---rm").write_text("")
+  stop, trial = stopping.Stop(), runner(fakes)
+  timer = threading.Timer(1.0, stop.set)
+
+  def chown() -> None:
+    timer.start()
+    trial._chown(outdir(tmp_path), "x")  # pyright: ignore[reportPrivateUsage]
+
+  started = time.monotonic()
+  with pytest.raises(DockerTimeoutError, match="ran past"):
+    _ = stopping.under(stop, chown)()
+  assert time.monotonic() - started < stopping.BUDGET_S
+  assert len(chown_calls(fakes)) == 1
 
 
 def test_a_chown_past_its_timeout_is_not_tried_again_once_stopped(
