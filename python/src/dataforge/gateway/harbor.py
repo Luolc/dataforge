@@ -158,8 +158,8 @@ async def _upload_message(
   # Made by the agent's user, which can then remove the file whoever owns
   # it; mkdir fails when the directory is already there. Harbor copies into
   # a tmpfs as root, which without CAP_DAC_OVERRIDE needs the directory
-  # writable by all; no other user can list it, so none finds the file, and
-  # the sticky bit keeps them from replacing or removing what root copies in.
+  # writable by all; no other user can list it to learn the file's random
+  # name, and the sticky bit keeps them from replacing or removing it.
   await agent.exec_as_agent(
     environment, command=f"mkdir -m 1733 -- {shlex.quote(directory)}"
   )
