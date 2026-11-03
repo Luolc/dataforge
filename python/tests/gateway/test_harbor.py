@@ -436,8 +436,9 @@ class Hardened(Environment):
     # Harbor passes them.
     env = cast(dict[str, str], kwargs.get("env") or {})
     options = [a for k, v in env.items() for a in ("-e", f"{k}={v}")]
-    if self.default_user is not None:
-      options += ["-u", self.default_user]
+    user = kwargs.get("user") or self.default_user
+    if user is not None:
+      options += ["-u", str(user)]
     done = docker(
       "exec", *options, self.name, "bash", "-c", command, check=False
     )
@@ -474,7 +475,10 @@ def owned_by_root(info: tarfile.TarInfo) -> tarfile.TarInfo:
 
 
 @pytest.fixture
-def hardened() -> Iterator[Hardened]:
+def hardened(request: pytest.FixtureRequest) -> Iterator[Hardened]:
+  # The image's user, as its `USER` gives it: root unless a test asks for
+  # another with `indirect`.
+  user = cast(str | None, getattr(request, "param", None))
   if shutil.which("docker") is None or os.getuid() == 0:
     pytest.skip("needs docker and a host user other than root")
   if (
@@ -486,12 +490,14 @@ def hardened() -> Iterator[Hardened]:
   _ = docker(
     "run", "-d", "--name", name, "--network", "none", "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges", "--cpus", "1", "--memory", "256m",
-    "--pids-limit", "64", "--tmpfs", "/tmp", "--init", IMAGE, "sleep", "300",
+    "--pids-limit", "64", "--tmpfs", "/tmp", "--init",
+    *(["--user", user] if user else []), IMAGE, "sleep", "300",
   )  # fmt: skip
   try:
     _ = docker(
-      "exec", name, "mkdir", "-p", "/logs/agent/sessions/projects/-app"
-    )
+      "exec", "-u", "root", name,
+      "mkdir", "-p", "/logs/agent/sessions/projects/-app",
+    )  # fmt: skip
     yield Hardened(name)
   finally:
     _ = docker("rm", "-f", name, check=False)
@@ -569,3 +575,109 @@ def test_a_message_over_the_kernels_limit_reaches_claude_whole(
   assert received == text
   left = docker("exec", hardened.name, "ls", "-A", INSTRUCTION_DIR).stdout
   assert left.split() == ["received"]
+
+
+SETTINGS = {
+  "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true"}]}]}
+}
+
+
+def fake_claude(name: str, read: str) -> None:
+  # A `claude` that keeps the file its `--settings` names, and its message.
+  claude = "/usr/local/bin/claude"
+  script = (
+    "#!/bin/sh\n"
+    'while [ $# -gt 0 ]; do [ "$1" = --settings ] && cat "$2" > '
+    f"{read}; shift; done\n"
+    "cat > /tmp/received\n"
+  )
+  made = docker(
+    "exec", "-u", "root", name, "bash", "-c",
+    (
+      f"printf %s '{script}' > {claude} && chmod +x {claude} "
+      "&& chmod -R 777 /logs"
+    ),
+    check=False,
+  )  # fmt: skip
+  assert made.returncode == 0, made.stderr
+
+
+@pytest.mark.parametrize(
+  ("hardened", "user"),
+  [(None, None), ("ubuntu", None), (None, "ubuntu")],
+  indirect=["hardened"],
+)
+def test_claude_code_gets_its_settings_whoever_the_agents_user_is(
+  tmp_path: Path, hardened: Hardened, user: str | None
+):
+  # The agent's user is the image's, root or another, or the one the task
+  # names; /tmp is a tmpfs, which `docker cp` cannot reach.
+  read = "/tmp/settings-read"
+  fake_claude(hardened.name, read)
+  hardened.default_user = user
+  agent = ClaudeCode(
+    logs_dir=tmp_path / "logs", model_name="claude-model", config=SETTINGS
+  )
+  asyncio.run(agent.run("Fix it.", container(hardened), AgentContext()))
+  received = docker("exec", hardened.name, "cat", read)
+  assert json.loads(received.stdout) == SETTINGS
+  # The message, through its file in a directory of the agent's user.
+  message = docker("exec", hardened.name, "cat", "/tmp/received")
+  assert message.stdout == "Fix it."
+  agents = docker(
+    "exec", *(["-u", user] if user else []), hardened.name, "id", "-un"
+  ).stdout.strip()
+  if agents != "root":
+    # Root's, which the agent's user can read but not change or replace.
+    settings = "/tmp/claude-code-settings/settings.json"
+    found = docker("exec", hardened.name, "stat", "-c", "%U %a", settings)
+    assert found.stdout.split() == ["root", "644"]
+    changed = docker(
+      "exec", "-u", agents, hardened.name, "bash", "-c",
+      f"echo {{}} > {settings} || mv /tmp/received {settings}",
+      check=False,
+    )  # fmt: skip
+    assert changed.returncode != 0
+
+
+class Refusing(Session):
+  # As Session, keeping each command's user, its uploads refused, and `stat`
+  # answering for a directory.
+
+  def __init__(self) -> None:
+    super().__init__()
+    self.users: list[object] = []
+
+  @override
+  async def exec(self, command: str, **kwargs: object) -> ExecResult:
+    self.users.append(kwargs.get("user"))
+    if "; stat " in command:
+      self.commands.append(command)
+      return ExecResult(stdout="nobody:nogroup 755\n", return_code=0)
+    return await super().exec(command, **kwargs)
+
+  @override
+  async def upload_file(self, source: Path, target: str) -> None:
+    raise RuntimeError("tar: settings.json: Cannot open: Permission denied")
+
+
+def test_claude_code_names_the_settings_directory_when_it_cannot_copy_them(
+  tmp_path: Path,
+):
+  agent = ClaudeCode(
+    logs_dir=tmp_path / "logs", model_name="claude-model", config=SETTINGS
+  )
+  environment = Refusing()
+  with pytest.raises(RuntimeError) as raised:
+    asyncio.run(agent.run("Fix it.", container(environment), AgentContext()))
+  assert str(raised.value) == (
+    "could not copy Claude Code's settings to "
+    "/tmp/claude-code-settings/settings.json, in /tmp/claude-code-settings, "
+    "owner and mode nobody:nogroup 755: "
+    "tar: settings.json: Cannot open: Permission denied"
+  )
+  # Root made the directory before Harbor's setup, as the agent's user, ran.
+  first, second = environment.commands[:2]
+  assert "; mkdir -p -- /tmp/claude-code-settings " in first
+  assert "mkdir -p $CLAUDE_CONFIG_DIR" in second
+  assert environment.users[:2] == ["root", None]

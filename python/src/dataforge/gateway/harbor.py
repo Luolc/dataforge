@@ -25,6 +25,13 @@ place of the task's instruction.
 which Harbor passes it to `docker exec`: Linux refuses a variable or an
 argument over 128 KiB (`MAX_ARG_STRLEN`) with `E2BIG`, which would fail the
 trial before `claude` starts.
+
+`ClaudeCode` has root make the directory of the settings Harbor gives `claude`
+(its `config`) before Harbor's setup runs, and copies the settings in with no
+chown: Harbor's own setup makes the directory as the agent's user, mode 0755,
+and copies the file in as root, which in a container without CAP_DAC_OVERRIDE
+cannot write there unless the agent's user is root, nor chown the file without
+CAP_CHOWN when the task names the agent's user.
 """
 
 # Harbor is a development dependency only; its classes are typed loosely.
@@ -274,6 +281,69 @@ class ClaudeCode(HarborClaudeCode):
     return await super().exec_as_agent(
       environment, read + command, env=rest, cwd=cwd, timeout_sec=timeout_sec
     )
+
+  @override
+  async def run(
+    self, instruction: str, environment: BaseEnvironment, context: AgentContext
+  ) -> None:
+    """Run Harbor's claude-code, the settings' directory made first by root.
+
+    Root then owns the directory, whoever the agent's user is, so that root
+    can copy the settings in without CAP_DAC_OVERRIDE; the agent's user can
+    read them but, unless it is root, neither change nor replace them.
+    Harbor's `mkdir -p` of it as the agent's user then finds it there, and
+    Harbor's removal of it after the run fails quietly unless that user is
+    root.
+
+    Args:
+      instruction: The task's instruction.
+      environment: The trial's environment.
+      context: The agent's result.
+    """
+    if self.config_source is not None:
+      directory = shlex.quote(self._REMOTE_SETTINGS_DIR.as_posix())
+      # The checks refuse a directory someone else made before this.
+      await self.exec_as_root(
+        environment,
+        command=(
+          f"mkdir -p -- {directory} && test ! -L {directory} "
+          f"&& test -O {directory}"
+        ),
+      )
+    await super().run(instruction, environment, context)
+
+  @override
+  async def _upload_base_settings(self, environment: BaseEnvironment) -> None:
+    # Harbor's own upload chowns the file to the task's agent user, as root,
+    # which a container without CAP_CHOWN refuses; the file stays root's,
+    # mode 0644, in the directory `run` had root make.
+    if self.config_source is None:
+      return
+    target = self._REMOTE_SETTINGS_PATH.as_posix()
+    with tempfile.TemporaryDirectory(prefix="dataforge-settings-") as scratch:
+      staged = Path(scratch) / self._REMOTE_SETTINGS_PATH.name
+      _ = staged.write_text(json.dumps(self._base_settings, indent=2))
+      staged.chmod(0o644)
+      try:
+        await environment.upload_file(staged, target)
+      except Exception as e:
+        found = await self._described(
+          self._REMOTE_SETTINGS_DIR.as_posix(), environment
+        )
+        raise RuntimeError(
+          f"could not copy Claude Code's settings to {target}, in {found}: {e}"
+        ) from e
+
+  async def _described(self, path: str, environment: BaseEnvironment) -> str:
+    # The path's owner and mode, as root sees them, for an error.
+    quoted = shlex.quote(path)
+    try:
+      result = await self.exec_as_root(
+        environment, command=f"stat -c '%U:%G %a' -- {quoted}"
+      )
+    except Exception as e:  # noqa: BLE001
+      return f"{path}, whose owner and mode stat could not give ({e})"
+    return f"{path}, owner and mode {(result.stdout or '').strip()}"
 
   @override
   async def _upload_load_trajectory(
