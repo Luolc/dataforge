@@ -81,9 +81,9 @@ class Price:
 # above: its "30m write" is `cache_write_5m` and its "12h write" is
 # `cache_write_1h`; the same file of litellm at commit
 # 482f3c37ed6de423daec8e65f36142cc5408d808 gives the same input, output, cache
-# read and 30m write prices. The page shows no cache write price for `gpt-5.5`,
-# so its `cache_write_5m` is derived, 1.25 times its input price, and its
-# `cache_write_1h` twice that.
+# read and, except for `gpt-5.5`, 30m write prices. The page shows no cache
+# write price for `gpt-5.5`, so its `cache_write_5m` is derived, 1.25 times its
+# input price, and its `cache_write_1h` twice that.
 PRICES: Mapping[str, Price] = MappingProxyType({
   "claude-opus-5-5": Price(
     input=4.0, output=20.0, cache_read=0.2, cache_write_5m=5.0,
