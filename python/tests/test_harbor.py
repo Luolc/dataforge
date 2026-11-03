@@ -34,6 +34,7 @@ from dataforge.curation.harbor import (
   HarborRunner,
   LABEL,
   NOT_STARTED,
+  Patience,
   SIDECAR,
   Sidecar,
   TrialSetup,
@@ -1871,12 +1872,51 @@ def test_docker_past_its_timeout_in_the_cleanup_is_a_docker_error(
   slow: str,
 ) -> None:
   monkeypatch.setattr(harbor, "DOCKER_TIMEOUT", 0.5)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_S", 0.1)
+  monkeypatch.setattr(harbor, "CLEANUP_PATIENCE_S", 1.0)
   out = outdir(tmp_path)
   source = str(out.resolve() / "job" / "task__abc" / "verifier")
   _ = (fakes[1].parent / "mounts.json").write_text(json.dumps({"v": [source]}))
   _ = (fakes[1].parent / f"slow-{slow}").write_text("")
-  with pytest.raises(DockerError, match="ran past"):
+  with pytest.raises(DockerError, match="ran past") as raised:
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  assert str(raised.value).startswith(f"{harbor.CLEANUP_FAILED}: ")
+
+
+@pytest.mark.parametrize(
+  ("slow", "kind"),
+  [
+    ("container-ls", None),
+    ("container-inspect", "mounts"),
+    ("container-rm", "mounts"),
+    ("image-rmi", "image"),
+  ],
+)
+def test_docker_past_its_timeout_in_the_cleanup_is_run_again_until_it_recovers(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  monkeypatch: pytest.MonkeyPatch,
+  slow: str,
+  kind: str | None,
+) -> None:
+  monkeypatch.setattr(harbor, "DOCKER_TIMEOUT", 0.5)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_S", 0.1)
+  here, out = fakes[1].parent, outdir(tmp_path)
+  source = str(out.resolve() / "job" / "task__abc" / "verifier")
+  if kind == "mounts":
+    _ = (here / "mounts.json").write_text(json.dumps({"v": [source]}))
+  if kind == "image":
+    _ = (here / "image.ids").write_text("i1")
+  _ = (here / f"slow-once-{slow}").write_text("2")
+  result = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
+  assert result.exception is None
+  assert result.rewards == {"reward": 1.0}
+  tried = [c for c in docker_calls(fakes) if c[:2] == slow.split("-")]
+  assert tried[0] == tried[1] == tried[2]
+  if kind == "mounts":
+    assert json.loads((here / "mounts.json").read_text()) == {}
+  if kind == "image":
+    assert not (here / "image.ids").exists()
 
 
 def chown_calls(fakes: tuple[Path, Path]) -> list[list[str]]:
@@ -1889,7 +1929,7 @@ def test_a_chown_past_its_timeout_is_tried_again_until_docker_recovers(
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
   monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
-  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_S", 0.1)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_S", 0.1)
   _ = (fakes[1].parent / "slow-once-run---rm").write_text("2")
   out = outdir(tmp_path)
   result = runner(fakes).run(task(tmp_path), "oracle", Limits(2), out)
@@ -1909,18 +1949,16 @@ def test_a_chown_past_its_timeout_until_its_patience_is_spent_is_an_error(
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
   monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
-  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_S", 0.1)
-  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_MAX_S", 0.2)
-  monkeypatch.setattr(harbor, "CHOWN_PATIENCE_S", 3.0)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_S", 0.1)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_MAX_S", 0.2)
+  monkeypatch.setattr(harbor, "CLEANUP_PATIENCE_S", 3.0)
   _ = (fakes[1].parent / "slow-run---rm").write_text("")
   with pytest.raises(DockerTimeoutError) as raised:
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
   message = str(raised.value)
-  assert message.startswith(f"{harbor.CHOWN_FAILED}: ")
+  assert message.startswith(f"{harbor.CLEANUP_FAILED}: ")
   # How many tries fit in the patience depends on how long each took.
-  tries = re.search(
-    r"docker run --rm ran past 0\.5 s, on each of (\d+) tries", message
-  )
+  tries = re.search(r"docker run --rm ran past 0\.5 s; tries: (\d+);", message)
   assert tries is not None
   assert int(tries[1]) == len(chown_calls(fakes)) >= 3
 
@@ -1931,14 +1969,14 @@ def test_a_chown_waiting_for_docker_stops_waiting_once_stopped(
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
   monkeypatch.setattr(harbor, "CHOWN_TIMEOUT", 0.5)
-  monkeypatch.setattr(harbor, "CHOWN_BACKOFF_S", 60.0)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_S", 60.0)
   _ = (fakes[1].parent / "slow-run---rm").write_text("")
   stop, trial = stopping.Stop(), runner(fakes)
   timer = threading.Timer(1.0, stop.set)
 
   def chown() -> None:
     timer.start()
-    trial._chown(outdir(tmp_path), "x")  # pyright: ignore[reportPrivateUsage]
+    trial._chown(outdir(tmp_path), "x", Patience())  # pyright: ignore[reportPrivateUsage]
 
   started = time.monotonic()
   with pytest.raises(DockerTimeoutError, match="ran past"):
@@ -1958,7 +1996,7 @@ def test_a_chown_past_its_timeout_is_not_tried_again_once_stopped(
 
   def chown() -> None:
     stop.set()
-    trial._chown(outdir(tmp_path), "x")  # pyright: ignore[reportPrivateUsage]
+    trial._chown(outdir(tmp_path), "x", Patience())  # pyright: ignore[reportPrivateUsage]
 
   with pytest.raises(DockerError, match="ran past"):
     _ = stopping.under(stop, chown)()
@@ -1972,6 +2010,37 @@ def test_a_chown_that_exits_non_zero_is_not_tried_again(
   with pytest.raises(DockerError, match="exited 1"):
     _ = runner(fakes).run(task(tmp_path), "oracle", Limits(2), outdir(tmp_path))
   assert len(chown_calls(fakes)) == 1
+
+
+def test_a_cleanup_command_waits_only_for_what_is_left_of_the_patience(
+  fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  # The commands of one cleanup share its patience: one that runs past its
+  # timeout after the patience was spent on others is not run again.
+  monkeypatch.setattr(harbor, "DOCKER_TIMEOUT", 0.5)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_S", 0.1)
+  monkeypatch.setattr(harbor, "CLEANUP_PATIENCE_S", 60.0)
+  _ = (fakes[1].parent / "slow-network-ls").write_text("")
+  patience = Patience(since=time.monotonic() - 60.0)
+  with pytest.raises(DockerTimeoutError) as raised:
+    _ = harbor.cleanup("dataforge.trial=x", str(fakes[1]), patience=patience)
+  assert str(raised.value).startswith(f"{harbor.CLEANUP_FAILED}: ")
+  assert "; tries: 1;" in str(raised.value)
+  assert [c[:2] for c in docker_calls(fakes)].count(["network", "ls"]) == 1
+
+
+def test_a_cleanup_command_past_its_timeout_starts_the_patience(
+  fakes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+  monkeypatch.setattr(harbor, "DOCKER_TIMEOUT", 0.5)
+  monkeypatch.setattr(harbor, "CLEANUP_BACKOFF_S", 0.1)
+  _ = (fakes[1].parent / "slow-once-network-ls").write_text("")
+  patience, started = Patience(), time.monotonic()
+  _ = harbor.cleanup("dataforge.trial=x", str(fakes[1]), patience=patience)
+  ended = time.monotonic()
+  # When the try that ran past its timeout started, not when it ended.
+  assert patience.since is not None
+  assert started <= patience.since <= ended - 0.5
 
 
 def test_a_cleanup_past_its_timeout_raises_what_callers_caught_before(

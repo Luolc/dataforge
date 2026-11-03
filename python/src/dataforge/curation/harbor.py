@@ -32,12 +32,14 @@ interrupted, Harbor and its children are stopped first. Then, as the
 containers wrote into the trial's directory, each symlink there that resolves,
 or may, outside it, and each entry that is no regular file, directory or
 symlink, is removed and named in `harbor.log`, before run gives the trial to any
-reader; when the cleanup fails, run raises DockerError and gives no trial. The
-chown that gives the files back is tried again when it ran past its timeout,
-as a docker that stalls often recovers: after a wait that doubles from
-CHOWN_BACKOFF_S up to CHOWN_BACKOFF_MAX_S, while less than CHOWN_PATIENCE_S
-has passed since its first try, and not when it exited non-zero. A chown that
-never got through raises a DockerTimeoutError that starts with CHOWN_FAILED.
+reader; when the cleanup fails, run raises DockerError and gives no trial. A
+docker command of the cleanup, the chown that gives the files back among them,
+that ran past its timeout is run again, as a docker that stalls often
+recovers: after a wait that doubles from CLEANUP_BACKOFF_S up to
+CLEANUP_BACKOFF_MAX_S, while less than CLEANUP_PATIENCE_S has passed since the
+first of the cleanup's commands that ran past its timeout started (`Patience`),
+and not when it exited non-zero. A command that never got through raises a
+DockerTimeoutError whose message starts with CLEANUP_FAILED.
 
 When Harbor exits before it starts the trial (no `job/*/config.json` or
 `job/*/result.json`), nothing of the task has run and no model has been called:
@@ -205,16 +207,17 @@ PROJECT = "com.docker.compose.project"
 DOCKER_TIMEOUT = 120.0
 # How long the chown that gives a trial's files back may run, in seconds.
 CHOWN_TIMEOUT = 300.0
-# How long the cleanup waits before it tries a chown that ran past
-# CHOWN_TIMEOUT again, at first and at most, the wait doubling after each try,
-# and how long after the first try started it still starts one, in seconds.
-CHOWN_BACKOFF_S = 30.0
-CHOWN_BACKOFF_MAX_S = 300.0
-CHOWN_PATIENCE_S = 1800.0
-# How the message of a chown that never got through starts.
-CHOWN_FAILED = (
-  "the cleanup after the trial could not give its files back, an"
-  + " infrastructure failure, not the task's"
+# How long the cleanup waits before it runs a docker command that ran past its
+# timeout again, at first and at most, the wait doubling after each try of
+# that command, and how long after the first of its commands that ran past its
+# timeout started it still starts a try, in seconds.
+CLEANUP_BACKOFF_S = 30.0
+CLEANUP_BACKOFF_MAX_S = 300.0
+CLEANUP_PATIENCE_S = 1800.0
+# How the message of a cleanup's docker command that never got through starts.
+CLEANUP_FAILED = (
+  "the cleanup after the trial could not finish, an infrastructure failure,"
+  + " not the task's"
 )
 # The file in a trial's directory, by the environment's session ID, that says
 # how often its `main` was at its process limit; Harbor names the trial's own
@@ -256,6 +259,24 @@ class DockerError(subprocess.SubprocessError, RuntimeError):
 
 class DockerTimeoutError(DockerError):
   """Docker ran past its timeout, as against failing or exiting non-zero."""
+
+
+@dataclass
+class Patience:
+  """How long one cleanup still waits for a docker that runs past its timeouts.
+
+  A docker command run with it that runs past its timeout is run again, after
+  a wait that doubles from CLEANUP_BACKOFF_S up to CLEANUP_BACKOFF_MAX_S, while
+  less than CLEANUP_PATIENCE_S has passed since `since`; not once the stop of
+  the call this thread runs is set. The commands of one cleanup share one, so
+  that the whole cleanup waits for docker that long.
+
+  Attributes:
+    since: When the first of its commands that ran past its timeout started,
+      by time.monotonic(); None until one has.
+  """
+
+  since: float | None = None
 
 
 @dataclass(frozen=True)
@@ -451,9 +472,10 @@ class HarborRunner:
     Raises:
       DockerError: When docker, in the cleanup after a run of Harbor, fails,
         runs past DOCKER_TIMEOUT or leaves a container that mounts from under
-        outdir or something with the trial's label; no run follows it. The
-        chown, with CHOWN_TIMEOUT, is tried again when it runs past that, for
-        up to CHOWN_PATIENCE_S, and fails when no try got through.
+        outdir or something with the trial's label; no run follows it. A
+        docker command of the cleanup that runs past its timeout is run again,
+        for up to CLEANUP_PATIENCE_S in all (`Patience`), and fails when no
+        try got through.
       stopping.Stopped: The stop of the call this thread runs is set; a run
         then starts nothing, or stops Harbor and cleans up within the stop's
         budget, and no run follows it.
@@ -683,16 +705,17 @@ class HarborRunner:
     if stopping.stopped():
       self._clean_up_stopped(outdir, label)
       raise stopping.Stopped
+    patience = Patience()
     try:
-      held = release(outdir, self.docker)
+      held = release(outdir, self.docker, patience)
     finally:
       try:
-        stray = remove_projects(outdir, self.docker)
+        stray = remove_projects(outdir, self.docker, patience)
       finally:
         try:
-          self._chown(outdir, label)
+          self._chown(outdir, label, patience)
         finally:
-          left = cleanup(f"{LABEL}={label}", self.docker)
+          left = cleanup(f"{LABEL}={label}", self.docker, patience=patience)
     return held, stray, left
 
   def _clean_up_stopped(self, outdir: Path, label: str) -> None:
@@ -752,46 +775,11 @@ class HarborRunner:
         held,
       )
 
-  def _chown(self, outdir: Path, label: str) -> None:
-    # Docker sometimes stalls for many minutes before a container starts, as
-    # when the host's disk is short, and the trial is done by then, so a chown
-    # that ran past its timeout is tried again, each time in a container of its
-    # own, until docker recovers or CHOWN_PATIENCE_S is spent; what a try left
-    # carries the label and goes with the cleanup. The files must be ours
-    # before anything reads them, so a chown that never got through raises. A
-    # stopped call's budget has no room for another try or a wait.
-    started = time.monotonic()
-    wait = CHOWN_BACKOFF_S
-    tries = 0
-    while True:
-      tries += 1
-      try:
-        self._chown_once(outdir, label)
-        return
-      except DockerTimeoutError as error:
-        spent = time.monotonic() - started
-        if stopping.stopped():
-          raise
-        if spent + wait >= CHOWN_PATIENCE_S:
-          raise DockerTimeoutError(
-            f"{CHOWN_FAILED}: {error}, on each of {tries} tries over"
-            + f" {spent:.0f} s"
-          ) from error
-        _log.warning(
-          "the chown of %s ran past %g s (%.0f s in all, %d tries): %s;"
-          + " trying again in %g s",
-          outdir,
-          CHOWN_TIMEOUT,
-          spent,
-          tries,
-          error,
-          wait,
-        )
-        if not _pause(wait):
-          raise
-        wait = min(2 * wait, CHOWN_BACKOFF_MAX_S)
-
-  def _chown_once(self, outdir: Path, label: str) -> None:
+  def _chown(
+    self, outdir: Path, label: str, patience: Patience | None = None
+  ) -> None:
+    # What a try that ran past its timeout left carries the label and goes
+    # with the cleanup.
     _ = _docker(
       self.docker, "run", "--rm",
       f"--label={LABEL}={label}",
@@ -805,6 +793,7 @@ class HarborRunner:
       "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/trial",
       timeout=CHOWN_TIMEOUT,
       check=True,
+      patience=patience,
     )  # fmt: skip
 
 
@@ -813,6 +802,7 @@ def cleanup(
   docker: str = "docker",
   kinds: Sequence[str] = KINDS,
   seen: dict[str, int] | None = None,
+  patience: Patience | None = None,
 ) -> dict[str, int]:
   """Remove the containers, images, networks and volumes a label selects.
 
@@ -821,13 +811,15 @@ def cleanup(
     docker: The docker command.
     kinds: Which of KINDS to remove, in KINDS's order whatever theirs.
     seen: Gets, by kind, how many each listing found, the last one's.
+    patience: How long a docker command that runs past DOCKER_TIMEOUT is run
+      again; None for not at all.
 
   Returns:
     How many of each kind are left.
 
   Raises:
     DockerError: When `docker <kind> ls` exits non-zero, or a docker command
-      runs past DOCKER_TIMEOUT.
+      runs past DOCKER_TIMEOUT and patience lets it run no more.
   """  # noqa: DOC502
 
   def ids(kind: str) -> list[str]:
@@ -835,7 +827,7 @@ def cleanup(
     extra = ["-a"] if kind in ("container", "image") else []
     out = _docker(
       docker, kind, "ls", "-q", *extra, "--filter", f"label={selector}",
-      check=True,
+      check=True, patience=patience,
     ).stdout  # fmt: skip
     found = sorted(set(out.split()))
     if seen is not None:
@@ -855,11 +847,13 @@ def cleanup(
     for _ in range(rounds):
       if not (found := ids(kind)):
         break
-      _ = _docker(docker, kind, *remove, *found)
+      _ = _docker(docker, kind, *remove, *found, patience=patience)
   return {kind: len(ids(kind)) for kind in kinds}
 
 
-def release(path: Path, docker: str = "docker") -> list[str]:
+def release(
+  path: Path, docker: str = "docker", patience: Patience | None = None
+) -> list[str]:
   """Remove every container, whatever its labels, that mounts from under path.
 
   Harbor starts some containers, such as a separate verifier's, without the
@@ -871,6 +865,8 @@ def release(path: Path, docker: str = "docker") -> list[str]:
   Args:
     path: A directory on the host.
     docker: The docker command.
+    patience: How long a docker command that runs past DOCKER_TIMEOUT is run
+      again; None for not at all.
 
   Returns:
     The containers that still mount from under path.
@@ -878,14 +874,17 @@ def release(path: Path, docker: str = "docker") -> list[str]:
   Raises:
     DockerError: When `docker container ls` exits non-zero, `docker container
       inspect` says anything but "No such container" or exits non-zero
-      without a word, or a docker command runs past DOCKER_TIMEOUT.
+      without a word, or a docker command runs past DOCKER_TIMEOUT and
+      patience lets it run no more.
   """  # noqa: DOC502
-  if found := _mounting(path, docker):
-    _ = _docker(docker, "container", "rm", "-f", *found)
-  return _mounting(path, docker)
+  if found := _mounting(path, docker, patience):
+    _ = _docker(docker, "container", "rm", "-f", *found, patience=patience)
+  return _mounting(path, docker, patience)
 
 
-def remove_projects(outdir: Path, docker: str = "docker") -> dict[str, int]:
+def remove_projects(
+  outdir: Path, docker: str = "docker", patience: Patience | None = None
+) -> dict[str, int]:
   """Remove what the compose projects of the trials in outdir hold.
 
   Harbor 0.24.0 runs each environment of a trial as a compose project named
@@ -902,13 +901,15 @@ def remove_projects(outdir: Path, docker: str = "docker") -> dict[str, int]:
     outdir: The trial's output directory, whose `job/` holds a directory for
       each trial Harbor started.
     docker: The docker command.
+    patience: How long a docker command that runs past DOCKER_TIMEOUT is run
+      again; None for not at all.
 
   Returns:
     How many containers, networks and volumes of those projects are left.
 
   Raises:
     DockerError: When `docker <kind> ls` exits non-zero, or a docker command
-      runs past DOCKER_TIMEOUT.
+      runs past DOCKER_TIMEOUT and patience lets it run no more.
   """  # noqa: DOC502
   trials = [
     path.name for path in (outdir / "job").glob("*/") if not path.is_symlink()
@@ -922,7 +923,7 @@ def remove_projects(outdir: Path, docker: str = "docker") -> dict[str, int]:
       docker, kind, "ls", *(["-a"] if kind == "container" else []),
       "--filter", f"label={PROJECT}",
       "--format", f'{{{{.{key}}}}}\t{{{{.Label "{PROJECT}"}}}}',
-      check=True,
+      check=True, patience=patience,
     ).stdout  # fmt: skip
     found: list[str] = []
     for line in out.splitlines():
@@ -939,7 +940,7 @@ def remove_projects(outdir: Path, docker: str = "docker") -> dict[str, int]:
     ("volume", ["rm", "-f"]),
   ):
     if found := ids(kind):
-      _ = _docker(docker, kind, *remove, *found)
+      _ = _docker(docker, kind, *remove, *found, patience=patience)
   return {kind: len(ids(kind)) for kind in ("container", "network", "volume")}
 
 
@@ -961,16 +962,18 @@ _LS = ("-a", "--no-trunc", "--format", "{{.ID}}\t{{.Mounts}}")
 _GONE_WHILE_LISTING = ("No such container", "snapshot not found")
 
 
-def _mounting(path: Path, docker: str) -> list[str]:
+def _mounting(
+  path: Path, docker: str, patience: Patience | None = None
+) -> list[str]:
   root = str(path.resolve())
   # `ls` asks the daemon for each container's size only when its format uses
   # one (`{{json .}}` does), and that fails for a container removed while it
   # runs; a format of two fields leaves the sizes out.
-  listed = _docker(docker, "container", "ls", *_LS)
+  listed = _docker(docker, "container", "ls", *_LS, patience=patience)
   if listed.returncode != 0 and any(
     gone in listed.stderr for gone in _GONE_WHILE_LISTING
   ):
-    listed = _docker(docker, "container", "ls", *_LS)
+    listed = _docker(docker, "container", "ls", *_LS, patience=patience)
   if listed.returncode != 0:
     raise DockerError(f"docker container ls failed: {listed.stderr.strip()}")
   # `ls` joins a container's mount sources with commas, a source that has
@@ -984,7 +987,7 @@ def _mounting(path: Path, docker: str) -> list[str]:
       ids.append(container.strip())
   if not ids:
     return []
-  inspected = _docker(docker, "container", "inspect", *ids)
+  inspected = _docker(docker, "container", "inspect", *ids, patience=patience)
   # A container may go between the two commands; any other error could hide
   # one.
   errors = [
@@ -1010,9 +1013,73 @@ def _mounting(path: Path, docker: str) -> list[str]:
 
 
 def _docker(
-  docker: str, *args: str, timeout: float | None = None, check: bool = False
+  docker: str,
+  *args: str,
+  timeout: float | None = None,
+  check: bool = False,
+  patience: Patience | None = None,
 ) -> subprocess.CompletedProcess[str]:
-  """Run docker.
+  """Run docker, again while patience lets it when it runs past timeout.
+
+  Args:
+    docker: The docker command.
+    *args: Its arguments.
+    timeout: How long each try may run, in seconds; DOCKER_TIMEOUT when None;
+      at most what is left of the budget of a stopped `fan_out`.
+    check: Whether a status other than 0 is an error.
+    patience: How long it is run again when it runs past timeout; None for
+      not at all.
+
+  Returns:
+    What it did.
+
+  Raises:
+    DockerTimeoutError: When it ran past timeout and patience lets it run no
+      more; when patience was spent, the message starts with CLEANUP_FAILED.
+    DockerError: With check, when a try exited non-zero.
+  """  # noqa: DOC503
+  if patience is None:
+    return _docker_once(docker, *args, timeout=timeout, check=check)
+  # Docker sometimes stalls for many minutes, as when the host's disk is
+  # short, and then recovers; the trial is done by then, so waiting costs less
+  # than losing it. The files must be ours and nothing of the trial may be
+  # left before anything reads it, so a command that never got through raises.
+  wait = CLEANUP_BACKOFF_S
+  tries = 0
+  while True:
+    tries += 1
+    started = time.monotonic()
+    try:
+      return _docker_once(docker, *args, timeout=timeout, check=check)
+    except DockerTimeoutError as error:
+      if patience.since is None:
+        patience.since = started
+      spent = time.monotonic() - patience.since
+      # A stopped call's budget has no room for another try or a wait.
+      if stopping.stopped():
+        raise
+      if spent + wait >= CLEANUP_PATIENCE_S:
+        raise DockerTimeoutError(
+          f"{CLEANUP_FAILED}: {error}; tries: {tries}; since docker first ran"
+          + f" past its timeout in the cleanup: {spent:.0f} s"
+        ) from error
+      _log.warning(
+        "%s (%d tries, %.0f s since docker first ran past its timeout in the"
+        + " cleanup); trying again in %g s",
+        error,
+        tries,
+        spent,
+        wait,
+      )
+      if not _pause(wait):
+        raise
+      wait = min(2 * wait, CLEANUP_BACKOFF_MAX_S)
+
+
+def _docker_once(
+  docker: str, *args: str, timeout: float | None, check: bool
+) -> subprocess.CompletedProcess[str]:
+  """Run docker once.
 
   Args:
     docker: The docker command.
