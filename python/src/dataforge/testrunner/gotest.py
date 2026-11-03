@@ -8,8 +8,10 @@ taken from go's test cache, and with `-run` choosing their top-level tests,
 whose subtests all run; when a package is listed whole there is no `-run`,
 and every listed package runs whole. What runs and is not listed is left
 out. Where the run is exact (Context.exact), each package runs as a
-command of its own, with only its own tests' `-run`, so that how the
-command exits is of its listed tests alone.
+command of its own with only its own tests' `-run`, and each listed
+subtest whose top-level test is not listed whole as one more, its `-run`
+anchored at each level (`^TestSub$/^two_words$`), so that how a command
+exits is of its listed tests alone.
 """
 
 from __future__ import annotations
@@ -61,6 +63,23 @@ def _names(tests: list[Test]) -> tuple[list[str], list[str] | None]:
   return packages, names
 
 
+def _exact_runs(names: list[str]) -> list[str | None]:
+  # The -run of each command that runs one package's listed tests, by
+  # their names ("" for the whole package) and no other: None for the
+  # whole package, one for its top-level tests, and one for each subtest
+  # whose top-level test is not among them.
+  if "" in names:
+    return [None]
+  whole = list(dict.fromkeys(n for n in names if "/" not in n))
+  runs: list[str | None] = []
+  if whole:
+    runs.append("^(?:" + "|".join(map(re.escape, whole)) + ")$")
+  for name in dict.fromkeys(names):
+    if "/" in name and name.split("/", 1)[0] not in whole:
+      runs.append("/".join(f"^{re.escape(p)}$" for p in name.split("/")))
+  return runs
+
+
 def _call(tests: list[Test], output: Path) -> Call:
   # go test on the tests' packages, its events written to output.
   packages, names = _names(tests)
@@ -96,14 +115,17 @@ class GoTest(Runner):
   def commands(self, ctx: Context, tests: list[Test]) -> list[Call]:
     if not ctx.exact:
       return [_call(tests, ctx.work / self._REPORT)]
-    packages, _ = _names(tests)
-    self._reports = [f"go-{n}.json" for n in range(len(packages))]
+    ids = [t.id.partition(SEP) for t in tests]
+    runs = [
+      (package, run)
+      for package in _names(tests)[0]
+      for run in _exact_runs([n for p, _, n in ids if p == package])
+    ]
+    self._reports = [f"go-{n}.json" for n in range(len(runs))]
+    go = ["go", "test", "-json", "-count=1"]
     return [
-      _call(
-        [t for t in tests if t.id.partition(SEP)[0] == package],
-        ctx.work / report,
-      )
-      for package, report in zip(packages, self._reports, strict=True)
+      Call([*go, *([f"-run={r}"] if r else []), p], output=ctx.work / report)
+      for (p, r), report in zip(runs, self._reports, strict=True)
     ]
 
   @override
@@ -116,7 +138,8 @@ class GoTest(Runner):
     ]
     if not texts:
       return None
-    return go_cases("\n".join(texts))
+    # Each apart, as a test above a listed subtest ends in each command.
+    return [case for text in texts for case in go_cases(text)]
 
   @override
   def covers(self, outer: str, inner: str) -> bool:

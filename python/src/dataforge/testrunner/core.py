@@ -1867,8 +1867,13 @@ def _fence(isolation: Isolation, here: Path) -> _Fence:
 
 
 def _check(isolation: Isolation) -> None:
-  # Refuses a private directory a command could change: one beneath, or
-  # above, a writable path.
+  # Refuses, before anything runs, a private directory a command could
+  # change, one beneath or above a writable path, and confining where the
+  # kernel cannot.
+  if isolation.confine and fence.abi() < fence.MIN_ABI:
+    raise fence.UnavailableError(
+      f"Landlock ABI {fence.abi()}; {fence.MIN_ABI} or later needed"
+    )
   private = isolation.private.resolve()
   for path in isolation.writable:
     root = path.resolve()
@@ -1933,7 +1938,18 @@ def run(
 
   Returns:
     What the runs found.
-  """
+
+  Raises:
+    ValueError: The isolation's private directory is beneath, or above,
+      one of its writable paths.
+    isolation.UnavailableError: The isolation confines, and the kernel
+      cannot.
+    RuntimeError: Processes a command left still ran after seal's last
+      look; the run then has no results, an error of the eval rather than
+      a failure of its tests.
+  """  # noqa: DOC502
+  if isolation is not None:
+    _check(isolation)
   app = app.resolve()
   tests = tests.resolve()
   place(manifest.files, tests, app)
@@ -1944,7 +1960,6 @@ def run(
       temporary = tempfile.TemporaryDirectory(prefix="testrunner-")
       work = Path(stack.enter_context(temporary))
     else:
-      _check(isolation)
       fence.subreaper()
       work = isolation.private / "runs"
       work.mkdir()

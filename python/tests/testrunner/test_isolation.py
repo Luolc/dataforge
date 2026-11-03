@@ -491,3 +491,50 @@ def test_a_command_of_a_group_cannot_change_the_report_of_one_before(
     ["m/a::TestA", "failed", None],
     ["m/b::TestB", "passed", None],
   ]
+
+
+# Stands in for go test on m/calc: TestSub/one fails, TestSub/two_words
+# passes, each only when its -run selects it.
+FAKE_SUBTESTS = """#!/bin/sh
+case "$*" in
+  *-run=*one*|*-run=^\\(?:TestSub\\)\\$*)
+    echo '{"Action":"fail","Package":"m/calc","Test":"TestSub/one"}'
+    failed=1 ;;
+esac
+echo '{"Action":"pass","Package":"m/calc","Test":"TestSub/two_words"}'
+exit ${failed:-0}
+"""
+
+
+def test_an_unlisted_subtest_that_fails_beside_a_listed_one_does_not_run(
+  tmp_path: Path,
+):
+  bin_dir = tmp_path / "bin"
+  write(bin_dir, {"go": FAKE_SUBTESTS})
+  (bin_dir / "go").chmod(0o755)
+  manifest = (
+    '[[test]]\nsuite = "p2p"\nrunner = "go"\nid = "m/calc::TestSub/two_words"\n'
+  )
+  env = {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
+  found = isolated(tmp_path, manifest, {}, {}, env)
+  assert found == [["m/calc::TestSub/two_words", "passed", None]]
+
+
+def test_confining_where_the_kernel_cannot_is_refused_before_anything_runs(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  monkeypatch.setattr(isolation, "abi", lambda: isolation.MIN_ABI - 1)
+  manifest = OWN.replace('parse = ["sh", "parse.sh"]', 'parse = "ctrf"')
+  write(tmp_path / "app", {"keep.txt": ""})
+  write(
+    tmp_path / "tests", {"manifest.toml": manifest, "run.sh": "touch ran\n"}
+  )
+  (tmp_path / "private").mkdir()
+  with pytest.raises(isolation.UnavailableError):
+    _ = run(
+      load(manifest),
+      tests=tmp_path / "tests",
+      app=tmp_path / "app",
+      isolation=Isolation(tmp_path / "private", (tmp_path / "app",)),
+    )
+  assert not (tmp_path / "app" / "ran").exists()

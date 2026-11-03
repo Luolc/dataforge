@@ -33,6 +33,7 @@ import signal
 import stat
 import struct
 import subprocess
+import sys
 import time
 from typing import cast
 
@@ -75,6 +76,8 @@ def abi() -> int:
   Returns:
     The ABI's version.
   """
+  if sys.platform != "linux":  # where the system call numbers are others
+    return 0
   found = cast("int", _LIBC.syscall(_CREATE_RULESET, None, 0, _VERSION))
   return max(found, 0)
 
