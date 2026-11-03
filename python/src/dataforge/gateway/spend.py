@@ -107,7 +107,7 @@ PRICES: Mapping[str, Price] = MappingProxyType({
   ),
   "gpt-6-astra": Price(
     input=10.0, output=50.0, cache_read=1.0, cache_write_5m=12.5,
-    cache_write_1h=12.5,
+    cache_write_1h=25.0,
   ),
   "gpt-6.1-sol": Price(
     input=2.0, output=10.0, cache_read=0.1, cache_write_5m=2.5,
