@@ -95,6 +95,20 @@ function itemsOf(title: string): string[] {
   );
 }
 
+/** Opens the Filter panel on its Status field, and gives its values' texts. */
+function statusValues(): (string | null)[] {
+  act(() => {
+    screen.getByRole("button", { name: /^Filter/ }).click();
+  });
+  const panel = screen.getByRole("dialog", { name: "Filter" });
+  act(() => {
+    within(panel).getByRole("button", { name: "Status" }).click();
+  });
+  return within(panel)
+    .getAllByRole("checkbox")
+    .map((c) => c.textContent);
+}
+
 describe("the home page", () => {
   it("groups items: not ended, then ended, then unreadable", async () => {
     show("/sample?older=1");
@@ -231,17 +245,23 @@ describe("the home page", () => {
     expect(itemsOf("Ended")).toEqual(["b", "a"]);
   });
 
-  it("filters by a status chip and says how many it hides", async () => {
+  it("filters by status only in the Filter panel, each status with its count, and says how many it hides", async () => {
     show("/sample?older=1");
     await screen.findByText("t-run");
-    const chips = screen.getByRole("group", { name: "Filter by status" });
     expect(
-      within(chips).getByRole("button", { name: /^All/ }),
-    ).toHaveTextContent("All4");
+      screen.queryByRole("group", { name: "Filter by status" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^All/ })).toBeNull();
 
+    expect(statusValues()).toEqual([
+      "Running1",
+      "Passed1",
+      "Too easy1",
+      "Unreadable1",
+    ]);
     act(() => {
-      within(chips)
-        .getByRole("button", { name: /^Too easy/ })
+      within(screen.getByRole("dialog", { name: "Filter" }))
+        .getByRole("checkbox", { name: /^Too easy/ })
         .click();
     });
 
@@ -252,6 +272,9 @@ describe("the home page", () => {
     expect(screen.queryByRole("button", { name: /^Not ended/ })).toBeNull();
     expect(
       screen.getByText("3 of 4 Tasks hidden by the Status filter."),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Status is any of Too easy" }),
     ).toBeVisible();
   });
 
@@ -404,9 +427,7 @@ describe("the home page", () => {
     expect(screen.getByText("t-maybe").closest("tr")).toHaveTextContent(
       "May have stopped",
     );
-    expect(screen.getByRole("button", { name: /^Stopped/ })).toHaveTextContent(
-      "Stopped1",
-    );
+    expect(statusValues()).toContain("Stopped1");
   });
 
   it("with the store of runs, shows an interrupted attempt's word, what a reconcile has yet to do and when its cost was read, on focus", async () => {
@@ -566,13 +587,6 @@ describe("the home page", () => {
     expect(endOf("t-run")).toHaveTextContent(/^—$/);
   });
 
-  it("says what the chips count, on focus", async () => {
-    show("/sample?older=1");
-    const all = await screen.findByRole("button", { name: /^All/ });
-    fireEvent.focus(all);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(/^4 Tasks$/);
-  });
-
   it("keeps the status icon, the item and a group's heading at the left as the table scrolls sideways", async () => {
     show();
     const item = (await screen.findByText("t-old")).closest("tr");
@@ -637,7 +651,7 @@ describe("the home page", () => {
 
     expect(table?.parentElement).toHaveClass("overflow-x-auto");
     expect(table?.parentElement).not.toContainElement(
-      screen.getByRole("group", { name: "Filter by status" }),
+      screen.getByRole("searchbox", { name: "Search Task IDs" }),
     );
   });
 
@@ -1204,8 +1218,6 @@ describe("the home page's filter", () => {
         { expanded: false },
       ),
     );
-  const statusChips = () =>
-    within(screen.getByRole("group", { name: "Filter by status" }));
   const keptView = (): unknown =>
     JSON.parse(localStorage.getItem("viz.home.sample") ?? "null");
 
@@ -1318,52 +1330,6 @@ describe("the home page's filter", () => {
     expect(screen.queryByRole("group", { name: "Filters" })).toBeNull();
     expect(document.activeElement).toBe(filterButton());
     expect(filterButton()).toHaveTextContent(/^Filter$/);
-  });
-
-  it("takes a status chip for the Status rule, pressed only while it is any of that status alone", async () => {
-    show("/sample", fields);
-    await screen.findByText("t-a");
-    const pressed = () =>
-      texts(statusChips().queryAllByRole("button", { pressed: true }));
-
-    click(statusChips().getByRole("button", { name: /^Too easy/ }));
-    expect(where()).toBe("/sample?f.status=any:too_easy");
-    expect(pressed()).toEqual(["Too easy2"]);
-    expect(ruleChips()).toEqual(["Status is any of Too easy", "Add filter"]);
-
-    // A Status rule of two values, or of none, presses no chip.
-    click(screen.getByRole("button", { name: "Status is any of Too easy" }));
-    click(
-      within(panel("Filter by Status")).getByRole("checkbox", {
-        name: /^Passed/,
-      }),
-    );
-    expect(where()).toBe("/sample?f.status=any:too_easy,passed");
-    expect(pressed()).toEqual([]);
-    click(
-      within(panel("Filter by Status")).getByRole("button", {
-        name: "is none of",
-      }),
-    );
-    expect(where()).toBe("/sample?f.status=none:too_easy,passed");
-    expect(pressed()).toEqual([]);
-    act(() => {
-      fireEvent.keyDown(document.activeElement ?? document.body, {
-        key: "Escape",
-      });
-    });
-
-    // A chip sets the rule; again, or All, takes it out.
-    click(statusChips().getByRole("button", { name: /^Passed/ }));
-    expect(where()).toBe("/sample?f.status=any:passed");
-    expect(pressed()).toEqual(["Passed2"]);
-    click(statusChips().getByRole("button", { name: /^Passed/ }));
-    expect(where()).toBe("/sample");
-    expect(pressed()).toEqual(["All4"]);
-    click(statusChips().getByRole("button", { name: /^Passed/ }));
-    click(statusChips().getByRole("button", { name: /^All/ }));
-    expect(where()).toBe("/sample");
-    expect(keptView()).toHaveProperty("rules", []);
   });
 
   it("says when no item is left, under the table's header, and what hides them all, and Show all clears the search and every rule", async () => {
@@ -1638,20 +1604,29 @@ describe("the home page's empty attempts", () => {
     expect(ids()).not.toContain("t-gone");
   });
 
-  it("counts only what it shows in the chips, a chosen one at 0", async () => {
+  it("counts only what it shows in the Status filter, a chosen value at 0", async () => {
     show("/sample?status=~no-status");
     await screen.findByText("5 older attempts hidden (4 Tasks)");
 
     expect(
       screen.getByText("No Task matches the Status filter."),
     ).toBeVisible();
-    const chips = screen
-      .getAllByRole("button", { pressed: true })
-      .map((b) => b.textContent);
-    expect(chips).toEqual(["No status0"]);
+    act(() => {
+      screen
+        .getByRole("button", { name: "Status is any of No status" })
+        .click();
+    });
+    const values = within(
+      screen.getByRole("dialog", { name: "Filter by Status" }),
+    );
+    expect(
+      values
+        .getAllByRole("checkbox", { checked: true })
+        .map((c) => c.textContent),
+    ).toEqual(["No status0"]);
     // The unreadable attempt of the item whose lock is held stays counted.
     expect(
-      screen.getByRole("button", { name: /^Unreadable/ }),
+      values.getByRole("checkbox", { name: /^Unreadable/ }),
     ).toHaveTextContent("Unreadable1");
   });
 
