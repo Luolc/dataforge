@@ -55,7 +55,8 @@ _PAGE = """\
   return JSON.stringify({
     ready: document.readyState === "complete",
     text: document.body ? document.body.innerText : "",
-    template: document.documentElement.dataset.template ?? null,
+    // A page just committed has no root element until its body arrives.
+    template: document.documentElement?.dataset.template ?? null,
     tab: tabs.some((q) => q.get("tab") === want.tab),
     panel: want.panel === null
       || parts.some((q) => q.get(want.param) === want.panel),
