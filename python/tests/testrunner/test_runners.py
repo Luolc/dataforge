@@ -448,6 +448,7 @@ def test_phpunit_filters_the_tests_by_name(tmp_path: Path):
     "phpunit",
     f"--configuration={ctx.app / 'phpunit.xml.dist'}",
   ]
+  assert "--no-coverage" in argv
   pattern = argv[-1].removeprefix("--filter=/").removesuffix("/")
   # The pattern uses nothing PCRE and Python's re read differently.
   for name, matched in (
