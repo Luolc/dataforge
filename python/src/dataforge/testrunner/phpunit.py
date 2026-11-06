@@ -52,10 +52,14 @@ class PHPUnit(Runner):
       return []
     local = ctx.dir / "vendor" / "bin" / "phpunit"
     names = "|".join(_pcre(t.id) for t in tests)
+    # --no-coverage: when the configuration asks for a coverage report and
+    # the machine has no coverage driver, PHPUnit warns and exits 1, which
+    # fails the group (DISOWNED) although the tests passed.
     argv = [
       str(local) if local.is_file() else "phpunit",
       f"--configuration={config}",
       "--do-not-cache-result",
+      "--no-coverage",
       f"--log-junit={ctx.work / self._REPORT}",
       f"--filter=/^(?:{names})(?:::| |$)/",
     ]
