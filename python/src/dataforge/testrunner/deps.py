@@ -378,8 +378,9 @@ RUNNER_CONFIG = re.compile(
 )
 """The names, matched whole (fullmatch on a file's name, never its path),
 of the files a test runner loads by itself, without being told, from the
-directory it runs in or one above it, so that a file a fix adds can change
-what runs or what is reported while the project's source stays as it was:
+directory it runs in or one of its ancestors, so that a file a fix adds can
+change what runs or what is reported while the project's source stays as it
+was:
 Jest's `jest.config.*`; Vitest's `vitest.config.*` and the files that list
 its projects, `vitest.workspace.*` and `vitest.projects.*`; Mocha's
 `.mocharc.*` and its `mocha.opts`, which Mocha 7 and before read from
