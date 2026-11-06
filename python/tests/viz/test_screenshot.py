@@ -6,6 +6,7 @@ import shutil
 import struct
 import tempfile
 import threading
+import time
 from typing import override
 
 import pytest
@@ -27,7 +28,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def serve(applied: str) -> Generator[str]:
+def serve(applied: str, hold: float = 0.0) -> Generator[str]:
+  # hold: seconds between the headers and the body, in which the browser has
+  # committed the page and it has no root element yet.
   body = PAGE.replace("__APPLIED__", applied).encode()
 
   class Handler(http.server.BaseHTTPRequestHandler):
@@ -36,6 +39,8 @@ def serve(applied: str) -> Generator[str]:
       self.send_header("Content-Type", "text/html; charset=utf-8")
       self.send_header("Content-Length", str(len(body)))
       self.end_headers()
+      self.wfile.flush()
+      time.sleep(hold)
       _ = self.wfile.write(body)
 
     @override
@@ -57,6 +62,11 @@ def serve(applied: str) -> Generator[str]:
 def viewer() -> Generator[str]:
   # Applies the template the reader chose.
   yield from serve("saved")
+
+
+@pytest.fixture
+def slow() -> Generator[str]:
+  yield from serve("saved", hold=0.5)
 
 
 @pytest.fixture
@@ -134,6 +144,15 @@ def test_a_shot_of_a_panel_in_each_theme_is_a_png_of_the_width(
   assert dark.read_bytes() != light.read_bytes()
   assert str(dark) in capfd.readouterr().out
   assert left(own_tmp) == []
+
+
+def test_a_page_read_before_its_body_arrives_is_waited_for(
+  slow: str, tmp_path: Path
+) -> None:
+  out = tmp_path / "slow.png"
+
+  assert run(slow, out, "--tab", "report", "--panel", "details") == 0
+  assert out.exists()
 
 
 def test_a_tab_without_a_panel_is_shot_with_its_first_panel(
