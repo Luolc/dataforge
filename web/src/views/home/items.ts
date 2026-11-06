@@ -202,7 +202,7 @@ export function toItems(rows: AttemptRow[]): Item[] {
   });
 }
 
-/** The key of an item's status chip. */
+/** The key of an item's value in the Status filter. */
 function filterKey(item: Item): string {
   return rowStatus(item.newest) ?? NOT_ENDED_KEY;
 }
@@ -278,8 +278,6 @@ export interface Field<T> {
 /** A field's values over the rows the search and the other fields' rules keep. */
 export interface FieldCounts {
   field: string;
-  /** How many rows those are. */
-  all: number;
   /** One per value they have, and one per value its rule names, in the field's order. */
   values: ChipCount[];
 }
@@ -293,7 +291,7 @@ export interface Filtered {
   hidden: number;
 }
 
-// The chips of the live words come first, unreadable last.
+// The Status filter lists the live words first, unreadable last.
 const FIRST = ["~running", "~may-have-stopped", STOPPED_KEY, NOT_ENDED_KEY];
 
 /** Each key's count over the items, a chosen key at 0 when none has it. */
@@ -405,7 +403,6 @@ export function fieldCounts<T>(
     const chosen = rules.find((r) => r.field === field.key)?.values ?? [];
     return {
       field: field.key,
-      all: kept.length,
       values: [...countKeys(kept, field.valueOf, chosen)]
         .map(([key, count]) => ({ key, count }))
         .sort((a, b) => field.order(a.key, b.key)),

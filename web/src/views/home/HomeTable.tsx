@@ -44,10 +44,10 @@ import {
   toneGlyph,
   toneText,
 } from "../../ui/status";
-import { Chip, control } from "../../ui/chip";
+import { control } from "../../ui/chip";
 import { ColumnPicker } from "../../ui/column-picker";
 import { type FilterField, FilterButton, FilterRules } from "../../ui/filter";
-import { type Rule, withRule } from "../../ui/rule";
+import type { Rule } from "../../ui/rule";
 import { Hint } from "../../ui/hint";
 import { Group } from "../../ui/group";
 import { Sideways } from "../../ui/sideways";
@@ -94,7 +94,6 @@ import {
   readQuery,
   saveHidden,
   saveRules,
-  STATUS_FIELD,
   writeQuery,
 } from "./view";
 
@@ -499,13 +498,6 @@ export function HomeTable({
       }),
     [fields, filtered.fields, project],
   );
-  const statusCounts = filtered.fields[0];
-  const statusRule = rules.find((r) => r.field === STATUS_FIELD);
-  // A status chip is pressed while the Status rule is any of its status alone.
-  const chosen =
-    statusRule?.op === "any" && statusRule.values.length === 1
-      ? (statusRule.values[0] ?? null)
-      : null;
   const allSpecs = useMemo(() => specs(project), [project]);
   const pickable = useMemo(
     () =>
@@ -579,15 +571,6 @@ export function HomeTable({
       update((p) => {
         p.delete("sort");
       });
-  };
-  const choose = (key: string | null) => {
-    setRules(
-      withRule(
-        rules,
-        STATUS_FIELD,
-        key === null ? null : { field: STATUS_FIELD, op: "any", values: [key] },
-      ),
-    );
   };
   const showAll = () => {
     saveRules(project.id, []);
@@ -700,43 +683,6 @@ export function HomeTable({
     <Tooltip.Provider delayDuration={200}>
       <div className="flex flex-col gap-3 px-6 py-5">
         <div className="flex flex-wrap items-center gap-2">
-          <div
-            role="group"
-            aria-label="Filter by status"
-            className="flex flex-wrap gap-1.5"
-          >
-            <Chip
-              pressed={statusRule === undefined}
-              onClick={() => {
-                choose(null);
-              }}
-              label="All"
-              count={statusCounts?.all ?? 0}
-              hint={counted(statusCounts?.all ?? 0, itemTitle)}
-            />
-            {(statusCounts?.values ?? []).map(({ key, count }) => {
-              const { label, tone } = statusOf(project, keyWord(key));
-              const Glyph = toneGlyph[tone];
-              return (
-                <Chip
-                  key={key}
-                  pressed={chosen === key}
-                  onClick={() => {
-                    choose(chosen === key ? null : key);
-                  }}
-                  icon={
-                    <Glyph
-                      className={`size-icon-sm ${toneText[tone]}`}
-                      aria-hidden
-                    />
-                  }
-                  label={label}
-                  count={count}
-                  hint={counted(count, itemTitle)}
-                />
-              );
-            })}
-          </div>
           <label className="inline-flex target items-center gap-1.5 rounded-row border border-chip-line px-2 focus-within:border-fg-3">
             <Search className="size-3.5 text-icon" aria-hidden />
             <input

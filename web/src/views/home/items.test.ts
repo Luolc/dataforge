@@ -213,7 +213,6 @@ describe("filterItems", () => {
   it("searches item IDs, ignoring case, and counts what it hides", () => {
     const found = filterItems(full, items, " ALPHA ", []);
     expect(found.shown.map((i) => i.id)).toEqual(["alpha", "alpha-2"]);
-    expect(found.fields[0]?.all).toBe(2);
     expect(found.hidden).toBe(4);
   });
 
@@ -221,7 +220,6 @@ describe("filterItems", () => {
     const found = filterItems(full, items, "", []);
     expect(found.fields[0]).toEqual({
       field: "status",
-      all: 6,
       values: [
         { key: "~running", count: 1 },
         { key: NOT_ENDED_KEY, count: 1 },
@@ -310,7 +308,6 @@ describe("filterItems by the rules", () => {
     expect(found.fields.map((f) => f.field)).toEqual(["status", "col.Kind"]);
     expect(found.fields[1]).toEqual({
       field: "col.Kind",
-      all: 6,
       values: [
         { key: "second", count: 1 },
         { key: "first", count: 2 },
@@ -339,14 +336,13 @@ describe("filterItems by the rules", () => {
     // The status values count what the Kind rule keeps.
     expect(found.fields[0]).toEqual({
       field: "status",
-      all: 2,
       values: [
         { key: "passed", count: 1 },
         { key: "too_easy", count: 1 },
       ],
     });
     // The Kind values count what the Status rule keeps.
-    expect(found.fields[1]?.all).toBe(5);
+    expect(found.fields[1]?.values.reduce((n, v) => n + v.count, 0)).toBe(5);
     expect(found.fields[1]?.values).toContainEqual({ key: "first", count: 1 });
   });
 
@@ -382,7 +378,6 @@ describe("filterItems by the rules", () => {
     expect(fieldCounts(fields, rows, rules)).toEqual([
       {
         field: "size",
-        all: 3,
         values: [
           { key: "big", count: 2 },
           { key: "small", count: 1 },
