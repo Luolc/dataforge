@@ -391,7 +391,7 @@ function AttemptLink({ href, children }: { href: string; children: string }) {
   );
 }
 
-/** A project's items in their groups, with search, status chips and refresh. */
+/** A project's items in their groups, with search, the filter and refresh. */
 export function HomeTable({
   project: given,
   read,

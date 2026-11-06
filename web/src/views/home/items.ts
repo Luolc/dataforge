@@ -13,7 +13,8 @@ import { columnKey, STATUS_FIELD } from "./view";
 
 /**
  * Each live word as a status word of the home page; not ended is null, the
- * word of a record with no status, so the two share the Not ended chip.
+ * word of a record with no status, so the two share the Not ended value of
+ * the Status filter.
  */
 const LIVE_WORD: Record<Live, string | null> = {
   running: "~running",
@@ -225,7 +226,7 @@ export function withHomeStatuses(project: Project): Project {
   };
 }
 
-/** The status word a chip's key stands for. */
+/** The status word a key of the Status filter stands for. */
 export const keyWord = (key: string): string | null =>
   key === NOT_ENDED_KEY ? null : key;
 
