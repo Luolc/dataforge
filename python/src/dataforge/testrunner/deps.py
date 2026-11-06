@@ -9,7 +9,9 @@ imports no runner's.
 
 It also names the files through which package managers, bundlers and
 transpilers run code of the project's when it builds (PACKAGE_MANIFEST,
-SCRIPT_RUNNER_FILES, BUILD_CONFIG), which a dataset tells by name when it
+SCRIPT_RUNNER_FILES, BUILD_CONFIG), and the configuration that test
+runners load by themselves, by a file's name or by a key inside a file
+(RUNNER_CONFIG, RUNNER_CONFIG_KEYS), which a dataset tells by name when it
 filters a fix's changes. They are here because every task has this module,
 so a dataset's code in a task takes them from it and names none of them.
 """
@@ -362,3 +364,48 @@ PostCSS and unbuild (`build.config.*`); and esbuild's `esbuild.config.*`,
 by convention a script a build runs with `node`. `.babelrc` also takes the
 TypeScript extensions Babel reads, `.ts` and `.mts`, which it loads only from
 a path it is given."""
+
+RUNNER_CONFIG = re.compile(
+  r"jest\.config\.(?:[cm]?[jt]s|json)"
+  + r"|vitest\.config\.[cm]?[jt]s"
+  + r"|vitest\.(?:workspace|projects)\.(?:[cm]?[jt]s|json)"
+  + r"|\.mocharc\.(?:[cm]?js|ya?ml|jsonc?)|mocha\.opts"
+  + r"|ava\.config\.[cm]?js"
+  + r"|\.?pytest\.(?:ini|toml)"
+  + r"|phpunit\.(?:xml|dist\.xml|xml\.dist)"
+  + r"|karma\.conf\.(?:js|coffee|ts)"
+  + r"|playwright\.config\.[cm]?[jt]s"
+)
+"""The names, matched whole (fullmatch on a file's name, never its path),
+of the files a test runner loads by itself, without being told, from the
+directory it runs in or one above it, so that a file a fix adds can change
+what runs or what is reported while the project's source stays as it was:
+Jest's `jest.config.*`; Vitest's `vitest.config.*` and the files that list
+its projects, `vitest.workspace.*` and `vitest.projects.*`; Mocha's
+`.mocharc.*` and its `mocha.opts`, which Mocha 7 and before read from
+`test/` and later versions ignore; AVA's `ava.config.*`; pytest's
+`pytest.ini`, `.pytest.ini`, `pytest.toml` and `.pytest.toml`; PHPUnit's
+`phpunit.xml`, `phpunit.dist.xml` and `phpunit.xml.dist`; Karma's
+`karma.conf.*`; and Playwright's `playwright.config.*`. Each runner's
+extensions are those its own loader reads: a name that differs in an
+extension, as Jest's `jest.config.yaml`, is not loaded and is not here.
+Vitest also reads Vite's `vite.config.*`, which is in BUILD_CONFIG, and
+a runner's configuration inside a file that is not its own is in
+RUNNER_CONFIG_KEYS."""
+
+RUNNER_CONFIG_KEYS: dict[str, frozenset[str]] = {
+  "package.json": frozenset({"jest", "mocha", "ava"}),
+  "pyproject.toml": frozenset({"tool.pytest", "tool.pytest.ini_options"}),
+  "setup.cfg": frozenset({"tool:pytest"}),
+  "tox.ini": frozenset({"pytest"}),
+}
+"""For each file that a test runner reads a part of by itself, and whose
+other parts a fix may need to change, so that it is not in RUNNER_CONFIG,
+the names of its parts that hold the runner's configuration: a top-level
+key of `package.json` (Jest's `jest`, Mocha's `mocha` and AVA's `ava`), a
+table of `pyproject.toml` as its keys joined by dots (`tool.pytest`,
+which pytest reads since 9.0, and `tool.pytest.ini_options`, which it reads
+since 6.0),
+and a section of `setup.cfg` (`tool:pytest`) and of `tox.ini` (`pytest`).
+A dataset compares each such part with the base's and takes a file's other
+parts as they are."""

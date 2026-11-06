@@ -576,6 +576,74 @@ def test_build_config_matches_a_bundlers_config_by_its_whole_name(
   assert (deps.BUILD_CONFIG.fullmatch(name) is not None) is config
 
 
+@pytest.mark.parametrize(
+  ("name", "config"),
+  [
+    # Each runner, and each extension its loader reads.
+    ("jest.config.js", True),
+    ("jest.config.cts", True),
+    ("jest.config.json", True),
+    ("vitest.config.mts", True),
+    ("vitest.workspace.ts", True),
+    ("vitest.workspace.json", True),
+    ("vitest.projects.cjs", True),
+    (".mocharc.cjs", True),
+    (".mocharc.mjs", True),
+    (".mocharc.yaml", True),
+    (".mocharc.yml", True),
+    (".mocharc.jsonc", True),
+    (".mocharc.json", True),
+    ("mocha.opts", True),
+    ("ava.config.js", True),
+    ("ava.config.cjs", True),
+    ("ava.config.mjs", True),
+    ("pytest.ini", True),
+    (".pytest.ini", True),
+    ("pytest.toml", True),
+    (".pytest.toml", True),
+    ("phpunit.xml", True),
+    ("phpunit.dist.xml", True),
+    ("phpunit.xml.dist", True),
+    ("karma.conf.coffee", True),
+    ("playwright.config.mjs", True),
+    # An extension no loader reads, a name that only contains one, and a
+    # file that is not a runner's own.
+    ("jest.config.yaml", False),
+    ("vitest.config.json", False),
+    ("ava.config.json", False),
+    (".mocharc", False),
+    ("mocha.opts.bak", False),
+    ("my.jest.config.js", False),
+    ("jest.config.js.map", False),
+    ("pytest.cfg", False),
+    ("phpunit.xml.bak", False),
+    ("vite.config.ts", False),
+    ("pyproject.toml", False),
+    ("conftest.py", False),
+    # A name, never a path.
+    ("src/jest.config.js", False),
+    ("test/mocha.opts", False),
+  ],
+)
+def test_runner_config_matches_a_runners_config_by_its_whole_name(
+  name: str, config: bool
+):
+  assert (deps.RUNNER_CONFIG.fullmatch(name) is not None) is config
+
+
+def test_the_runner_config_keys_are_named_by_file():
+  assert {k: sorted(v) for k, v in deps.RUNNER_CONFIG_KEYS.items()} == {
+    "package.json": ["ava", "jest", "mocha"],
+    "pyproject.toml": ["tool.pytest", "tool.pytest.ini_options"],
+    "setup.cfg": ["tool:pytest"],
+    "tox.ini": ["pytest"],
+  }
+  # A file that has keys of a runner's is not matched whole by name.
+  assert not any(
+    deps.RUNNER_CONFIG.fullmatch(n) for n in deps.RUNNER_CONFIG_KEYS
+  )
+
+
 def test_a_copy_that_lacks_a_module_its_guards_name_fails(tmp_path: Path):
   # The checks never skip a module the copy's GUARDS names: one that is
   # missing stops them, so that no check goes unseen.
