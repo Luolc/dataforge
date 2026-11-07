@@ -644,6 +644,28 @@ def test_the_runner_config_keys_are_named_by_file():
   )
 
 
+@pytest.mark.parametrize(
+  ("path", "inside"),
+  [
+    (".cargo/config.toml", True),
+    (".cargo/config", True),
+    ("crates/a/.cargo/config.toml", True),
+    # A link by the name, as git lists it.
+    (".cargo", True),
+    ("crates/a/.cargo", True),
+    # A name that only contains one, or lacks its dot.
+    ("cargo/config.toml", False),
+    ("src/.cargo.rs", False),
+    (".cargo-checksum.json", False),
+    ("Cargo.toml", False),
+  ],
+)
+def test_in_runner_config_dir_matches_a_part_of_a_path_whole(
+  path: str, inside: bool
+):
+  assert deps.in_runner_config_dir(path) is inside
+
+
 def test_a_copy_that_lacks_a_module_its_guards_name_fails(tmp_path: Path):
   # The checks never skip a module the copy's GUARDS names: one that is
   # missing stops them, so that no check goes unseen.

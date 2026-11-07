@@ -585,7 +585,7 @@ def rewires(path: str, added: str) -> str | None:
 SPECS = {
   "cargo": Spec(
     Cargo,
-    runner_files=(".cargo/config.toml", ".cargo/config"),
+    runner_files=(".cargo/config.toml", ".cargo/config", ".cargo"),
     id_sep=SEP,
     restore_paths=restore_paths,
   )
