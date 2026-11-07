@@ -529,6 +529,12 @@ def test_phpunit_without_a_configuration_runs_the_listed_classes_files(
     ("go", "go.work", True),
     ("go", "svc/go.work.sum", True),
     ("go", "go.mod", False),
+    ("cargo", ".cargo/config.toml", True),
+    ("cargo", "crates/a/.cargo/config", True),
+    ("cargo", ".cargo", True),
+    ("cargo", "crates/a/.cargo", True),
+    ("cargo", "cargo/config.toml", False),
+    ("cargo", "Cargo.toml", False),
   ],
 )
 def test_loaded_by_runner(runner: str, path: str, loaded: bool):
