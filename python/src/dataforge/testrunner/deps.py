@@ -11,7 +11,8 @@ It also names the files through which package managers, bundlers and
 transpilers run code of the project's when it builds (PACKAGE_MANIFEST,
 SCRIPT_RUNNER_FILES, BUILD_CONFIG), and the configuration that test
 runners load by themselves, by a file's name or by a key inside a file
-(RUNNER_CONFIG, RUNNER_CONFIG_KEYS), which a dataset tells by name when it
+(RUNNER_CONFIG, RUNNER_CONFIG_KEYS), or by the name of a directory they
+read it from (RUNNER_CONFIG_DIRS), which a dataset tells by name when it
 filters a fix's changes. They are here because every task has this module,
 so a dataset's code in a task takes them from it and names none of them.
 """
@@ -393,6 +394,31 @@ extension, as Jest's `jest.config.yaml`, is not loaded and is not here.
 Vitest also reads Vite's `vite.config.*`, which is in BUILD_CONFIG, and
 a runner's configuration inside a file that is not its own is in
 RUNNER_CONFIG_KEYS."""
+
+RUNNER_CONFIG_DIRS = frozenset({".cargo"})
+"""The names, matched whole on a part of a path, of the directories a test
+runner, or the build tool that runs it, reads its configuration from by
+itself, in the directory it runs in or one of its ancestors: Cargo's
+`.cargo`, whose `config.toml`, or `config` by its older name, can name a
+`runner` that every test binary runs under, as well as a build's
+`rustflags`, `[env]` and `[alias]`. A file a fix adds below such a
+directory, or a link it adds by that name to a directory of its own, can
+change what runs or what is reported while the project's source stays as
+it was (in_runner_config_dir)."""
+
+
+def in_runner_config_dir(path: str) -> bool:
+  """Return whether a path is one of RUNNER_CONFIG_DIRS or below one.
+
+  Args:
+    path: The path, relative to the project.
+
+  Returns:
+    Whether one of its parts is named as one of RUNNER_CONFIG_DIRS; a
+    link by that name, its last part, counts too.
+  """
+  return not RUNNER_CONFIG_DIRS.isdisjoint(PurePosixPath(path).parts)
+
 
 RUNNER_CONFIG_KEYS: dict[str, frozenset[str]] = {
   "package.json": frozenset({"jest", "mocha", "ava"}),

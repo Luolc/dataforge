@@ -125,6 +125,45 @@ id = "tests/test_[x].py::test_a"
   assert found[-1] == "tests/test_[[]x].py"
 
 
+CARGO_MANIFEST = """
+[[test]]
+suite = "p2p"
+runner = "cargo"
+id = "tests/a.rs::t"
+"""
+CARGO_BASE = {
+  "Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n',
+  "src/lib.rs": "pub fn f() {}\n",
+  "tests/a.rs": "#[test]\nfn t() {}\n",
+}
+CARGO_CONFIG = '[target.x86_64-unknown-linux-gnu]\nrunner = "./r.sh"\n'
+
+
+def test_restore_deletes_the_cargo_config_a_fix_adds(tmp_path: Path):
+  app = tmp_path / "app"
+  base = commit(app, CARGO_BASE)
+  write(app, {".cargo/config.toml": CARGO_CONFIG})
+  chosen = restore_globs(load(CARGO_MANIFEST), set(CARGO_BASE))
+  assert restore(app, base, chosen) == [".cargo/config.toml"]
+  assert not (app / ".cargo/config.toml").exists()
+
+
+@pytest.mark.parametrize("link", [".cargo", "crates/a/.cargo"])
+def test_restore_deletes_a_cargo_config_dir_a_fix_links(
+  tmp_path: Path, link: str
+):
+  # A link by the name of the directory cargo reads its configuration
+  # from, to one of the fix's own, is listed by git as the link alone.
+  app = tmp_path / "app"
+  base = commit(app, CARGO_BASE)
+  write(app, {"cfg/config.toml": CARGO_CONFIG})
+  (app / link).parent.mkdir(parents=True, exist_ok=True)
+  (app / link).symlink_to(os.path.relpath(app / "cfg", (app / link).parent))
+  chosen = restore_globs(load(CARGO_MANIFEST), set(CARGO_BASE))
+  assert restore(app, base, chosen) == [link]
+  assert not os.path.lexists(app / link)
+
+
 def test_remove_deletes_matches_through_no_link(tmp_path: Path):
   app = tmp_path / "app"
   outside = tmp_path / "outside"
