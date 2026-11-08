@@ -52,7 +52,8 @@ _FUNCTION = re.compile("function", _FLAGS)
 # What opens or closes a block or a parenthesis, or declares a namespace,
 # a named function or a class-like body, whose named functions are
 # methods; `enum` only as PHP's lexer takes it for the keyword, before a
-# name, since a class may be named Enum.
+# name, since a class may be named Enum, and none before a lone `:`, a
+# named argument's name, as in `class_exists(class: $x)`.
 _BLOCKS = re.compile(
   rf"(?<![{_CHAR}$\\])(?:"
   + rf"namespace(?![{_CHAR}\\])"
@@ -60,7 +61,7 @@ _BLOCKS = re.compile(
   + r"[ \t\r\n]*(?P<end>[;{]))"
   + rf"|function(?![{_CHAR}])[ \t\r\n]*&?[ \t\r\n]*(?P<name>{_LABEL})"
   + r"[ \t\r\n]*\("
-  + rf"|(?P<kind>(?:class|interface|trait)(?![{_CHAR}])"
+  + rf"|(?P<kind>(?:class|interface|trait)(?![{_CHAR}])(?![ \t\r\n]*:(?!:))"
   + r"|enum(?=[ \t\r\n]+[A-Za-z_\x80-\U0010ffff]))"
   + r"|[{}();]",
   _FLAGS,

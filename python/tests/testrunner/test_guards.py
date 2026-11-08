@@ -778,6 +778,24 @@ PHP_FUNCTION_CASES = [
     [(5, 5, "app", "strlen")],
     id="a-name-that-starts-with-namespace",
   ),
+  pytest.param(
+    "<?php\n"
+    + "namespace Acme\\Lib;\n"
+    + "class_exists(class: 'X');\n"
+    + "(function () { function file_exists($f) { return false; } })();\n",
+    [(4, 4, "acme\\lib", "file_exists")],
+    id="a-named-argument-then-a-closure",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "function call(...$a) {\n"
+    + "  foreach ($a as $f) { if (is_callable($f)) { $f(); } }\n"
+    + "}\n"
+    + "call(class: 1, f: function () { function strlen($s) { return 0; } });\n",
+    [(3, 3, "app", "call"), (6, 6, "app", "strlen")],
+    id="a-named-argument-beside-a-closure",
+  ),
 ]
 
 
