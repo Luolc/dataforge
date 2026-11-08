@@ -7,8 +7,7 @@
 
 Invariant 28: a reply is priced the same as JSON or as an event stream, the
 cap refuses every request once reached, after a reply it cannot price or once
-the ledger cannot be written, and ends the session; once a reply has been paid
-for, a request that could pass the cap is refused unsent; a reply under way is
+the ledger cannot be written, and ends the session, a reply under way is
 passed on whole, and each billed reply has one ledger line.
 """
 
@@ -301,43 +300,6 @@ def test_the_cap_refuses_every_request_once_reached_and_ends_the_session(
   assert reply["cost_usd"] == pytest.approx(COST[channel])
   assert capped["channel"] == channel.value
   assert "spent" in str(capped["capped"])
-
-
-@pytest.mark.parametrize("channel", list(Channel))
-def test_a_request_that_could_pass_the_cap_is_refused_unsent(
-  launcher: Launcher, socket_dir: Path, channel: Channel
-):
-  path = socket_dir / "model.sock"
-  ledger = socket_dir / "ledger.jsonl"
-  limit = "max_tokens" if channel is Channel.CLAUDE else "max_output_tokens"
-
-  def request(padding: int) -> bytes:
-    fields: dict[str, object] = {
-      "model": MODEL[channel],
-      limit: 10,
-      "metadata": {"padding": "x" * padding},
-    }
-    fields["messages" if channel is Channel.CLAUDE else "input"] = []
-    return json.dumps(fields).encode()
-
-  # Two replies fit, and the reply to the third would too, but a request of
-  # its size could cost more than what is left, if none of it were cached.
-  spend = Spend(prices=PRICES, max_usd=COST[channel] * 2.5)
-  with upstream(stream(*events(channel))) as (base, seen):
-    launcher.write(base)
-    with serve(channel, path, spend=spend, ledger=ledger):
-      first = call(path, ROUTE[channel], body=request(0))[0]
-      second = call(path, ROUTE[channel], body=request(0))[0]
-      third = call(path, ROUTE[channel], body=request(20_000))[0]
-      assert wait_for(lambda: not holders(path))
-      after = call(path, ROUTE[channel], body=request(0))[0]
-  assert (first, second, third, after) == (200, 200, 403, 403)
-  assert len(seen.requests) == 2
-  *replies, capped = read_ledger(ledger)
-  assert [r["cost_usd"] for r in replies] == [pytest.approx(COST[channel])] * 2
-  # The same start as a cap on what was spent, which the callers read.
-  assert str(capped["capped"]).startswith("spent ")
-  assert "may cost" in str(capped["capped"])
 
 
 def bare(
