@@ -1527,6 +1527,38 @@ def builtins() -> frozenset[str]:
   return frozenset(names)
 
 
+def constants(text: str) -> list[tuple[int, int, str, str]]:
+  """Return the constants a file declares, as the modules of guards read them.
+
+  Args:
+    text: The file's text.
+
+  Returns:
+    The numbers of the first and last line, from 1, the namespace and the
+    name of each constant that the constants of a module of guards finds,
+    each once, in order; none when no module reads them.
+  """
+  found: set[tuple[int, int, str, str]] = set()
+  for module in guards():
+    hook = getattr(module, "constants", None)
+    if hook is not None:
+      found.update(cast("list[tuple[int, int, str, str]]", hook(text)))
+  return sorted(found)
+
+
+def builtin_constants() -> frozenset[str]:
+  """Return the names of the constants the guards' languages build in.
+
+  Returns:
+    The BUILTIN_CONSTANTS of each module of guards that has them.
+  """
+  names: set[str] = set()
+  for module in guards():
+    found = getattr(module, "BUILTIN_CONSTANTS", ())
+    names.update(cast("Collection[str]", found))
+  return frozenset(names)
+
+
 _GIT = (
   "git",
   "--no-replace-objects",
