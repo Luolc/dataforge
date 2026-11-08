@@ -17,11 +17,8 @@ With a `Spend`, it prices each reply as it passes it on. Once the session has
 cost `max_usd` or a reply could not be priced, and with a ledger once the
 ledger could not be written, it refuses every later request with 403, lets the
 replies under way finish and then prints `DRAINED`, on which `serve` takes the
-socket over and ends the session. Once a reply has been paid for, it also
-refuses, unsent and with the same end of the session, a request that could
-take the session past the cap: one whose `spend.worst_case`, with what the
-requests under way may cost, would pass it. With a ledger, it writes each
-reply down (`spend.record`), with the model the request named.
+socket over and ends the session. With a ledger, it writes each reply down
+(`spend.record`), with the model the request named.
 
 Run as `python -I -m dataforge.gateway.proxy --channel <channel> --socket
 <path> --parent <pid>` with `--pause`, `--ledger` and `--spend` as given.
@@ -48,16 +45,7 @@ import urllib.parse
 from dataforge.gateway import channels, screen
 from dataforge.gateway.channels import BILLED, Channel, DRAINED, ROUTES
 from dataforge.gateway.pause import Pause
-from dataforge.gateway.spend import (
-  input_tokens,
-  Meter,
-  NO_USAGE,
-  now,
-  price,
-  record,
-  Spend,
-  worst_case,
-)
+from dataforge.gateway.spend import Meter, NO_USAGE, now, price, record, Spend
 
 # How long the proxy waits for the gateway's answer to one request.
 UPSTREAM_TIMEOUT = 600
@@ -131,14 +119,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     if (refused := screen.refusal(channel, encoding, body)) is not None:
       self._refuse(refused)
       return
-    text = screen.decompressed(encoding, body)
-    with self.server.flight(
-      self.server.worst_case(target.path, text)
-    ) as allowed:
+    with self.server.flight() as allowed:
       if not allowed:
         self.send_error(403, "the session's spend is capped")
         return
-      self._send(body, len(text))
+      self._send(body)
 
   def _refuse(self, refused: screen.Refusal):
     # The tool type or field only: the body is the caller's.
@@ -191,7 +176,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
       pass
     return b"".join(chunks)
 
-  def _send(self, body: bytes, size: int):
+  def _send(self, body: bytes):
     server = self.server
     headers = {
       k: v for k, v in self.headers.items() if k.lower() not in _REQUEST_DROP
@@ -218,7 +203,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             continue
         elif server.pause is not None:
           server.pause.answered()
-        self._reply(response, body, size)
+        self._reply(response, body)
         return
       finally:
         connection.close()
@@ -233,12 +218,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     except OSError:
       return True
 
-  def _reply(self, response: http.client.HTTPResponse, body: bytes, size: int):
+  def _reply(self, response: http.client.HTTPResponse, body: bytes):
     server = self.server
     meter = server.meter(self.path, response)
     if meter is not None:
       meter.requested = _requested(body, self.headers)
-      meter.request_bytes = size
     try:
       self.send_response(response.status, response.reason)
       for k, v in response.getheaders():
@@ -319,11 +303,6 @@ class _Server(socketserver.ThreadingUnixStreamServer):
     self.ledger = ledger
     self.spend = spend
     self.spent = 0.0
-    # What the requests under way may still cost, at most, and the fewest
-    # bytes of a request's body that a reply has counted as one input token,
-    # None before a reply has.
-    self.reserved = 0.0
-    self.bytes_per_token: float | None = None
     self.capped: str | None = None
     self._flying = 0
     self._lock = threading.Lock()
@@ -333,69 +312,23 @@ class _Server(socketserver.ThreadingUnixStreamServer):
     # every user; its directory keeps the host's other users out.
     path.chmod(0o666)
 
-  def worst_case(self, path: str, body: bytes) -> float:
-    # The most a request can cost: nothing unless it is a billed call under a
-    # cap.
-    if self.spend is None or path != BILLED[self.channel]:
-      return 0.0
-    with self._lock:
-      per_token = self.bytes_per_token
-    return worst_case(
-      self.channel, self.spend, body, 1.0 if per_token is None else per_token
-    )
-
   @contextlib.contextmanager
-  def flight(self, worst: float = 0.0) -> Generator[bool]:
-    # Whether a request may go to the gateway, counted while it does, with
-    # `worst` of what it may cost held against the cap; once the cap has come
-    # and the last one ends, the proxy says so. A request that could take the
-    # session past the cap, with what the ones under way may cost, is not
-    # sent and caps the session; requests are all sent until a reply has
-    # been paid for, as none has taught what a byte of body costs.
-    why = None
+  def flight(self) -> Generator[bool]:
+    # Whether a request may go to the gateway, counted while it does; once
+    # the cap has come and the last one ends, the proxy says so.
     with self._lock:
       allowed = self.capped is None
-      if allowed and self.spend is not None:
-        held = self.spent + self.reserved
-        if self.spent > 0 and held + worst > self.spend.max_usd:
-          allowed = False
-          why = (
-            f"spent {self.spent:.4f} USD of {self.spend.max_usd:.4f}, and a"
-            + f" request that may cost {worst:.4f} USD with"
-            + f" {self.reserved:.4f} under way would pass it"
-          )
       if allowed:
         self._flying += 1
-        self.reserved += worst
-    if why is not None:
-      self._precap(why)
     try:
       yield allowed
     finally:
       if allowed:
         with self._lock:
           self._flying -= 1
-          self.reserved -= worst
           done = self.capped is not None and self._flying == 0
         if done:
           _ = sys.stderr.write(f"{DRAINED}\n")
-
-  def _precap(self, why: str) -> None:
-    # Caps the session for a request not sent, and ends it at once when no
-    # reply is under way.
-    capped = self._cap(why)
-    if capped is None:
-      return
-    if self.ledger is not None:
-      with contextlib.suppress(OSError):
-        record(
-          self.ledger,
-          {"at": now(), "channel": self.channel.value, "capped": capped},
-        )
-    with self._lock:
-      done = self._flying == 0
-    if done:
-      _ = sys.stderr.write(f"{DRAINED}\n")
 
   def meter(
     self,
@@ -439,13 +372,6 @@ class _Server(socketserver.ThreadingUnixStreamServer):
         + f"bytes, keys {keys}, "
         + f"read as {meter.mode}, first field {meter.field!r}\n"
       )
-    if usd is not None and meter.request_bytes > 0:
-      tokens = input_tokens(self.channel, meter.usage)
-      if tokens > 0:
-        seen = max(1.0, meter.request_bytes / tokens)
-        with self._lock:
-          known = self.bytes_per_token
-          self.bytes_per_token = seen if known is None else min(known, seen)
     capped = self._settle(usd, reason)
     if self.ledger is None:
       return

@@ -127,23 +127,6 @@ def refusal(
   return None
 
 
-def decompressed(encoding: str | None, body: bytes) -> bytes:
-  """Return a body as its `Content-Encoding` says it is decompressed.
-
-  Args:
-    encoding: The request's `Content-Encoding`, or None.
-    body: The body as it came.
-
-  Returns:
-    The body decompressed; as it came when `refusal` would refuse it for its
-    encoding.
-  """
-  try:
-    return _decoded(encoding or "", body)
-  except _RefusedError:
-    return body
-
-
 def _decoded(encoding: str, body: bytes) -> bytes:
   # The codings apply in the order they are listed, so they come off in the
   # reverse one.
