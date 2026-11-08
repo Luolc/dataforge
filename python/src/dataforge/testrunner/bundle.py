@@ -34,6 +34,11 @@ FORMAT_FILES: dict[str, tuple[str, ...]] = {"junit": ("junit.py",), "ctrf": ()}
 """The files parse needs for each of core.FORMATS."""
 
 
+_WIDTH = 80
+"""The columns a line of the package's registry.py may take, as its
+formatter keeps them (ruff's line-length)."""
+
+
 def guards_for(runners: Collection[str], paths: Collection[str]) -> list[str]:
   """Return the modules of GUARDS whose checks a task's copy needs.
 
@@ -147,7 +152,9 @@ def registry(runners: Collection[str], guards: Collection[str] = ()) -> bytes:
   Returns:
     The package's registry.py with its MODULES only the runners', in
     MODULES' order, as a dict literal, and its GUARDS only those of its
-    runners' modules and of guards, in GUARDS' order, as a tuple literal.
+    runners' modules and of guards, in GUARDS' order, as a tuple literal
+    on one line, or one module a line when the line would pass _WIDTH,
+    as the package's own is formatted.
   """
   data = (Path(__file__).parent / "registry.py").read_bytes()
   modules = [
@@ -157,9 +164,11 @@ def registry(runners: Collection[str], guards: Collection[str] = ()) -> bytes:
   ]
   had = {MODULES[r] for r in runners} | set(guards)
   kept = [json.dumps(m) for m in GUARDS if m in had]
-  data = _replace(
-    data, "GUARDS", f"({', '.join(kept)}{',' * (len(kept) == 1)})"
-  )
+  guards_literal = f"({', '.join(kept)}{',' * (len(kept) == 1)})"
+  at = _value(data, "GUARDS")
+  if (0 if at is None else at.col_offset) + len(guards_literal) > _WIDTH:
+    guards_literal = "(\n" + "".join(f"  {m},\n" for m in kept) + ")"
+  data = _replace(data, "GUARDS", guards_literal)
   return _replace(
     data, "MODULES", "{\n" + "".join(modules) + "}" if modules else "{}"
   )
