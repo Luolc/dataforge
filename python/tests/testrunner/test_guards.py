@@ -37,6 +37,7 @@ print(json.dumps([
     core.rewires(path, added),
     core.declares(added),
     core.functions(added),
+    core.constants(added),
   ]
   for path, added in cases
 ]))
@@ -796,6 +797,17 @@ PHP_FUNCTION_CASES = [
     [(3, 3, "app", "call"), (6, 6, "app", "strlen")],
     id="a-named-argument-beside-a-closure",
   ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "function make(): \\stdClass {\n"
+    + "  function strlen($s) { return 0; }\n"
+    + "  return new \\stdClass;\n"
+    + "}\n"
+    + "make();\n",
+    [(3, 3, "app", "make"), (4, 4, "app", "strlen")],
+    id="a-type-that-ends-in-a-keyword",
+  ),
 ]
 
 
@@ -822,6 +834,187 @@ def test_core_gives_the_functions_and_the_builtins_of_the_guards():
   assert core.builtins() == phpguard.BUILTINS
 
 
+# Each PHP text, and what constants gives for it: the constants PHP 8.3.6
+# declares when it includes the text, with the short open tag on, as
+# get_defined_constants(true)["user"] lists them, read when the cases were
+# written, at the lines of `const` to the name.
+PHP_CONSTANT_CASES = [
+  pytest.param(
+    "<?php\n" + "namespace App\\Tests;\n" + "const PHP_EOL = '';\n",
+    [(3, 3, "app\\tests", "PHP_EOL")],
+    id="top",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "const A = 1, B = [1, 2], C = (1 + 2) * 3, D = ['x' => [1, 2]];\n",
+    [
+      (3, 3, "app", "A"),
+      (3, 3, "app", "B"),
+      (3, 3, "app", "C"),
+      (3, 3, "app", "D"),
+    ],
+    id="several",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "const\n"
+    + "  E_ALL = 0,\n"
+    + "  M_PI = 3;\n",
+    [(3, 4, "app", "E_ALL"), (3, 5, "app", "M_PI")],
+    id="split-over-lines",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class K { const PHP_EOL = ''; public const int X = 1; }\n"
+    + "interface I { const E_ALL = 0; }\n"
+    + "trait T { const M_PI = 3; }\n"
+    + "enum E { case A; const PHP_OS = 'x'; }\n",
+    [],
+    id="class-likes",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "use const PHP_EOL;\n"
+    + "use const Other\\X as Y;\n"
+    + "use Other\\{const Z, function f};\n"
+    + "use Other\\{X, const W};\n",
+    [],
+    id="use-const",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class K { const CONST = [1]; }\n"
+    + "foreach (K::CONST as $v) {}\n"
+    + "$o = new \\stdClass;\n"
+    + "$o->const = 1;\n"
+    + "const Y = K::CONST;\n",
+    [(7, 7, "app", "Y")],
+    id="members",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "function f($const) { return $const; }\n"
+    + "f(const: 1);\n"
+    + "const Z = 2;\n",
+    [(5, 5, "app", "Z")],
+    id="a-named-argument",
+  ),
+  pytest.param(
+    "<?php\n" + "namespace App;\n" + "const A = 1;\n" + "echo A, PHP_EOL;\n",
+    [(3, 3, "app", "A")],
+    id="a-statement-after",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "foreach ([] as $const) { echo $const instanceof \\Countable; }\n"
+    + "class ClassConst implements \\Countable {\n"
+    + "  function count(): int { return 0; }\n"
+    + "}\n"
+    + "const MagicConst = 1;\n",
+    [(7, 7, "app", "MagicConst")],
+    id="in-names",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App\\A {\n"
+    + "  const PHP_EOL = '';\n"
+    + "}\n"
+    + "namespace {\n"
+    + "  const MY_OWN = 1;\n"
+    + "}\n",
+    [(3, 3, "app\\a", "PHP_EOL"), (6, 6, "", "MY_OWN")],
+    id="braced",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "$s = 'const PHP_EOL = 1;';\n"
+    + "// const E_ALL = 0;\n"
+    + "/* const M_PI = 3; */\n"
+    + "$h = <<<EOT\n"
+    + "const X = 1;\n"
+    + "EOT;\n",
+    [],
+    id="in-strings-and-comments",
+  ),
+  pytest.param(
+    "<?php\n" + "NAMESPACE App\\Tests;\n" + "CONST Php_Eol = '';\n",
+    [(3, 3, "app\\tests", "Php_Eol")],
+    id="letter-case",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "const A = 1 ?>\n"
+    + "text\n"
+    + "<?php const B = 2;\n",
+    [(3, 3, "app", "A"), (5, 5, "app", "B")],
+    id="closing-tag",
+  ),
+  pytest.param(
+    "<? namespace App; const PHP_EOL = '';\n",
+    [(1, 1, "app", "PHP_EOL")],
+    id="short-open-tag",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "$o = new class { const PHP_EOL = ''; };\n"
+    + "const E_ALL = 0;\n",
+    [(4, 4, "app", "E_ALL")],
+    id="anonymous-class",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class P { function __construct(public $a = 0, public $b = 0) {} }\n"
+    + "const O = new P(1, 2), Q = 3;\n",
+    [(4, 4, "app", "O"), (4, 4, "app", "Q")],
+    id="new-in-an-initializer",
+  ),
+]
+
+
+@pytest.mark.parametrize(("text", "found"), PHP_CONSTANT_CASES)
+def test_the_constants_php_code_declares_are_found(
+  text: str, found: list[tuple[int, int, str, str]]
+):
+  assert phpguard.constants(text) == found
+
+
+def test_define_declares_no_constant_constants_finds():
+  # Only running the code tells what define declares.
+  text = "<?php\nnamespace App;\ndefine('App\\PHP_EOL', '');\n"
+  assert phpguard.constants(text) == []
+
+
+def test_the_builtin_constants_are_php_s_constants_with_no_namespace():
+  assert {
+    "PHP_EOL",
+    "DIRECTORY_SEPARATOR",
+    "E_ALL",
+    "M_PI",
+  } <= phpguard.BUILTIN_CONSTANTS
+  assert not {"TRUE", "FALSE", "NULL"} & phpguard.BUILTIN_CONSTANTS
+  assert all(
+    re.fullmatch("[A-Za-z_][A-Za-z0-9_]*", n)
+    for n in phpguard.BUILTIN_CONSTANTS
+  )
+
+
+def test_core_gives_the_constants_and_the_builtin_constants_of_the_guards():
+  text = "<?php\nnamespace A;\nconst PHP_EOL = '';\n"
+  assert core.constants(text) == [(3, 3, "a", "PHP_EOL")]
+  assert core.builtin_constants() == phpguard.BUILTIN_CONSTANTS
+
+
 # What tells each module of GUARDS from the others, and its checks'
 # findings there.
 GUARD_CASES = {
@@ -831,21 +1024,25 @@ GUARD_CASES = {
   "jsguard": [("src/a.ts", "globalThis.expect = f")],
   "pyguard": [("src/a.py", "builtins.print = f")],
   "phpguard": [
-    ("src/a.php", "<?php\nnamespace A\\Tests; function strlen() {}")
+    (
+      "src/a.php",
+      "<?php\nnamespace A\\Tests; function strlen() {} const PHP_EOL = '';",
+    )
   ],
 }
 HOST_FOUND: dict[str, list[list[object]]] = {
-  "cargo": [[False, "macro_rules! assert", [], []]],
-  "cpp": [[False, "#define TEST", [], []]],
-  "gotest": [[False, None, [], []]],
-  "jsguard": [[False, "globalThis.expect =", [], []]],
-  "pyguard": [[False, "builtins.print =", [], []]],
+  "cargo": [[False, "macro_rules! assert", [], [], []]],
+  "cpp": [[False, "#define TEST", [], [], []]],
+  "gotest": [[False, None, [], [], []]],
+  "jsguard": [[False, "globalThis.expect =", [], [], []]],
+  "pyguard": [[False, "builtins.print =", [], [], []]],
   "phpguard": [
     [
       False,
       None,
       [[2, 2, "a\\tests"]],
       [[2, 2, "a\\tests", "strlen"]],
+      [[2, 2, "a\\tests", "PHP_EOL"]],
     ]
   ],
 }
@@ -867,12 +1064,13 @@ def test_a_copy_has_a_languages_checks_only_with_its_module(
       core.rewires(p, a),
       [list(d) for d in core.declares(a)],
       [list(d) for d in core.functions(a)],
+      [list(d) for d in core.constants(a)],
     ]
     for p, a in cases
   ]
   assert host == HOST_FOUND[guard]
   without = _checks(tmp_path / "without", files((), ()), cases)
-  assert without == [[guard in ("gotest", "cargo"), None, [], []]]
+  assert without == [[guard in ("gotest", "cargo"), None, [], [], []]]
 
 
 @pytest.mark.parametrize(
