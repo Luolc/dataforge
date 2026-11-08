@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import cast
@@ -31,7 +32,12 @@ from testrunner import core
 
 cases = json.loads(sys.argv[2])
 print(json.dumps([
-  [core.is_test_file(path), core.rewires(path, added), core.declares(added)]
+  [
+    core.is_test_file(path),
+    core.rewires(path, added),
+    core.declares(added),
+    core.functions(added),
+  ]
   for path, added in cases
 ]))
 """
@@ -575,6 +581,229 @@ def test_the_namespaces_php_code_declares_are_found(
   assert phpguard.declares(text) == found
 
 
+# Each PHP text, and what functions gives for it: the functions PHP 8.3
+# declares when it includes the text, with the short open tag on, and
+# runs what it calls, as get_defined_functions()["user"] lists them, at
+# the lines of `function` to the name.
+PHP_FUNCTION_CASES = [
+  pytest.param(
+    "<?php\n"
+    + "namespace App\\Tests;\n"
+    + "function file_exists($f) { return false; }\n",
+    [(3, 3, "app\\tests", "file_exists")],
+    id="top",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "interface I { function count(); }\n"
+    + "trait T { function strlen($s) {} }\n"
+    + "enum E { case A; function trim() {} }\n"
+    + "abstract class C {\n"
+    + "  abstract function f();\n"
+    + "  public static function g() {}\n"
+    + "}\n",
+    [],
+    id="methods",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class X { function m() { function strlen($s) { return 0; } } }\n"
+    + "(new X)->m();\n",
+    [(3, 3, "app", "strlen")],
+    id="inside-a-method",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "if (true) {\n"
+    + "  function strlen($s) { return 0; }\n"
+    + "}\n",
+    [(4, 4, "app", "strlen")],
+    id="in-a-block",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "$f = function ($x) { return $x; };\n"
+    + "$g = fn($x) => $x;\n"
+    + "$h = static function &() { static $a; return $a; };\n",
+    [],
+    id="closures",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "$o = new class { function count() { return 0; } };\n"
+    + "function trim($s) { return $s; }\n",
+    [(4, 4, "app", "trim")],
+    id="anonymous-class",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class X {}\n"
+    + "$o = null;\n"
+    + "$c = X::class;\n"
+    + "$d = $o?->class;\n"
+    + "if ($c) { function strlen($s) { return 0; } }\n",
+    [(7, 7, "app", "strlen")],
+    id="class-constant",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App\\A {\n"
+    + "  function count($a) { return 0; }\n"
+    + "}\n"
+    + "namespace {\n"
+    + "  function my_own() {}\n"
+    + "}\n",
+    [(3, 3, "app\\a", "count"), (6, 6, "", "my_own")],
+    id="braced",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + '$s = "function strlen() {}";\n'
+    + "// function trim() {}\n"
+    + "/* function count() {} */\n",
+    [],
+    id="in-strings-and-comments",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "function &count($a) { static $n = 0; return $n; }\n",
+    [(3, 3, "app", "count")],
+    id="by-reference",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "use function strlen;\n"
+    + "use function Other\\trim as t;\n",
+    [],
+    id="use-function",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "function\n"
+    + "strlen\n"
+    + "($s) { return 0; }\n",
+    [(3, 4, "app", "strlen")],
+    id="split-over-lines",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "#[\\Deprecated]\n"
+    + "function strlen($s) { return 0; }\n",
+    [(4, 4, "app", "strlen")],
+    id="attribute",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "NAMESPACE App\\Tests;\n"
+    + "FUNCTION File_Exists($f) { return false; }\n",
+    [(3, 3, "app\\tests", "file_exists")],
+    id="letter-case",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class Enum {}\n"
+    + "function wrap(Enum $e) {\n"
+    + "  function strlen($s) { return 0; }\n"
+    + "}\n"
+    + "wrap(new Enum);\n"
+    + "enum Suit: string { case A = 'a'; function count() { return 0; } }\n",
+    [(4, 4, "app", "wrap"), (5, 5, "app", "strlen")],
+    id="enum-as-a-type",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "$o = new class(function () { function strlen($s) { return 0; } }) {\n"
+    + "  public function __construct(public $f) {}\n"
+    + "};\n"
+    + "($o->f)();\n",
+    [(3, 3, "app", "strlen")],
+    id="anonymous-class-with-a-closure",
+  ),
+  pytest.param(
+    "<? namespace App; function strlen($s) { return 0; }\n",
+    [(1, 1, "app", "strlen")],
+    id="short-open-tag",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class Enum {}\n"
+    + "function make(): Enum {\n"
+    + "  function strlen($s) { return 0; }\n"
+    + "  return new Enum();\n"
+    + "}\n"
+    + "make();\n",
+    [(4, 4, "app", "make"), (5, 5, "app", "strlen")],
+    id="enum-as-a-return-type",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class X {}\n"
+    + "$m = [X::class => function () {\n"
+    + "  function strlen($s) { return 0; }\n"
+    + "}];\n"
+    + "$m[X::class]();\n",
+    [(5, 5, "app", "strlen")],
+    id="a-class-constant-before-a-closure",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "if (!function_exists('App\\\\strlen')) {\n"
+    + "  $x = 1;\n"
+    + "}\n",
+    [],
+    id="a-call-of-function-exists",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "class X { const namespaces = 1; }\n"
+    + "$n = X::namespaces;\n"
+    + "function strlen($s) { return 0; }\n",
+    [(5, 5, "app", "strlen")],
+    id="a-name-that-starts-with-namespace",
+  ),
+]
+
+
+@pytest.mark.parametrize(("text", "found"), PHP_FUNCTION_CASES)
+def test_the_functions_php_code_declares_are_found(
+  text: str, found: list[tuple[int, int, str, str]]
+):
+  assert phpguard.functions(text) == found
+
+
+def test_the_builtins_are_php_s_functions_with_no_namespace():
+  assert {
+    "file_exists",
+    "strlen",
+    "mb_strlen",
+    "curl_init",
+  } <= phpguard.BUILTINS
+  assert all(re.fullmatch("[a-z0-9_]+", n) for n in phpguard.BUILTINS)
+
+
+def test_core_gives_the_functions_and_the_builtins_of_the_guards():
+  text = "<?php\nnamespace A;\nfunction strlen($s) {}\n"
+  assert core.functions(text) == [(3, 3, "a", "strlen")]
+  assert core.builtins() == phpguard.BUILTINS
+
+
 # What tells each module of GUARDS from the others, and its checks'
 # findings there.
 GUARD_CASES = {
@@ -583,15 +812,24 @@ GUARD_CASES = {
   "gotest": [("pkg/spec/a.go", "")],
   "jsguard": [("src/a.ts", "globalThis.expect = f")],
   "pyguard": [("src/a.py", "builtins.print = f")],
-  "phpguard": [("src/a.php", "<?php\nnamespace A\\Tests;")],
+  "phpguard": [
+    ("src/a.php", "<?php\nnamespace A\\Tests; function strlen() {}")
+  ],
 }
 HOST_FOUND: dict[str, list[list[object]]] = {
-  "cargo": [[False, "macro_rules! assert", []]],
-  "cpp": [[False, "#define TEST", []]],
-  "gotest": [[False, None, []]],
-  "jsguard": [[False, "globalThis.expect =", []]],
-  "pyguard": [[False, "builtins.print =", []]],
-  "phpguard": [[False, None, [[2, 2, "a\\tests"]]]],
+  "cargo": [[False, "macro_rules! assert", [], []]],
+  "cpp": [[False, "#define TEST", [], []]],
+  "gotest": [[False, None, [], []]],
+  "jsguard": [[False, "globalThis.expect =", [], []]],
+  "pyguard": [[False, "builtins.print =", [], []]],
+  "phpguard": [
+    [
+      False,
+      None,
+      [[2, 2, "a\\tests"]],
+      [[2, 2, "a\\tests", "strlen"]],
+    ]
+  ],
 }
 
 
@@ -610,12 +848,13 @@ def test_a_copy_has_a_languages_checks_only_with_its_module(
       core.is_test_file(p),
       core.rewires(p, a),
       [list(d) for d in core.declares(a)],
+      [list(d) for d in core.functions(a)],
     ]
     for p, a in cases
   ]
   assert host == HOST_FOUND[guard]
   without = _checks(tmp_path / "without", files((), ()), cases)
-  assert without == [[guard in ("gotest", "cargo"), None, []]]
+  assert without == [[guard in ("gotest", "cargo"), None, [], []]]
 
 
 @pytest.mark.parametrize(
