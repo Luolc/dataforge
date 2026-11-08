@@ -293,6 +293,81 @@ def cost(channel: Channel, price: Price, usage: Mapping[str, object]) -> float:
   return per_million / 1e6 + searches * WEB_SEARCH_USD
 
 
+# The most output tokens a reply can hold when its request names no limit: the
+# largest `maxOutputTokens` Claude Code reports for a model in `PRICES`.
+MAX_OUTPUT = 128_000
+# The request field that limits a reply's output tokens, by channel.
+_OUTPUT_LIMIT: dict[Channel, str] = {
+  Channel.CLAUDE: "max_tokens",
+  Channel.CODEX: "max_output_tokens",
+}
+
+
+def input_tokens(channel: Channel, usage: Mapping[str, object]) -> int:
+  """Return how many input tokens a reply's usage counts, cached ones too.
+
+  Args:
+    channel: The reply's channel, which says how its usage counts tokens.
+    usage: The reply's usage.
+
+  Returns:
+    The tokens read from the cache, written to it and neither.
+  """
+  if channel is Channel.CODEX:
+    return _tokens(usage, "input_tokens")
+  return (
+    _tokens(usage, "input_tokens")
+    + _tokens(usage, "cache_creation_input_tokens")
+    + _tokens(usage, "cache_read_input_tokens")
+  )
+
+
+def worst_case(
+  channel: Channel, spend: Spend, body: bytes, bytes_per_token: float
+) -> float:
+  """Return the most a request can cost, before it is sent.
+
+  The input is taken as at most one token for each `bytes_per_token` bytes
+  of the body, each at the dearest input price and none read from the cache;
+  the output as the request's own limit, or `MAX_OUTPUT` when it names none.
+  The prices are those of the model the request names, else the fallback,
+  else the dearest of `spend.prices`; a reply that names a dearer model than
+  its request did is not covered.
+
+  Args:
+    channel: The request's channel.
+    spend: The session's cap, which holds the prices.
+    body: The request's body, decompressed.
+    bytes_per_token: How few bytes of the body make one input token; at
+      least 1.
+
+  Returns:
+    The cost, in US dollars, of a reply that uses all of both.
+  """
+  try:
+    found = cast(object, json.loads(body))
+  except ValueError, RecursionError:
+    found = None
+  fields: Mapping[str, object] = (
+    cast(dict[str, object], found) if isinstance(found, dict) else {}
+  )
+  model = fields.get("model")
+  limit = _tokens(fields, _OUTPUT_LIMIT[channel]) or MAX_OUTPUT
+  one = spend.prices.get(model) if isinstance(model, str) else None
+  if one is not None:
+    prices = [one]
+  elif spend.fallback is not None:
+    prices = [spend.fallback]
+  else:
+    prices = list(spend.prices.values())
+  fresh = max(
+    (max(p.input, p.cache_write_5m, p.cache_write_1h) for p in prices),
+    default=0.0,
+  )
+  output = max((p.output for p in prices), default=0.0)
+  return (len(body) / bytes_per_token * fresh + limit * output) / 1e6
+
+
 def choose(
   channel: Channel,
   usage: Mapping[str, object],
@@ -360,6 +435,8 @@ class Meter:
     self.content_type: str | None = content_type
     # The model the request named, when the proxy could read it.
     self.requested: str | None = None
+    # The size of the request's body, decompressed.
+    self.request_bytes: int = 0
     self._buffer: bytes = b""
     # The whole reply, kept while it may yet be JSON.
     self._body: bytearray | None = bytearray()
