@@ -85,13 +85,13 @@ changing them. A language's module may add to them, and give checks of its
 own, by optional hooks of the same names: PLAIN_SOURCES, the suffixes of
 its source files, which a test's directory or name does not make a test's;
 kept_lines, the lines of the base's files that hold listed tests and that a
-fix must leave as they are; rewires, what lines a fix adds that change
-what the tests check with no change to them; and declares, the namespaces
-a file declares, which a dataset compares with those of the project and of
-its tests. registry.GUARDS names these
-modules; a task's copy has those its runners use or whose language is in
-its project (bundle.guards_for), and its GUARDS names only those, so that
-each check gathers the hooks of the modules the copy has.
+fix must leave as they are; rewires, what lines a fix adds that change what
+the tests check with no change to them; and declares, the namespaces a file
+declares, which a dataset compares with those of the project and of its
+tests. registry.GUARDS names these modules; a task's copy has those its
+runners use or whose language is in its project (bundle.guards_for), and
+its GUARDS names only those, so that each check gathers the hooks of the
+modules the copy has.
 
 Checking a project's files back to its base, and clearing a run's reports.
 

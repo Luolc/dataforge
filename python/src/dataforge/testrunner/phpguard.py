@@ -69,8 +69,8 @@ def _heredoc(text: str, h: re.Match[str]) -> int:
   # The end of the heredoc or nowdoc whose opening line h matched.
   label = h[1] or h[2] or h[3]
   end = rf"[ \t]*{re.escape(label)}(?![{_CHAR}])"
-  if (m := re.match(end, text[h.end() :])) is not None:
-    return h.end() + m.end()
+  if (m := re.compile(end).match(text, h.end())) is not None:
+    return m.end()
   stops = [rf"(?:\r\n|\r|\n){end}"]
   if not h[3]:
     stops = [r"\\[^\r\n]", r"\{\$", r"\$\{", *stops]
@@ -146,7 +146,12 @@ def declares(text: str) -> list[tuple[int, int, str]]:
     the numbers of its first and last line, from 1, counted at `\n`
     alone, as git counts them, and the name without a leading `\`, its
     ASCII letters lowercase, as PHP compares names; each once, in order.
-  """
+
+  Raises:
+    RecursionError: When strings and the code inside them nest deeper than
+      Python's recursion allows, some hundreds of levels, for which there
+      is no reading: a caller takes that as a finding, not as none.
+  """  # noqa: DOC502
   if _KEYWORD.search(text) is None:
     return []
   found: set[tuple[int, int, str]] = set()

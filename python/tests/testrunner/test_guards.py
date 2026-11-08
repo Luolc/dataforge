@@ -521,6 +521,50 @@ PHP_CASES = [
     [(1, 1, "Äpp\\tests")],
     id="non-ascii",
   ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = \"{$a['}\"']}\";\nnamespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (4, 4, "app\\tests")],
+    id="brace-and-quote-in-a-string-in-code",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n"
+    + '$s = "{$a[(function () { return 1; })() . \'"\']}";\n'
+    + "namespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (4, 4, "app\\tests")],
+    id="braces-in-a-strings-code",
+  ),
+  pytest.param(
+    "<?php namespace A; // x ?> <?php namespace App\\Tests;\n",
+    [(1, 1, "a"), (1, 1, "app\\tests")],
+    id="close-tag-in-a-comment",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\r'\rEOT;\rnamespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (3, 3, "app\\tests")],
+    id="heredoc-opened-by-a-carriage-return",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = '\\'';\nnamespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (4, 4, "app\\tests")],
+    id="escaped-quote",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\n  x\n  EOT;\nnamespace App\\Tests;\n",
+    [(2, 2, "a"), (6, 6, "app\\tests")],
+    id="indented-closing-label",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\nEOT;\nnamespace App\\Tests;\n"
+    + "$t = <<<EOT\nx\nEOT;\n",
+    [(2, 2, "a"), (5, 5, "app\\tests")],
+    id="empty-heredoc",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\nEOTX '\nEOT;\nnamespace App\\Tests;\n"
+    + "// '\n",
+    [(2, 2, "a"), (6, 6, "app\\tests")],
+    id="longer-label-in-a-heredoc",
+  ),
 ]
 
 

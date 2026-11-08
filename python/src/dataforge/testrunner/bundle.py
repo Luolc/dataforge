@@ -166,7 +166,8 @@ def registry(runners: Collection[str], guards: Collection[str] = ()) -> bytes:
   kept = [json.dumps(m) for m in GUARDS if m in had]
   guards_literal = f"({', '.join(kept)}{',' * (len(kept) == 1)})"
   at = _value(data, "GUARDS")
-  if (0 if at is None else at.col_offset) + len(guards_literal) > _WIDTH:
+  assert at is not None, "the package's registry.py names no GUARDS"
+  if at.col_offset + len(guards_literal) > _WIDTH:
     guards_literal = "(\n" + "".join(f"  {m},\n" for m in kept) + ")"
   data = _replace(data, "GUARDS", guards_literal)
   return _replace(
