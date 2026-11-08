@@ -15,7 +15,8 @@ those PHP builds in (BUILTINS): one of a built-in's name declared in the
 tests' namespace stands in for the built-in they call. So does a
 constant, and it finds those a file's `const` statements declare in a
 namespace (constants), whose names a dataset compares with those PHP
-builds in (BUILTIN_CONSTANTS).
+builds in (BUILTIN_CONSTANTS), and those a file's calls of define name
+whole (defines), the way a project often declares its global constants.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 import string
+from typing import NamedTuple
 
 SOURCES = (".php",)
 """PHP's source files, which a task's copy has this module for
@@ -143,24 +145,47 @@ def _inner(text: str, i: int) -> int:
   return len(text)
 
 
+class _Piece(NamedTuple):
+  # A part of a text, from start to end: code, a closing tag, or else what
+  # is not code, outside the tags or a comment or a string, which `opens`
+  # starts when one does.
+  start: int
+  end: int
+  kind: str
+  opens: str = ""
+
+
+def _pieces(text: str, opener: re.Pattern[str]) -> list[_Piece]:
+  # The parts of text, in order.
+  pieces: list[_Piece] = []
+  i = 0
+  while (tag := opener.search(text, i)) is not None:
+    pieces.append(_Piece(i, tag.end(), "other"))
+    i = tag.end()
+    while (m := _TOP.search(text, i)) is not None and m[0] != "?>":
+      end = _skip(text, m)
+      pieces.append(_Piece(i, m.start(), "code"))
+      pieces.append(_Piece(m.start(), end, "other", m[0]))
+      i = end
+    if m is None:
+      pieces.append(_Piece(i, len(text), "code"))
+      return pieces
+    pieces.append(_Piece(i, m.start(), "code"))
+    pieces.append(_Piece(m.start(), m.end(), "close"))
+    i = m.end()
+  pieces.append(_Piece(i, len(text), "other"))
+  return pieces
+
+
 def _code(text: str, opener: re.Pattern[str]) -> str:
   # The code of text, each other part a gap; the closing tag, which ends
   # a statement, reads as `;`.
   parts: list[str] = []
-  i = 0
-  while (tag := opener.search(text, i)) is not None:
-    parts.append(_gap(text[i : tag.end()]))
-    i = tag.end()
-    while (m := _TOP.search(text, i)) is not None and m[0] != "?>":
-      end = _skip(text, m)
-      parts += [text[i : m.start()], _gap(text[m.start() : end])]
-      i = end
-    if m is None:
-      parts.append(text[i:])
-      return "".join(parts)
-    parts += [text[i : m.start()], ";"]
-    i = m.end()
-  parts.append(_gap(text[i:]))
+  for p in _pieces(text, opener):
+    part = text[p.start : p.end]
+    parts.append(
+      part if p.kind == "code" else ";" if p.kind == "close" else _gap(part)
+    )
   return "".join(parts)
 
 
@@ -355,6 +380,93 @@ def functions(text: str) -> list[tuple[int, int, str, str]]:
   found: set[tuple[int, int, str, str]] = set()
   for opener in (_OPEN, _SHORT_OPEN):
     found.update(_scan(_code(text, opener))[0])
+  return sorted(found)
+
+
+_DEFINE = re.compile(
+  rf"(?<![{_CHAR}$\\])\\?define[ \t\r\n]*\([ \t\r\n]*\Z", _FLAGS
+)
+_NEXT_ARGUMENT = re.compile(r"[ \t\r\n]*,")
+_NAME = re.compile(rf"((?:{_LABEL}\\)*)({_LABEL})")
+_ESCAPES = {
+  "'": re.compile(r"\\([\\'])"),
+  '"': re.compile(
+    r"\\(?:([\\$\"nrtvef])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u\{([0-9A-Fa-f]+)\})"
+  ),
+}
+_CHARS = {"n": "\n", "r": "\r", "t": "\t", "v": "\v", "e": "\x1b", "f": "\f"}
+
+
+def _unescape(m: re.Match[str]) -> str:
+  # What an escape of a double-quoted string stands for.
+  if m[1] is not None:
+    return _CHARS.get(m[1], m[1])
+  if m[2] is not None:
+    return chr(int(m[2], 8) % 256)
+  if m[3] is not None:
+    return chr(int(m[3], 16))
+  return chr(int(m[4], 16)) if int(m[4], 16) <= 0x10FFFF else m[0]
+
+
+def _literal(text: str, piece: _Piece) -> str:
+  # What the quoted string piece holds, its escapes read as PHP reads them.
+  body = text[piece.start + 1 : piece.end - 1]
+  if piece.opens == "'":
+    return _ESCAPES["'"].sub(r"\1", body)
+  return _ESCAPES['"'].sub(_unescape, body)
+
+
+def _defines(text: str, opener: re.Pattern[str]) -> _Found:
+  # The constants the define calls of text name by a literal string.
+  found: _Found = []
+  pieces = _pieces(text, opener)
+  lines = _Lines(text)
+  for before, quoted, after in zip(
+    pieces, pieces[1:], pieces[2:], strict=False
+  ):
+    if (
+      quoted.opens not in ("'", '"')
+      or _NEXT_ARGUMENT.match(text, after.start, after.end) is None
+    ):
+      continue
+    call = _DEFINE.search(text[before.start : before.end])
+    if call is None or _after_member(text, before.start + call.start()):
+      continue
+    if (name := _NAME.fullmatch(_literal(text, quoted))) is None:
+      continue
+    start = before.start + call.start()
+    first = lines.of(start)
+    last = first + text.count("\n", start, quoted.end)
+    namespace = name[1].rstrip("\\").translate(_LOWER)
+    found.append((first, last, namespace, name[2]))
+  return found
+
+
+def defines(text: str) -> list[tuple[int, int, str, str]]:
+  r"""Return the constants a file's PHP code declares by calling define.
+
+  Each call of `define`, or `\define`, outside a string or a comment,
+  whose first argument is a single string with no variable in it, which
+  names the constant whole: `define('X', …)` declares `X` in the global
+  namespace wherever the call is, `define('Ns\X', …)` `X` in `Ns`, and a
+  leading `\` or a character no name has makes one no code can name. A
+  name code builds, as by `.`, a variable or a constant, only running the
+  code tells; nor is a method of that name a call of it.
+
+  Args:
+    text: The file's text.
+
+  Returns:
+    For each, the numbers of the first and last line, from 1, counted at
+    `\n` alone, of `define` to the end of the string, the namespace, as
+    declares writes it, empty for the global one, and the name as written;
+    each once, in order.
+  """
+  if re.search("define", text, _FLAGS) is None:
+    return []
+  found: set[tuple[int, int, str, str]] = set()
+  for opener in (_OPEN, _SHORT_OPEN):
+    found.update(_defines(text, opener))
   return sorted(found)
 
 

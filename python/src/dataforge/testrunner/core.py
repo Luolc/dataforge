@@ -1546,6 +1546,25 @@ def constants(text: str) -> list[tuple[int, int, str, str]]:
   return sorted(found)
 
 
+def defines(text: str) -> list[tuple[int, int, str, str]]:
+  """Return the constants a file declares by define, as guards read them.
+
+  Args:
+    text: The file's text.
+
+  Returns:
+    The numbers of the first and last line, from 1, the namespace and the
+    name of each constant that the defines of a module of guards finds,
+    each once, in order; none when no module reads them.
+  """
+  found: set[tuple[int, int, str, str]] = set()
+  for module in guards():
+    hook = getattr(module, "defines", None)
+    if hook is not None:
+      found.update(cast("list[tuple[int, int, str, str]]", hook(text)))
+  return sorted(found)
+
+
 def builtin_constants() -> frozenset[str]:
   """Return the names of the constants the guards' languages build in.
 
