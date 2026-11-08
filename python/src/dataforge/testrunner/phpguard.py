@@ -21,6 +21,7 @@ whole (defines), the way a project often declares its global constants.
 
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass, field
 import re
 import string
@@ -383,58 +384,89 @@ def functions(text: str) -> list[tuple[int, int, str, str]]:
   return sorted(found)
 
 
+# A call of define whose first argument is a quoted string alone, marked
+# `\0<index of its piece>\0` in the text `_calls` reads: after an optional
+# name of that argument, inside parentheses that close before the `,`.
 _DEFINE = re.compile(
-  rf"(?<![{_CHAR}$\\])\\?define[ \t\r\n]*\([ \t\r\n]*\Z", _FLAGS
+  rf"(?<![{_CHAR}$\\])\\?define[ \t\r\n]*\([ \t\r\n]*"
+  + r"(?:constant_name[ \t\r\n]*:(?!:)[ \t\r\n]*)?"
+  + r"((?:\([ \t\r\n]*)*)\x00([0-9]+)\x00((?:[ \t\r\n]*\))*)[ \t\r\n]*,",
+  _FLAGS,
 )
-_NEXT_ARGUMENT = re.compile(r"[ \t\r\n]*,")
 _NAME = re.compile(rf"((?:{_LABEL}\\)*)({_LABEL})")
-_ESCAPES = {
-  "'": re.compile(r"\\([\\'])"),
-  '"': re.compile(
-    r"\\(?:([\\$\"nrtvef])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u\{([0-9A-Fa-f]+)\})"
-  ),
-}
+_SINGLE = re.compile(r"\\([\\'])")
+_DOUBLE = re.compile(
+  r"\\(?:([\\$\"nrtvef])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u\{([0-9A-Fa-f]+)\})"
+)
 _CHARS = {"n": "\n", "r": "\r", "t": "\t", "v": "\v", "e": "\x1b", "f": "\f"}
 
 
-def _unescape(m: re.Match[str]) -> str:
-  # What an escape of a double-quoted string stands for.
+def _escaped(m: re.Match[str]) -> bytes:
+  # The bytes an escape of a double-quoted string stands for.
   if m[1] is not None:
-    return _CHARS.get(m[1], m[1])
+    return _CHARS.get(m[1], m[1]).encode()
   if m[2] is not None:
-    return chr(int(m[2], 8) % 256)
+    return bytes([int(m[2], 8) % 256])
   if m[3] is not None:
-    return chr(int(m[3], 16))
-  return chr(int(m[4], 16)) if int(m[4], 16) <= 0x10FFFF else m[0]
+    return bytes([int(m[3], 16)])
+  if int(m[4], 16) > 0x10FFFF:
+    return m[0].encode()
+  return chr(int(m[4], 16)).encode("utf-8", "surrogatepass")
 
 
 def _literal(text: str, piece: _Piece) -> str:
-  # What the quoted string piece holds, its escapes read as PHP reads them.
+  # What the quoted string piece holds, its escapes read as PHP reads them:
+  # a double-quoted one's into bytes, which a name holds as UTF-8.
   body = text[piece.start + 1 : piece.end - 1]
   if piece.opens == "'":
-    return _ESCAPES["'"].sub(r"\1", body)
-  return _ESCAPES['"'].sub(_unescape, body)
+    return _SINGLE.sub(r"\1", body)
+  held = bytearray()
+  i = 0
+  for m in _DOUBLE.finditer(body):
+    held += body[i : m.start()].encode("utf-8", "surrogatepass")
+    held += _escaped(m)
+    i = m.end()
+  held += body[i:].encode("utf-8", "surrogatepass")
+  return held.decode("utf-8", "replace")
+
+
+def _calls(text: str, pieces: list[_Piece]) -> tuple[str, list[int], list[int]]:
+  # The code of the pieces, each comment a space, each quoted string its
+  # mark and each other piece a `\1`, which no call reads past, a `\0` of
+  # the code a `\1` too, so that each mark is a string's; with where each
+  # piece starts in it and in text.
+  parts: list[str] = []
+  starts: list[int] = []
+  at = 0
+  for i, p in enumerate(pieces):
+    if p.kind == "code":
+      part = text[p.start : p.end].replace("\x00", "\x01")
+    elif p.opens in ("'", '"'):
+      part = f"\x00{i}\x00"
+    elif p.opens in ("#", "//", "/*"):
+      part = " "
+    else:
+      part = "\x01"
+    parts.append(part)
+    starts.append(at)
+    at += len(part)
+  return "".join(parts), starts, [p.start for p in pieces]
 
 
 def _defines(text: str, opener: re.Pattern[str]) -> _Found:
   # The constants the define calls of text name by a literal string.
   found: _Found = []
   pieces = _pieces(text, opener)
+  code, starts, origins = _calls(text, pieces)
   lines = _Lines(text)
-  for before, quoted, after in zip(
-    pieces, pieces[1:], pieces[2:], strict=False
-  ):
-    if (
-      quoted.opens not in ("'", '"')
-      or _NEXT_ARGUMENT.match(text, after.start, after.end) is None
-    ):
-      continue
-    call = _DEFINE.search(text[before.start : before.end])
-    if call is None or _after_member(text, before.start + call.start()):
+  for m in _DEFINE.finditer(code):
+    quoted = pieces[int(m[2])]
+    if m[1].count("(") != m[3].count(")") or _after_member(code, m.start()):
       continue
     if (name := _NAME.fullmatch(_literal(text, quoted))) is None:
       continue
-    start = before.start + call.start()
+    piece = bisect.bisect_right(starts, m.start()) - 1
+    start = origins[piece] + m.start() - starts[piece]
     first = lines.of(start)
     last = first + text.count("\n", start, quoted.end)
     namespace = name[1].rstrip("\\").translate(_LOWER)
@@ -446,12 +478,17 @@ def defines(text: str) -> list[tuple[int, int, str, str]]:
   r"""Return the constants a file's PHP code declares by calling define.
 
   Each call of `define`, or `\define`, outside a string or a comment,
-  whose first argument is a single string with no variable in it, which
-  names the constant whole: `define('X', …)` declares `X` in the global
-  namespace wherever the call is, `define('Ns\X', …)` `X` in `Ns`, and a
-  leading `\` or a character no name has makes one no code can name. A
-  name code builds, as by `.`, a variable or a constant, only running the
-  code tells; nor is a method of that name a call of it.
+  whose first argument, first in the call, is a single quoted string with
+  no variable in it, alone or in parentheses, named `constant_name:` or
+  not, with comments anywhere around it; the string names the constant
+  whole: `define('X', …)` declares `X` in the global namespace wherever
+  the call is, `define('Ns\X', …)` `X` in `Ns`, and a leading `\` or a
+  character no name has makes one no code can name. A double-quoted
+  string's escapes are read as bytes, and the name as UTF-8, as a file's
+  text is. A name code builds, as by `.`, a variable, a constant or a
+  heredoc, only running the code tells, and one given after the value by
+  its argument's name is not read; nor is a method of that name a call of
+  it.
 
   Args:
     text: The file's text.

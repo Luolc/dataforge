@@ -1117,6 +1117,31 @@ PHP_DEFINE_CASES = [
     [],
     id="other-functions",
   ),
+  pytest.param(
+    "<?php\n"
+    + "define( /* c */ 'X1', 1);\n"
+    + "define('X3' /* c */, 1);\n"
+    + "define(('X4'), 1);\n"
+    + "define(\n"
+    + "  // why\n"
+    + "  ( 'X5' ),\n"
+    + "  1\n"
+    + ");\n",
+    [(2, 2, "", "X1"), (3, 3, "", "X3"), (4, 4, "", "X4"), (5, 7, "", "X5")],
+    id="comments-and-parentheses",
+  ),
+  pytest.param(
+    "<?php\ndefine(constant_name: 'X2', value: 1);\n",
+    [(2, 2, "", "X2")],
+    id="the-argument-s-name",
+  ),
+  pytest.param(
+    "<?php\n"
+    + 'define("caf\\xc3\\xa9", 1);\n'
+    + 'define("na\\303\\257ve", 2);\n',
+    [(2, 2, "", "café"), (3, 3, "", "naïve")],
+    id="utf-8-escapes",
+  ),
 ]
 
 
@@ -1139,6 +1164,8 @@ def test_the_constants_php_code_defines_are_found(
     'define("A\\nB", 1);',
     'define("\\u{110000}X", 1);',
     "define(`hostname`, 1);",
+    "f(define('X9'), 1);",
+    "define(value: 1, constant_name: 'X10');",
   ],
   ids=[
     "a-concatenation",
@@ -1150,12 +1177,22 @@ def test_the_constants_php_code_defines_are_found(
     "a-newline",
     "a-code-point-past-unicode",
     "a-command",
+    "one-argument",
+    "the-name-after-the-value",
   ],
 )
 def test_a_name_define_is_not_given_whole_is_not_read(call: str):
-  # Only running the code tells a name it builds, and one no code can name
-  # shadows nothing.
+  # Only running the code tells a name it builds, one no code can name
+  # shadows nothing, and a call of one argument declares nothing; a name
+  # given after the value by its argument's name is left unread.
   assert phpguard.defines(f"<?php\n{call}\n") == []
+
+
+def test_a_nul_in_the_code_is_no_string_of_a_define():
+  # defines marks each string in the code it reads with NULs around its
+  # number; a NUL of the code itself marks none.
+  text = "<?php\ndefine(\x0099\x00, 1);\ndefine('OK', 1);\n"
+  assert phpguard.defines(text) == [(3, 3, "", "OK")]
 
 
 def test_core_gives_the_defines_of_the_guards():
