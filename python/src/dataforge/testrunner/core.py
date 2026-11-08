@@ -85,11 +85,13 @@ changing them. A language's module may add to them, and give checks of its
 own, by optional hooks of the same names: PLAIN_SOURCES, the suffixes of
 its source files, which a test's directory or name does not make a test's;
 kept_lines, the lines of the base's files that hold listed tests and that a
-fix must leave as they are; and rewires, what lines a fix adds that change
-what the tests check with no change to them. registry.GUARDS names these
-modules; a task's copy has those its runners use or whose language is in
-its project (bundle.guards_for), and its GUARDS names only those, so that
-each check gathers the hooks of the modules the copy has.
+fix must leave as they are; rewires, what lines a fix adds that change what
+the tests check with no change to them; and declares, the namespaces a file
+declares, which a dataset compares with those of the project and of its
+tests. registry.GUARDS names these modules; a task's copy has those its
+runners use or whose language is in its project (bundle.guards_for), and
+its GUARDS names only those, so that each check gathers the hooks of the
+modules the copy has.
 
 Checking a project's files back to its base, and clearing a run's reports.
 
@@ -1470,6 +1472,25 @@ def rewires(path: str, added: str) -> str | None:
     if found is not None:
       return found
   return None
+
+
+def declares(text: str) -> list[tuple[int, int, str]]:
+  """Return the namespaces a file declares, as the modules of guards read them.
+
+  Args:
+    text: The file's text.
+
+  Returns:
+    The numbers of the first and last line, from 1, and the name of each
+    declaration that the declares of a module of guards finds, each once,
+    in order; none when no module reads them.
+  """
+  found: set[tuple[int, int, str]] = set()
+  for module in guards():
+    hook = getattr(module, "declares", None)
+    if hook is not None:
+      found.update(cast("list[tuple[int, int, str]]", hook(text)))
+  return sorted(found)
 
 
 _GIT = (

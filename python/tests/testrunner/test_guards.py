@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from dataforge.testrunner import cargo, core, deps
+from dataforge.testrunner import cargo, core, deps, phpguard
 from dataforge.testrunner.bundle import (
   files,
   files_for,
@@ -31,7 +31,7 @@ from testrunner import core
 
 cases = json.loads(sys.argv[2])
 print(json.dumps([
-  [core.is_test_file(path), core.rewires(path, added)]
+  [core.is_test_file(path), core.rewires(path, added), core.declares(added)]
   for path, added in cases
 ]))
 """
@@ -400,21 +400,198 @@ def test_the_js_and_python_checks_read_their_own_files(
   assert core.rewires(path, "expect.extend(m)\nbuiltins.x = 1") == found
 
 
-# What tells each module of GUARDS from the others, and its check's
-# finding there.
+# Each PHP text, and what declares gives for it, as PHP 8.3's own tokens
+# have it, with the short open tag off or on, but for the line: a line
+# ends only at `\n` here, as git counts lines, and at `\r` too in PHP.
+PHP_CASES = [
+  pytest.param(
+    "<?php\nnamespace App\\Lib;\nfunction f() {}\nnamespace App\\Tests;\n",
+    [(2, 2, "app\\lib"), (4, 4, "app\\tests")],
+    id="two",
+  ),
+  pytest.param(
+    "<?php declare(strict_types=1); namespace App\\Tests; function g() {}",
+    [(1, 1, "app\\tests")],
+    id="after-declare",
+  ),
+  pytest.param(
+    "<?php\nnamespace App\\Lib;\n$a = '//'; namespace/**/App\\Tests;\n",
+    [(2, 2, "app\\lib"), (3, 3, "app\\tests")],
+    id="comment-in-a-string",
+  ),
+  pytest.param(
+    "<?php\nNAMESPACE App\\Tests { }\n",
+    [(2, 2, "app\\tests")],
+    id="upper-case-braced",
+  ),
+  pytest.param(
+    '<?php\n$s = "namespace App\\Tests;";\n# namespace App\\Tests;\n'
+    + "// namespace App\\Tests;\n/* namespace App\\Tests; */\n",
+    [],
+    id="in-strings-and-comments",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\nnamespace App\\Tests;\nEOT;\n"
+    + "namespace Ok;\n",
+    [(2, 2, "a"), (6, 6, "ok")],
+    id="in-a-heredoc",
+  ),
+  pytest.param(
+    "<?php namespace Real; ?>\nnamespace NotCode;\n<?php namespace Also;\n",
+    [(1, 1, "real"), (3, 3, "also")],
+    id="html",
+  ),
+  pytest.param(
+    "namespace NotCode;\n<?php function f() {}\n",
+    [],
+    id="html-before-the-tag",
+  ),
+  pytest.param(
+    "<?php\n$x->namespace = 1; namespace\\f(); $y = $namespace;\n",
+    [],
+    id="not-declarations",
+  ),
+  pytest.param(
+    '<?php\nnamespace App\\Lib;\n$s = "{$a[\'"\']}";\nnamespace App\\Tests;\n'
+    + "$t = '';\n",
+    [(2, 2, "app\\lib"), (4, 4, "app\\tests")],
+    id="quote-in-an-interpolation",
+  ),
+  pytest.param(
+    "<?php\nnamespace App\\Lib;\n$s = `${a['`']}`;\nnamespace App\\Tests;\n"
+    + "$t = '';\n",
+    [(2, 2, "app\\lib"), (4, 4, "app\\tests")],
+    id="quote-in-a-dollar-brace",
+  ),
+  pytest.param(
+    '<?php\nnamespace App\\Lib;\n$s = <<<EOT\n{$a["\nEOT"]}\nEOT;\n'
+    + "namespace App\\Tests;\n",
+    [(2, 2, "app\\lib"), (7, 7, "app\\tests")],
+    id="label-in-a-heredocs-code",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<'EOT'\n{$a['\nEOT;\nnamespace Ok;\n",
+    [(2, 2, "a"), (6, 6, "ok")],
+    id="nowdoc",
+  ),
+  pytest.param(
+    "<?php\n// a\rnamespace App\\Tests;\n",
+    [(2, 2, "app\\tests")],
+    id="carriage-return",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\r{$a['\r']}\rEOT;\r"
+    + "namespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (3, 3, "app\\tests")],
+    id="heredoc-over-carriage-returns",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n#[A('\n')] function f() {}\nnamespace App\\Tests;\n"
+    + "// '\n",
+    [(2, 2, "a"), (5, 5, "app\\tests")],
+    id="attribute",
+  ),
+  pytest.param(
+    "<? namespace App\\Tests;\n",
+    [(1, 1, "app\\tests")],
+    id="short-open-tag",
+  ),
+  pytest.param(
+    "<?php namespace A; ?>\n<?x 'a\n<?php namespace App\\Tests;\n// '\n",
+    [(1, 1, "a"), (3, 3, "app\\tests")],
+    id="short-open-tag-off",
+  ),
+  pytest.param(
+    "<?php\nnamespace App\\Lib;\nx: namespace App\\Tests;\n",
+    [(2, 2, "app\\lib"), (3, 3, "app\\tests")],
+    id="after-a-label",
+  ),
+  pytest.param(
+    "<?php namespace App\\Tests ?>\n",
+    [(1, 1, "app\\tests")],
+    id="ended-by-the-close-tag",
+  ),
+  pytest.param(
+    "<?php\nnamespace\nApp\\Tests\n;\n",
+    [(2, 4, "app\\tests")],
+    id="over-lines",
+  ),
+  pytest.param(
+    "<?php namespace ÄPP\\Tests;",
+    [(1, 1, "Äpp\\tests")],
+    id="non-ascii",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = \"{$a['}\"']}\";\nnamespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (4, 4, "app\\tests")],
+    id="brace-and-quote-in-a-string-in-code",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n"
+    + '$s = "{$a[(function () { return 1; })() . \'"\']}";\n'
+    + "namespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (4, 4, "app\\tests")],
+    id="braces-in-a-strings-code",
+  ),
+  pytest.param(
+    "<?php namespace A; // x ?> <?php namespace App\\Tests;\n",
+    [(1, 1, "a"), (1, 1, "app\\tests")],
+    id="close-tag-in-a-comment",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\r'\rEOT;\rnamespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (3, 3, "app\\tests")],
+    id="heredoc-opened-by-a-carriage-return",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = '\\'';\nnamespace App\\Tests;\n// '\n",
+    [(2, 2, "a"), (4, 4, "app\\tests")],
+    id="escaped-quote",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\n  x\n  EOT;\nnamespace App\\Tests;\n",
+    [(2, 2, "a"), (6, 6, "app\\tests")],
+    id="indented-closing-label",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\nEOT;\nnamespace App\\Tests;\n"
+    + "$t = <<<EOT\nx\nEOT;\n",
+    [(2, 2, "a"), (5, 5, "app\\tests")],
+    id="empty-heredoc",
+  ),
+  pytest.param(
+    "<?php\nnamespace A;\n$s = <<<EOT\nEOTX '\nEOT;\nnamespace App\\Tests;\n"
+    + "// '\n",
+    [(2, 2, "a"), (6, 6, "app\\tests")],
+    id="longer-label-in-a-heredoc",
+  ),
+]
+
+
+@pytest.mark.parametrize(("text", "found"), PHP_CASES)
+def test_the_namespaces_php_code_declares_are_found(
+  text: str, found: list[tuple[int, int, str]]
+):
+  assert phpguard.declares(text) == found
+
+
+# What tells each module of GUARDS from the others, and its checks'
+# findings there.
 GUARD_CASES = {
   "cargo": [("crates/spec/a.rs", "macro_rules! assert {")],
   "cpp": [("src/a.cc", "#define TEST 1")],
   "gotest": [("pkg/spec/a.go", "")],
   "jsguard": [("src/a.ts", "globalThis.expect = f")],
   "pyguard": [("src/a.py", "builtins.print = f")],
+  "phpguard": [("src/a.php", "<?php\nnamespace A\\Tests;")],
 }
-HOST_FOUND = {
-  "cargo": [[False, "macro_rules! assert"]],
-  "cpp": [[False, "#define TEST"]],
-  "gotest": [[False, None]],
-  "jsguard": [[False, "globalThis.expect ="]],
-  "pyguard": [[False, "builtins.print ="]],
+HOST_FOUND: dict[str, list[list[object]]] = {
+  "cargo": [[False, "macro_rules! assert", []]],
+  "cpp": [[False, "#define TEST", []]],
+  "gotest": [[False, None, []]],
+  "jsguard": [[False, "globalThis.expect =", []]],
+  "pyguard": [[False, "builtins.print =", []]],
+  "phpguard": [[False, None, [[2, 2, "a\\tests"]]]],
 }
 
 
@@ -428,11 +605,17 @@ def test_a_copy_has_a_languages_checks_only_with_its_module(
   cases = GUARD_CASES[guard]
   with_it = _checks(tmp_path / "with", files((), (), guards={guard}), cases)
   assert with_it == HOST_FOUND[guard]
-  assert [[core.is_test_file(p), core.rewires(p, a)] for p, a in cases] == (
-    HOST_FOUND[guard]
-  )
+  host = [
+    [
+      core.is_test_file(p),
+      core.rewires(p, a),
+      [list(d) for d in core.declares(a)],
+    ]
+    for p, a in cases
+  ]
+  assert host == HOST_FOUND[guard]
   without = _checks(tmp_path / "without", files((), ()), cases)
-  assert without == [[guard in ("gotest", "cargo"), None]]
+  assert without == [[guard in ("gotest", "cargo"), None, []]]
 
 
 @pytest.mark.parametrize(
@@ -453,7 +636,10 @@ def test_a_copy_has_a_languages_checks_only_with_its_module(
     ((), ["include/a.hpp"], ["cpp"]),
     ((), ["src/a.cxx"], ["cpp"]),
     ((), ["go.mod", "x/a.go"], ["gotest"]),
-    ((), ["a.rs", "b.c", "c.go", "d.js", "e.py"], list(GUARDS)),
+    ((), ["composer.json", "src/A.php"], ["phpguard"]),
+    (("phpunit",), ["src/A.php"], ["phpguard"]),
+    ((), ["a.phtml", "b.inc"], []),
+    ((), ["a.rs", "b.c", "c.go", "d.js", "e.py", "f.php"], list(GUARDS)),
     ((), ["go.mod", "Cargo.toml", "rs", "a.rsx"], []),
   ],
 )
