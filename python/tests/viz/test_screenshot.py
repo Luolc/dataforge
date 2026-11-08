@@ -233,3 +233,22 @@ def test_a_viewer_that_cannot_be_reached_fails(
 
 def test_a_width_that_is_not_positive_is_refused(tmp_path: Path) -> None:
   assert run("http://127.0.0.1:1", tmp_path / "x.png", "--width", "0") == 2
+
+
+def test_chrome_is_started_without_the_system_keyring(
+  monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+  seen: list[list[str]] = []
+
+  def spy(
+    _path: str, argv: list[str], _env: dict[str, str], **_kw: object
+  ) -> int:
+    seen.append(argv)
+    raise OSError("not started")
+
+  monkeypatch.setattr(os, "posix_spawn", spy)
+
+  assert run("http://127.0.0.1:1", tmp_path / "a.png") == 1
+
+  (argv,) = seen
+  assert "--password-store=basic" in argv

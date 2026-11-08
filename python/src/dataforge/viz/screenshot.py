@@ -298,6 +298,7 @@ def chrome(path: str, width: int, height: int) -> Generator[Browser]:
           "--no-first-run",
           "--no-default-browser-check",
           "--disable-extensions",
+          "--password-store=basic",
           "--hide-scrollbars",
           "about:blank",
         ]
