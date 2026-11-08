@@ -52,7 +52,7 @@ dataforge viz screenshot --url <viewer address> --project <id> --attempt <id> \
   --theme light|dark --out <file.png>
 ```
 
-1. Start the test server of section 1 on a free port and record its PID. The tool starts its own Chrome with a new empty profile.
+1. Start the test server of section 1 on a free port, bound to 127.0.0.1, and record its PID; give its address as `--url`. The live viz's address is for the check after the switch (section 6), not for the shots of the walk. The tool starts its own Chrome with a new empty profile and the basic password store, so Chrome does not wait on the system keyring.
 2. Take one shot per finding, and one per theme (`--theme light` and `--theme dark`) and per language when the finding differs between them (R244). Keep the window size the same (`--width`, `--height`) between a shot and the one that checks it (section 6).
 3. `--tab` is a tab's name (default `runs`). `--panel` is the `part` of the tab, a panel of the column beside the tab's content; a tab with a single part has no such column and refuses `--panel`.
 4. The tool waits until the page has loaded, shows no `Loading…` and marks the tab and panel as current, reads the theme back from the page, and exits non-zero without writing the file when the theme the page applied is not the one asked, when the tab or panel is not on the page, or when the page does not settle. A failure is a finding about the page, or a bug of the command: for a bug of the command, open a ticket for it, record the finding as not screenshotted with that ticket named, and do not take the shot by another route.
