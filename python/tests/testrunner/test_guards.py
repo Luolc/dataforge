@@ -38,6 +38,7 @@ print(json.dumps([
     core.declares(added),
     core.functions(added),
     core.constants(added),
+    core.defines(added),
   ]
   for path, added in cases
 ]))
@@ -1015,6 +1016,190 @@ def test_core_gives_the_constants_and_the_builtin_constants_of_the_guards():
   assert core.builtin_constants() == phpguard.BUILTIN_CONSTANTS
 
 
+# Each PHP text, and what defines gives for it: the constants PHP 8.3.6
+# declares when it includes the text, with the short open tag on, and runs
+# what it calls, as get_defined_constants(true)["user"] lists them, read
+# when the cases were written, at the lines of `define` to the name.
+PHP_DEFINE_CASES = [
+  pytest.param(
+    "<?php\n" + "define('APPPATH', '/app/');\n",
+    [(2, 2, "", "APPPATH")],
+    id="top",
+  ),
+  pytest.param(
+    "<?php\n" + "define(\"CACHE_DIR\", 'x');\n",
+    [(2, 2, "", "CACHE_DIR")],
+    id="double-quoted",
+  ),
+  pytest.param(
+    "<?php\n" + "namespace App;\n" + "define('ROOT', 1);\n",
+    [(3, 3, "", "ROOT")],
+    id="in-a-namespace",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "define('Acme\\Lib\\LIMIT', 1);\n"
+    + 'define("Acme\\\\Lib\\\\MAX", 2);\n'
+    + "define('Acme\\\\Lib\\\\SIZE', 3);\n",
+    [
+      (2, 2, "acme\\lib", "LIMIT"),
+      (3, 3, "acme\\lib", "MAX"),
+      (4, 4, "acme\\lib", "SIZE"),
+    ],
+    id="a-namespaced-name",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace App;\n"
+    + "\\define('X', 1);\n"
+    + "DEFINE('Y', 2);\n",
+    [(3, 3, "", "X"), (4, 4, "", "Y")],
+    id="qualified-and-letter-case",
+  ),
+  pytest.param(
+    "<?php\n" + "if (!defined('Z')) {\n" + "  define('Z', 1);\n" + "}\n",
+    [(3, 3, "", "Z")],
+    id="guarded",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "class K {\n"
+    + "  static function define($a, $b) {}\n"
+    + "  function call() { self::define('V', 1); $this->define('W', 2); }\n"
+    + "}\n"
+    + "(new K)->call();\n"
+    + "K::define('U', 3);\n",
+    [],
+    id="methods",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "// define('C1', 1);\n"
+    + "$s = \"define('C2', 1)\";\n"
+    + "/* define('C3', 1); */\n",
+    [],
+    id="in-strings-and-comments",
+  ),
+  pytest.param(
+    "<?php\n" + "define(\n" + "  'MULTI',\n" + "  1\n" + ");\n",
+    [(2, 3, "", "MULTI")],
+    id="split-over-lines",
+  ),
+  pytest.param(
+    "<?php define('A1', 1) ?>\n" + "text\n" + "<?php define('A2', 2);\n",
+    [(1, 1, "", "A1"), (3, 3, "", "A2")],
+    id="closing-tag",
+  ),
+  pytest.param(
+    "<? define('SHORT', 1);\n",
+    [(1, 1, "", "SHORT")],
+    id="short-open-tag",
+  ),
+  pytest.param(
+    "<?php\n"
+    + 'define("\\x41_HEX", 1);\n'
+    + 'define("\\101_OCT", 2);\n'
+    + 'define("\\u{42}_UNI", 3);\n',
+    [(2, 2, "", "A_HEX"), (3, 3, "", "A_OCT"), (4, 4, "", "B_UNI")],
+    id="escapes",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "namespace Lib {\n"
+    + "  function define($a, $b) {}\n"
+    + "  function my_define($a, $b) {}\n"
+    + "}\n"
+    + "namespace {\n"
+    + "  Lib\\define('N1', 1);\n"
+    + "  \\Lib\\define('N2', 2);\n"
+    + "  Lib\\my_define('N3', 3);\n"
+    + "}\n",
+    [],
+    id="other-functions",
+  ),
+  pytest.param(
+    "<?php\n"
+    + "define( /* c */ 'X1', 1);\n"
+    + "define('X3' /* c */, 1);\n"
+    + "define(('X4'), 1);\n"
+    + "define(\n"
+    + "  // why\n"
+    + "  ( 'X5' ),\n"
+    + "  1\n"
+    + ");\n",
+    [(2, 2, "", "X1"), (3, 3, "", "X3"), (4, 4, "", "X4"), (5, 7, "", "X5")],
+    id="comments-and-parentheses",
+  ),
+  pytest.param(
+    "<?php\ndefine(constant_name: 'X2', value: 1);\n",
+    [(2, 2, "", "X2")],
+    id="the-argument-s-name",
+  ),
+  pytest.param(
+    "<?php\n"
+    + 'define("caf\\xc3\\xa9", 1);\n'
+    + 'define("na\\303\\257ve", 2);\n',
+    [(2, 2, "", "café"), (3, 3, "", "naïve")],
+    id="utf-8-escapes",
+  ),
+]
+
+
+@pytest.mark.parametrize(("text", "found"), PHP_DEFINE_CASES)
+def test_the_constants_php_code_defines_are_found(
+  text: str, found: list[tuple[int, int, str, str]]
+):
+  assert phpguard.defines(text) == found
+
+
+@pytest.mark.parametrize(
+  "call",
+  [
+    "define('A' . 'B', 1);",
+    "define($name, 1);",
+    'define("P_$x", 1);',
+    "define(PREFIX . 'X', 1);",
+    "define('IT\\'S', 1);",
+    "define('\\Lead\\X', 1);",
+    'define("A\\nB", 1);',
+    'define("\\u{110000}X", 1);',
+    "define(`hostname`, 1);",
+    "f(define('X9'), 1);",
+    "define(value: 1, constant_name: 'X10');",
+  ],
+  ids=[
+    "a-concatenation",
+    "a-variable",
+    "an-interpolation",
+    "a-constant",
+    "no-name",
+    "a-leading-backslash",
+    "a-newline",
+    "a-code-point-past-unicode",
+    "a-command",
+    "one-argument",
+    "the-name-after-the-value",
+  ],
+)
+def test_a_name_define_is_not_given_whole_is_not_read(call: str):
+  # Only running the code tells a name it builds, one no code can name
+  # shadows nothing, and a call of one argument declares nothing; a name
+  # given after the value by its argument's name is left unread.
+  assert phpguard.defines(f"<?php\n{call}\n") == []
+
+
+def test_a_nul_in_the_code_is_no_string_of_a_define():
+  # defines marks each string in the code it reads with NULs around its
+  # number; a NUL of the code itself marks none.
+  text = "<?php\ndefine(\x0099\x00, 1);\ndefine('OK', 1);\n"
+  assert phpguard.defines(text) == [(3, 3, "", "OK")]
+
+
+def test_core_gives_the_defines_of_the_guards():
+  text = "<?php\ndefine('APPPATH', '/app/');\n"
+  assert core.defines(text) == [(2, 2, "", "APPPATH")]
+
+
 # What tells each module of GUARDS from the others, and its checks'
 # findings there.
 GUARD_CASES = {
@@ -1026,16 +1211,17 @@ GUARD_CASES = {
   "phpguard": [
     (
       "src/a.php",
-      "<?php\nnamespace A\\Tests; function strlen() {} const PHP_EOL = '';",
+      "<?php\nnamespace A\\Tests; function strlen() {} const PHP_EOL = '';"
+      + " define('APPPATH', '');",
     )
   ],
 }
 HOST_FOUND: dict[str, list[list[object]]] = {
-  "cargo": [[False, "macro_rules! assert", [], [], []]],
-  "cpp": [[False, "#define TEST", [], [], []]],
-  "gotest": [[False, None, [], [], []]],
-  "jsguard": [[False, "globalThis.expect =", [], [], []]],
-  "pyguard": [[False, "builtins.print =", [], [], []]],
+  "cargo": [[False, "macro_rules! assert", [], [], [], []]],
+  "cpp": [[False, "#define TEST", [], [], [], []]],
+  "gotest": [[False, None, [], [], [], []]],
+  "jsguard": [[False, "globalThis.expect =", [], [], [], []]],
+  "pyguard": [[False, "builtins.print =", [], [], [], []]],
   "phpguard": [
     [
       False,
@@ -1043,6 +1229,7 @@ HOST_FOUND: dict[str, list[list[object]]] = {
       [[2, 2, "a\\tests"]],
       [[2, 2, "a\\tests", "strlen"]],
       [[2, 2, "a\\tests", "PHP_EOL"]],
+      [[2, 2, "", "APPPATH"]],
     ]
   ],
 }
@@ -1065,12 +1252,13 @@ def test_a_copy_has_a_languages_checks_only_with_its_module(
       [list(d) for d in core.declares(a)],
       [list(d) for d in core.functions(a)],
       [list(d) for d in core.constants(a)],
+      [list(d) for d in core.defines(a)],
     ]
     for p, a in cases
   ]
   assert host == HOST_FOUND[guard]
   without = _checks(tmp_path / "without", files((), ()), cases)
-  assert without == [[guard in ("gotest", "cargo"), None, [], [], []]]
+  assert without == [[guard in ("gotest", "cargo"), None, [], [], [], []]]
 
 
 @pytest.mark.parametrize(
