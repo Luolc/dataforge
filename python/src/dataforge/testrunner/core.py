@@ -86,9 +86,12 @@ own, by optional hooks of the same names: PLAIN_SOURCES, the suffixes of
 its source files, which a test's directory or name does not make a test's;
 kept_lines, the lines of the base's files that hold listed tests and that a
 fix must leave as they are; rewires, what lines a fix adds that change what
-the tests check with no change to them; and declares, the namespaces a file
+the tests check with no change to them; declares, the namespaces a file
 declares, which a dataset compares with those of the project and of its
-tests. registry.GUARDS names these modules; a task's copy has those its
+tests; functions, the functions a file declares with their namespaces; and
+BUILTINS, the names of those its language builds in, which builtins
+gathers, for a dataset to find a function that stands in for one the tests
+call. registry.GUARDS names these modules; a task's copy has those its
 runners use or whose language is in its project (bundle.guards_for), and
 its GUARDS names only those, so that each check gathers the hooks of the
 modules the copy has.
@@ -1491,6 +1494,37 @@ def declares(text: str) -> list[tuple[int, int, str]]:
     if hook is not None:
       found.update(cast("list[tuple[int, int, str]]", hook(text)))
   return sorted(found)
+
+
+def functions(text: str) -> list[tuple[int, int, str, str]]:
+  """Return the functions a file declares, as the modules of guards read them.
+
+  Args:
+    text: The file's text.
+
+  Returns:
+    The numbers of the first and last line, from 1, the namespace and the
+    name of each function that the functions of a module of guards finds,
+    each once, in order; none when no module reads them.
+  """
+  found: set[tuple[int, int, str, str]] = set()
+  for module in guards():
+    hook = getattr(module, "functions", None)
+    if hook is not None:
+      found.update(cast("list[tuple[int, int, str, str]]", hook(text)))
+  return sorted(found)
+
+
+def builtins() -> frozenset[str]:
+  """Return the names of the functions the guards' languages build in.
+
+  Returns:
+    The BUILTINS of each module of guards that has them.
+  """
+  names: set[str] = set()
+  for module in guards():
+    names.update(cast("Collection[str]", getattr(module, "BUILTINS", ())))
+  return frozenset(names)
 
 
 _GIT = (
