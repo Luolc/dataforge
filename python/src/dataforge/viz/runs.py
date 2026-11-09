@@ -12,6 +12,7 @@ interrupted and it may go on.
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 import sqlite3
+from typing import cast
 
 from dataforge.queue.proc import alive
 from dataforge.runs.store import ListingRow, SCHEMA_MAJOR, Store
@@ -219,12 +220,28 @@ def mark(project: Project, rows: list[dict[str, object]]) -> None:
       note=note(row, gone),
       progress_at=row.progress_at,
     )
+    _row_values(project, listed)
     if row.state == "interrupted" and has_ended(row):
       listed["ended_at"] = found.stopped_at.get(row.id, listed["ended_at"])
       # Stopped before its record had a visit, it starts when its row was
       # made, so that the page does not take it as its item's oldest.
       if listed["started_at"] is None:
         listed["started_at"] = row.created_at
+
+
+def _row_values(project: Project, listed: dict[str, object]) -> None:
+  # The values of the columns that ask for the row's own status or reason,
+  # which the listing row has just taken from the store.
+  if not any(c.row for c in project.columns):
+    return
+  found = cast(list[object] | None, listed["values"])
+  values: list[object] = (
+    [None] * len(project.columns) if found is None else found
+  )
+  for i, column in enumerate(project.columns):
+    if column.row:
+      values[i] = listed[column.field[0]]
+  listed["values"] = values
 
 
 def unavailable(

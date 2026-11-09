@@ -78,6 +78,7 @@ _PAGES = ("monitor", "queue")
 _PROJECT_PATHS = ("attempt", "definition")
 # The attempt page's own tab, which no tab of a project may take.
 _RUNS = "runs"
+_ROW_FIELDS = (("status",), ("reason",))
 _COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 
 
@@ -155,6 +156,9 @@ class Column:
     filter: Whether the page filters the items by the column's value.
     tag: Whether the attempt's page shows the column's value as a tag in its
       header.
+    row: Whether the value is the listing row's own status or reason, the
+      one the store gives, which field names, in place of the record's;
+      only with runs.
   """
 
   title: str
@@ -169,6 +173,7 @@ class Column:
   cases: tuple[Case, ...] = ()
   filter: bool = False
   tag: bool = False
+  row: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -883,7 +888,7 @@ def load_project(path: Path) -> Project:
     states=_entries(path, "states", data.get("states"), {"title"}),
     statuses=statuses,
     item=item,
-    columns=_columns(path, data.get("columns"), tabs),
+    columns=_columns(path, data.get("columns"), tabs, runs is not None),
     thinking=_thinking(path, data.get("session")),
     not_ended=not_ended,
     lock=lock,
@@ -1116,7 +1121,7 @@ def _same(a: object, b: object) -> bool:
 
 
 def _columns(
-  path: Path, value: object, tabs: tuple[Tab, ...]
+  path: Path, value: object, tabs: tuple[Tab, ...], has_runs: bool
 ) -> tuple[Column, ...]:
   if value is None:
     return ()
@@ -1143,6 +1148,7 @@ def _columns(
         "none",
         "filter",
         "tag",
+        "row",
       },
     )
     if ("field" in entry) == ("cases" in entry):
@@ -1159,6 +1165,7 @@ def _columns(
     filter_ = _flag(path, where, entry, "filter")
     if filter_ and format_ != "text":
       raise ConfigError(f"{path}: {where}.filter: only with format text")
+    row = _row_column(path, where, entry, file, has_runs)
     columns.append(
       Column(
         _str(path, f"{where}.title", entry["title"]),
@@ -1175,9 +1182,29 @@ def _columns(
         cases,
         filter_,
         _flag(path, where, entry, "tag"),
+        row,
       )
     )
   return tuple(columns)
+
+
+def _row_column(
+  path: Path,
+  where: str,
+  entry: Mapping[str, object],
+  file: tuple[str, ...] | None,
+  has_runs: bool,
+) -> bool:
+  # Whether the column asks for the row's own status or reason.
+  if not _flag(path, where, entry, "row"):
+    return False
+  if not has_runs:
+    raise ConfigError(f"{path}: {where}.row: only with runs")
+  if file is not None or "field" not in entry:
+    raise ConfigError(f"{path}: {where}.row: not with file or cases")
+  if _field_keys(path, where, entry["field"]) not in _ROW_FIELDS:
+    raise ConfigError(f"{path}: {where}.row: field is not status or reason")
+  return True
 
 
 def _flag(
