@@ -17,7 +17,7 @@ from dataforge.runs import AttemptRow, SCHEMA_MAJOR, Store
 from dataforge.runs.store import ListingRow
 from dataforge.viz import app as app_module
 from dataforge.viz.app import create_app
-from dataforge.viz.config import load_site, Project
+from dataforge.viz.config import ConfigError, load_site, Project
 from dataforge.viz.runs import HOLDER_GONE, NO_ROW
 from tests.processes import WAIT
 from tests.viz.sites import FIXTURES, make_queue_tree, QueueTree
@@ -188,6 +188,72 @@ def test_an_attempt_s_status_reason_cost_and_live_come_from_its_row(
   assert rows[ended]["progress_at"] == "2026-01-02T03:00:00+00:00"
   assert all(r["error"] is None and r["note"] is None for r in rows.values())
   assert all(r["held"] is None for r in rows.values())
+
+
+def test_a_column_of_the_row_shows_its_status_and_reason_not_the_record_s(
+  made: QueueTree, static: Path, store: Store
+) -> None:
+  project = made.tree.project
+  _ = project.write_text(
+    with_columns(
+      project.read_text(),
+      "{title: Why, field: [reason], row: true}",
+      "{title: Now, field: [status], row: true}",
+    )
+  )
+  ended = attempt(made, "task-1", {"status": "running", "reason": "long " * 50})
+  bare = attempt(made, "task-2", {"status": "running"})
+  add(
+    store,
+    kept(
+      ended,
+      "ended",
+      outcome="failed",
+      reason="too slow",
+      ended_at=ENDED_AT,
+    ),
+  )
+  add(store, kept(bare, "interrupted", stopped_by="person"))
+  (made.tree.root / bare / "record.json").unlink()
+
+  rows = listing(client(made, static))
+
+  assert [cast(list[object], rows[ended]["values"])[i] for i in (3, 4)] == [
+    "too slow",
+    "failed",
+  ]
+  assert rows[ended]["reason"] == "too slow"
+  assert rows[bare]["values"] == [None, None, None, None, "canceled"]
+
+
+def with_columns(text: str, *columns: str) -> str:
+  # The project file with these columns after the fixture's.
+  end = "field: [absent, key]}\n"
+  assert end in text
+  return text.replace(end, end + "".join(f"  - {c}\n" for c in columns), 1)
+
+
+@pytest.mark.parametrize(
+  ("column", "match", "runs"),
+  [
+    ("{title: A, field: [budget, cost_usd], row: true}", "not status", True),
+    ("{title: A, file: x.json, field: [reason], row: true}", "not with", True),
+    ("{title: A, field: [reason], row: true}", "only with runs", False),
+  ],
+)
+def test_a_column_of_the_row_needs_runs_and_the_status_or_reason(
+  made: QueueTree, column: str, match: str, runs: bool
+) -> None:
+  project = made.tree.project
+  text = (
+    project.read_text()
+    if runs
+    else project.read_text().replace(RUNS, "lock: .lock\n")
+  )
+  _ = project.write_text(with_columns(text, column))
+
+  with pytest.raises(ConfigError, match=match):
+    _ = load_site(made.tree.site)
 
 
 def test_a_row_a_person_stopped_has_ended_at_its_newest_stop(
