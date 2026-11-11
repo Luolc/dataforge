@@ -179,6 +179,12 @@ WHERE state = 'ended' AND settled_at IS NOT NULL
 ORDER BY created_at, id
 """
 
+_UNSETTLED = """
+SELECT * FROM attempt
+WHERE state = 'ended' AND settled_at IS NULL
+ORDER BY created_at, id
+"""
+
 _BUSY_MS = 30_000
 
 
@@ -497,6 +503,22 @@ class Store:
       return []
     with self._read() as conn:
       found = cast(list[sqlite3.Row], conn.execute(_UNCLEANED).fetchall())
+    return [_row(one) for one in found]
+
+  def unsettled(self) -> list[AttemptRow]:
+    """List the ended rows that are not settled.
+
+    It opens the store read-only and writes nothing, and reads no other
+    row, so that its cost does not grow with the rows settled before.
+
+    Returns:
+      The rows, by created_at, then ID; none when the store does not exist
+      yet.
+    """
+    if not self.path.exists():
+      return []
+    with self._read() as conn:
+      found = cast(list[sqlite3.Row], conn.execute(_UNSETTLED).fetchall())
     return [_row(one) for one in found]
 
   def get(self, attempt_id: str) -> AttemptRow | None:

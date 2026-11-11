@@ -1,6 +1,8 @@
 from collections.abc import Callable
+from contextlib import closing
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 from typing import cast
 
@@ -253,3 +255,24 @@ def test_only_the_items_in_recheck_are_checked_again(
   rows = {row.item: row for row in store.rows()}
   assert (rows["a"].resumable, rows["a"].cost_usd) == (False, 1.5)
   assert (rows["b"].resumable, rows["b"].cost_usd) == (None, None)
+
+
+def test_reconcile_with_hooks_parses_no_record_of_a_row_settled_and_cleaned_up(
+  store: Store, hooks: FakeHooks, gone: Leader
+) -> None:
+  _settled(store, gone, "a/1")
+  assert reconcile(store, hooks) == ["a/1: cleaned up"]
+  # A record that does not parse: reading it would raise.
+  with closing(sqlite3.connect(store.path, autocommit=True)) as conn:
+    _ = conn.execute("UPDATE attempt SET record = '{' WHERE id = 'a/1'")
+  assert store.insert("b/1", "b", Path("/r"), gone, None)
+  assert store.end(
+    "b/1",
+    gone,
+    by="runner",
+    outcome="passed",
+    reason=None,
+    record={"status": "passed", "visits": []},
+    cost_usd=1.0,
+  )
+  assert reconcile(store, hooks) == ["b/1: settled", "b/1: cleaned up"]
