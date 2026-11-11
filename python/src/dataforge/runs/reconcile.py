@@ -102,8 +102,8 @@ def _with_hooks(
       done.extend(_end_claimed(store, hooks, row, me))
     elif recheck is None or row.item in recheck:
       done.extend(_check(store, hooks, row))
-  for row in store.rows(states=("ended",)):
-    if row.settled_at is None and _settled(hooks, store, row):
+  for row in store.unsettled():
+    if _settled(hooks, store, row):
       done.append(f"{row.id}: settled")
   for row in store.uncleaned():
     holder = row.holder
