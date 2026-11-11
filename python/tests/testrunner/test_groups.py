@@ -279,3 +279,101 @@ def test_a_group_keeps_at_most_the_limit_of_unlisted_names(
   app, tests = project(tmp_path)
   found = run(load(MANIFEST), tests=tests, app=app)
   assert found.unlisted == [{"run": "rspec", "total": 2, "names": ["bare"]}]
+
+
+EXIT_MANIFEST = """
+[[run]]
+name = "rspec"
+dir = "sub"
+run = ["sh", "run.sh"]
+parse = "junit"
+exit = "tests"
+
+[[test]]
+suite = "p2p"
+run = "rspec"
+id = "spec/a_spec.rb::adds"
+
+[[test]]
+suite = "f2p"
+run = "rspec"
+id = "spec/a_spec.rb::fixed"
+"""
+EXIT_PASSED = """<testsuite>
+<testcase classname="spec/a_spec.rb" name="adds"/>
+<testcase classname="spec/a_spec.rb" name="fixed"/>
+</testsuite>
+"""
+EXIT_FAILED = EXIT_PASSED.replace(
+  'name="fixed"/>', 'name="fixed"><failure/></testcase>'
+)
+# Writes the report, then exits as the command after it says.
+EXIT_RUN = 'cp "$(dirname "$0")/report.xml" "$TESTRUNNER_OUT/r.xml"\n{}\n'
+
+
+def exit_outcomes(
+  tmp_path: Path, then: str, manifest: str = EXIT_MANIFEST, xml: str = ""
+) -> list[tuple[object, ...]]:
+  files = {"run.sh": EXIT_RUN.format(then), "report.xml": xml or EXIT_PASSED}
+  app, tests = project(tmp_path, manifest, files)
+  found = run(load(manifest), tests=tests, app=app)
+  return [(t["name"], t["status"], t.get("message")) for t in found.tests]
+
+
+@pytest.mark.parametrize(
+  ("then", "ended"),
+  [("exit 1", "the run exited 1"), ("kill -TERM $$", "the run exited -15")],
+)
+def test_a_run_that_gives_exit_and_does_not_exit_0_fails_its_passed_tests(
+  tmp_path: Path, then: str, ended: str
+):
+  said = f"{core.DISOWNED} ({ended})"
+  assert exit_outcomes(tmp_path, then) == [
+    ("spec/a_spec.rb::adds", "failed", said),
+    ("spec/a_spec.rb::fixed", "failed", said),
+  ]
+
+
+def test_a_run_that_gives_exit_and_exits_0_passes_its_passed_tests(
+  tmp_path: Path,
+):
+  assert exit_outcomes(tmp_path, "exit 0") == [
+    ("spec/a_spec.rb::adds", "passed", None),
+    ("spec/a_spec.rb::fixed", "passed", None),
+  ]
+
+
+def test_a_run_with_a_listed_test_failed_keeps_its_report_whatever_it_exits(
+  tmp_path: Path,
+):
+  assert exit_outcomes(tmp_path, "exit 1", xml=EXIT_FAILED) == [
+    ("spec/a_spec.rb::adds", "passed", None),
+    ("spec/a_spec.rb::fixed", "failed", None),
+  ]
+
+
+@pytest.mark.parametrize("exit_", ["", 'exit = "none"\n'])
+def test_a_run_that_gives_no_exit_or_none_passes_whatever_it_exits(
+  tmp_path: Path, exit_: str
+):
+  manifest = EXIT_MANIFEST.replace('exit = "tests"\n', exit_)
+  assert exit_outcomes(tmp_path, "exit 1", manifest) == [
+    ("spec/a_spec.rb::adds", "passed", None),
+    ("spec/a_spec.rb::fixed", "passed", None),
+  ]
+
+
+def test_how_the_parse_of_a_group_that_gives_exit_ends_counts_for_nothing(
+  tmp_path: Path,
+):
+  manifest = PARSE_MANIFEST.replace(
+    'outputs = ["build/results/**"]',
+    'outputs = ["build/results/**"]\nexit = "tests"',
+  )
+  app, tests = project(
+    tmp_path,
+    manifest,
+    {"run.sh": OWN_RUN, "parse.sh": OWN_PARSE + "exit 1\n"},
+  )
+  found = run(load(manifest), tests=tests, app=app)
+  assert outcomes(found) == [(["p2p"], "t1", "passed", None)]
