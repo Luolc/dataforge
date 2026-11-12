@@ -695,6 +695,36 @@ def test_harbors_own_environment_gets_no_tmpfs(
   assert "--ek" not in seen_argv(out)
 
 
+@pytest.mark.parametrize(
+  ("override", "expected"), [(None, None), (8192, "8192")]
+)
+def test_harbor_gets_the_memory_override_only_when_one_is_set(
+  tmp_path: Path,
+  fakes: tuple[Path, Path],
+  override: int | None,
+  expected: str | None,
+) -> None:
+  # Harbor gives a separate verifier's container this memory, which the
+  # overlay does not reach; unset, the command line has no such option.
+  out = outdir(tmp_path)
+  runs = replace(runner(fakes), override_memory_mb=override)
+  _ = runs.run(task(tmp_path), "nop", Limits(2), out)
+  argv = seen_argv(out)
+  if expected is None:
+    assert "--override-memory-mb" not in argv
+  else:
+    assert argv[argv.index("--override-memory-mb") + 1] == expected
+    assert argv.index("--override-memory-mb") < argv.index("--yes")
+
+
+@pytest.mark.parametrize("override", [0, -1])
+def test_a_memory_override_below_1_mib_is_refused(
+  fakes: tuple[Path, Path], override: int
+) -> None:
+  with pytest.raises(ValueError, match="override_memory_mb"):
+    _ = replace(runner(fakes), override_memory_mb=override)
+
+
 def not_started(
   fakes: tuple[Path, Path], mode: str = "exit", **env: str
 ) -> HarborRunner:
