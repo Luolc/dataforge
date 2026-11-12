@@ -67,6 +67,13 @@ processes' memory past the limit get the container's processes killed for
 memory, which the trial's `trial.log` then says (`harbor_env.OOM_KILLED`).
 None or 0, or an environment of Harbor's own, gives no tmpfs.
 
+The overlay caps only the trial's environment: Harbor starts a separate
+verifier's container with no compose file of the runner's, and its memory is
+the `memory_mb` that `task.toml` gives that environment. `override_memory_mb`
+gives both containers that memory instead, as Harbor's `--override-memory-mb`;
+in the trial's environment the overlay's `mem_limit`, from the limits, still
+comes after it. None passes no such option.
+
 DOCKER_ENVIRONMENT's also has Harbor's process write into the trial's
 directory how often a process in the trial's `main` could not start because
 the container was at its process limit (PIDS_FILE, `harbor_env`). When it was
@@ -422,6 +429,9 @@ class HarborRunner:
       passed to the environment as its `tmpfs_mb` keyword argument when
       environment is set, which DOCKER_ENVIRONMENT's takes; None or 0 for
       none.
+    override_memory_mb: The memory of the trial's environment and of a
+      separate verifier's, in MiB, passed as `--override-memory-mb`, in place
+      of what `task.toml` gives them; None passes nothing.
   """
 
   harbor: Path
@@ -443,6 +453,16 @@ class HarborRunner:
   verifier: str | None = None
   environment: str | None = None
   tmpfs_mb: int | None = TMPFS_MB
+  override_memory_mb: int | None = None
+
+  def __post_init__(self) -> None:
+    """Refuse an override that is no memory at all.
+
+    Raises:
+      ValueError: `override_memory_mb` is set and less than 1.
+    """
+    if self.override_memory_mb is not None and self.override_memory_mb < 1:
+      raise ValueError(f"override_memory_mb {self.override_memory_mb} < 1")
 
   def memory_gb(self, limits: Limits) -> float:
     """Return the memory a trial reserves: the task's and the sidecar's.
@@ -548,6 +568,11 @@ class HarborRunner:
       *(
         ("--ek", f"tmpfs_mb={self.tmpfs_mb}")
         if self.environment is not None and self.tmpfs_mb
+        else ()
+      ),
+      *(
+        ("--override-memory-mb", str(self.override_memory_mb))
+        if self.override_memory_mb is not None
         else ()
       ),
       "--jobs-dir", str(outdir.resolve()),
