@@ -1337,6 +1337,15 @@ NESTED_TEST_DIRS = frozenset({"spec", "__tests__"})
 SRC_TESTS = ("src", "test")
 """A directory of sources and the one of tests in it, at any depth."""
 
+NESTED_TESTS = "tests"
+"""A directory at any depth that holds tests, as each package of a monorepo
+has one (packages/<package>/tests/), unless it is below SRC_MAIN."""
+
+SRC_MAIN = ("src", "main")
+"""A directory of sources and the one of a build's main code in it, at any
+depth, below which a directory is a package of that code by any name, as
+in src/main/<language>/<package>/tests/."""
+
 TEST_INFIXES = frozenset({"test", "spec"})
 """What between a file name's first and last dots makes it a test's, as
 in x.test.<ext>."""
@@ -1345,9 +1354,9 @@ TEST_NAMES = frozenset({"conftest.py"})
 """The names of files of tests wherever they are."""
 
 PLAIN_SOURCES = (".py", ".pyi")
-"""The source files that NESTED_TEST_DIRS, SRC_TESTS, a name ending in
-`_spec` or TEST_INFIXES do not make a test's, beyond the guards' own
-(plain_sources)."""
+"""The source files that NESTED_TEST_DIRS, NESTED_TESTS, SRC_TESTS, a name
+ending in `_spec` or TEST_INFIXES do not make a test's, beyond the guards'
+own (plain_sources)."""
 
 
 def guards() -> list[ModuleType]:
@@ -1382,9 +1391,10 @@ def is_test_file(path: str) -> bool:
     Whether its top directory is one of TEST_DIRS, its name starts with
     `test_`, its stem ends with `_test` or it is one of TEST_NAMES; or,
     for a name that ends with none of plain_sources, whether a directory
-    of it is one of NESTED_TEST_DIRS or the second of SRC_TESTS after the
-    first, its stem ends with `_spec`, or one of TEST_INFIXES is between
-    its first and last dots. Directories are compared lowercased.
+    of it is one of NESTED_TEST_DIRS, NESTED_TESTS with no SRC_MAIN above
+    it, or the second of SRC_TESTS after the first, its stem ends with
+    `_spec`, or one of TEST_INFIXES is between its first and last dots.
+    Directories are compared lowercased.
   """
   p = PurePosixPath(path)
   dirs = [d.lower() for d in p.parts[:-1]]
@@ -1398,6 +1408,7 @@ def is_test_file(path: str) -> bool:
     return True
   return not p.name.endswith(plain_sources()) and (
     any(d in NESTED_TEST_DIRS for d in dirs)
+    or _nested_tests(dirs)
     or SRC_TESTS in itertools.pairwise(dirs)
     or p.stem.endswith("_spec")
     or bool(TEST_INFIXES & set(p.name.split(".")[1:-1]))
@@ -1412,7 +1423,8 @@ def is_test_dir(path: str) -> bool:
 
   Returns:
     Whether it is one of TEST_DIRS at the top, or ends with one of
-    NESTED_TEST_DIRS or with SRC_TESTS, compared lowercased.
+    NESTED_TEST_DIRS, with NESTED_TESTS with no SRC_MAIN above it, or with
+    SRC_TESTS, compared lowercased.
   """
   parts = PurePosixPath(path.lower()).parts
   if not parts:
@@ -1420,8 +1432,16 @@ def is_test_dir(path: str) -> bool:
   return (
     (len(parts) == 1 and parts[0] in TEST_DIRS)
     or parts[-1] in NESTED_TEST_DIRS
+    or (parts[-1] == NESTED_TESTS and _nested_tests(list(parts)))
     or parts[-2:] == SRC_TESTS
   )
+
+
+def _nested_tests(dirs: list[str]) -> bool:
+  # Whether one of dirs is NESTED_TESTS with no SRC_MAIN above it.
+  if NESTED_TESTS not in dirs:
+    return False
+  return SRC_MAIN not in itertools.pairwise(dirs[: dirs.index(NESTED_TESTS)])
 
 
 Spans = list[tuple[int, int]]
