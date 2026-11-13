@@ -88,6 +88,13 @@ def _checks(
     ("vendor/github.com/onsi/ginkgo/internal/spec/spec.go", False),
     ("crates/x/src/spec/mod.rs", False),
     ("spec/assets/sample.xml", True),
+    ("packages/editor/tests/view/styles.js", True),
+    ("src/Component/Yaml/Tests/Fixtures/sample.yml", True),
+    ("packages/editor/tests/helpers.py", False),
+    ("crates/x/tests/it.rs", False),
+    ("pkg/tests/helpers.go", False),
+    ("sdk/src/main/java/org/x/tests/CaseService.java", False),
+    ("packages/editor/latests/styles.js", False),
   ],
 )
 def test_a_test_file_is_told_by_its_path(path: str, test: bool):
@@ -99,7 +106,10 @@ def test_a_test_file_is_told_by_its_path(path: str, test: bool):
   [
     ("tests", True),
     ("Test", True),
-    ("lib/tests", False),
+    ("lib/tests", True),
+    ("packages/core/Tests", True),
+    ("tests/x", False),
+    ("sdk/src/main/java/org/x/tests", False),
     ("packages/core/spec", True),
     ("src/__tests__", True),
     ("module/src/test", True),
