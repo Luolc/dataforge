@@ -25,7 +25,7 @@ Run as `python -I -m dataforge.gateway.proxy --channel <channel> --socket
 """
 
 import argparse
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 import contextlib
 from email.message import Message
 import http.client
@@ -44,13 +44,16 @@ import urllib.parse
 
 from dataforge.gateway import channels, screen
 from dataforge.gateway.channels import BILLED, Channel, DRAINED, ROUTES
-from dataforge.gateway.pause import Pause
+from dataforge.gateway.pause import Pause, QUOTA_REFUSAL
 from dataforge.gateway.spend import Meter, NO_USAGE, now, price, record, Spend
 
 # How long the proxy waits for the gateway's answer to one request.
 UPSTREAM_TIMEOUT = 600
 # The largest request body whose model the proxy reads for the ledger.
 REQUEST_READ = 16 * 2**20
+# The most of a 429's body the proxy reads to tell whose 429 it is; the rest
+# is passed on unread when the 429 is.
+LIMIT_READ = 64 * 2**10
 # Request headers the proxy sets itself, that carry a credential, or that
 # belong to one hop only.
 _REQUEST_DROP = frozenset(
@@ -198,12 +201,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
           self.command, up.path.rstrip("/") + self.path, body, headers
         )
         response = connection.getresponse()
+        read = b""
         if server.pause is not None and response.status == 429:
-          if server.pause.limited(_retry_after(response)):
+          read = response.read(LIMIT_READ)
+          if server.pause.limited(
+            _retry_after(response), upstream=not _gateways(read)
+          ):
             continue
         elif server.pause is not None:
           server.pause.answered()
-        self._reply(response, body)
+        self._reply(response, body, read)
         return
       finally:
         connection.close()
@@ -218,7 +225,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     except OSError:
       return True
 
-  def _reply(self, response: http.client.HTTPResponse, body: bytes):
+  def _reply(
+    self, response: http.client.HTTPResponse, body: bytes, read: bytes = b""
+  ):
+    # Passes the response on; `read` is the start of its body, read already.
     server = self.server
     meter = server.meter(self.path, response)
     if meter is not None:
@@ -229,7 +239,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if k.lower() not in _RESPONSE_DROP:
           self.send_header(k, v)
       self.end_headers()
-      while chunk := response.read1(65536):
+      for chunk in _chunks(read, response):
         if meter is not None:
           meter.feed(chunk)
         _ = self.wfile.write(chunk)
@@ -272,6 +282,37 @@ def _requested(body: bytes, headers: Message) -> str | None:
     else None
   )
   return model if isinstance(model, str) else None
+
+
+def _chunks(read: bytes, response: http.client.HTTPResponse) -> Iterator[bytes]:
+  # A body, its first bytes read already, as it comes.
+  if read:
+    yield read
+  while chunk := response.read1(65536):
+    yield chunk
+
+
+def _gateways(body: bytes) -> bool:
+  # Whether a 429's body is the one the gateway sends itself when no account
+  # can serve the call: the API's error shape, with a message that starts with
+  # `QUOTA_REFUSAL` (redcoast v0.1.27, `localRateLimit` of `claude/route.go`,
+  # read on 2026-11-16). Any other 429, a body cut at `LIMIT_READ` too, is one
+  # the gateway passed on from an account's upstream.
+  try:
+    found = cast(object, json.loads(body))
+  except ValueError, RecursionError:
+    return False
+  error = (
+    cast(dict[str, object], found).get("error")
+    if isinstance(found, dict)
+    else None
+  )
+  message = (
+    cast(dict[str, object], error).get("message")
+    if isinstance(error, dict)
+    else None
+  )
+  return isinstance(message, str) and message.startswith(QUOTA_REFUSAL)
 
 
 def _retry_after(response: http.client.HTTPResponse) -> float | None:
