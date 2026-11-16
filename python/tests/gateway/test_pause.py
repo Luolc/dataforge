@@ -187,8 +187,13 @@ def answers_429(body: bytes, retry_after: str | None = None):
 
 @pytest.mark.parametrize(
   ("body", "pause_s"),
-  [(UPSTREAM_429, 60.0), (GATEWAYS_429, 7200.0)],
-  ids=["upstream", "gateway"],
+  [
+    (UPSTREAM_429, 60.0),
+    (GATEWAYS_429, 7200.0),
+    # The proxy reads only `LIMIT_READ` of the body, all of it spaces here.
+    (b" " * 2**16 + GATEWAYS_429, 60.0),
+  ],
+  ids=["upstream", "gateway", "gateway-past-the-read"],
 )
 def test_only_the_gateways_own_429_pauses_as_long_as_its_retry_after(
   socket_dir: Path, body: bytes, pause_s: float

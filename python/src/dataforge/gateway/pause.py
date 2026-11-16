@@ -48,10 +48,12 @@ _RECOVERY = re.compile(r", earliest recovery (\S+)$")
 # recovery a few seconds late, which the next pause covers.
 REFUSALS = 3
 # The upstream 429s of a run of pauses, each come once the backoff could make
-# the pause no longer, from which on an upstream 429 pauses as long as its
-# `Retry-After` asks too: the gateway rests an account its upstream refused and
-# binds the session's next call to another, so upstream 429s that keep coming
-# for that long are not one account's (an hour with the default `Backoff`).
+# the pause no longer, whatever made it stop growing (`max_s`, a `factor` of 1,
+# or a longer pause the gateway's own 429 or a quota refusal began), from which
+# on an upstream 429 pauses as long as its `Retry-After` asks too: the gateway
+# rests an account its upstream refused and binds the session's next call to
+# another, so upstream 429s that keep coming for that long are not one
+# account's (an hour of pauses with the default `Backoff`).
 UPSTREAM_429S = 3
 # How long a block's calls may be paused, the pause still under way when it
 # ends, before what it served counts as cut (`QuotaError`): Claude Code gives
@@ -147,9 +149,8 @@ class Pause:
   upstream 429s of the run that count towards `UPSTREAM_429S`
   (`upstream_429s`) and, once the pause stopped for good, why (`stopped`). A
   stopped pause holds no call: a 429 goes on to the client and no proxy
-  starts. A file that is gone
-  holds no pause. The pause `lift` ended early also holds who lifted it and
-  when (`lifted`).
+  starts. A file that is gone holds no pause. The pause `lift` ended early
+  also holds who lifted it and when (`lifted`).
   """
 
   def __init__(self, path: Path):
@@ -295,7 +296,7 @@ class Pause:
       if state["until"] > now:
         return True
       delay = _next(state)
-      if not upstream or _upstream_429s(state, delay) >= UPSTREAM_429S:
+      if not upstream or _count_upstream_429(state, delay) >= UPSTREAM_429S:
         delay = max(delay, retry_after_s or 0)
       if not _begin(state, now, delay, "429"):
         return False
@@ -472,7 +473,7 @@ def _next(state: _State) -> float:
   return min(state["delay"] * backoff.factor, backoff.max_s)
 
 
-def _upstream_429s(state: _State, delay: float) -> int:
+def _count_upstream_429(state: _State, delay: float) -> int:
   # Counts an upstream 429 that comes once a pause is over when the backoff's
   # next pause, `delay`, is no longer than the last one; returns the run's
   # count. A run begins with none, whatever an earlier run left.
