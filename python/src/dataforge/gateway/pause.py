@@ -5,10 +5,14 @@ kept in a file of the state directory (`dataforge.statedir`) under a lock, so
 that the proxies of every process of the machine share it: a 429 from the
 gateway holds every call of that channel, and the proxy that got it waits and
 sends it again, so that the client gets the answer late instead of the 429. A
-session the gateway refuses for its quota pauses the channel too. The other
-channel's calls go on. Inside `sessions`, at most a given number of proxies of
-each channel run at once on the machine, counted in leases
-(`dataforge.leases`) of the state directory.
+429 the gateway sent itself, as no account can serve the call, holds the calls
+at least as long as its `Retry-After` asks; one it passed on from an account's
+upstream holds them as the backoff says, its `Retry-After` set aside until
+such 429s keep coming (`Backoff`), since the gateway rests that account and the
+call, sent again, goes through another. A session the gateway refuses
+for its quota pauses the channel too. The other channel's calls go on. Inside
+`sessions`, at most a given number of proxies of each channel run at once on
+the machine, counted in leases (`dataforge.leases`) of the state directory.
 """
 
 from collections.abc import Callable, Generator, Mapping
@@ -43,6 +47,14 @@ _RECOVERY = re.compile(r", earliest recovery (\S+)$")
 # backoff found spent three times, is for a person to look at; three spans a
 # recovery a few seconds late, which the next pause covers.
 REFUSALS = 3
+# The upstream 429s of a run of pauses, each come once the backoff could make
+# the pause no longer, whatever made it stop growing (`max_s`, a `factor` of 1,
+# or a longer pause the gateway's own 429 or a quota refusal began), from which
+# on an upstream 429 pauses as long as its `Retry-After` asks too: the gateway
+# rests an account its upstream refused and binds the session's next call to
+# another, so upstream 429s that keep coming for that long are not one
+# account's (an hour of pauses with the default `Backoff`).
+UPSTREAM_429S = 3
 # How long a block's calls may be paused, the pause still under way when it
 # ends, before what it served counts as cut (`QuotaError`): Claude Code gives
 # up on a request with no answer after about 6 minutes.
@@ -63,10 +75,13 @@ class Backoff:
 
   The first 429 pauses them for `start_s`; each 429 that comes once a pause is
   over, before any other answer, pauses them `factor` times as long as the
-  pause before, up to `max_s`, and at least as long as the 429's `Retry-After`
-  asks. Any other answer once a pause is over ends the run of pauses. A session
-  the gateway refuses for its quota pauses them until the recovery the refusal
-  names, or as a 429 without `Retry-After` does when it names none.
+  pause before, up to `max_s`. A 429 the gateway sent itself pauses them at
+  least as long as its `Retry-After` asks; an upstream 429 the gateway passed
+  on does so only from the `UPSTREAM_429S`th that came once the backoff could
+  make the pause no longer. Any other answer once a pause is over ends the run
+  of pauses. A session the gateway refuses for its quota pauses them until the
+  recovery the refusal names, or as a 429 without `Retry-After` does when it
+  names none.
 
   Attributes:
     start_s: The first pause, in seconds.
@@ -114,6 +129,9 @@ class _State(typing.TypedDict):
   stopped: str | None
   # Absent from files written before `Pause.lift` existed.
   lifted: typing.NotRequired[Lifted | None]
+  # Absent from files written before upstream 429s were told apart; counts
+  # only while `delay` is set.
+  upstream_429s: typing.NotRequired[int]
 
 
 class QuotaError(RuntimeError):
@@ -127,11 +145,12 @@ class Pause:
   pause's length (`delay`), when the run of pauses began (`since`), how long
   all pauses together last (`paused_s`), the quota refusals in a row that came
   once a pause was over (`refusals`), the gateway's last quota refusal
-  (`refusal`), what began or last made longer the latest pause (`cause`) and,
-  once the pause stopped for good, why (`stopped`). A stopped pause holds no
-  call: a 429 goes on to the client and no proxy starts. A file that is gone
-  holds no pause. The pause `lift` ended early also holds who lifted it and
-  when (`lifted`).
+  (`refusal`), what began or last made longer the latest pause (`cause`), the
+  upstream 429s of the run that count towards `UPSTREAM_429S`
+  (`upstream_429s`) and, once the pause stopped for good, why (`stopped`). A
+  stopped pause holds no call: a 429 goes on to the client and no proxy
+  starts. A file that is gone holds no pause. The pause `lift` ended early
+  also holds who lifted it and when (`lifted`).
   """
 
   def __init__(self, path: Path):
@@ -255,11 +274,16 @@ class Pause:
       time.sleep(min(left, POLL_S))
     return not gone()
 
-  def limited(self, retry_after_s: float | None = None) -> bool:
+  def limited(
+    self, retry_after_s: float | None = None, *, upstream: bool = False
+  ) -> bool:
     """Pause after a 429, unless another call already did.
 
     Args:
       retry_after_s: What the 429's `Retry-After` asked, in seconds.
+      upstream: Whether the gateway passed the 429 on from an account's
+        upstream, rather than sending it itself; it pauses by the backoff
+        alone until `UPSTREAM_429S` such 429s came (`Backoff`).
 
     Returns:
       Whether the call waits and goes again; False once the pause stopped,
@@ -271,10 +295,13 @@ class Pause:
         return False
       if state["until"] > now:
         return True
-      delay = max(_next(state), retry_after_s or 0)
+      delay = _next(state)
+      if not upstream or _count_upstream_429(state, delay) >= UPSTREAM_429S:
+        delay = max(delay, retry_after_s or 0)
       if not _begin(state, now, delay, "429"):
         return False
-    _ = sys.stderr.write(f"gateway: 429, pausing {delay:.0f}s\n")
+    which = "upstream 429" if upstream else "429"
+    _ = sys.stderr.write(f"gateway: {which}, pausing {delay:.0f}s\n")
     return True
 
   def refused(self, refusal: str) -> bool:
@@ -444,6 +471,18 @@ def _next(state: _State) -> float:
   if state["delay"] is None:
     return backoff.start_s
   return min(state["delay"] * backoff.factor, backoff.max_s)
+
+
+def _count_upstream_429(state: _State, delay: float) -> int:
+  # Counts an upstream 429 that comes once a pause is over when the backoff's
+  # next pause, `delay`, is no longer than the last one; returns the run's
+  # count. A run begins with none, whatever an earlier run left.
+  last = state["delay"]
+  count = 0
+  if last is not None:
+    count = state.get("upstream_429s", 0) + (1 if delay <= last else 0)
+  state["upstream_429s"] = count
+  return count
 
 
 def _begin(state: _State, now: float, delay: float, cause: PauseCause) -> bool:

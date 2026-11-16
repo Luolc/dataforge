@@ -257,7 +257,7 @@ FORMATS: tuple[Format, ...] = (
   ),
   Format(
     "dataforge.gateway.pause",
-    2,
+    3,
     _pause,
     "a channel's pause file, pause/<channel>.json (dataforge.gateway.pause)",
   ),

@@ -1,9 +1,11 @@
 """Pauses and session slots, against a fake gateway and a fake launcher.
 
 Invariant 27: a 429 or a quota refusal of a channel holds that channel's calls
-only, the pause stops for good as `Backoff` and `REFUSALS` say, and `sessions`
-caps each channel's proxies; the pause, its stop and the slots are those of
-every process of the machine, and a killed process's slot is given back.
+only, an upstream 429 the gateway passed on as long as the backoff alone says
+until `UPSTREAM_429S` came, the pause stops for good as `Backoff` and
+`REFUSALS` say, and `sessions` caps each channel's proxies; the pause, its stop
+and the slots are those of every process of the machine, and a killed
+process's slot is given back.
 """
 
 import contextlib
@@ -42,6 +44,7 @@ from tests.gateway.fakes import (
   QUOTA,
   serving,
   upstream,
+  wait_for,
 )
 from tests.processes import holding, kill
 
@@ -142,6 +145,124 @@ def test_a_429_past_the_limit_reaches_the_caller_and_stops_the_pause(
   # Pauses of 0.1 s fit at most three 429s into 0.25 s, the fourth is passed
   # on; a slow runner fits fewer.
   assert 2 <= len(seen.requests) <= 4
+
+
+# The 429 the gateway sends itself when no account can serve the call, as
+# redcoast's `localRateLimit` writes it, and an account's 429 in the same shape
+# that the gateway passed on from the upstream.
+GATEWAYS_429 = json.dumps(
+  {
+    "error": {
+      "message": (
+        "redcoast: local gateway quota exhausted, every account is over its"
+        " hard threshold, earliest reset 2030-01-01T00:00:00Z"
+      ),
+      "type": "rate_limit_error",
+    },
+    "type": "error",
+  }
+).encode()
+UPSTREAM_429 = json.dumps(
+  {
+    "type": "error",
+    "error": {"type": "rate_limit_error", "message": "Rate limited."},
+  }
+).encode()
+
+
+def answers_429(body: bytes, retry_after: str | None = None):
+  # Answers the first request with a 429 of `body` and the rest with a reply.
+  def respond(handler: BaseHTTPRequestHandler, n: int) -> None:
+    status, data = (429, body) if n == 1 else (200, b"one")
+    handler.send_response(status)
+    if n == 1 and retry_after is not None:
+      handler.send_header("Retry-After", retry_after)
+    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    _ = handler.wfile.write(data)
+
+  return respond
+
+
+@pytest.mark.parametrize(
+  ("body", "pause_s"),
+  [
+    (UPSTREAM_429, 60.0),
+    (GATEWAYS_429, 7200.0),
+    # The proxy reads only `LIMIT_READ` of the body, all of it spaces here.
+    (b" " * 2**16 + GATEWAYS_429, 60.0),
+  ],
+  ids=["upstream", "gateway", "gateway-past-the-read"],
+)
+def test_only_the_gateways_own_429_pauses_as_long_as_its_retry_after(
+  socket_dir: Path, body: bytes, pause_s: float
+):
+  path = socket_dir / "model.sock"
+  got: list[tuple[int, bytes]] = []
+  with (
+    upstream(answers_429(body, "7200")) as (base, seen),
+    pausing(Backoff()) as pauses,
+    proxy.make_server(
+      Channel.CLAUDE, path, base, "t", pause=pauses[Channel.CLAUDE]
+    ) as server,
+  ):
+    _ = serving(server)
+    caller = threading.Thread(
+      target=lambda: got.append(call(path, ROUTE[Channel.CLAUDE]))
+    )
+    caller.start()
+    found = pauses[Channel.CLAUDE]
+    assert wait_for(lambda: found.remaining() > 0)
+    assert pause_s - 5 < found.remaining() <= pause_s
+    # Lifted, the pause lets the call go again, and it gets the reply.
+    assert found.lift("test")
+    caller.join(timeout=10)
+    server.shutdown()
+  assert got == [(200, b"one")]
+  assert len(seen.requests) == 2
+
+
+# The long body goes past the part of it the proxy reads to tell whose it is.
+@pytest.mark.parametrize(
+  "body", [GATEWAYS_429, b"x" * 2**17], ids=["json", "long"]
+)
+def test_a_429_passed_on_reaches_the_caller_whole(
+  socket_dir: Path, body: bytes
+):
+  path = socket_dir / "model.sock"
+  backoff = Backoff(start_s=0.1, max_s=0.1, limit_s=0.05)
+  with (
+    upstream(answers_429(body, "7200")) as (base, _),
+    pausing(backoff) as pauses,
+    proxy.make_server(
+      Channel.CLAUDE, path, base, "t", pause=pauses[Channel.CLAUDE]
+    ) as server,
+  ):
+    _ = serving(server)
+    assert call(path, ROUTE[Channel.CLAUDE]) == (429, body)
+    server.shutdown()
+    assert pauses[Channel.CLAUDE].stopped() is not None
+
+
+def test_upstream_429s_that_keep_coming_pause_as_long_as_retry_after_asks(
+  tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+  # With the default backoff, the fifth pause is as long as it gets; from the
+  # third upstream 429 after a pause that long, the pause is as long as the
+  # 429's `Retry-After` asks. An answer ends the run, and the count with it.
+  clock = [5.0e9]
+  monkeypatch.setattr(time, "time", lambda: clock[0])
+  found = Pause.create(tmp_path / "pause.json", Backoff())
+  pauses: list[float] = []
+  for _ in range(9):
+    assert found.limited(7200, upstream=True)
+    pauses.append(found.remaining())
+    clock[0] += pauses[-1]
+  assert pauses == [60, 120, 240, 480, 900, 900, 900, 7200, 7200]
+  found.answered()
+  assert found.limited(7200, upstream=True)
+  assert found.remaining() == 60
 
 
 def test_a_quota_refusal_pauses_and_the_proxy_starts_once_it_is_over(
